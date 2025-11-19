@@ -1,1 +1,11 @@
-# repo-template
+
+  # Trike Backoffice Dashboard Application SCHEMA SANDBOX
+
+  This is a code bundle for Trike Backoffice Dashboard Application SCHEMA SANDBOX. The original project is available at https://www.figma.com/design/aQqsGmiRMNMDNmDl6lfSlA/Trike-Backoffice-Dashboard-Application-SCHEMA-SANDBOX.
+
+  ## Running the code
+
+  Run `npm i` to install the dependencies.
+
+  Run `npm run dev` to start the development server.
+  
