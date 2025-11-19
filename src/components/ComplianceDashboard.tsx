@@ -253,11 +253,13 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                 <XAxis 
                   dataKey="month" 
                   stroke="hsl(var(--muted-foreground))"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
                   fontSize={12}
                   tickLine={false}
                 />
                 <YAxis 
                   stroke="hsl(var(--muted-foreground))"
+                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
                   fontSize={12}
                   tickLine={false}
                   domain={[70, 100]}

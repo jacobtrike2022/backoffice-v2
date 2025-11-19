@@ -265,7 +265,7 @@ INSERT INTO albums (id, organization_id, title, description, status, created_by)
      'published', 
      '55555555-1111-1111-1111-111111111111'),
     
-    ('77777777-1114-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
+    ('77777777-1114-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
      'Restricted Sales', 
      'Age-restricted product sales and compliance', 
      'published', 
