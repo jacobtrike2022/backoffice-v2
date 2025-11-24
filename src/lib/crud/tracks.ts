@@ -3,6 +3,9 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId, uploadFile, deleteFile } from '../supabase';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+
+const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 export interface CreateTrackInput {
   title: string;
@@ -16,6 +19,7 @@ export interface CreateTrackInput {
   status?: 'draft' | 'published' | 'archived';
   learning_objectives?: string[];
   tags?: string[];
+  is_system_content?: boolean; // System tracks from Trike Library (non-editable)
 }
 
 export interface UpdateTrackInput extends Partial<CreateTrackInput> {
@@ -29,8 +33,6 @@ export async function createTrack(input: CreateTrackInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  const { data: user } = await supabase.auth.getUser();
-  
   const { data: track, error } = await supabase
     .from('tracks')
     .insert({
@@ -44,22 +46,14 @@ export async function createTrack(input: CreateTrackInput) {
       transcript: input.transcript,
       summary: input.summary,
       status: input.status || 'draft',
-      author_id: user.data.user?.id
+      learning_objectives: input.learning_objectives || [],
+      tags: input.tags || [],
+      is_system_content: input.is_system_content || false
     })
     .select()
     .single();
 
   if (error) throw error;
-
-  // Add learning objectives if provided
-  if (input.learning_objectives && input.learning_objectives.length > 0) {
-    await addLearningObjectives(track.id, input.learning_objectives);
-  }
-
-  // Add tags if provided
-  if (input.tags && input.tags.length > 0) {
-    await addTrackTags(track.id, input.tags);
-  }
 
   return track;
 }
@@ -68,7 +62,7 @@ export async function createTrack(input: CreateTrackInput) {
  * Update track (autosave)
  */
 export async function updateTrack(input: UpdateTrackInput) {
-  const { id, learning_objectives, tags, ...updateData } = input;
+  const { id, ...updateData } = input;
 
   const { data: track, error } = await supabase
     .from('tracks')
@@ -78,25 +72,6 @@ export async function updateTrack(input: UpdateTrackInput) {
     .single();
 
   if (error) throw error;
-
-  // Update learning objectives if provided
-  if (learning_objectives !== undefined) {
-    // Remove existing
-    await supabase.from('learning_objectives').delete().eq('track_id', id);
-    // Add new
-    if (learning_objectives.length > 0) {
-      await addLearningObjectives(id, learning_objectives);
-    }
-  }
-
-  // Update tags if provided
-  if (tags !== undefined) {
-    await supabase.from('track_tags').delete().eq('track_id', id);
-    if (tags.length > 0) {
-      await addTrackTags(id, tags);
-    }
-  }
-
   return track;
 }
 
@@ -132,12 +107,7 @@ export async function deleteTrack(trackId: string) {
 export async function getTrackById(trackId: string) {
   const { data, error } = await supabase
     .from('tracks')
-    .select(`
-      *,
-      author:users(id, name, email),
-      learning_objectives(*),
-      track_tags(tags(*))
-    `)
+    .select('*')
     .eq('id', trackId)
     .single();
 
@@ -159,12 +129,7 @@ export async function getTracks(filters: {
 
   let query = supabase
     .from('tracks')
-    .select(`
-      *,
-      author:users(id, name),
-      learning_objectives(*),
-      track_tags(tags(name))
-    `)
+    .select('*')
     .eq('organization_id', orgId);
 
   if (filters.type) {
@@ -218,6 +183,33 @@ export async function uploadTrackMedia(
   await updateTrack({ id: trackId, ...updateData });
 
   return url;
+}
+
+/**
+ * Upload track file using server endpoint (for articles, PDFs, etc.)
+ */
+export async function uploadTrackFile(trackId: string, file: File): Promise<{ url: string; fileName: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${SERVER_URL}/upload-media`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${publicAnonKey}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to upload file');
+  }
+
+  const data = await response.json();
+  return {
+    url: data.url,
+    fileName: data.fileName
+  };
 }
 
 /**
@@ -301,4 +293,59 @@ async function addTrackTags(trackId: string, tagNames: string[]) {
   }));
 
   await supabase.from('track_tags').insert(trackTagsToInsert);
+}
+
+// ============================================================================
+// ALBUMS CRUD OPERATIONS
+// ============================================================================
+
+/**
+ * Get all albums for organization with filters
+ */
+export async function getAlbums(filters: {
+  status?: string;
+  search?: string;
+  tags?: string[];
+} = {}) {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  let query = supabase
+    .from('albums')
+    .select(`
+      *,
+      album_tracks (
+        id,
+        track:tracks (
+          id,
+          title,
+          type,
+          duration_minutes
+        )
+      )
+    `)
+    .eq('organization_id', orgId);
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  if (filters.search) {
+    query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  // Enrich with track counts and duration
+  const enrichedAlbums = (data || []).map(album => ({
+    ...album,
+    trackCount: album.album_tracks?.length || 0,
+    duration_minutes: album.album_tracks?.reduce((sum: number, at: any) => 
+      sum + (at.track?.duration_minutes || 0), 0
+    ) || 0,
+  }));
+
+  return enrichedAlbums;
 }

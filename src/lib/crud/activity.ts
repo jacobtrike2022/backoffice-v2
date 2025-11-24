@@ -2,12 +2,12 @@
 // ACTIVITY LOGS CRUD OPERATIONS
 // ============================================================================
 
-import { supabase } from '../supabase';
+import { supabase, getCurrentUserOrgId } from '../supabase';
 
 export interface CreateActivityLogInput {
   user_id?: string;
-  activity_type: 'completion' | 'assignment' | 'update' | 'audit' | 'training' | 
-                 'review' | 'form-submission' | 'certification' | 'login' | 'content-created';
+  action: 'completion' | 'assignment' | 'update' | 'audit' | 'training' | 
+                 'review' | 'form-submission' | 'certification' | 'login' | 'content-created' | 'create';
   entity_type?: string;
   entity_id?: string;
   description: string;
@@ -18,15 +18,17 @@ export interface CreateActivityLogInput {
  * Log an activity
  */
 export async function logActivity(input: CreateActivityLogInput) {
+  const orgId = await getCurrentUserOrgId();
+  
   const { data, error } = await supabase
     .from('activity_logs')
     .insert({
+      organization_id: orgId,
       user_id: input.user_id,
-      activity_type: input.activity_type,
+      action: input.action,
       entity_type: input.entity_type,
       entity_id: input.entity_id,
-      description: input.description,
-      metadata: input.metadata
+      details: input.metadata
     })
     .select()
     .single();
@@ -46,7 +48,7 @@ export async function getRecentActivity(
   organizationId: string,
   limit: number = 50,
   filters?: {
-    activity_type?: string;
+    action?: string;
     user_id?: string;
     entity_type?: string;
   }
@@ -55,12 +57,19 @@ export async function getRecentActivity(
     .from('activity_logs')
     .select(`
       *,
-      user:users(name, email, organization_id)
+      user:users(
+        first_name,
+        last_name,
+        email,
+        organization_id,
+        store:stores!users_store_id_fkey(name),
+        role:roles(name)
+      )
     `)
     .eq('user.organization_id', organizationId);
 
-  if (filters?.activity_type) {
-    query = query.eq('activity_type', filters.activity_type);
+  if (filters?.action) {
+    query = query.eq('action', filters.action);
   }
 
   if (filters?.user_id) {
@@ -106,7 +115,7 @@ export async function getEntityActivity(
     .from('activity_logs')
     .select(`
       *,
-      user:users(name, email)
+      user:users(first_name, last_name, email)
     `)
     .eq('entity_type', entityType)
     .eq('entity_id', entityId)
@@ -130,7 +139,7 @@ export async function getActivityAnalytics(
   const { data, error } = await supabase
     .from('activity_logs')
     .select(`
-      activity_type,
+      action,
       created_at,
       user:users!inner(organization_id)
     `)
@@ -146,7 +155,7 @@ export async function getActivityAnalytics(
 
   data?.forEach(log => {
     // Count by type
-    activityCounts[log.activity_type] = (activityCounts[log.activity_type] || 0) + 1;
+    activityCounts[log.action] = (activityCounts[log.action] || 0) + 1;
 
     // Count by day
     const day = log.created_at.split('T')[0];

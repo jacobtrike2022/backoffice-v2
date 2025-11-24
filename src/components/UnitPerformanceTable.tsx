@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -12,27 +12,25 @@ import {
   TableRow 
 } from './ui/table';
 import { 
-  LineChart, 
-  Line, 
-  ResponsiveContainer
-} from 'recharts';
-import { 
   TrendingUp, 
   TrendingDown, 
-  Users, 
-  Building,
+  ArrowUpDown, 
+  List, 
+  Grid, 
   Eye,
-  ArrowUpDown,
-  Grid,
-  List
+  Users
 } from 'lucide-react';
+import { ResponsiveContainer, LineChart, Line } from 'recharts';
+import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { getStorePerformanceData } from '../lib/crud/stores';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 type ViewMode = 'table' | 'cards';
 
 interface UnitPerformanceTableProps {
   currentRole: UserRole;
   onNavigateToUnits?: () => void;
+  onNavigateToStore?: (storeId: string) => void;
 }
 
 interface UnitData {
@@ -48,129 +46,6 @@ interface UnitData {
   manager: string;
   trendData: { week: number; value: number }[];
 }
-
-const unitData: UnitData[] = [
-  { 
-    id: '1',
-    unit: 'Store A', 
-    completion: 85, 
-    employees: 24, 
-    assignments: 12, 
-    avgScore: 87,
-    trend: 'up',
-    status: 'good',
-    district: 'North',
-    manager: 'Sarah Johnson',
-    trendData: [
-      { week: 1, value: 78 },
-      { week: 2, value: 82 },
-      { week: 3, value: 85 },
-      { week: 4, value: 87 },
-      { week: 5, value: 85 },
-      { week: 6, value: 85 }
-    ]
-  },
-  { 
-    id: '2',
-    unit: 'Store B', 
-    completion: 92, 
-    employees: 18, 
-    assignments: 15, 
-    avgScore: 94,
-    trend: 'up',
-    status: 'excellent',
-    district: 'North',
-    manager: 'Mike Chen',
-    trendData: [
-      { week: 1, value: 88 },
-      { week: 2, value: 89 },
-      { week: 3, value: 90 },
-      { week: 4, value: 91 },
-      { week: 5, value: 92 },
-      { week: 6, value: 92 }
-    ]
-  },
-  { 
-    id: '3',
-    unit: 'Store C', 
-    completion: 78, 
-    employees: 31, 
-    assignments: 8, 
-    avgScore: 82,
-    trend: 'down',
-    status: 'warning',
-    district: 'South',
-    manager: 'Emily Davis',
-    trendData: [
-      { week: 1, value: 85 },
-      { week: 2, value: 83 },
-      { week: 3, value: 81 },
-      { week: 4, value: 79 },
-      { week: 5, value: 78 },
-      { week: 6, value: 78 }
-    ]
-  },
-  { 
-    id: '4',
-    unit: 'Store D', 
-    completion: 88, 
-    employees: 22, 
-    assignments: 14, 
-    avgScore: 89,
-    trend: 'up',
-    status: 'good',
-    district: 'East',
-    manager: 'James Wilson',
-    trendData: [
-      { week: 1, value: 84 },
-      { week: 2, value: 85 },
-      { week: 3, value: 86 },
-      { week: 4, value: 87 },
-      { week: 5, value: 88 },
-      { week: 6, value: 88 }
-    ]
-  },
-  { 
-    id: '5',
-    unit: 'Store E', 
-    completion: 95, 
-    employees: 16, 
-    assignments: 18, 
-    avgScore: 96,
-    trend: 'up',
-    status: 'excellent',
-    district: 'West',
-    manager: 'Lisa Anderson',
-    trendData: [
-      { week: 1, value: 93 },
-      { week: 2, value: 94 },
-      { week: 3, value: 95 },
-      { week: 4, value: 95 },
-      { week: 5, value: 95 },
-      { week: 6, value: 95 }
-    ]
-  },
-  { 
-    id: '6',
-    unit: 'Store F', 
-    completion: 72, 
-    employees: 28, 
-    assignments: 6, 
-    avgScore: 75,
-    trend: 'down',
-    status: 'at-risk',
-    district: 'South',
-    manager: 'Robert Taylor',
-    trendData: [
-      { week: 1, value: 80 },
-      { week: 2, value: 78 },
-      { week: 3, value: 75 },
-      { week: 4, value: 73 },
-      { week: 5, value: 72 },
-      { week: 6, value: 72 }
-    ]
-  }
-];
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -189,10 +64,14 @@ const getStatusColor = (status: string) => {
 
 const getRowHighlight = (status: string) => {
   switch (status) {
+    case 'excellent':
+      return 'hover:bg-green-500/10 border-l-4 border-l-green-500';
+    case 'good':
+      return 'hover:bg-blue-500/10';
     case 'at-risk':
-      return 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500';
+      return 'bg-red-500/10 hover:bg-red-500/20 border-l-4 border-l-red-500';
     case 'warning':
-      return 'hover:bg-yellow-50';
+      return 'hover:bg-yellow-500/10';
     default:
       return 'hover:bg-accent/50';
   }
@@ -220,10 +99,24 @@ const Sparkline = ({ data }: { data: { week: number; value: number }[] }) => (
   </div>
 );
 
-export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPerformanceTableProps) {
+export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigateToStore }: UnitPerformanceTableProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [sortField, setSortField] = useState<keyof UnitData>('completion');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [unitData, setUnitData] = useState<UnitData[]>([]);
+
+  const { user } = useCurrentUser();
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user?.organization_id) return;
+      
+      const data = await getStorePerformanceData(user.organization_id);
+      setUnitData(data);
+    };
+
+    fetchData();
+  }, [user?.organization_id]);
 
   if (currentRole === 'store-manager') {
     return null; // Store managers don't see unit comparisons
@@ -261,7 +154,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPer
         <div>
           <CardTitle className="text-lg font-bold">Unit Performance</CardTitle>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Completion rates by unit
+            Store completion rates by location
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -334,15 +227,17 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPer
                   </TableHead>
                   <TableHead className="py-2">Trend</TableHead>
                   <TableHead className="py-2">Status</TableHead>
-                  <TableHead className="py-2">Manager</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedData.map((unit) => (
-                  <TableRow key={unit.id} className={getRowHighlight(unit.status)}>
+                  <TableRow 
+                    key={unit.id} 
+                    className={`${getRowHighlight(unit.status)} cursor-pointer transition-all`}
+                    onClick={() => onNavigateToStore?.(unit.id)}
+                  >
                     <TableCell className="py-2">
                       <div className="font-medium">{unit.unit}</div>
-                      <div className="text-xs text-muted-foreground">{unit.district}</div>
                     </TableCell>
                     <TableCell className="py-2">
                       <span className="font-medium">{unit.employees}</span>
@@ -378,9 +273,6 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPer
                         {unit.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="py-2">
-                      <div className="text-sm">{unit.manager}</div>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -390,7 +282,11 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPer
           // Cards view fallback
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedData.map((unit) => (
-              <Card key={unit.id} className={`${getRowHighlight(unit.status)} p-4`}>
+              <Card 
+                key={unit.id} 
+                className={`${getRowHighlight(unit.status)} p-4 cursor-pointer transition-all`}
+                onClick={() => onNavigateToStore?.(unit.id)}
+              >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="font-semibold">{unit.unit}</h4>
@@ -406,8 +302,8 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits }: UnitPer
                     <Progress value={unit.completion} className="h-2" />
                   </div>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{unit.employees} employees</span>
-                    <span>{unit.assignments} assignments</span>
+                    <span>{unit.employees} staff</span>
+                    <span>{unit.assignments} tasks</span>
                   </div>
                 </div>
               </Card>

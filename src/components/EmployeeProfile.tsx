@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,6 +10,7 @@ import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Checkbox } from './ui/checkbox';
+import { Skeleton } from './ui/skeleton';
 import { 
   ArrowLeft,
   Mail,
@@ -55,8 +56,10 @@ import {
   AreaChart
 } from 'recharts';
 import { toast } from 'sonner@2.0.3';
+import { supabase } from '../lib/supabase';
+import { useCurrentUser } from '../lib/hooks/useSupabase';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface Employee {
   id: string;
@@ -100,121 +103,6 @@ interface Certification {
   score: number;
 }
 
-const mockActivityFeed: ActivityItem[] = [
-  {
-    id: '1',
-    type: 'completion',
-    title: 'Completed Safety Training Module',
-    description: 'Workplace Safety Fundamentals - Score: 95%',
-    timestamp: '2 hours ago',
-    icon: CheckCircle,
-    iconColor: 'text-green-600'
-  },
-  {
-    id: '2',
-    type: 'certification',
-    title: 'Earned New Certification',
-    description: 'Advanced Customer Service Excellence',
-    timestamp: '1 day ago',
-    icon: Award,
-    iconColor: 'text-blue-600'
-  },
-  {
-    id: '3',
-    type: 'login',
-    title: 'Logged into Training Portal',
-    description: 'Accessed from mobile device',
-    timestamp: '2 days ago',
-    icon: Activity,
-    iconColor: 'text-purple-600'
-  },
-  {
-    id: '4',
-    type: 'assignment',
-    title: 'New Content Assigned',
-    description: 'Product Knowledge Series - 5 modules',
-    timestamp: '3 days ago',
-    icon: BookOpen,
-    iconColor: 'text-orange-600'
-  },
-  {
-    id: '5',
-    type: 'completion',
-    title: 'Completed Quiz',
-    description: 'Sales Techniques Assessment - Score: 88%',
-    timestamp: '5 days ago',
-    icon: CheckCircle,
-    iconColor: 'text-green-600'
-  }
-];
-
-const mockCertifications: Certification[] = [
-  {
-    id: '1',
-    name: 'Safety & Compliance Level 2',
-    issueDate: 'Jan 15, 2024',
-    expiryDate: 'Jan 15, 2025',
-    status: 'valid',
-    score: 95
-  },
-  {
-    id: '2',
-    name: 'Customer Service Excellence',
-    issueDate: 'Nov 10, 2024',
-    expiryDate: 'Nov 10, 2025',
-    status: 'valid',
-    score: 92
-  },
-  {
-    id: '3',
-    name: 'Product Knowledge Expert',
-    issueDate: 'Oct 5, 2024',
-    expiryDate: 'Dec 20, 2024',
-    status: 'expiring-soon',
-    score: 88
-  },
-  {
-    id: '4',
-    name: 'Leadership Fundamentals',
-    issueDate: 'Sep 1, 2024',
-    expiryDate: 'Sep 1, 2025',
-    status: 'valid',
-    score: 90
-  },
-  {
-    id: '5',
-    name: 'First Aid & Emergency Response',
-    issueDate: 'Mar 20, 2024',
-    expiryDate: 'Oct 15, 2024',
-    status: 'expired',
-    score: 85
-  }
-];
-
-// Mock data for charts
-const performanceData = [
-  { month: 'Jun', completed: 3, score: 85 },
-  { month: 'Jul', completed: 4, score: 88 },
-  { month: 'Aug', completed: 2, score: 82 },
-  { month: 'Sep', completed: 5, score: 92 },
-  { month: 'Oct', completed: 4, score: 90 },
-  { month: 'Nov', completed: 6, score: 95 }
-];
-
-const categoryData = [
-  { name: 'Safety', value: 8, color: '#F74A05' },
-  { name: 'Product', value: 5, color: '#FF733C' },
-  { name: 'Customer Service', value: 4, color: '#3B82F6' },
-  { name: 'Compliance', value: 3, color: '#10b981' }
-];
-
-const complianceData = [
-  { category: 'Safety', score: 95, required: 90 },
-  { category: 'HR Policies', score: 88, required: 85 },
-  { category: 'Data Security', score: 92, required: 90 },
-  { category: 'Ethics', score: 100, required: 95 }
-];
-
 export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(employee.name);
@@ -224,12 +112,152 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const [reminderSMS, setReminderSMS] = useState(true);
   const [reminderPush, setReminderPush] = useState(true);
   const [reminderEmail, setReminderEmail] = useState(true);
+  
+  // Real data states
+  const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
+  const [certifications, setCertifications] = useState<Certification[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [userProgress, setUserProgress] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
-    toast.success('Employee information updated successfully', {
-      description: `Changes saved for ${editedName}`
-    });
-    setIsEditing(false);
+  const { user: currentUser } = useCurrentUser();
+
+  useEffect(() => {
+    if (employee.id) {
+      fetchEmployeeData();
+    }
+  }, [employee.id]);
+
+  const fetchEmployeeData = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch assignments for this employee
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          playlist:playlists (
+            id,
+            title,
+            description
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('assigned_at', { ascending: false })
+        .limit(10);
+
+      if (assignmentsError) throw assignmentsError;
+      setAssignments(assignmentsData || []);
+
+      // Fetch user progress records
+      const { data: progressData, error: progressError } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          track:tracks (
+            id,
+            title,
+            type
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('updated_at', { ascending: false })
+        .limit(20);
+
+      if (progressError) throw progressError;
+      setUserProgress(progressData || []);
+
+      // Build activity feed from assignments and progress
+      const activities: ActivityItem[] = [];
+
+      // Add completion activities
+      progressData?.forEach(progress => {
+        if (progress.status === 'completed' && progress.completed_at) {
+          activities.push({
+            id: progress.id,
+            type: 'completion',
+            title: `Completed ${progress.track?.title || 'Track'}`,
+            description: `Score: ${progress.score || 'N/A'}%`,
+            timestamp: formatTimestamp(progress.completed_at),
+            icon: CheckCircle,
+            iconColor: 'text-green-600'
+          });
+        }
+      });
+
+      // Add assignment activities
+      assignmentsData?.forEach(assignment => {
+        activities.push({
+          id: assignment.id,
+          type: 'assignment',
+          title: `Assigned ${assignment.playlist?.title || 'Playlist'}`,
+          description: assignment.playlist?.description || '',
+          timestamp: formatTimestamp(assignment.assigned_at),
+          icon: BookOpen,
+          iconColor: 'text-orange-600'
+        });
+      });
+
+      // Sort by timestamp (most recent first)
+      activities.sort((a, b) => {
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+
+      setActivityFeed(activities.slice(0, 10)); // Keep only 10 most recent
+
+    } catch (err) {
+      console.error('Error fetching employee data:', err);
+      toast.error('Failed to load employee details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString();
+  };
+
+  const handleSave = async () => {
+    try {
+      // Parse name
+      const nameParts = editedName.trim().split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
+      const { error } = await supabase
+        .from('users')
+        .update({
+          first_name: firstName,
+          last_name: lastName,
+          email: editedEmail,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', employee.id);
+
+      if (error) throw error;
+
+      toast.success('Employee information updated successfully', {
+        description: `Changes saved for ${editedName}`
+      });
+      setIsEditing(false);
+      
+      // Refresh the page to show updated data
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Error updating employee:', err);
+      toast.error(err.message || 'Failed to update employee information');
+    }
   };
 
   const handleResetPassword = () => {
@@ -268,6 +296,43 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     if (progress >= 70) return 'bg-yellow-500';
     return 'bg-red-500';
   };
+
+  // Calculate statistics from real data
+  const completedCount = userProgress.filter(p => p.status === 'completed').length;
+  const inProgressCount = userProgress.filter(p => p.status === 'in_progress').length;
+  const avgScore = userProgress.filter(p => p.score).reduce((acc, p) => acc + (p.score || 0), 0) / 
+                   (userProgress.filter(p => p.score).length || 1);
+
+  // Build performance data from user_progress
+  const performanceData = (() => {
+    const months = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
+    return months.map(month => {
+      const monthData = userProgress.filter(p => {
+        if (!p.completed_at) return false;
+        const date = new Date(p.completed_at);
+        return date.toLocaleDateString('en-US', { month: 'short' }) === month;
+      });
+      const completed = monthData.length;
+      const score = monthData.reduce((acc, p) => acc + (p.score || 0), 0) / (completed || 1);
+      return { month, completed, score: Math.round(score) };
+    });
+  })();
+
+  // Build category distribution (simplified - using track types)
+  const categoryData = (() => {
+    const categories: { [key: string]: number } = {};
+    userProgress.forEach(p => {
+      const type = p.track?.type || 'Other';
+      categories[type] = (categories[type] || 0) + 1;
+    });
+    
+    const colors = ['#F74A05', '#FF733C', '#3B82F6', '#10b981', '#8B5CF6'];
+    return Object.entries(categories).map(([name, value], index) => ({
+      name,
+      value,
+      color: colors[index % colors.length]
+    }));
+  })();
 
   return (
     <div className="space-y-6">
@@ -362,7 +427,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         {employee.status.toUpperCase()}
                       </Badge>
                       <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                        {employee.certifications} Certifications
+                        {assignments.length} Assignments
                       </Badge>
                       <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
                         Last active {employee.lastActive}
@@ -450,17 +515,17 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
             <div className="text-center border-l border-border pl-6">
               <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
-              <p className="text-3xl font-bold text-foreground">{employee.completedTracks}<span className="text-lg text-muted-foreground">/{employee.totalTracks}</span></p>
+              <p className="text-3xl font-bold text-foreground">{completedCount}<span className="text-lg text-muted-foreground">/{userProgress.length}</span></p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Compliance Score</p>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{employee.complianceScore}%</p>
+              <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{Math.round(avgScore)}%</p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Certifications</p>
-              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{employee.certifications}</p>
+              <p className="text-sm text-muted-foreground mb-1">Active Assignments</p>
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{assignments.filter(a => a.status !== 'completed').length}</p>
             </div>
           </div>
         </CardContent>
@@ -468,7 +533,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       {/* Tabs Section */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
             Overview
@@ -477,196 +542,205 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             <Activity className="w-4 h-4 mr-2" />
             Activity Feed
           </TabsTrigger>
-          <TabsTrigger value="certifications">
-            <Award className="w-4 h-4 mr-2" />
-            Certifications
-          </TabsTrigger>
-          <TabsTrigger value="compliance">
-            <Shield className="w-4 h-4 mr-2" />
-            Compliance
+          <TabsTrigger value="assignments">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Assignments
           </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          {/* Performance Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Monthly Performance Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <TrendingUp className="w-5 h-5 mr-2 text-primary" />
-                  Monthly Performance
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={performanceData}>
-                    <defs>
-                      <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#F74A05" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#F74A05" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="month" className="text-xs" />
-                    <YAxis className="text-xs" />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }} 
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="completed" 
-                      stroke="#F74A05" 
-                      fillOpacity={1} 
-                      fill="url(#colorCompleted)"
-                      name="Courses Completed"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
+          {loading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {[1, 2, 3, 4].map(i => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <Skeleton className="h-64" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Monthly Performance Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <TrendingUp className="w-5 h-5 mr-2 text-primary" />
+                    Monthly Performance
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={performanceData}>
+                      <defs>
+                        <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#F74A05" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#F74A05" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" className="text-xs" />
+                      <YAxis className="text-xs" />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px'
+                        }} 
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="completed" 
+                        stroke="#F74A05" 
+                        fillOpacity={1} 
+                        fill="url(#colorCompleted)"
+                        name="Courses Completed"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
 
-            {/* Course Distribution Pie Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <PieChart className="w-5 h-5 mr-2 text-primary" />
-                  Course Distribution by Category
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RechartsPie>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, value }) => `${name}: ${value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }} 
-                    />
-                  </RechartsPie>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
+              {/* Course Distribution Pie Chart */}
+              {categoryData.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <PieChart className="w-5 h-5 mr-2 text-primary" />
+                      Course Distribution by Type
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <RechartsPie>
+                        <Pie
+                          data={categoryData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, value }) => `${name}: ${value}`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {categoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--card))', 
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px'
+                          }} 
+                        />
+                      </RechartsPie>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
 
-            {/* Average Score Trend */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <BarChart3 className="w-5 h-5 mr-2 text-primary" />
-                  Average Scores Trend
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={performanceData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="month" className="text-xs" />
-                    <YAxis className="text-xs" domain={[0, 100]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }} 
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="score" 
-                      stroke="#F74A05" 
-                      strokeWidth={3}
-                      dot={{ fill: '#F74A05', r: 5 }}
-                      name="Average Score"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
+              {/* Average Score Trend */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <BarChart3 className="w-5 h-5 mr-2 text-primary" />
+                    Average Scores Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={performanceData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="month" className="text-xs" />
+                      <YAxis className="text-xs" domain={[0, 100]} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px'
+                        }} 
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="score" 
+                        stroke="#F74A05" 
+                        strokeWidth={3}
+                        dot={{ fill: '#F74A05', r: 5 }}
+                        name="Average Score"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
 
-            {/* Quick Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Zap className="w-5 h-5 mr-2 text-primary" />
-                  Quick Statistics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                        <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+              {/* Quick Stats */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Zap className="w-5 h-5 mr-2 text-primary" />
+                    Quick Statistics
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                          <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Completed</p>
+                          <p className="text-xs text-muted-foreground">Total tracks</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Completion Rate</p>
-                        <p className="text-xs text-muted-foreground">Last 30 days</p>
-                      </div>
+                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedCount}</p>
                     </div>
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">94%</p>
-                  </div>
 
-                  <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                        <Award className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                          <Award className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Average Score</p>
+                          <p className="text-xs text-muted-foreground">All assessments</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Average Score</p>
-                        <p className="text-xs text-muted-foreground">All assessments</p>
-                      </div>
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{Math.round(avgScore)}%</p>
                     </div>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">89%</p>
-                  </div>
 
-                  <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
+                          <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">In Progress</p>
+                          <p className="text-xs text-muted-foreground">Active tracks</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Time Invested</p>
-                        <p className="text-xs text-muted-foreground">Total learning hours</p>
-                      </div>
+                      <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{inProgressCount}</p>
                     </div>
-                    <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">42h</p>
-                  </div>
 
-                  <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
-                        <Target className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+                          <Target className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Assignments</p>
+                          <p className="text-xs text-muted-foreground">Total assigned</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Engagement Score</p>
-                        <p className="text-xs text-muted-foreground">Platform activity</p>
-                      </div>
+                      <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{assignments.length}</p>
                     </div>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">8.5</p>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         {/* Activity Feed Tab */}
@@ -679,225 +753,113 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockActivityFeed.map((activity, index) => (
-                  <div key={activity.id}>
-                    <div className="flex items-start space-x-4">
-                      <div className={`h-10 w-10 rounded-lg bg-${activity.iconColor.split('-')[1]}-100 dark:bg-${activity.iconColor.split('-')[1]}-900/30 flex items-center justify-center flex-shrink-0`}>
-                        {React.createElement(activity.icon, { 
-                          className: `h-5 w-5 ${activity.iconColor} dark:${activity.iconColor.replace('600', '400')}` 
-                        })}
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
+                </div>
+              ) : activityFeed.length > 0 ? (
+                <div className="space-y-4">
+                  {activityFeed.map((activity, index) => (
+                    <div key={activity.id}>
+                      <div className="flex items-start space-x-4">
+                        <div className={`h-10 w-10 rounded-lg bg-${activity.iconColor.split('-')[1]}-100 dark:bg-${activity.iconColor.split('-')[1]}-900/30 flex items-center justify-center flex-shrink-0`}>
+                          {React.createElement(activity.icon, { 
+                            className: `h-5 w-5 ${activity.iconColor} dark:${activity.iconColor.replace('600', '400')}` 
+                          })}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-foreground">{activity.title}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
+                          <p className="text-xs text-muted-foreground mt-2 flex items-center">
+                            <Clock className="h-3 w-3 mr-1" />
+                            {activity.timestamp}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground">{activity.title}</p>
-                        <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
-                        <p className="text-xs text-muted-foreground mt-2 flex items-center">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {activity.timestamp}
-                        </p>
-                      </div>
+                      {index < activityFeed.length - 1 && (
+                        <Separator className="my-4" />
+                      )}
                     </div>
-                    {index < mockActivityFeed.length - 1 && (
-                      <Separator className="my-4" />
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No recent activity</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Certifications Tab */}
-        <TabsContent value="certifications" className="space-y-6">
+        {/* Assignments Tab */}
+        <TabsContent value="assignments" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <Award className="w-5 h-5 mr-2 text-primary" />
-                  Certifications & Credentials
+                  <BookOpen className="w-5 h-5 mr-2 text-primary" />
+                  Assignments
                 </div>
                 <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                  {mockCertifications.filter(c => c.status === 'valid').length} Active
+                  {assignments.filter(a => a.status !== 'completed').length} Active
                 </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockCertifications.map((cert) => (
-                  <div key={cert.id} className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="font-semibold text-foreground">{cert.name}</h3>
-                          <Badge variant="outline" className={getCertificationStatusColor(cert.status)}>
-                            {cert.status.replace('-', ' ')}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center space-x-6 text-sm text-muted-foreground">
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>Issued: {cert.issueDate}</span>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>Expires: {cert.expiryDate}</span>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <Award className="h-3 w-3" />
-                            <span>Score: {cert.score}%</span>
-                          </div>
-                        </div>
-                      </div>
-                      {cert.status === 'expiring-soon' && (
-                        <Button size="sm" variant="outline" className="ml-4">
-                          <AlertTriangle className="w-4 h-4 mr-2" />
-                          Renew
-                        </Button>
-                      )}
-                      {cert.status === 'expired' && (
-                        <Button size="sm" className="ml-4 bg-red-600 hover:bg-red-700 text-white">
-                          <AlertTriangle className="w-4 h-4 mr-2" />
-                          Recertify
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Compliance Tab */}
-        <TabsContent value="compliance" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Compliance Score Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Shield className="w-5 h-5 mr-2 text-primary" />
-                  Compliance Score by Category
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={complianceData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="category" className="text-xs" />
-                    <YAxis className="text-xs" domain={[0, 100]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))', 
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px'
-                      }} 
-                    />
-                    <Legend />
-                    <Bar dataKey="score" fill="#F74A05" name="Current Score" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="required" fill="#94a3b8" name="Required Score" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Compliance Status */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <FileCheck className="w-5 h-5 mr-2 text-primary" />
-                  Compliance Status
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+              {loading ? (
                 <div className="space-y-4">
-                  {complianceData.map((item, index) => (
-                    <div key={index} className="p-4 bg-accent/50 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-foreground">{item.category}</h4>
-                        <Badge 
-                          variant="outline" 
-                          className={item.score >= item.required 
-                            ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400' 
-                            : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400'}
-                        >
-                          {item.score >= item.required ? 'Compliant' : 'At Risk'}
-                        </Badge>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Score: {item.score}%</span>
-                          <span className="text-muted-foreground">Required: {item.required}%</span>
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
+                </div>
+              ) : assignments.length > 0 ? (
+                <div className="space-y-4">
+                  {assignments.map((assignment) => (
+                    <div key={assignment.id} className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-foreground">{assignment.playlist?.title || 'Untitled Playlist'}</h4>
+                          <p className="text-sm text-muted-foreground mt-1">{assignment.playlist?.description}</p>
+                          <div className="flex items-center space-x-4 mt-3 text-xs text-muted-foreground">
+                            <span className="flex items-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              Assigned {new Date(assignment.assigned_at).toLocaleDateString()}
+                            </span>
+                            {assignment.due_date && (
+                              <span className="flex items-center">
+                                <Clock className="h-3 w-3 mr-1" />
+                                Due {new Date(assignment.due_date).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <Progress 
-                          value={(item.score / item.required) * 100} 
-                          className="h-2"
-                          indicatorClassName={item.score >= item.required ? 'bg-green-500' : 'bg-red-500'}
-                        />
+                        <div className="flex flex-col items-end space-y-2">
+                          <Badge 
+                            variant="outline"
+                            className={
+                              assignment.status === 'completed' 
+                                ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                : assignment.status === 'in_progress'
+                                ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+                                : 'bg-gray-100 text-gray-700 border-gray-200'
+                            }
+                          >
+                            {assignment.status.replace('_', ' ').toUpperCase()}
+                          </Badge>
+                          <div className="flex items-center space-x-2">
+                            <Progress value={assignment.progress_percent || 0} className="h-2 w-24" />
+                            <span className="text-sm font-semibold">{assignment.progress_percent || 0}%</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Compliance Requirements */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Shield className="w-5 h-5 mr-2 text-primary" />
-                Upcoming Compliance Requirements
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
-                      <AlertTriangle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">Annual Safety Refresher</p>
-                      <p className="text-sm text-muted-foreground">Due in 15 days</p>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={handleSendReminder}>
-                    <Send className="h-4 w-4 mr-2" />
-                    Send Reminder
-                  </Button>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No assignments found</p>
                 </div>
-
-                <div className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                      <FileCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">Data Privacy Training</p>
-                      <p className="text-sm text-muted-foreground">Due in 30 days</p>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={handleSendReminder}>
-                    <Send className="h-4 w-4 mr-2" />
-                    Send Reminder
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                      <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">Ethics & Conduct Review</p>
-                      <p className="text-sm text-muted-foreground">Completed</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">
-                    Compliant
-                  </Badge>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -905,13 +867,14 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       {/* Reminder Dialog */}
       <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Send Training Reminder</DialogTitle>
             <DialogDescription>
-              Select the channels to send the training reminder to {employee.name}.
+              Select notification methods to remind {employee.name} about pending training
             </DialogDescription>
           </DialogHeader>
+          
           <div className="space-y-4 py-4">
             <div className="flex items-center space-x-3">
               <Checkbox
@@ -920,10 +883,11 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 onCheckedChange={(checked) => setReminderSMS(checked as boolean)}
               />
               <Label htmlFor="sms" className="flex items-center space-x-2 cursor-pointer">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                <span>SMS</span>
+                <MessageSquare className="h-4 w-4" />
+                <span>Send SMS</span>
               </Label>
             </div>
+            
             <div className="flex items-center space-x-3">
               <Checkbox
                 id="push"
@@ -931,37 +895,33 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 onCheckedChange={(checked) => setReminderPush(checked as boolean)}
               />
               <Label htmlFor="push" className="flex items-center space-x-2 cursor-pointer">
-                <Bell className="h-4 w-4 text-primary" />
-                <span>Push Notification</span>
+                <Bell className="h-4 w-4" />
+                <span>Send Push Notification</span>
               </Label>
             </div>
+            
             <div className="flex items-center space-x-3">
               <Checkbox
-                id="email"
+                id="email-reminder"
                 checked={reminderEmail}
                 onCheckedChange={(checked) => setReminderEmail(checked as boolean)}
               />
-              <Label htmlFor="email" className="flex items-center space-x-2 cursor-pointer">
-                <Mail className="h-4 w-4 text-primary" />
-                <span>Email</span>
+              <Label htmlFor="email-reminder" className="flex items-center space-x-2 cursor-pointer">
+                <Mail className="h-4 w-4" />
+                <span>Send Email</span>
               </Label>
             </div>
           </div>
+
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowReminderDialog(false)}
-            >
+            <Button variant="outline" onClick={() => setShowReminderDialog(false)}>
               Cancel
             </Button>
-            <Button
-              type="button"
+            <Button 
               onClick={handleConfirmReminder}
-              className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
-              disabled={!reminderSMS && !reminderPush && !reminderEmail}
+              className="bg-brand-gradient hover:opacity-90 text-white"
             >
-              <Send className="h-4 w-4 mr-2" />
+              <Send className="w-4 h-4 mr-2" />
               Send Reminder
             </Button>
           </DialogFooter>

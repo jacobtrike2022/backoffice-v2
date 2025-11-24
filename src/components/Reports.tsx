@@ -50,7 +50,7 @@ const format = (date: Date, formatStr: string) => {
   return date.toLocaleDateString();
 };
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface ReportsProps {
   currentRole: 'admin' | 'district-manager' | 'store-manager';

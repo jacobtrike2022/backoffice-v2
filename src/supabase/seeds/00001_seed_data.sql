@@ -1,547 +1,221 @@
 -- =====================================================
--- TRIKE BACKOFFICE - SEED DATA
+-- TRIKE BACKOFFICE - FRESH SEED DATA
 -- =====================================================
--- Sample data for development and testing
--- Corresponds to all CRUD functions and converted components
--- Last Updated: 2025-11-19
--- =====================================================
-
--- Clear existing data (in reverse dependency order)
-TRUNCATE TABLE 
-    activity_logs,
-    notifications,
-    kb_attachments,
-    kb_articles,
-    kb_categories,
-    form_submissions,
-    form_blocks,
-    forms,
-    user_certifications,
-    certifications,
-    user_progress,
-    assignments,
-    playlist_tracks,
-    playlist_albums,
-    playlists,
-    album_tracks,
-    albums,
-    tracks,
-    users,
-    roles,
-    stores,
-    districts,
-    organizations
-CASCADE;
-
--- =====================================================
--- ORGANIZATIONS
+-- Built from scratch to match 00001_initial_schema.sql
+-- No errors, clean dependencies, ready to run
 -- =====================================================
 
-INSERT INTO organizations (id, name, subdomain, settings) VALUES
-    ('11111111-1111-1111-1111-111111111111', 'Trike Convenience Stores', 'trike', 
-     '{"theme": "orange", "timezone": "America/New_York", "features": ["lms", "forms", "kb"]}'::jsonb);
+-- =====================================================
+-- 1. ORGANIZATIONS
+-- =====================================================
+INSERT INTO organizations (id, name, subdomain, settings, created_at, updated_at) VALUES
+('10000000-0000-0000-0000-000000000001', 'Demo Company', 'demo', '{"theme": "light"}', NOW(), NOW());
 
 -- =====================================================
--- DISTRICTS
+-- 2. DISTRICTS (manager_id will be set later)
 -- =====================================================
-
-INSERT INTO districts (id, organization_id, name, code) VALUES
-    ('22222222-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Northeast District', 'NE'),
-    ('22222222-2222-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Southeast District', 'SE'),
-    ('22222222-3333-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Midwest District', 'MW'),
-    ('22222222-4444-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Western District', 'WE');
+INSERT INTO districts (id, organization_id, name, code, created_at, updated_at) VALUES
+('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'North Region', 'NORTH', NOW(), NOW()),
+('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'South Region', 'SOUTH', NOW(), NOW());
 
 -- =====================================================
--- STORES
+-- 3. STORES (manager_id will be set later)
 -- =====================================================
-
-INSERT INTO stores (id, organization_id, district_id, name, code, address, city, state, zip, is_active) VALUES
-    -- Northeast District
-    ('33333333-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-1111-1111-1111-111111111111', 'Manhattan Store #101', 'NYC-101', '123 Broadway', 'New York', 'NY', '10001', true),
-    ('33333333-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-1111-1111-1111-111111111111', 'Brooklyn Store #102', 'NYC-102', '456 Bedford Ave', 'Brooklyn', 'NY', '11211', true),
-    ('33333333-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-1111-1111-1111-111111111111', 'Boston Store #103', 'BOS-103', '789 Commonwealth Ave', 'Boston', 'MA', '02215', true),
-    
-    -- Southeast District
-    ('33333333-2111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-2222-1111-1111-111111111111', 'Miami Store #201', 'MIA-201', '321 Ocean Drive', 'Miami', 'FL', '33139', true),
-    ('33333333-2112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-2222-1111-1111-111111111111', 'Atlanta Store #202', 'ATL-202', '654 Peachtree St', 'Atlanta', 'GA', '30308', true),
-    
-    -- Midwest District
-    ('33333333-3111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-3333-1111-1111-111111111111', 'Chicago Store #301', 'CHI-301', '987 Michigan Ave', 'Chicago', 'IL', '60611', true),
-    ('33333333-3112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-3333-1111-1111-111111111111', 'Detroit Store #302', 'DET-302', '147 Woodward Ave', 'Detroit', 'MI', '48226', true),
-    
-    -- Western District
-    ('33333333-4111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-4444-1111-1111-111111111111', 'Los Angeles Store #401', 'LAX-401', '258 Hollywood Blvd', 'Los Angeles', 'CA', '90028', true),
-    ('33333333-4112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '22222222-4444-1111-1111-111111111111', 'San Francisco Store #402', 'SFO-402', '369 Market St', 'San Francisco', 'CA', '94102', true);
+INSERT INTO stores (id, organization_id, district_id, name, code, address, city, state, zip, is_active, created_at, updated_at) VALUES
+('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'Store 101', '101', '123 Main St', 'Atlanta', 'GA', '30301', true, NOW(), NOW()),
+('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'Store 102', '102', '456 Oak Ave', 'Athens', 'GA', '30601', true, NOW(), NOW()),
+('30000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 'Store 201', '201', '789 Pine Rd', 'Savannah', 'GA', '31401', true, NOW(), NOW());
 
 -- =====================================================
--- ROLES
+-- 4. ROLES
 -- =====================================================
-
-INSERT INTO roles (id, organization_id, name, description, level, permissions) VALUES
-    ('44444444-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Admin', 'Full system access', 3, 
-     '["all"]'::jsonb),
-    ('44444444-2222-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'District Manager', 'Manage district stores and staff', 2, 
-     '["view_all_stores", "manage_store_managers", "view_reports"]'::jsonb),
-    ('44444444-3333-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Store Manager', 'Manage single store', 1, 
-     '["view_store", "manage_employees", "assign_training"]'::jsonb),
-    ('44444444-4444-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Customer Service Representative', 'Frontline employee', 0, 
-     '["view_training", "complete_training", "view_schedule"]'::jsonb),
-    ('44444444-5555-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Shift Lead', 'Team lead during shifts', 0, 
-     '["view_training", "complete_training", "view_schedule", "manage_shift"]'::jsonb);
+INSERT INTO roles (id, organization_id, name, description, permissions, level, created_at, updated_at) VALUES
+('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Admin', 'Full access', '["all"]', 3, NOW(), NOW()),
+('40000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'District Manager', 'Manage district', '["manage_stores"]', 2, NOW(), NOW()),
+('40000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'Store Manager', 'Manage store', '["manage_employees"]', 1, NOW(), NOW()),
+('40000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'Employee', 'Basic access', '["view_content"]', 0, NOW(), NOW());
 
 -- =====================================================
--- USERS
+-- 5. USERS
 -- =====================================================
-
-INSERT INTO users (id, organization_id, role_id, store_id, first_name, last_name, email, phone, employee_id, hire_date, status) VALUES
-    -- Admin
-    ('55555555-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-1111-1111-1111-111111111111', NULL, 
-     'Sarah', 'Johnson', 'sarah.johnson@trike.com', '555-0101', 'EMP-001', '2020-01-15', 'active'),
-    
-    -- District Managers
-    ('55555555-2111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-2222-1111-1111-111111111111', NULL, 
-     'Michael', 'Chen', 'michael.chen@trike.com', '555-0201', 'EMP-101', '2020-03-20', 'active'),
-    ('55555555-2211-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-2222-1111-1111-111111111111', NULL, 
-     'Lisa', 'Rodriguez', 'lisa.rodriguez@trike.com', '555-0202', 'EMP-102', '2020-04-10', 'active'),
-    
-    -- Store Managers
-    ('55555555-3111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-3333-1111-1111-111111111111', '33333333-1111-1111-1111-111111111111', 
-     'David', 'Thompson', 'david.thompson@trike.com', '555-1001', 'EMP-1001', '2021-01-05', 'active'),
-    ('55555555-3112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-3333-1111-1111-111111111111', '33333333-1112-1111-1111-111111111111', 
-     'Emily', 'Martinez', 'emily.martinez@trike.com', '555-1002', 'EMP-1002', '2021-02-15', 'active'),
-    ('55555555-3211-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-3333-1111-1111-111111111111', '33333333-2111-1111-1111-111111111111', 
-     'James', 'Wilson', 'james.wilson@trike.com', '555-2001', 'EMP-2001', '2021-03-01', 'active'),
-    
-    -- CSRs and Employees
-    ('55555555-4111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-4444-1111-1111-111111111111', '33333333-1111-1111-1111-111111111111', 
-     'Jessica', 'Davis', 'jessica.davis@trike.com', '555-1101', 'EMP-1101', '2024-01-15', 'active'),
-    ('55555555-4112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-4444-1111-1111-111111111111', '33333333-1111-1111-1111-111111111111', 
-     'Robert', 'Brown', 'robert.brown@trike.com', '555-1102', 'EMP-1102', '2024-02-01', 'active'),
-    ('55555555-4113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-5555-1111-1111-111111111111', '33333333-1111-1111-1111-111111111111', 
-     'Amanda', 'Garcia', 'amanda.garcia@trike.com', '555-1103', 'EMP-1103', '2023-06-10', 'active'),
-    ('55555555-4211-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-4444-1111-1111-111111111111', '33333333-1112-1111-1111-111111111111', 
-     'Daniel', 'Lee', 'daniel.lee@trike.com', '555-1201', 'EMP-1201', '2024-01-20', 'active'),
-    ('55555555-4212-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', '44444444-4444-1111-1111-111111111111', '33333333-1112-1111-1111-111111111111', 
-     'Maria', 'Lopez', 'maria.lopez@trike.com', '555-1202', 'EMP-1202', '2024-02-15', 'active');
-
--- Update district/store managers
-UPDATE districts SET manager_id = '55555555-2111-1111-1111-111111111111' WHERE id = '22222222-1111-1111-1111-111111111111';
-UPDATE districts SET manager_id = '55555555-2211-1111-1111-111111111111' WHERE id = '22222222-2222-1111-1111-111111111111';
-
-UPDATE stores SET manager_id = '55555555-3111-1111-1111-111111111111' WHERE id = '33333333-1111-1111-1111-111111111111';
-UPDATE stores SET manager_id = '55555555-3112-1111-1111-111111111111' WHERE id = '33333333-1112-1111-1111-111111111111';
-UPDATE stores SET manager_id = '55555555-3211-1111-1111-111111111111' WHERE id = '33333333-2111-1111-1111-111111111111';
+INSERT INTO users (id, organization_id, role_id, store_id, first_name, last_name, email, phone, employee_id, hire_date, status, created_at, updated_at) VALUES
+-- Admin
+('50000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', NULL, 'Sarah', 'Admin', 'sarah@demo.com', '555-0001', 'E001', '2024-01-01', 'active', NOW(), NOW()),
+-- District Managers
+('50000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', NULL, 'Mike', 'North', 'mike@demo.com', '555-0002', 'E002', '2024-01-15', 'active', NOW(), NOW()),
+('50000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000002', NULL, 'Lisa', 'South', 'lisa@demo.com', '555-0003', 'E003', '2024-02-01', 'active', NOW(), NOW()),
+-- Store Managers
+('50000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 'Tom', 'Manager', 'tom@demo.com', '555-0004', 'E004', '2024-03-01', 'active', NOW(), NOW()),
+('50000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000002', 'Jane', 'Manager', 'jane@demo.com', '555-0005', 'E005', '2024-03-15', 'active', NOW(), NOW()),
+('50000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', 'Bob', 'Manager', 'bob@demo.com', '555-0006', 'E006', '2024-04-01', 'active', NOW(), NOW()),
+-- Employees
+('50000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000001', 'Emily', 'Smith', 'emily@demo.com', '555-0007', 'E007', '2024-05-01', 'active', NOW(), NOW()),
+('50000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000001', 'James', 'Brown', 'james@demo.com', '555-0008', 'E008', '2024-05-15', 'active', NOW(), NOW());
 
 -- =====================================================
--- TRACKS
+-- 6. UPDATE MANAGERS
 -- =====================================================
+UPDATE districts SET manager_id = '50000000-0000-0000-0000-000000000002' WHERE id = '20000000-0000-0000-0000-000000000001';
+UPDATE districts SET manager_id = '50000000-0000-0000-0000-000000000003' WHERE id = '20000000-0000-0000-0000-000000000002';
 
-INSERT INTO tracks (id, organization_id, title, description, type, content_url, thumbnail_url, duration_minutes, status, learning_objectives, tags, published_at, published_by, created_by, view_count) VALUES
-    ('66666666-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Food Safety Fundamentals', 
-     'Comprehensive guide to food safety practices and procedures in restaurant operations', 
-     'video', 
-     'https://example.com/videos/food-safety.mp4',
-     'https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=400',
-     12, 
-     'published',
-     ARRAY['Understand proper handwashing techniques', 'Identify critical food safety temperatures', 'Recognize signs of contamination'],
-     ARRAY['food-safety', 'compliance', 'required', 'certification'],
-     NOW() - INTERVAL '30 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     1247),
-    
-    ('66666666-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Customer Service Excellence', 
-     'Master the art of exceptional customer service and create memorable experiences', 
-     'video', 
-     'https://example.com/videos/customer-service.mp4',
-     'https://images.unsplash.com/photo-1556742502-ec7c0e9f34b1?w=400',
-     9, 
-     'published',
-     ARRAY['Apply active listening techniques', 'Handle complaints professionally', 'Use positive language'],
-     ARRAY['customer-service', 'soft-skills', 'communication'],
-     NOW() - INTERVAL '25 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     892),
-    
-    ('66666666-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Opening Procedures Checklist', 
-     'Interactive step-by-step guide for morning opening procedures', 
-     'story', 
-     'https://example.com/stories/opening-procedures',
-     'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400',
-     5, 
-     'published',
-     ARRAY['Complete safety checks', 'Prepare workstations', 'Verify equipment'],
-     ARRAY['procedures', 'opening', 'checklist', 'daily-operations'],
-     NOW() - INTERVAL '20 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     654),
-    
-    ('66666666-1114-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Allergen Awareness Guide', 
-     'Critical information about food allergens and safe handling practices', 
-     'article', 
-     'https://example.com/articles/allergen-awareness',
-     'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=400',
-     10, 
-     'published',
-     ARRAY['Identify major food allergens', 'Implement cross-contact prevention', 'Communicate allergen info'],
-     ARRAY['allergen', 'food-safety', 'compliance', 'required'],
-     NOW() - INTERVAL '18 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     1105),
-    
-    ('66666666-1115-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Cash Handling Best Practices', 
-     'Secure procedures for managing cash transactions and register operations', 
-     'video', 
-     'https://example.com/videos/cash-handling.mp4',
-     'https://images.unsplash.com/photo-1753797782254-4ef6719c7bcd?w=400',
-     6, 
-     'published',
-     ARRAY['Perform accurate cash counts', 'Identify counterfeit currency', 'Follow security procedures'],
-     ARRAY['cash-handling', 'security', 'procedures', 'compliance'],
-     NOW() - INTERVAL '15 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     743),
-    
-    ('66666666-1116-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Food Safety Quiz', 
-     'Test your knowledge of food safety procedures', 
-     'checkpoint', 
-     NULL,
-     'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400',
-     15, 
-     'published',
-     ARRAY['Demonstrate food safety knowledge'],
-     ARRAY['assessment', 'food-safety', 'certification'],
-     NOW() - INTERVAL '30 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     487),
-    
-    ('66666666-1117-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Age-Restricted Sales Training', 
-     'Compliance training for selling alcohol and tobacco', 
-     'video', 
-     'https://example.com/videos/age-restricted.mp4',
-     'https://images.unsplash.com/photo-1532634922-8fe0b757fb13?w=400',
-     12, 
-     'published',
-     ARRAY['Understand legal requirements', 'Verify customer age', 'Handle refusals professionally'],
-     ARRAY['compliance', 'age-verification', 'alcohol', 'tobacco', 'required'],
-     NOW() - INTERVAL '10 days',
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111',
-     1567);
+UPDATE stores SET manager_id = '50000000-0000-0000-0000-000000000004' WHERE id = '30000000-0000-0000-0000-000000000001';
+UPDATE stores SET manager_id = '50000000-0000-0000-0000-000000000005' WHERE id = '30000000-0000-0000-0000-000000000002';
+UPDATE stores SET manager_id = '50000000-0000-0000-0000-000000000006' WHERE id = '30000000-0000-0000-0000-000000000003';
 
 -- =====================================================
--- ALBUMS
+-- 7. TRACKS
 -- =====================================================
+INSERT INTO tracks (id, organization_id, title, description, type, content_url, duration_minutes, status, learning_objectives, tags, published_at, published_by, created_by, view_count, created_at, updated_at) VALUES
+('60000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Customer Service 101', 'Learn customer service basics', 'video', 'https://example.com/video1.mp4', 15, 'published', ARRAY['Be friendly', 'Handle complaints'], ARRAY['customer-service'], NOW() - INTERVAL '30 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 0, NOW() - INTERVAL '35 days', NOW() - INTERVAL '30 days'),
+('60000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Cash Handling', 'Cash register procedures', 'video', 'https://example.com/video2.mp4', 10, 'published', ARRAY['Count cash', 'Security'], ARRAY['cash'], NOW() - INTERVAL '25 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 0, NOW() - INTERVAL '30 days', NOW() - INTERVAL '25 days'),
+('60000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'Service Quiz', 'Test your knowledge', 'checkpoint', NULL, 5, 'published', ARRAY['Pass the test'], ARRAY['assessment'], NOW() - INTERVAL '20 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 0, NOW() - INTERVAL '25 days', NOW() - INTERVAL '20 days'),
+('60000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'Safety Guide', 'Workplace safety', 'article', 'https://example.com/article1.html', 8, 'published', ARRAY['Stay safe'], ARRAY['safety'], NOW() - INTERVAL '15 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 0, NOW() - INTERVAL '20 days', NOW() - INTERVAL '15 days');
 
-INSERT INTO albums (id, organization_id, title, description, status, created_by) VALUES
-    ('77777777-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Basic Store Safety', 
-     'Essential safety training for all store employees', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('77777777-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Workplace Standards', 
-     'Professional standards and workplace behavior', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('77777777-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Terminal Operations', 
-     'Complete training for register and POS systems', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('77777777-1114-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Restricted Sales', 
-     'Age-restricted product sales and compliance', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111');
+UPDATE tracks SET passing_score = 80, max_attempts = 3 WHERE id = '60000000-0000-0000-0000-000000000003';
 
 -- =====================================================
--- ALBUM TRACKS
+-- 8. ALBUMS
 -- =====================================================
-
-INSERT INTO album_tracks (album_id, track_id, display_order, is_required, unlock_previous) VALUES
-    -- Basic Store Safety
-    ('77777777-1111-1111-1111-111111111111', '66666666-1111-1111-1111-111111111111', 1, true, false),
-    ('77777777-1111-1111-1111-111111111111', '66666666-1114-1111-1111-111111111111', 2, true, true),
-    ('77777777-1111-1111-1111-111111111111', '66666666-1116-1111-1111-111111111111', 3, true, true),
-    
-    -- Workplace Standards
-    ('77777777-1112-1111-1111-111111111111', '66666666-1112-1111-1111-111111111111', 1, true, false),
-    
-    -- Terminal Operations
-    ('77777777-1113-1111-1111-111111111111', '66666666-1115-1111-1111-111111111111', 1, true, false),
-    ('77777777-1113-1111-1111-111111111111', '66666666-1113-1111-1111-111111111111', 2, true, true),
-    
-    -- Restricted Sales
-    ('77777777-1114-1111-1111-1111-111111111111', '66666666-1117-1111-1111-111111111111', 1, true, false);
+INSERT INTO albums (id, organization_id, title, description, status, created_by, created_at, updated_at) VALUES
+('70000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Onboarding', 'New hire training', 'published', '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '30 days', NOW() - INTERVAL '15 days'),
+('70000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Compliance', 'Required training', 'published', '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '25 days', NOW() - INTERVAL '10 days');
 
 -- =====================================================
--- PLAYLISTS
+-- 9. ALBUM_TRACKS
 -- =====================================================
-
-INSERT INTO playlists (id, organization_id, title, description, type, trigger_rules, release_type, is_active, created_by) VALUES
-    ('88888888-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'First Week Orientation', 
-     'Complete onboarding program for all new hires', 
-     'auto',
-     '{"role_ids": ["44444444-4444-1111-1111-111111111111", "44444444-5555-1111-1111-111111111111"], "hire_days": 7}'::jsonb,
-     'progressive',
-     true,
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('88888888-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Manager Leadership Academy', 
-     'Leadership development for store managers', 
-     'manual',
-     NULL,
-     'immediate',
-     true,
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('88888888-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Food Handler Certification', 
-     'Required food safety certification program', 
-     'auto',
-     '{"role_ids": ["44444444-4444-1111-1111-111111111111"], "hire_days": 3}'::jsonb,
-     'immediate',
-     true,
-     '55555555-1111-1111-1111-111111111111');
+INSERT INTO album_tracks (id, album_id, track_id, display_order, is_required, unlock_previous, created_at) VALUES
+('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 1, true, false, NOW()),
+('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002', 2, true, true, NOW()),
+('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000003', 3, true, true, NOW()),
+('71000000-0000-0000-0000-000000000004', '70000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000004', 1, true, false, NOW());
 
 -- =====================================================
--- PLAYLIST ALBUMS
+-- 10. PLAYLISTS
 -- =====================================================
-
-INSERT INTO playlist_albums (playlist_id, album_id, display_order, release_stage) VALUES
-    -- First Week Orientation
-    ('88888888-1111-1111-1111-111111111111', '77777777-1111-1111-1111-111111111111', 1, 1),
-    ('88888888-1111-1111-1111-111111111111', '77777777-1112-1111-1111-111111111111', 2, 1),
-    ('88888888-1111-1111-1111-111111111111', '77777777-1113-1111-1111-111111111111', 3, 2),
-    
-    -- Manager Leadership Academy
-    ('88888888-1112-1111-1111-111111111111', '77777777-1112-1111-1111-111111111111', 1, 1),
-    
-    -- Food Handler Certification
-    ('88888888-1113-1111-1111-111111111111', '77777777-1111-1111-1111-111111111111', 1, 1),
-    ('88888888-1113-1111-1111-111111111111', '77777777-1114-1111-1111-1111-111111111111', 2, 1);
+INSERT INTO playlists (id, organization_id, title, description, type, trigger_rules, release_type, release_schedule, is_active, created_by, created_at, updated_at) VALUES
+('80000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Week 1 Training', 'Auto-assigned to new employees', 'auto', '{"role_ids": ["40000000-0000-0000-0000-000000000004"], "hire_days": 7}', 'progressive', '{"stage1": 0, "stage2": 7, "stage3": 14}', true, '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '30 days', NOW() - INTERVAL '25 days'),
+('80000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Compliance Review', 'Manual assignment', 'manual', NULL, 'immediate', NULL, true, '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '20 days', NOW() - INTERVAL '15 days');
 
 -- =====================================================
--- ASSIGNMENTS
+-- 11. PLAYLIST_ALBUMS
 -- =====================================================
-
-INSERT INTO assignments (id, organization_id, user_id, playlist_id, assigned_by, due_date, status, progress_percent, started_at) VALUES
-    ('99999999-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', '88888888-1111-1111-1111-111111111111', 
-     '55555555-3111-1111-1111-111111111111', NOW() + INTERVAL '7 days', 'in_progress', 45, NOW() - INTERVAL '2 days'),
-    
-    ('99999999-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4112-1111-1111-111111111111', '88888888-1111-1111-1111-111111111111', 
-     '55555555-3111-1111-1111-111111111111', NOW() + INTERVAL '5 days', 'assigned', 0, NULL),
-    
-    ('99999999-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4113-1111-1111-111111111111', '88888888-1112-1111-1111-111111111111', 
-     '55555555-1111-1111-1111-111111111111', NOW() + INTERVAL '30 days', 'in_progress', 25, NOW() - INTERVAL '5 days');
+INSERT INTO playlist_albums (id, playlist_id, album_id, display_order, release_stage, created_at) VALUES
+('81000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', 1, 1, NOW()),
+('81000000-0000-0000-0000-000000000002', '80000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', 1, 1, NOW());
 
 -- =====================================================
--- USER PROGRESS
+-- 12. PLAYLIST_TRACKS
 -- =====================================================
-
-INSERT INTO user_progress (id, organization_id, user_id, assignment_id, track_id, status, progress_percent, started_at, completed_at, attempts, score, passed) VALUES
-    -- Jessica Davis progress
-    ('aaaaaaaa-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', '99999999-1111-1111-1111-111111111111', '66666666-1111-1111-1111-111111111111', 
-     'completed', 100, NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days', 0, NULL, NULL),
-    
-    ('aaaaaaaa-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', '99999999-1111-1111-1111-111111111111', '66666666-1114-1111-1111-111111111111', 
-     'completed', 100, NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day', 0, NULL, NULL),
-    
-    ('aaaaaaaa-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', '99999999-1111-1111-1111-111111111111', '66666666-1116-1111-1111-111111111111', 
-     'in_progress', 50, NOW() - INTERVAL '1 hour', NULL, 1, 75, false),
-    
-    -- Amanda Garcia progress
-    ('aaaaaaaa-1211-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4113-1111-1111-111111111111', '99999999-1113-1111-1111-111111111111', '66666666-1112-1111-1111-111111111111', 
-     'completed', 100, NOW() - INTERVAL '4 days', NOW() - INTERVAL '4 days', 0, NULL, NULL);
+INSERT INTO playlist_tracks (id, playlist_id, track_id, display_order, release_stage, created_at) VALUES
+('82000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000004', 2, 2, NOW());
 
 -- =====================================================
--- CERTIFICATIONS
+-- 13. ASSIGNMENTS
 -- =====================================================
-
-INSERT INTO certifications (id, organization_id, name, description, required_track_ids, expires_after_days, is_active, created_by) VALUES
-    ('bbbbbbbb-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Food Handler Certificate', 
-     'Required certification for all employees handling food', 
-     ARRAY['66666666-1111-1111-1111-111111111111', '66666666-1114-1111-1111-111111111111', '66666666-1116-1111-1111-111111111111']::UUID[],
-     365,
-     true,
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('bbbbbbbb-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Responsible Alcohol Server', 
-     'Certification for alcohol sales and service', 
-     ARRAY['66666666-1117-1111-1111-111111111111']::UUID[],
-     730,
-     true,
-     '55555555-1111-1111-1111-111111111111');
+INSERT INTO assignments (id, organization_id, user_id, playlist_id, assigned_by, assigned_at, due_date, expires_at, status, progress_percent, started_at, completed_at, notification_sent, reminder_sent, created_at, updated_at) VALUES
+('90000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', '80000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000004', NOW() - INTERVAL '2 days', NOW() + INTERVAL '28 days', NOW() + INTERVAL '35 days', 'in_progress', 65, NOW() - INTERVAL '1 day', NULL, true, false, NOW() - INTERVAL '2 days', NOW()),
+('90000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000008', '80000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000004', NOW() - INTERVAL '1 day', NOW() + INTERVAL '14 days', NOW() + INTERVAL '21 days', 'assigned', 0, NULL, NULL, true, false, NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day');
 
 -- =====================================================
--- FORMS
+-- 14. USER_PROGRESS
 -- =====================================================
-
-INSERT INTO forms (id, organization_id, title, description, status, created_by) VALUES
-    ('cccccccc-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'New Hire Information Form', 
-     'Collect essential information from new employees', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('cccccccc-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Training Feedback Survey', 
-     'Gather feedback on training effectiveness', 
-     'published', 
-     '55555555-1111-1111-1111-111111111111');
+INSERT INTO user_progress (id, organization_id, user_id, assignment_id, track_id, status, progress_percent, time_spent_minutes, attempts, score, passed, started_at, completed_at, created_at, updated_at) VALUES
+('A0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', '90000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'completed', 100, 15, 1, NULL, NULL, NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day'),
+('A0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', '90000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002', 'in_progress', 60, 6, 1, NULL, NULL, NOW() - INTERVAL '1 day', NULL, NOW() - INTERVAL '1 day', NOW()),
+('A0000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', '90000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000003', 'completed', 100, 5, 2, 85, true, NOW() - INTERVAL '1 day', NOW() - INTERVAL '12 hours', NOW() - INTERVAL '1 day', NOW() - INTERVAL '12 hours');
 
 -- =====================================================
--- FORM BLOCKS
+-- 15. CERTIFICATIONS
 -- =====================================================
-
-INSERT INTO form_blocks (id, form_id, type, label, is_required, display_order) VALUES
-    -- New Hire Information Form
-    ('dddddddd-1111-1111-1111-111111111111', 'cccccccc-1111-1111-1111-111111111111', 
-     'text', 'Emergency Contact Name', true, 1),
-    ('dddddddd-1112-1111-1111-111111111111', 'cccccccc-1111-1111-1111-111111111111', 
-     'text', 'Emergency Contact Phone', true, 2),
-    ('dddddddd-1113-1111-1111-1111-111111111111', 'cccccccc-1111-1111-1111-111111111111', 
-     'select', 'T-Shirt Size', false, 3),
-    
-    -- Training Feedback Survey
-    ('dddddddd-2111-1111-1111-111111111111', 'cccccccc-1112-1111-1111-111111111111', 
-     'rating', 'How would you rate the training content?', true, 1),
-    ('dddddddd-2112-1111-1111-111111111111', 'cccccccc-1112-1111-1111-111111111111', 
-     'textarea', 'What did you find most valuable?', false, 2);
+INSERT INTO certifications (id, organization_id, name, description, required_album_ids, minimum_score, expires_after_days, is_active, created_by, created_at, updated_at) VALUES
+('B0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Customer Service Certified', 'Basic certification', ARRAY['70000000-0000-0000-0000-000000000001']::UUID[], 80, 365, true, '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '60 days', NOW() - INTERVAL '60 days');
 
 -- =====================================================
--- KNOWLEDGE BASE
+-- 16. USER_CERTIFICATIONS
 -- =====================================================
-
-INSERT INTO kb_categories (id, organization_id, name, description, display_order) VALUES
-    ('eeeeeeee-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Store Operations', 'Daily store procedures and operations', 1),
-    ('eeeeeeee-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Employee Resources', 'HR policies, benefits, and resources', 2),
-    ('eeeeeeee-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'Technical Support', 'POS and system troubleshooting', 3);
-
-INSERT INTO kb_articles (id, organization_id, category_id, title, content, status, view_count, published_at, published_by, created_by) VALUES
-    ('ffffffff-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'eeeeeeee-1111-1111-1111-111111111111',
-     'How to Clock In/Out', 
-     'Step-by-step instructions for using the time clock system...', 
-     'published', 234, NOW() - INTERVAL '60 days', 
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('ffffffff-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'eeeeeeee-1112-1111-1111-111111111111',
-     'Requesting Time Off', 
-     'How to submit time-off requests through the system...', 
-     'published', 456, NOW() - INTERVAL '45 days', 
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111'),
-    
-    ('ffffffff-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     'eeeeeeee-1113-1111-1111-111111111111',
-     'POS System Troubleshooting', 
-     'Common POS issues and how to resolve them...', 
-     'published', 189, NOW() - INTERVAL '30 days', 
-     '55555555-1111-1111-1111-111111111111',
-     '55555555-1111-1111-1111-111111111111');
+INSERT INTO user_certifications (id, organization_id, user_id, certification_id, issued_at, issued_by, expires_at, status, certificate_number, created_at, updated_at) VALUES
+('C0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'B0000000-0000-0000-0000-000000000001', NOW() - INTERVAL '1 day', '50000000-0000-0000-0000-000000000004', NOW() + INTERVAL '11 months', 'active', 'CERT-2024-001', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day');
 
 -- =====================================================
--- NOTIFICATIONS
+-- 17. FORMS
 -- =====================================================
-
-INSERT INTO notifications (id, organization_id, user_id, type, title, message, link_type, link_id, is_read) VALUES
-    ('00000000-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', 'assignment_new', 
-     'New Training Assignment', 
-     'You have been assigned the "First Week Orientation" playlist', 
-     'assignment', '99999999-1111-1111-1111-111111111111', false),
-    
-    ('00000000-1112-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', 'assignment_due_soon', 
-     'Training Due Soon', 
-     'Your "First Week Orientation" is due in 3 days', 
-     'assignment', '99999999-1111-1111-1111-111111111111', false),
-    
-    ('00000000-1113-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4112-1111-1111-111111111111', 'assignment_new', 
-     'New Training Assignment', 
-     'You have been assigned the "First Week Orientation" playlist', 
-     'assignment', '99999999-1112-1111-1111-111111111111', true);
+INSERT INTO forms (id, organization_id, title, description, settings, status, created_by, created_at, updated_at) VALUES
+('D0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Incident Report', 'Report incidents', '{"allow_anonymous": false}', 'published', '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '30 days', NOW() - INTERVAL '20 days');
 
 -- =====================================================
--- ACTIVITY LOGS
+-- 18. FORM_BLOCKS
 -- =====================================================
-
-INSERT INTO activity_logs (id, organization_id, user_id, action, entity_type, entity_id, details) VALUES
-    ('11111111-0001-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-4111-1111-1111-111111111111', 'track_completed', 'track', '66666666-1111-1111-1111-111111111111',
-     '{"track_title": "Food Safety Fundamentals", "time_spent_minutes": 15}'::jsonb),
-    
-    ('11111111-0002-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-3111-1111-1111-111111111111', 'assignment_created', 'assignment', '99999999-1111-1111-1111-111111111111',
-     '{"assigned_to": "Jessica Davis", "playlist": "First Week Orientation"}'::jsonb),
-    
-    ('11111111-0003-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 
-     '55555555-1111-1111-1111-111111111111', 'user_created', 'user', '55555555-4112-1111-1111-111111111111',
-     '{"user_name": "Robert Brown", "role": "CSR"}'::jsonb);
+INSERT INTO form_blocks (id, form_id, type, label, placeholder, options, is_required, display_order, created_at, updated_at) VALUES
+('D1000000-0000-0000-0000-000000000001', 'D0000000-0000-0000-0000-000000000001', 'text', 'Your Name', 'Enter name', NULL, true, 1, NOW(), NOW()),
+('D1000000-0000-0000-0000-000000000002', 'D0000000-0000-0000-0000-000000000001', 'date', 'Incident Date', NULL, NULL, true, 2, NOW(), NOW()),
+('D1000000-0000-0000-0000-000000000003', 'D0000000-0000-0000-0000-000000000001', 'select', 'Type', NULL, ARRAY['Injury', 'Property', 'Near Miss', 'Other'], true, 3, NOW(), NOW()),
+('D1000000-0000-0000-0000-000000000004', 'D0000000-0000-0000-0000-000000000001', 'textarea', 'Description', 'What happened', NULL, true, 4, NOW(), NOW());
 
 -- =====================================================
--- COMPLETION MESSAGE
+-- 19. FORM_SUBMISSIONS
 -- =====================================================
+INSERT INTO form_submissions (id, organization_id, user_id, form_id, answers, status, submitted_at, created_at, updated_at) VALUES
+('D2000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'D0000000-0000-0000-0000-000000000001', '{"D1000000-0000-0000-0000-000000000001": "Emily Smith", "D1000000-0000-0000-0000-000000000002": "2024-11-15", "D1000000-0000-0000-0000-000000000003": "Near Miss", "D1000000-0000-0000-0000-000000000004": "Slippery floor"}', 'submitted', NOW() - INTERVAL '3 days', NOW() - INTERVAL '3 days', NOW() - INTERVAL '3 days');
 
-DO $$
-BEGIN
-    RAISE NOTICE '✅ Seed data loaded successfully!';
-    RAISE NOTICE '📊 Summary:';
-    RAISE NOTICE '   - 1 Organization';
-    RAISE NOTICE '   - 4 Districts';
-    RAISE NOTICE '   - 9 Stores';
-    RAISE NOTICE '   - 5 Roles';
-    RAISE NOTICE '   - 11 Users';
-    RAISE NOTICE '   - 7 Tracks';
-    RAISE NOTICE '   - 4 Albums';
-    RAISE NOTICE '   - 3 Playlists';
-    RAISE NOTICE '   - 3 Assignments';
-    RAISE NOTICE '   - 4 User Progress Records';
-    RAISE NOTICE '   - 2 Certifications';
-    RAISE NOTICE '   - 2 Forms';
-    RAISE NOTICE '   - 3 KB Categories';
-    RAISE NOTICE '   - 3 KB Articles';
-    RAISE NOTICE '   - 3 Notifications';
-    RAISE NOTICE '   - 3 Activity Logs';
-    RAISE NOTICE '';
-    RAISE NOTICE '🔑 Test Credentials:';
-    RAISE NOTICE '   Admin: sarah.johnson@trike.com';
-    RAISE NOTICE '   District Manager: michael.chen@trike.com';
-    RAISE NOTICE '   Store Manager: david.thompson@trike.com';
-    RAISE NOTICE '   CSR: jessica.davis@trike.com';
-END $$;
+-- =====================================================
+-- 20. KB_CATEGORIES
+-- =====================================================
+INSERT INTO kb_categories (id, organization_id, name, description, display_order, created_at, updated_at) VALUES
+('E0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Getting Started', 'New employee resources', 1, NOW(), NOW()),
+('E0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Policies', 'Company policies', 2, NOW(), NOW());
+
+-- =====================================================
+-- 21. KB_ARTICLES
+-- =====================================================
+INSERT INTO kb_articles (id, organization_id, category_id, title, content, status, view_count, published_at, published_by, created_by, created_at, updated_at) VALUES
+('E1000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'E0000000-0000-0000-0000-000000000001', 'Welcome', 'Welcome to the team!', 'published', 25, NOW() - INTERVAL '45 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '45 days', NOW() - INTERVAL '40 days'),
+('E1000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'E0000000-0000-0000-0000-000000000002', 'Dress Code', 'Our dress code policy', 'published', 18, NOW() - INTERVAL '40 days', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', NOW() - INTERVAL '40 days', NOW() - INTERVAL '35 days');
+
+-- =====================================================
+-- 22. KB_ATTACHMENTS
+-- =====================================================
+INSERT INTO kb_attachments (id, article_id, filename, file_url, file_type, file_size, created_at) VALUES
+('E2000000-0000-0000-0000-000000000001', 'E1000000-0000-0000-0000-000000000001', 'handbook.pdf', 'https://example.com/handbook.pdf', 'application/pdf', 2048000, NOW());
+
+-- =====================================================
+-- 23. NOTIFICATIONS
+-- =====================================================
+INSERT INTO notifications (id, organization_id, user_id, type, title, message, link_type, link_id, is_read, created_at) VALUES
+('F0000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'assignment_new', 'New Assignment', 'You have been assigned: Week 1 Training', 'assignment', '90000000-0000-0000-0000-000000000001', true, NOW() - INTERVAL '2 days'),
+('F0000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'certification_issued', 'Certification Earned', 'You earned: Customer Service Certified', 'certification', 'C0000000-0000-0000-0000-000000000001', false, NOW() - INTERVAL '1 day');
+
+-- =====================================================
+-- 24. ACTIVITY_LOGS
+-- =====================================================
+INSERT INTO activity_logs (id, organization_id, user_id, action, entity_type, entity_id, details, created_at) VALUES
+('A1000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'track_completed', 'track', '60000000-0000-0000-0000-000000000001', '{"track_title": "Customer Service 101"}', NOW() - INTERVAL '1 day'),
+('A1000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000007', 'form_submitted', 'form', 'D0000000-0000-0000-0000-000000000001', '{"form_title": "Incident Report"}', NOW() - INTERVAL '3 days'),
+('A1000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', 'user_created', 'user', '50000000-0000-0000-0000-000000000007', '{"user_name": "Emily Smith"}', NOW() - INTERVAL '5 days');
+
+-- =====================================================
+-- VERIFICATION
+-- =====================================================
+SELECT 
+    'Organizations' as table_name, COUNT(*) as count FROM organizations
+UNION ALL SELECT 'Roles', COUNT(*) FROM roles
+UNION ALL SELECT 'Districts', COUNT(*) FROM districts
+UNION ALL SELECT 'Stores', COUNT(*) FROM stores
+UNION ALL SELECT 'Users', COUNT(*) FROM users
+UNION ALL SELECT 'Tracks', COUNT(*) FROM tracks
+UNION ALL SELECT 'Albums', COUNT(*) FROM albums
+UNION ALL SELECT 'Album Tracks', COUNT(*) FROM album_tracks
+UNION ALL SELECT 'Playlists', COUNT(*) FROM playlists
+UNION ALL SELECT 'Playlist Albums', COUNT(*) FROM playlist_albums
+UNION ALL SELECT 'Playlist Tracks', COUNT(*) FROM playlist_tracks
+UNION ALL SELECT 'Assignments', COUNT(*) FROM assignments
+UNION ALL SELECT 'User Progress', COUNT(*) FROM user_progress
+UNION ALL SELECT 'Certifications', COUNT(*) FROM certifications
+UNION ALL SELECT 'User Certifications', COUNT(*) FROM user_certifications
+UNION ALL SELECT 'Forms', COUNT(*) FROM forms
+UNION ALL SELECT 'Form Blocks', COUNT(*) FROM form_blocks
+UNION ALL SELECT 'Form Submissions', COUNT(*) FROM form_submissions
+UNION ALL SELECT 'KB Categories', COUNT(*) FROM kb_categories
+UNION ALL SELECT 'KB Articles', COUNT(*) FROM kb_articles
+UNION ALL SELECT 'KB Attachments', COUNT(*) FROM kb_attachments
+UNION ALL SELECT 'Notifications', COUNT(*) FROM notifications
+UNION ALL SELECT 'Activity Logs', COUNT(*) FROM activity_logs;

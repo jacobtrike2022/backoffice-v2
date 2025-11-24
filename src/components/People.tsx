@@ -16,10 +16,7 @@ import {
   Building,
   TrendingUp,
   X,
-  ChevronDown,
-  Mail,
-  Phone,
-  MapPin
+  ChevronDown
 } from 'lucide-react';
 import {
   Select,
@@ -31,13 +28,14 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
 import { useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface PeopleProps {
   currentRole: UserRole;
@@ -54,6 +52,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   // Filter states
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [selectedStores, setSelectedStores] = useState<string[]>([]);
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<string[]>([]);
 
   // New user form
@@ -78,6 +77,11 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     status: selectedStatus.length > 0 ? selectedStatus[0] as any : 'active'
   });
 
+  // Get unique values for filters from loaded data
+  const uniqueRoles = Array.from(new Set(users.map(emp => emp.role?.name).filter(Boolean)));
+  const uniqueStores = Array.from(new Set(users.map(emp => emp.store?.name).filter(Boolean)));
+  const uniqueDistricts = Array.from(new Set(users.map(emp => emp.store?.district?.name).filter(Boolean)));
+
   const toggleFilter = (value: string, selected: string[], setter: (val: string[]) => void) => {
     if (selected.includes(value)) {
       setter(selected.filter(v => v !== value));
@@ -89,12 +93,14 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   const clearAllFilters = () => {
     setSelectedRoles([]);
     setSelectedStores([]);
+    setSelectedDistricts([]);
     setSelectedStatus([]);
   };
 
   const activeFiltersCount = 
     selectedRoles.length + 
     selectedStores.length + 
+    selectedDistricts.length + 
     selectedStatus.length;
 
   const getStatusColor = (status: string) => {
@@ -119,7 +125,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
   const handleCreateUser = async () => {
     if (!currentUser?.organization_id) {
-      toast.error('Organization not found');
+      toast.error('Organization context required');
       return;
     }
 
@@ -128,9 +134,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       return;
     }
 
+    setCreating(true);
     try {
-      setCreating(true);
-      const result = await crud.createUser({
+      const result = await crud.users.create({
         ...newUser,
         organization_id: currentUser.organization_id
       });
@@ -147,9 +153,8 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
         hire_date: new Date().toISOString().split('T')[0]
       });
       refetch();
-    } catch (error: any) {
-      console.error('Error creating user:', error);
-      toast.error(error.message || 'Failed to create user');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create user');
     } finally {
       setCreating(false);
     }
@@ -157,46 +162,43 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
   // If employee is selected, show profile
   if (selectedEmployee) {
+    // Transform database user to Employee format for EmployeeProfile
+    const transformedEmployee = {
+      id: selectedEmployee.id,
+      name: `${selectedEmployee.first_name || ''} ${selectedEmployee.last_name || ''}`.trim(),
+      email: selectedEmployee.email || '',
+      role: selectedEmployee.role?.name || 'No Role',
+      homeStore: selectedEmployee.store?.name || 'No Store',
+      district: selectedEmployee.store?.district?.name || 'No District',
+      avatar: selectedEmployee.avatar_url || undefined,
+      progress: selectedEmployee.training_progress || 0,
+      status: selectedEmployee.status as 'active' | 'inactive' | 'on-leave',
+      completedTracks: selectedEmployee.completed_tracks || 0,
+      totalTracks: selectedEmployee.total_tracks || 0,
+      lastActive: selectedEmployee.last_login ? new Date(selectedEmployee.last_login).toLocaleDateString() : 'Never',
+      certifications: selectedEmployee.certifications_count || 0,
+      complianceScore: selectedEmployee.compliance_score || 0
+    };
+
     return (
       <EmployeeProfile 
-        employee={selectedEmployee}
-        onBack={() => {
-          setSelectedEmployee(null);
-          refetch(); // Refresh list when returning
-        }}
+        employee={transformedEmployee}
+        onBack={() => setSelectedEmployee(null)}
         currentRole={currentRole}
       />
     );
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-20" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <Skeleton key={i} className="h-48" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="p-8 bg-red-50 border border-red-200 rounded-lg">
-        <h2 className="text-xl font-semibold text-red-700 mb-2">Error Loading Users</h2>
-        <p className="text-red-600 mb-4">{error.message}</p>
-        <Button onClick={() => refetch()}>Retry</Button>
-      </div>
-    );
-  }
-
   // Calculate stats
-  const totalEmployees = users?.length || 0;
-  const activeEmployees = users?.filter(emp => emp.status === 'active').length || 0;
+  const totalEmployees = users.length;
+  const activeEmployees = users.filter(emp => emp.status === 'active').length;
+  
+  // WEIGHTED average: total completed / total assigned (NOT average of percentages)
+  const totalCompletedTracks = users.reduce((sum, emp) => sum + (emp.completed_tracks || 0), 0);
+  const totalAssignedTracks = users.reduce((sum, emp) => sum + (emp.total_tracks || 0), 0);
+  const avgProgress = totalAssignedTracks > 0 
+    ? Math.round((totalCompletedTracks / totalAssignedTracks) * 100)
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -216,7 +218,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           {currentRole === 'admin' && (
             <Button 
               size="sm" 
-              className="hero-primary"
+              className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
               onClick={() => setShowCreateDialog(true)}
             >
               <UserPlus className="w-4 h-4 mr-2" />
@@ -228,40 +230,44 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Total Employees
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalEmployees}</div>
+        <Card className="border-2 border-primary/10">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Employees</p>
+                <p className="text-3xl font-bold text-foreground mt-1">{totalEmployees}</p>
+              </div>
+              <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              Active
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeEmployees}</div>
+        <Card className="border-2 border-green-500/10">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Active Employees</p>
+                <p className="text-3xl font-bold text-foreground mt-1">{activeEmployees}</p>
+              </div>
+              <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Building className="h-4 w-4" />
-              {currentRole === 'admin' ? 'Organizations' : 'Locations'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {new Set(users?.map(u => u.store_id).filter(Boolean)).size}
+        <Card className="border-2 border-orange-500/10">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Avg. Progress</p>
+                <p className="text-3xl font-bold text-foreground mt-1">{avgProgress}%</p>
+              </div>
+              <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
+                <Building className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -269,174 +275,269 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
       {/* Search and Filters */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, email, or role..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => setShowFilters(!showFilters)}
-              className="relative"
-            >
-              <Filter className="h-4 w-4 mr-2" />
-              Filters
-              {activeFiltersCount > 0 && (
-                <Badge className="ml-2 bg-primary text-primary-foreground">
-                  {activeFiltersCount}
-                </Badge>
-              )}
-            </Button>
-          </div>
-
-          {showFilters && (
-            <div className="mt-4 p-4 border rounded-lg bg-muted/30">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium">Filters</h3>
-                {activeFiltersCount > 0 && (
-                  <Button variant="ghost" size="sm" onClick={clearAllFilters}>
-                    <X className="h-3 w-3 mr-1" />
-                    Clear All
-                  </Button>
-                )}
+        <CardContent className="p-6">
+          <div className="space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search employees by name, email, role, or store..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
               </div>
+              <Button
+                variant={showFilters ? "default" : "outline"}
+                onClick={() => setShowFilters(!showFilters)}
+                className="relative"
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
+                {activeFiltersCount > 0 && (
+                  <Badge className="ml-2 bg-white text-primary border-0 px-1.5 py-0 h-5 min-w-5">
+                    {activeFiltersCount}
+                  </Badge>
+                )}
+              </Button>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Status Filter */}
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">Status</Label>
-                  <div className="space-y-2">
-                    {['active', 'inactive', 'on-leave'].map((status) => (
-                      <div key={status} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`status-${status}`}
-                          checked={selectedStatus.includes(status)}
-                          onCheckedChange={() => toggleFilter(status, selectedStatus, setSelectedStatus)}
-                        />
-                        <Label htmlFor={`status-${status}`} className="text-sm capitalize cursor-pointer">
-                          {status.replace('-', ' ')}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
+            {/* Filter Panel */}
+            {showFilters && (
+              <div className="border rounded-lg p-4 bg-accent/50 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-foreground">Filter Options</h3>
+                  {activeFiltersCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAllFilters}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear All
+                    </Button>
+                  )}
                 </div>
 
-                {/* Add more filter sections as needed */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* Role Filter */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Role</label>
+                    <div className="space-y-2">
+                      {uniqueRoles.map(role => (
+                        <div key={role} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`role-${role}`}
+                            checked={selectedRoles.includes(role)}
+                            onCheckedChange={() => toggleFilter(role, selectedRoles, setSelectedRoles)}
+                          />
+                          <label
+                            htmlFor={`role-${role}`}
+                            className="text-sm text-foreground cursor-pointer"
+                          >
+                            {role}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Store Filter */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Home Store</label>
+                    <div className="space-y-2">
+                      {uniqueStores.map(store => (
+                        <div key={store} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`store-${store}`}
+                            checked={selectedStores.includes(store)}
+                            onCheckedChange={() => toggleFilter(store, selectedStores, setSelectedStores)}
+                          />
+                          <label
+                            htmlFor={`store-${store}`}
+                            className="text-sm text-foreground cursor-pointer"
+                          >
+                            {store}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* District Filter - Only for Admin and DM */}
+                  {(currentRole === 'admin' || currentRole === 'district-manager') && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">District</label>
+                      <div className="space-y-2">
+                        {uniqueDistricts.map(district => (
+                          <div key={district} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`district-${district}`}
+                              checked={selectedDistricts.includes(district)}
+                              onCheckedChange={() => toggleFilter(district, selectedDistricts, setSelectedDistricts)}
+                            />
+                            <label
+                              htmlFor={`district-${district}`}
+                              className="text-sm text-foreground cursor-pointer"
+                            >
+                              {district}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status Filter */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Status</label>
+                    <div className="space-y-2">
+                      {['active', 'inactive', 'on-leave'].map(status => (
+                        <div key={status} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`status-${status}`}
+                            checked={selectedStatus.includes(status)}
+                            onCheckedChange={() => toggleFilter(status, selectedStatus, setSelectedStatus)}
+                          />
+                          <label
+                            htmlFor={`status-${status}`}
+                            className="text-sm text-foreground cursor-pointer capitalize"
+                          >
+                            {status.replace('-', ' ')}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Results Count */}
-      <div className="text-sm text-muted-foreground">
-        {users?.length || 0} {users?.length === 1 ? 'employee' : 'employees'} found
-      </div>
-
       {/* Employee List */}
-      {!users || users.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Users className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-            <h3 className="font-semibold mb-2">No employees found</h3>
-            <p className="text-sm text-muted-foreground">
-              {searchQuery || activeFiltersCount > 0
-                ? 'Try adjusting your search or filters'
-                : 'Get started by adding your first employee'}
-            </p>
-            {currentRole === 'admin' && (
-              <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
-                <UserPlus className="h-4 w-4 mr-2" />
-                Add Employee
-              </Button>
+      <Card>
+        <CardHeader className="border-b bg-accent/50">
+          <CardTitle className="text-lg">
+            Employees ({users.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y divide-border">
+            {loading ? (
+              <div className="p-4 space-y-4">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="flex items-center space-x-4">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-1/4" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-12 text-center">
+                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No employees found matching your criteria</p>
+              </div>
+            ) : (
+              users.map((employee) => {
+                const fullName = `${employee.first_name} ${employee.last_name}`;
+                const initials = `${employee.first_name[0]}${employee.last_name[0]}`.toUpperCase();
+                const progress = employee.training_progress || 0;
+                const completedTracks = employee.completed_tracks || 0;
+                const totalTracks = employee.total_tracks || 0;
+                const certifications = employee.certifications_count || 0;
+                
+                return (
+                  <div
+                    key={employee.id}
+                    className="p-4 hover:bg-accent/50 cursor-pointer transition-colors"
+                    onClick={() => setSelectedEmployee(employee)}
+                  >
+                    <div className="flex items-center space-x-4">
+                      <Avatar className="h-10 w-10 ring-2 ring-primary/20">
+                        <AvatarImage src={employee.avatar_url || undefined} alt={fullName} />
+                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold text-sm">
+                          {initials}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2 mb-0.5">
+                          <h3 className="font-semibold text-foreground text-sm">{fullName}</h3>
+                          <Badge variant="outline" className={`${getStatusColor(employee.status)} text-xs py-0 h-5`}>
+                            {employee.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center space-x-3 text-xs text-muted-foreground">
+                          <span>{employee.role?.name || 'No Role'}</span>
+                          <span>•</span>
+                          <span>{employee.store?.name || 'No Store'}</span>
+                          {currentRole === 'admin' && employee.store?.district?.name && (
+                            <>
+                              <span>•</span>
+                              <span>{employee.store.district.name} District</span>
+                            </>
+                          )}
+                          {employee.last_login && (
+                            <>
+                              <span>•</span>
+                              <span>Last active {new Date(employee.last_login).toLocaleDateString()}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-6">
+                        <div className="text-right">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Training Progress</p>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-24">
+                              <Progress 
+                                value={progress} 
+                                className="h-1.5"
+                                indicatorClassName={getProgressColor(progress)}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-foreground w-10 text-right">
+                              {progress}%
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-center border-l border-border pl-4">
+                          <p className="text-xl font-bold text-foreground">{completedTracks}</p>
+                          <p className="text-xs text-muted-foreground">of {totalTracks} tracks</p>
+                        </div>
+
+                        <div className="text-center border-l border-border pl-4">
+                          <p className="text-xl font-bold text-foreground">{certifications}</p>
+                          <p className="text-xs text-muted-foreground">certifications</p>
+                        </div>
+
+                        <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
             )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {users.map((employee) => {
-            const fullName = `${employee.first_name} ${employee.last_name}`;
-            const initials = `${employee.first_name[0]}${employee.last_name[0]}`.toUpperCase();
-
-            return (
-              <Card
-                key={employee.id}
-                className="cursor-pointer hover:shadow-lg transition-shadow"
-                onClick={() => setSelectedEmployee(employee)}
-              >
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={employee.avatar_url || undefined} />
-                      <AvatarFallback className="bg-brand-gradient text-white">
-                        {initials}
-                      </AvatarFallback>
-                    </Avatar>
-
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold truncate">{fullName}</h3>
-                      <p className="text-sm text-muted-foreground truncate">{employee.email}</p>
-                      
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className="text-xs">
-                          {employee.role?.name || 'No Role'}
-                        </Badge>
-                        <Badge className={`${getStatusColor(employee.status)} text-xs`}>
-                          {employee.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Separator className="my-4" />
-
-                  {/* Quick Stats */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Building className="h-3 w-3" />
-                        Store
-                      </span>
-                      <span className="font-medium">{employee.store?.name || 'N/A'}</span>
-                    </div>
-                    
-                    {employee.phone && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          Phone
-                        </span>
-                        <span className="font-medium text-xs">{employee.phone}</span>
-                      </div>
-                    )}
-
-                    {employee.hire_date && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Hire Date</span>
-                        <span className="font-medium text-xs">
-                          {new Date(employee.hire_date).toLocaleDateString()}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Create User Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add New Employee</DialogTitle>
+            <DialogDescription>
+              Create a new employee profile with role and assignment details
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
@@ -468,7 +569,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                 type="email"
                 value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                placeholder="john.doe@example.com"
+                placeholder="john.doe@trike.com"
               />
             </div>
 
@@ -479,37 +580,45 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                 type="tel"
                 value={newUser.phone}
                 onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
-                placeholder="(555) 123-4567"
+                placeholder="+1 (555) 123-4567"
               />
             </div>
 
             <div>
-              <Label htmlFor="hire_date">Hire Date *</Label>
+              <Label htmlFor="role">Role *</Label>
+              <Select value={newUser.role_id} onValueChange={(val) => setNewUser({ ...newUser, role_id: val })}>
+                <SelectTrigger id="role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="role-1">Store Manager</SelectItem>
+                  <SelectItem value="role-2">Sales Associate</SelectItem>
+                  <SelectItem value="role-3">Assistant Manager</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="store">Store *</Label>
+              <Select value={newUser.store_id} onValueChange={(val) => setNewUser({ ...newUser, store_id: val })}>
+                <SelectTrigger id="store">
+                  <SelectValue placeholder="Select store" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="store-1">Store A</SelectItem>
+                  <SelectItem value="store-2">Store B</SelectItem>
+                  <SelectItem value="store-3">Store C</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="hire_date">Hire Date</Label>
               <Input
                 id="hire_date"
                 type="date"
                 value={newUser.hire_date}
                 onChange={(e) => setNewUser({ ...newUser, hire_date: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="role_id">Role * (Enter Role ID)</Label>
-              <Input
-                id="role_id"
-                value={newUser.role_id}
-                onChange={(e) => setNewUser({ ...newUser, role_id: e.target.value })}
-                placeholder="role-uuid"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="store_id">Store * (Enter Store ID)</Label>
-              <Input
-                id="store_id"
-                value={newUser.store_id}
-                onChange={(e) => setNewUser({ ...newUser, store_id: e.target.value })}
-                placeholder="store-uuid"
               />
             </div>
           </div>
@@ -518,7 +627,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={creating}>
               Cancel
             </Button>
-            <Button onClick={handleCreateUser} disabled={creating} className="hero-primary">
+            <Button onClick={handleCreateUser} disabled={creating} className="bg-brand-gradient">
               {creating ? 'Creating...' : 'Create Employee'}
             </Button>
           </DialogFooter>

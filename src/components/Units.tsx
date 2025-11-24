@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -18,8 +18,9 @@ import {
 } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
+import { useStores, useCurrentUser } from '../lib/hooks/useSupabase';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface Store {
   id: string;
@@ -38,77 +39,12 @@ interface Store {
 interface UnitsProps {
   currentRole: UserRole;
   onBackToDashboard: () => void;
+  initialStoreId?: string;
 }
 
-const mockStores: Store[] = [
-  {
-    id: '1',
-    name: 'Store A',
-    storeNumber: '#001',
-    district: 'North',
-    manager: 'Sarah Johnson',
-    employees: 12,
-    avgProgress: 85,
-    compliance: 92,
-    performance: 'excellent',
-    city: 'Seattle',
-    state: 'WA'
-  },
-  {
-    id: '2',
-    name: 'Store B',
-    storeNumber: '#002',
-    district: 'South',
-    manager: 'Michael Chen',
-    employees: 15,
-    avgProgress: 78,
-    compliance: 88,
-    performance: 'good',
-    city: 'Austin',
-    state: 'TX'
-  },
-  {
-    id: '3',
-    name: 'Store C',
-    storeNumber: '#003',
-    district: 'East',
-    manager: 'Amanda White',
-    employees: 10,
-    avgProgress: 65,
-    compliance: 75,
-    performance: 'needs-improvement',
-    city: 'Boston',
-    state: 'MA'
-  },
-  {
-    id: '4',
-    name: 'Store D',
-    storeNumber: '#004',
-    district: 'North',
-    manager: 'David Thompson',
-    employees: 18,
-    avgProgress: 90,
-    compliance: 95,
-    performance: 'excellent',
-    city: 'Portland',
-    state: 'OR'
-  },
-  {
-    id: '5',
-    name: 'Store E',
-    storeNumber: '#005',
-    district: 'South',
-    manager: 'Jessica Park',
-    employees: 14,
-    avgProgress: 82,
-    compliance: 90,
-    performance: 'good',
-    city: 'Houston',
-    state: 'TX'
-  }
-];
-
-export function Units({ currentRole, onBackToDashboard }: UnitsProps) {
+export function Units({ currentRole, onBackToDashboard, initialStoreId }: UnitsProps) {
+  console.log('🏪 Units component rendered! Current role:', currentRole);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
@@ -117,19 +53,55 @@ export function Units({ currentRole, onBackToDashboard }: UnitsProps) {
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [selectedPerformance, setSelectedPerformance] = useState<string[]>([]);
 
+  // Fetch current user to get their organization/district/store
+  const { user, loading: userLoading } = useCurrentUser();
+  
+  console.log('🏪 Units - User data:', { user, userLoading });
+  
+  // Fetch stores from Supabase
+  const { stores: rawStores, loading: storesLoading, error: storesError } = useStores(
+    user?.organization_id ? {
+      organization_id: user.organization_id,
+      is_active: true
+    } : undefined
+  );
+
+  console.log('🏪 Units - Stores data:', { rawStores, storesLoading, storesError });
+
+  // Map database stores to UI format
+  const allStores: Store[] = rawStores.map((store: any) => ({
+    id: store.id,
+    name: store.name,
+    storeNumber: store.code ? `#${store.code}` : '#N/A',
+    district: store.district?.name || 'Unassigned',
+    manager: store.manager 
+      ? `${store.manager.first_name} ${store.manager.last_name}`
+      : 'No Manager',
+    employees: store.employeeCount || 0,
+    avgProgress: store.avgProgress || 0,
+    compliance: store.compliance || 0,
+    performance: store.performance || 'needs-improvement',
+    city: store.city || '',
+    state: store.state || ''
+  }));
+
   // Get stores based on role
   const getStoresForRole = () => {
+    if (!user) return [];
+    
     switch (currentRole) {
       case 'admin':
-        return mockStores;
+        return allStores;
       case 'district-manager':
-        // District manager sees stores in their district (North)
-        return mockStores.filter(store => store.district === 'North');
+        // District manager sees stores in their district
+        return allStores.filter(store => 
+          store.district === allStores.find(s => s.id === user.store_id)?.district
+        );
       case 'store-manager':
-        // Store manager sees only their store (Store A)
-        return mockStores.filter(store => store.name === 'Store A');
+        // Store manager sees only their store
+        return allStores.filter(store => store.id === user.store_id);
       default:
-        return mockStores;
+        return allStores;
     }
   };
 
@@ -164,6 +136,17 @@ export function Units({ currentRole, onBackToDashboard }: UnitsProps) {
     setSelectedDistricts([]);
     setSelectedPerformance([]);
   };
+
+  // Auto-select store if initialStoreId is provided
+  useEffect(() => {
+    if (initialStoreId && allStores.length > 0 && !selectedStore) {
+      const store = allStores.find(s => s.id === initialStoreId);
+      if (store) {
+        console.log('🏪 Auto-selecting store:', store.name);
+        setSelectedStore(store);
+      }
+    }
+  }, [initialStoreId, allStores.length, selectedStore]);
 
   const activeFiltersCount = selectedDistricts.length + selectedPerformance.length;
 
@@ -201,9 +184,47 @@ export function Units({ currentRole, onBackToDashboard }: UnitsProps) {
   // Calculate stats
   const totalStores = baseStores.length;
   const totalEmployees = baseStores.reduce((sum, store) => sum + store.employees, 0);
-  const avgProgress = Math.round(
-    baseStores.reduce((sum, store) => sum + store.avgProgress, 0) / baseStores.length
+  
+  // WEIGHTED average: We need to get total completed/assigned across all stores
+  // Since avgProgress is already calculated per store from user_progress,
+  // we need to recalculate from raw data for accurate company-wide metric
+  // For now, using store avgProgress weighted by employee count is closer to accurate
+  const totalProgressWeighted = baseStores.reduce((sum, store) => 
+    sum + (store.avgProgress * store.employees), 0
   );
+  const avgProgress = totalEmployees > 0 
+    ? Math.round(totalProgressWeighted / totalEmployees)
+    : 0;
+
+  // Show loading state
+  if (userLoading || storesLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-foreground">Units Management</h1>
+            <p className="text-muted-foreground mt-1">
+              Monitor and manage store performance and training metrics
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[1, 2, 3].map(i => (
+            <Card key={i} className="border-2 border-primary/10">
+              <CardContent className="p-6">
+                <div className="h-20 animate-pulse bg-accent rounded" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <div className="h-64 animate-pulse bg-accent rounded" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

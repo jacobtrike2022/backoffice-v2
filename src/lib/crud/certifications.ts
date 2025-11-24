@@ -108,7 +108,7 @@ export async function issueCertification(
   // Log activity
   await logActivity({
     user_id: userId,
-    activity_type: 'certification',
+    action: 'certification',
     entity_type: 'certification',
     entity_id: certificationId,
     description: `Earned "${cert.name}" certification`

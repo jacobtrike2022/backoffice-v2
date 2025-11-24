@@ -2,33 +2,36 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Input } from './ui/input';
 import { 
   FileText, 
   Video, 
   Image as ImageIcon, 
   CheckCircle,
   Plus,
-  Eye,
   Edit,
   Trash2,
-  Play
+  Search,
+  Filter,
+  Loader2,
+  Send,
+  ExternalLink
 } from 'lucide-react';
-import { ArticleEditor } from './content-authoring/ArticleEditor';
-import { ArticleEditorNew } from './content-authoring/ArticleEditorNew';
-import { VideoEditor } from './content-authoring/VideoEditor';
+import { ContentCreationWrapper } from './ContentCreationWrapper';
+import { TrackDetailEdit } from './TrackDetailEdit';
+import { ArticleDetailEdit } from './ArticleDetailEdit';
 import { StoryEditor } from './content-authoring/StoryEditor';
 import { CheckpointEditor } from './content-authoring/CheckpointEditor';
+import * as crud from '../lib/crud';
+import { toast } from 'sonner@2.0.3';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 type ContentType = 'article' | 'video' | 'story' | 'checkpoint' | null;
-
-interface SavedContent {
-  id: string;
-  type: 'article' | 'video' | 'story' | 'checkpoint';
-  title: string;
-  status: 'draft' | 'published';
-  createdAt: string;
-  updatedAt: string;
-}
 
 const contentTypes = [
   {
@@ -69,107 +72,194 @@ const contentTypes = [
   }
 ];
 
-// Mock saved content
-const mockSavedContent: SavedContent[] = [
-  {
-    id: '1',
-    type: 'article',
-    title: 'Customer Service Best Practices',
-    status: 'published',
-    createdAt: '2024-06-15',
-    updatedAt: '2024-06-20'
-  },
-  {
-    id: '2',
-    type: 'video',
-    title: 'Product Safety Overview',
-    status: 'published',
-    createdAt: '2024-06-18',
-    updatedAt: '2024-06-18'
-  },
-  {
-    id: '3',
-    type: 'checkpoint',
-    title: 'Sales Techniques Assessment',
-    status: 'draft',
-    createdAt: '2024-06-22',
-    updatedAt: '2024-06-25'
-  }
-];
-
 interface ContentAuthoringProps {
-  onNavigateToAssignment?: () => void;
-  editingArticle?: any;
-  onClearEditingArticle?: () => void;
+  onNavigateToLibrary?: () => void;
+  currentRole?: string;
 }
 
-export function ContentAuthoring({ onNavigateToAssignment, editingArticle, onClearEditingArticle }: ContentAuthoringProps) {
+export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAuthoringProps) {
   const [selectedType, setSelectedType] = useState<ContentType>(null);
-  const [savedContent, setSavedContent] = useState<SavedContent[]>(mockSavedContent);
-  const [editingContent, setEditingContent] = useState<SavedContent | null>(null);
+  const [editingTrack, setEditingTrack] = useState<any>(null);
+  const [draftTracks, setDraftTracks] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set(['article', 'video', 'story', 'checkpoint']));
 
-  // If editingArticle is passed from Knowledge Base, automatically open the editor
+  const isSuperAdmin = currentRole === 'Trike Super Admin';
+
   useEffect(() => {
-    if (editingArticle) {
-      setSelectedType('article');
+    loadDraftTracks();
+  }, []);
+
+  const loadDraftTracks = async () => {
+    setIsLoading(true);
+    try {
+      const allTracks = await crud.getTracks();
+      // Filter to only show draft tracks
+      const drafts = allTracks.filter((track: any) => track.status === 'draft');
+      setDraftTracks(drafts);
+    } catch (error: any) {
+      console.error('Error loading draft tracks:', error);
+      toast.error('Failed to load draft tracks');
+    } finally {
+      setIsLoading(false);
     }
-  }, [editingArticle]);
+  };
 
   const handleCreateNew = (type: ContentType) => {
     setSelectedType(type);
-    setEditingContent(null);
+    setEditingTrack(null);
   };
 
   const handleClose = () => {
     setSelectedType(null);
-    setEditingContent(null);
+    setEditingTrack(null);
+    loadDraftTracks(); // Reload drafts when closing editor
   };
 
-  const handleSave = (content: any, publish: boolean) => {
-    // In a real app, this would save to the backend
-    const newContent: SavedContent = {
-      id: Date.now().toString(),
-      type: selectedType as any,
-      title: content.title || 'Untitled',
-      status: publish ? 'published' : 'draft',
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0]
-    };
-    
-    setSavedContent(prev => [newContent, ...prev]);
-    setSelectedType(null);
+  const handleEditTrack = (track: any) => {
+    setEditingTrack(track);
+    setSelectedType(track.type);
   };
 
-  const handlePublishAndAssign = (content: any) => {
-    handleSave(content, true);
-    // Navigate to assignment flow
-    if (onNavigateToAssignment) {
-      onNavigateToAssignment();
+  const handlePublishTrack = async (trackId: string) => {
+    try {
+      await crud.updateTrack({ id: trackId, status: 'published' });
+      toast.success('Track published successfully!');
+      loadDraftTracks();
+    } catch (error: any) {
+      console.error('Error publishing track:', error);
+      toast.error('Failed to publish track');
     }
+  };
+
+  const handleDeleteTrack = async (trackId: string) => {
+    if (!confirm('Are you sure you want to delete this draft?')) {
+      return;
+    }
+
+    try {
+      await crud.deleteTrack(trackId);
+      toast.success('Draft deleted successfully');
+      loadDraftTracks();
+    } catch (error: any) {
+      console.error('Error deleting track:', error);
+      toast.error('Failed to delete draft');
+    }
+  };
+
+  const toggleTypeFilter = (type: string) => {
+    const newFilters = new Set(typeFilters);
+    if (newFilters.has(type)) {
+      newFilters.delete(type);
+    } else {
+      newFilters.add(type);
+    }
+    setTypeFilters(newFilters);
   };
 
   const getContentTypeInfo = (type: string) => {
     return contentTypes.find(ct => ct.id === type);
   };
 
-  // If editing a specific content type
-  if (selectedType) {
-    const commonProps = {
-      onClose: handleClose,
-      onSave: handleSave,
-      onPublishAndAssign: handlePublishAndAssign,
-      initialData: editingArticle || editingContent
+  // Filter drafts based on search and type filters
+  const filteredDrafts = draftTracks.filter((track) => {
+    const matchesSearch = track.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = typeFilters.has(track.type);
+    return matchesSearch && matchesType;
+  });
+
+  // If editing a specific track
+  if (editingTrack) {
+    const handleUpdate = async () => {
+      // Reload the track data
+      try {
+        const updatedTrack = await crud.getTrackById(editingTrack.id);
+        setEditingTrack(updatedTrack);
+        loadDraftTracks(); // Also reload the drafts list
+      } catch (error) {
+        console.error('Error reloading track:', error);
+      }
     };
 
+    if (editingTrack.type === 'article') {
+      return (
+        <ArticleDetailEdit
+          track={editingTrack}
+          onBack={handleClose}
+          onUpdate={handleUpdate}
+          isSuperAdminAuthenticated={isSuperAdmin}
+          isNewContent={false}
+        />
+      );
+    } else if (editingTrack.type === 'video') {
+      return (
+        <TrackDetailEdit
+          track={editingTrack}
+          onBack={handleClose}
+          onUpdate={handleUpdate}
+          isSuperAdminAuthenticated={isSuperAdmin}
+          isNewContent={false}
+        />
+      );
+    } else if (editingTrack.type === 'story') {
+      return (
+        <StoryEditor
+          track={editingTrack}
+          onBack={handleClose}
+          onUpdate={handleUpdate}
+          currentRole={currentRole}
+          isSuperAdminAuthenticated={isSuperAdmin}
+        />
+      );
+    } else if (editingTrack.type === 'checkpoint') {
+      return (
+        <CheckpointEditor
+          onClose={handleClose}
+          trackId={editingTrack.id}
+          isNewContent={false}
+          currentRole={currentRole}
+        />
+      );
+    }
+  }
+
+  // If creating new content
+  if (selectedType) {
     switch (selectedType) {
       case 'article':
-        return <ArticleEditorNew {...commonProps} />;
+        return (
+          <ContentCreationWrapper
+            contentType="article"
+            onBack={handleClose}
+            isSuperAdminAuthenticated={isSuperAdmin}
+          />
+        );
       case 'video':
-        return <VideoEditor {...commonProps} />;
+        return (
+          <ContentCreationWrapper
+            contentType="video"
+            onBack={handleClose}
+            isSuperAdminAuthenticated={isSuperAdmin}
+          />
+        );
       case 'story':
-        return <StoryEditor {...commonProps} />;
+        return (
+          <StoryEditor
+            onClose={handleClose}
+            isNewContent={true}
+            currentRole={currentRole}
+            isSuperAdminAuthenticated={isSuperAdmin}
+          />
+        );
       case 'checkpoint':
-        return <CheckpointEditor {...commonProps} />;
+        return (
+          <CheckpointEditor
+            onClose={handleClose}
+            isNewContent={true}
+            currentRole={currentRole}
+          />
+        );
       default:
         return null;
     }
@@ -209,7 +299,7 @@ export function ContentAuthoring({ onNavigateToAssignment, editingArticle, onCle
                     </div>
                     <Button size="sm" className="w-full bg-brand-gradient text-white shadow-brand">
                       <Plus className="h-4 w-4 mr-2" />
-                      Create {type.name}
+                      {type.id === 'checkpoint' ? 'Checkpoint' : `Create ${type.name}`}
                     </Button>
                   </div>
                 </CardContent>
@@ -219,36 +309,87 @@ export function ContentAuthoring({ onNavigateToAssignment, editingArticle, onCle
         </div>
       </div>
 
-      {/* Saved Content */}
+      {/* Track Drafts */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Recent Content</h2>
-          <Button variant="outline" size="sm">
-            View All
+          <h2 className="text-lg font-semibold text-foreground">Track Drafts</h2>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={onNavigateToLibrary}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            View Published
           </Button>
+        </div>
+
+        {/* Search and Filter Bar */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search drafts..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Filter className="h-4 w-4 mr-2" />
+                Filter by Type
+                {typeFilters.size < contentTypes.length && (
+                  <Badge variant="secondary" className="ml-2">
+                    {typeFilters.size}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {contentTypes.map((type) => (
+                <DropdownMenuCheckboxItem
+                  key={type.id}
+                  checked={typeFilters.has(type.id)}
+                  onCheckedChange={() => toggleTypeFilter(type.id)}
+                >
+                  {type.name}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <Card>
           <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {savedContent.length === 0 ? (
-                <div className="p-12 text-center">
-                  <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No content created yet</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Get started by creating your first piece of content above
-                  </p>
-                </div>
-              ) : (
-                savedContent.map((content) => {
-                  const typeInfo = getContentTypeInfo(content.type);
+            {isLoading ? (
+              <div className="p-12 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+                <p className="text-muted-foreground">Loading drafts...</p>
+              </div>
+            ) : filteredDrafts.length === 0 ? (
+              <div className="p-12 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">
+                  {searchQuery || typeFilters.size < contentTypes.length
+                    ? 'No drafts match your filters'
+                    : 'No drafts yet'}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Get started by creating your first piece of content above
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {filteredDrafts.map((track) => {
+                  const typeInfo = getContentTypeInfo(track.type);
                   if (!typeInfo) return null;
                   
                   const Icon = typeInfo.icon;
                   
                   return (
                     <div 
-                      key={content.id}
+                      key={track.id}
                       className="p-4 hover:bg-accent/50 transition-colors"
                     >
                       <div className="flex items-center justify-between">
@@ -258,60 +399,63 @@ export function ContentAuthoring({ onNavigateToAssignment, editingArticle, onCle
                           </div>
                           <div>
                             <div className="flex items-center space-x-2">
-                              <h3 className="font-semibold text-foreground">{content.title}</h3>
+                              <h3 className="font-semibold text-foreground">{track.title}</h3>
                               <Badge 
                                 variant="outline"
-                                className={content.status === 'published' 
-                                  ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400'
-                                  : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                }
+                                className="bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
                               >
-                                {content.status}
+                                Draft
                               </Badge>
                             </div>
                             <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-1">
-                              <span className="capitalize">{content.type}</span>
-                              <span>•</span>
-                              <span>Created {content.createdAt}</span>
-                              <span>•</span>
-                              <span>Updated {content.updatedAt}</span>
+                              <span className="capitalize">{track.type}</span>
+                              {track.created_at && (
+                                <>
+                                  <span>•</span>
+                                  <span>Created {new Date(track.created_at).toLocaleDateString()}</span>
+                                </>
+                              )}
+                              {track.updated_at && (
+                                <>
+                                  <span>•</span>
+                                  <span>Updated {new Date(track.updated_at).toLocaleDateString()}</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
 
                         <div className="flex items-center space-x-2">
-                          <Button variant="outline" size="sm">
-                            <Eye className="h-4 w-4 mr-2" />
-                            Preview
-                          </Button>
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => {
-                              setEditingContent(content);
-                              setSelectedType(content.type);
-                            }}
+                            onClick={() => handleEditTrack(track)}
                           >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </Button>
-                          {content.status === 'published' && (
-                            <Button 
-                              size="sm" 
-                              className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
-                              onClick={() => onNavigateToAssignment?.()}
-                            >
-                              <Play className="h-4 w-4 mr-2" />
-                              Assign
-                            </Button>
-                          )}
+                          <Button 
+                            size="sm" 
+                            className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
+                            onClick={() => handlePublishTrack(track.id)}
+                          >
+                            <Send className="h-4 w-4 mr-2" />
+                            Publish
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteTrack(track.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         </div>
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

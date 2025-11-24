@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { CertificationTracker } from './CertificationTracker';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface ComplianceDashboardProps {
   currentRole: UserRole;

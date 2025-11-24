@@ -87,13 +87,10 @@ export function FilterDialog({
             <div className="p-2 bg-primary/10 rounded-lg">
               <Icon className="h-4 w-4 text-primary" />
             </div>
-            <div>
-              <span>{property.label}</span>
-              <p className="text-sm text-muted-foreground font-normal">{property.description}</p>
-            </div>
+            <span>{title}</span>
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            Filter options for {property.label}
+          <DialogDescription>
+            Filter and refine your search results
           </DialogDescription>
         </DialogHeader>
 

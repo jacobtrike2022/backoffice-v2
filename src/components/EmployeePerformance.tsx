@@ -339,16 +339,8 @@ export function EmployeePerformance() {
               <Bell className="h-5 w-5 text-primary" />
               Send Reminder to {selectedEmployee?.name}
             </DialogTitle>
-            <DialogDescription className="pt-2">
-              {selectedEmployee?.overdue && selectedEmployee.overdue > 0 ? (
-                <span className="text-red-600 font-medium">
-                  This employee has {selectedEmployee.overdue} overdue assignment{selectedEmployee.overdue > 1 ? 's' : ''}.
-                </span>
-              ) : (
-                <span>
-                  This employee has {selectedEmployee?.pending} pending assignment{selectedEmployee?.pending !== 1 ? 's' : ''}.
-                </span>
-              )}
+            <DialogDescription>
+              Choose how to send this training reminder
             </DialogDescription>
           </DialogHeader>
           

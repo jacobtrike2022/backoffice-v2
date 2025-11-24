@@ -260,7 +260,7 @@ export async function submitFormResponse(
 
   await logActivity({
     user_id: userProfile?.data?.id || userProfile?.id,
-    activity_type: 'form-submission',
+    action: 'form-submission',
     entity_type: 'form',
     entity_id: formId,
     description: `Submitted form "${form?.title}"`

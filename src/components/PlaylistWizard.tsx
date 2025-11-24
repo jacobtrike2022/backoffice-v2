@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -45,6 +45,10 @@ import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
+import { useCurrentUser } from '../lib/hooks/useSupabase';
+import * as crud from '../lib/crud';
+import { toast } from 'sonner@2.0.3';
+import { supabase } from '../lib/supabase';
 
 interface PlaylistWizardProps {
   onClose: () => void;
@@ -196,6 +200,59 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
     }
   };
 
+  const { user } = useCurrentUser();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [albums, setAlbums] = useState<any[]>([]);
+  const [tracks, setTracks] = useState<any[]>([]);
+  const [loadingContent, setLoadingContent] = useState(false);
+
+  // Fetch real employees from database
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      if (!user?.organization_id) return;
+      
+      setLoadingEmployees(true);
+      try {
+        const data = await crud.getUsers({ status: 'active' });
+        setEmployees(data || []);
+      } catch (error) {
+        console.error('Error fetching employees:', error);
+        toast.error('Failed to load employees');
+      } finally {
+        setLoadingEmployees(false);
+      }
+    };
+
+    fetchEmployees();
+  }, [user?.organization_id]);
+
+  // Fetch real albums and tracks from database
+  useEffect(() => {
+    const fetchContent = async () => {
+      if (!user?.organization_id) return;
+      
+      setLoadingContent(true);
+      try {
+        // Fetch albums
+        const albumsData = await crud.getAlbums();
+        setAlbums(albumsData || []);
+
+        // Fetch tracks
+        const tracksData = await crud.getTracks();
+        setTracks(tracksData || []);
+      } catch (error) {
+        console.error('Error fetching content:', error);
+        toast.error('Failed to load content');
+      } finally {
+        setLoadingContent(false);
+      }
+    };
+
+    fetchContent();
+  }, [user?.organization_id]);
+
   const addTriggerCondition = () => {
     setTriggerConditions([...triggerConditions, { field: 'role', operator: 'equals', value: '' }]);
   };
@@ -208,6 +265,135 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
     const updated = [...triggerConditions];
     updated[index] = { ...updated[index], [field]: value };
     setTriggerConditions(updated);
+  };
+
+  const handlePublishPlaylist = async () => {
+    if (!user || isSubmitting) return;
+
+    setIsSubmitting(true);
+
+    try {
+      // Collect album and track IDs from all stages
+      const allAlbumIds: string[] = [];
+      const allTrackIds: string[] = [];
+
+      stages.forEach(stage => {
+        stage.albums.forEach((album: any) => {
+          if (album.id && !allAlbumIds.includes(album.id)) {
+            allAlbumIds.push(album.id);
+          }
+        });
+        stage.tracks.forEach((track: any) => {
+          if (track.id && !allTrackIds.includes(track.id)) {
+            allTrackIds.push(track.id);
+          }
+        });
+      });
+
+      // Build trigger rules for auto-assignment
+      let triggerRules = null;
+      if (assignmentType === 'auto') {
+        triggerRules = {};
+        triggerConditions.forEach(condition => {
+          if (condition.value) {
+            if (condition.field === 'role') {
+              triggerRules.role_ids = triggerRules.role_ids || [];
+              // Note: This would need to map role names to role IDs from the database
+              // For now, we'll store the role name
+              triggerRules.role_ids.push(condition.value);
+            } else if (condition.field === 'hire_date') {
+              triggerRules.hire_days = parseInt(condition.value) || 7;
+            } else if (condition.field === 'location') {
+              triggerRules.store_ids = triggerRules.store_ids || [];
+              triggerRules.store_ids.push(condition.value);
+            } else if (condition.field === 'department') {
+              triggerRules.department_ids = triggerRules.department_ids || [];
+              triggerRules.department_ids.push(condition.value);
+            }
+          }
+        });
+      }
+
+      // Build release schedule for progressive playlists
+      let releaseSchedule = null;
+      const releaseType = stages.length > 1 && stages.some(s => s.unlockType !== 'immediate') 
+        ? 'progressive' 
+        : 'immediate';
+
+      if (releaseType === 'progressive') {
+        releaseSchedule = {};
+        stages.forEach((stage, index) => {
+          releaseSchedule[`stage${index + 1}`] = stage.unlockDays || index;
+        });
+      }
+
+      // 1. Create the playlist
+      console.log('📝 Creating playlist:', {
+        title: playlistName,
+        description: playlistDescription,
+        type: assignmentType,
+        album_count: allAlbumIds.length,
+        track_count: allTrackIds.length,
+      });
+
+      const playlist = await crud.createPlaylist({
+        title: playlistName,
+        description: playlistDescription,
+        type: assignmentType,
+        trigger_rules: triggerRules,
+        release_type: releaseType,
+        release_schedule: releaseSchedule,
+        album_ids: allAlbumIds,
+        track_ids: allTrackIds,
+      });
+
+      console.log('✅ Playlist created:', playlist.id);
+
+      // 2. If manual assignment, create assignments for selected employees
+      if (assignmentType === 'manual' && selectedEmployees.length > 0) {
+        console.log(`📋 Creating ${selectedEmployees.length} assignments...`);
+
+        // Calculate due date based on completion deadline
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + completionDeadlineDays);
+
+        const assignmentRecords = selectedEmployees.map(userId => ({
+          organization_id: user.organization_id,
+          user_id: userId,
+          playlist_id: playlist.id,
+          status: 'assigned',
+          progress_percent: 0,
+          due_date: dueDate.toISOString(),
+        }));
+
+        const { error: assignmentError } = await supabase
+          .from('assignments')
+          .insert(assignmentRecords);
+
+        if (assignmentError) {
+          console.error('Assignment error:', assignmentError);
+          throw assignmentError;
+        }
+
+        console.log('✅ All assignments created');
+      }
+
+      toast.success(`Playlist "${playlistName}" published successfully!`, {
+        description: assignmentType === 'manual' 
+          ? `Assigned to ${selectedEmployees.length} employees` 
+          : 'Auto-assignment configured',
+      });
+
+      // Close the wizard
+      onClose();
+    } catch (error) {
+      console.error('❌ Error publishing playlist:', error);
+      toast.error('Failed to publish playlist', {
+        description: error instanceof Error ? error.message : 'Please try again',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getFieldOptions = (field: string) => {
@@ -313,10 +499,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
   };
 
   const getFilteredEmployees = () => {
-    return MOCK_EMPLOYEES.filter(emp => {
-      const matchesSearch = emp.name.toLowerCase().includes(employeeSearchTerm.toLowerCase());
-      const matchesRole = employeeFilterRole === 'all' || emp.role === employeeFilterRole;
-      const matchesLocation = employeeFilterLocation === 'all' || emp.location === employeeFilterLocation;
+    return employees.filter(emp => {
+      const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
+      const matchesSearch = fullName.includes(employeeSearchTerm.toLowerCase()) || 
+                            emp.email?.toLowerCase().includes(employeeSearchTerm.toLowerCase());
+      const matchesRole = employeeFilterRole === 'all' || emp.role?.name === employeeFilterRole;
+      const matchesLocation = employeeFilterLocation === 'all' || emp.store?.name === employeeFilterLocation;
       return matchesSearch && matchesRole && matchesLocation;
     });
   };
@@ -330,18 +518,18 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
   };
 
   const getFilteredAlbums = () => {
-    if (!contentSearchTerm) return AVAILABLE_ALBUMS;
-    return AVAILABLE_ALBUMS.filter(album =>
-      album.title.toLowerCase().includes(contentSearchTerm.toLowerCase()) ||
-      album.category.toLowerCase().includes(contentSearchTerm.toLowerCase())
+    if (!contentSearchTerm) return albums;
+    return albums.filter(album =>
+      album.title?.toLowerCase().includes(contentSearchTerm.toLowerCase()) ||
+      album.description?.toLowerCase().includes(contentSearchTerm.toLowerCase())
     );
   };
 
   const getFilteredTracks = () => {
-    if (!contentSearchTerm) return AVAILABLE_TRACKS;
-    return AVAILABLE_TRACKS.filter(track =>
-      track.title.toLowerCase().includes(contentSearchTerm.toLowerCase()) ||
-      track.type.toLowerCase().includes(contentSearchTerm.toLowerCase())
+    if (!contentSearchTerm) return tracks;
+    return tracks.filter(track =>
+      track.title?.toLowerCase().includes(contentSearchTerm.toLowerCase()) ||
+      track.type?.toLowerCase().includes(contentSearchTerm.toLowerCase())
     );
   };
 
@@ -463,10 +651,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {selectedEmployees.map(empId => {
-                          const emp = MOCK_EMPLOYEES.find(e => e.id === empId);
+                          const emp = employees.find(e => e.id === empId);
                           return emp ? (
                             <Badge key={empId} variant="secondary" className="bg-brand-gradient text-white">
-                              {emp.name}
+                              {emp.first_name} {emp.last_name}
                               <X 
                                 className="h-3 w-3 ml-1 cursor-pointer" 
                                 onClick={() => toggleEmployee(empId)}
@@ -480,24 +668,34 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
 
                   {/* Employee List */}
                   <div className="border rounded-lg max-h-[400px] overflow-y-auto">
-                    {getFilteredEmployees().map(emp => (
-                      <div
-                        key={emp.id}
-                        className="flex items-center space-x-3 p-3 border-b last:border-b-0 hover:bg-muted/50 cursor-pointer"
-                        onClick={() => toggleEmployee(emp.id)}
-                      >
-                        <Checkbox
-                          checked={selectedEmployees.includes(emp.id)}
-                          onCheckedChange={() => toggleEmployee(emp.id)}
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{emp.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {emp.role} • {emp.location}
-                          </p>
-                        </div>
+                    {loadingEmployees ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        Loading employees...
                       </div>
-                    ))}
+                    ) : getFilteredEmployees().length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        No employees found matching your filters
+                      </div>
+                    ) : (
+                      getFilteredEmployees().map(emp => (
+                        <div
+                          key={emp.id}
+                          className="flex items-center space-x-3 p-3 border-b last:border-b-0 hover:bg-muted/50 cursor-pointer"
+                          onClick={() => toggleEmployee(emp.id)}
+                        >
+                          <Checkbox
+                            checked={selectedEmployees.includes(emp.id)}
+                            onCheckedChange={() => toggleEmployee(emp.id)}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{emp.first_name} {emp.last_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {emp.role?.name || 'No role'} • {emp.store?.name || 'No store'}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1743,11 +1941,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
               ) : (
                 <Button 
                   className="bg-brand-gradient"
-                  onClick={onClose}
-                  disabled={!canProceed}
+                  onClick={handlePublishPlaylist}
+                  disabled={!canProceed || isSubmitting}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Publish Playlist
+                  {isSubmitting ? 'Publishing...' : 'Publish Playlist'}
                 </Button>
               )}
             </div>

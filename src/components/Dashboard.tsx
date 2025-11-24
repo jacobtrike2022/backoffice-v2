@@ -28,8 +28,9 @@ import { toast } from 'sonner@2.0.3';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Line, BarChart, Bar } from 'recharts';
 import { useCurrentUser, useAssignments } from '../lib/hooks/useSupabase';
 import { getActivityAnalytics, getRecentActivity } from '../lib/crud';
+import { getTopPerformingStores } from '../lib/crud/stores';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface DashboardProps {
   currentRole: UserRole;
@@ -37,15 +38,18 @@ interface DashboardProps {
   onViewReports?: () => void;
   onNavigateToPlaylists?: () => void;
   onNavigateToUnits?: () => void;
+  onNavigateToStore?: (storeId: string) => void;
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits }: DashboardProps) {
+export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist }: DashboardProps) {
   const [activeView, setActiveView] = useState('overview');
   const { user, loading: userLoading } = useCurrentUser();
-  const { assignments, loading: assignmentsLoading } = useAssignments({ status: 'active' });
+  const { assignments, loading: assignmentsLoading } = useAssignments(); // Remove status filter to show all assignments
   const [activityTrendData, setActivityTrendData] = useState<any[]>([]);
   const [engagementData, setEngagementData] = useState<any[]>([]);
   const [topPerformers, setTopPerformers] = useState<any[]>([]);
+  const [engagementScore, setEngagementScore] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -71,13 +75,16 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
         const dailyEngagement = processEngagementData(analytics.dailyCounts);
         setEngagementData(dailyEngagement);
 
-        // Fetch recent activity for top performers (would need store aggregation)
-        // For now using placeholder until we add store performance queries
-        setTopPerformers([
-          { name: 'Store B - North District', score: 95, rank: 1 },
-          { name: 'Store E - West District', score: 92, rank: 2 },
-          { name: 'Store D - East District', score: 88, rank: 3 }
-        ]);
+        // Calculate engagement score (average activity per day)
+        const totalDays = Object.keys(analytics.dailyCounts).length || 1;
+        const avgDailyActivity = analytics.totalActivities / totalDays;
+        const score = Math.min(100, Math.round(avgDailyActivity * 10)); // Scale to 0-100
+        setEngagementScore(score);
+
+        // Fetch top performing units
+        const topUnits = await getTopPerformingStores(user.organization_id, 3);
+        console.log('[Dashboard] Top performing units:', topUnits);
+        setTopPerformers(topUnits);
 
         setLoading(false);
       } catch (error) {
@@ -169,6 +176,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
     }
   };
 
+  // Helper to check if role is admin-level
+  const isAdminRole = currentRole === 'admin' || currentRole === 'trike-super-admin';
+
   return (
     <div className="space-y-6 w-full max-w-full overflow-hidden">
       {/* Header */}
@@ -176,14 +186,14 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
         <div>
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {currentRole === 'admin' && 'System overview and administration'}
+            {isAdminRole && 'System overview and administration'}
             {currentRole === 'district-manager' && 'District performance and management'}
             {currentRole === 'store-manager' && 'Store operations and team management'}
           </p>
         </div>
         
         <div className="flex items-center gap-2 flex-wrap">
-          {currentRole === 'admin' && (
+          {isAdminRole && (
             <Button 
               size="sm"
               className="hero-primary shadow-brand"
@@ -201,7 +211,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
       </div>
 
       {/* Navigation Tabs for Admin */}
-      {currentRole === 'admin' && (
+      {isAdminRole && (
         <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
           <TabsList className="grid w-full max-w-2xl grid-cols-3 bg-accent/50">
             <TabsTrigger value="overview" className="text-sm">
@@ -300,7 +310,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                 ) : (
                   <>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
-                      <div className="text-3xl font-bold">92<span className="text-lg text-muted-foreground">/100</span></div>
+                      <div className="text-3xl font-bold">{engagementScore.toFixed(0)}<span className="text-lg text-muted-foreground">/100</span></div>
                       <div className="text-sm text-muted-foreground">Team engagement trending upward</div>
                     </div>
                     <ResponsiveContainer width="100%" height={120}>
@@ -340,7 +350,15 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                 ) : (
                   <div className="space-y-3">
                     {assignments.map((assignment) => (
-                      <div key={assignment.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-accent/20 rounded-lg border border-border/50 hover:border-primary/50 transition-colors">
+                      <div 
+                        key={assignment.id} 
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-accent/20 rounded-lg border border-border/50 hover:border-primary/50 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (onNavigateToPlaylist) {
+                            onNavigateToPlaylist(assignment.playlistId);
+                          }
+                        }}
+                      >
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 className="font-medium text-sm truncate">{assignment.title}</h4>
@@ -387,6 +405,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                   <Award className="h-4 w-4 text-primary" />
                   Top Performing Units
                 </CardTitle>
+                <p className="text-xs text-muted-foreground">Stores ranked by average employee progress</p>
               </CardHeader>
               <CardContent className="pb-4">
                 {loading ? (
@@ -417,7 +436,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
             <ActivityFeed currentRole={currentRole} onNavigateToUnits={onNavigateToUnits} />
 
             {/* Unit Performance - Full Width */}
-            <UnitPerformanceTable currentRole={currentRole} onNavigateToUnits={onNavigateToUnits} />
+            <UnitPerformanceTable currentRole={currentRole} onNavigateToUnits={onNavigateToUnits} onNavigateToStore={onNavigateToStore} />
           </TabsContent>
           
           <TabsContent value="analytics" className="space-y-6 mt-6">
@@ -434,7 +453,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
       )}
 
       {/* Standard view for non-admin roles */}
-      {currentRole !== 'admin' && (
+      {!isAdminRole && (
         <div className="space-y-6 w-full">
           {/* Hero Metrics */}
           <HeroMetrics currentRole={currentRole} />

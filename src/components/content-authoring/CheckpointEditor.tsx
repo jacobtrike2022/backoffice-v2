@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,18 +7,26 @@ import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { TagSelectorDialog } from '../TagSelectorDialog';
 import { 
   ArrowLeft, 
   Save, 
   Eye,
-  Send,
+  Upload,
+  Image as ImageIcon,
   X,
   Plus,
   CheckCircle,
   GripVertical,
-  Trash2
+  Trash2,
+  Edit,
+  Calendar,
+  Clock,
+  Tag as TagIcon,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import * as crud from '../../lib/crud';
 
 interface Answer {
   id: string;
@@ -34,17 +42,29 @@ interface Question {
 }
 
 interface CheckpointEditorProps {
-  onClose: () => void;
-  onSave: (content: any, publish: boolean) => void;
-  onPublishAndAssign: (content: any) => void;
-  initialData?: any;
+  onClose?: () => void;
+  trackId?: string; // If editing existing checkpoint
+  track?: any; // Direct track object for content library view
+  isNewContent?: boolean;
+  currentRole?: string;
+  onBack?: () => void; // For content library view
+  onUpdate?: () => void; // For content library view
+  isSuperAdminAuthenticated?: boolean;
 }
 
-export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialData }: CheckpointEditorProps) {
-  const [title, setTitle] = useState(initialData?.title || '');
+export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, isSuperAdminAuthenticated }: CheckpointEditorProps) {
+  const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [existingTrack, setExistingTrack] = useState<any>(null);
+  const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [passingScore, setPassingScore] = useState('70');
   const [timeLimit, setTimeLimit] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [questions, setQuestions] = useState<Question[]>([
     {
       id: '1',
@@ -56,6 +76,83 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
     }
   ]);
   const [showPreview, setShowPreview] = useState(false);
+
+  // Determine the current track ID - either from props or from track object
+  const currentTrackId = trackId || track?.id;
+  const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
+  const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
+  
+  // Determine which callback to use for back action
+  const handleBackClick = onBack || onClose;
+
+  // Load existing checkpoint if editing
+  useEffect(() => {
+    if (track) {
+      // Load directly from passed track object
+      setExistingTrack(track);
+      setTitle(track.title || '');
+      setDescription(track.description || '');
+      setTags(track.tags || []);
+      setThumbnailUrl(track.thumbnail_url || '');
+      
+      // Parse checkpoint data from transcript field
+      if (track.transcript) {
+        try {
+          const checkpointData = JSON.parse(track.transcript);
+          if (checkpointData.questions) {
+            setQuestions(checkpointData.questions);
+          }
+          if (checkpointData.passingScore) {
+            setPassingScore(checkpointData.passingScore.toString());
+          }
+          if (checkpointData.timeLimit) {
+            setTimeLimit(checkpointData.timeLimit.toString());
+          }
+        } catch (e) {
+          console.error('Error parsing checkpoint data:', e);
+        }
+      }
+    } else if (trackId) {
+      loadCheckpoint();
+    }
+  }, [trackId, track]);
+
+  const loadCheckpoint = async () => {
+    if (!trackId) return;
+    
+    setIsLoading(true);
+    try {
+      const track = await crud.getTrackById(trackId);
+      setExistingTrack(track);
+      setTitle(track.title || '');
+      setDescription(track.description || '');
+      setTags(track.tags || []);
+      setThumbnailUrl(track.thumbnail_url || '');
+      
+      // Parse checkpoint data from transcript field (we'll store JSON there)
+      if (track.transcript) {
+        try {
+          const checkpointData = JSON.parse(track.transcript);
+          if (checkpointData.questions) {
+            setQuestions(checkpointData.questions);
+          }
+          if (checkpointData.passingScore) {
+            setPassingScore(checkpointData.passingScore.toString());
+          }
+          if (checkpointData.timeLimit) {
+            setTimeLimit(checkpointData.timeLimit.toString());
+          }
+        } catch (e) {
+          console.error('Error parsing checkpoint data:', e);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error loading checkpoint:', error);
+      toast.error('Failed to load checkpoint');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const addQuestion = () => {
     const newQuestion: Question = {
@@ -144,16 +241,90 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
     }));
   };
 
-  const handleSaveDraft = () => {
-    const checkpointData = {
-      title,
-      description,
-      passingScore: parseInt(passingScore),
-      timeLimit,
-      questions
-    };
-    onSave(checkpointData, false);
-    toast.success('Checkpoint saved as draft');
+  const handleSaveDraft = async () => {
+    if (isSystemContent) {
+      toast.error('Cannot edit Trike Library content');
+      return;
+    }
+
+    if (!validateCheckpoint()) return;
+
+    setIsSaving(true);
+    try {
+      const checkpointData = {
+        questions,
+        passingScore: parseInt(passingScore),
+        timeLimit: timeLimit ? parseInt(timeLimit) : null
+      };
+
+      const trackData = {
+        title,
+        description,
+        type: 'checkpoint' as const,
+        transcript: JSON.stringify(checkpointData),
+        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        tags,
+        thumbnail_url: thumbnailUrl
+      };
+
+      if (currentTrackId) {
+        // Update existing checkpoint (save changes without changing status)
+        await crud.updateTrack({ id: currentTrackId, ...trackData });
+        toast.success('Changes saved!');
+        
+        // Exit edit mode and refresh data
+        setIsEditMode(false);
+        
+        // If we have onUpdate callback (from ContentLibrary), call it
+        if (onUpdate) {
+          await onUpdate();
+        } else {
+          // Otherwise reload local data
+          await loadCheckpoint();
+        }
+      } else {
+        // Create new checkpoint as draft
+        const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
+        toast.success('Checkpoint created as draft!');
+        // Close and go back to list
+        if (handleBackClick) handleBackClick();
+      }
+    } catch (error: any) {
+      console.error('Error saving checkpoint:', error);
+      toast.error('Failed to save checkpoint');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (currentTrackId) {
+      // If editing existing, reload original data and exit edit mode
+      setIsEditMode(false);
+      if (track) {
+        // Reload from track prop
+        setTitle(track.title || '');
+        setDescription(track.description || '');
+        setTags(track.tags || []);
+        setThumbnailUrl(track.thumbnail_url || '');
+        
+        if (track.transcript) {
+          try {
+            const checkpointData = JSON.parse(track.transcript);
+            if (checkpointData.questions) setQuestions(checkpointData.questions);
+            if (checkpointData.passingScore) setPassingScore(checkpointData.passingScore.toString());
+            if (checkpointData.timeLimit) setTimeLimit(checkpointData.timeLimit.toString());
+          } catch (e) {
+            console.error('Error parsing checkpoint data:', e);
+          }
+        }
+      } else {
+        loadCheckpoint();
+      }
+    } else {
+      // If creating new, go back
+      if (handleBackClick) handleBackClick();
+    }
   };
 
   const validateCheckpoint = () => {
@@ -185,20 +356,68 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
     return true;
   };
 
-  const handlePublishAndAssign = () => {
+  const handlePublish = async () => {
+    if (isSystemContent) {
+      toast.error('Cannot edit Trike Library content');
+      return;
+    }
+
     if (!validateCheckpoint()) return;
 
-    const checkpointData = {
-      title,
-      description,
-      passingScore: parseInt(passingScore),
-      timeLimit,
-      questions,
-      type: 'checkpoint'
-    };
-    onPublishAndAssign(checkpointData);
-    toast.success('Checkpoint published! Redirecting to assignment...');
+    setIsSaving(true);
+    try {
+      const checkpointData = {
+        questions,
+        passingScore: parseInt(passingScore),
+        timeLimit: timeLimit ? parseInt(timeLimit) : null
+      };
+
+      const trackData = {
+        title,
+        description,
+        type: 'checkpoint' as const,
+        transcript: JSON.stringify(checkpointData),
+        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        tags,
+        thumbnail_url: thumbnailUrl,
+        status: 'published' as const
+      };
+
+      if (trackId) {
+        // Update and publish
+        await crud.updateTrack({ id: trackId, ...trackData });
+        toast.success('Checkpoint published!');
+      } else {
+        // Create and publish
+        await crud.createTrack(trackData);
+        toast.success('Checkpoint published!');
+      }
+      
+      onClose();
+    } catch (error: any) {
+      console.error('Error publishing checkpoint:', error);
+      toast.error('Failed to publish checkpoint');
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  const handlePublishAndAssign = async () => {
+    // TODO: Implement assignment workflow
+    await handlePublish();
+    // In the future, this would redirect to the assignment wizard
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading checkpoint...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (showPreview) {
     return (
@@ -212,16 +431,10 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
             </Button>
             <h1 className="text-foreground">Checkpoint Preview</h1>
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" onClick={handleSaveDraft}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Draft
-            </Button>
-            <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
-              <Send className="h-4 w-4 mr-2" />
-              Publish & Assign
-            </Button>
-          </div>
+          <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
+            <Save className="h-4 w-4 mr-2" />
+            {isSaving ? 'Saving...' : 'Save Draft'}
+          </Button>
         </div>
 
         {/* Preview Content */}
@@ -302,30 +515,266 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
     );
   }
 
+  // View Mode (non-edit) - Display the checkpoint content for Content Library
+  if (!isEditMode && existingTrack) {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="outline" size="sm" onClick={handleBackClick}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-foreground">{title}</h1>
+                <Badge 
+                  variant="outline"
+                  className={`${
+                    existingTrack.status === 'published'
+                      ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  }`}
+                >
+                  {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                </Badge>
+                {isSystemContent && (
+                  <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
+                    <Lock className="h-3 w-3 mr-1" />
+                    Trike Library
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          {(!isSystemContent || isSuperAdmin) && (
+            <Button onClick={() => setIsEditMode(true)} className="hero-primary">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Track
+              {isSystemContent && isSuperAdmin && (
+                <Badge className="ml-2 bg-orange-100 text-orange-800">
+                  Super Admin
+                </Badge>
+              )}
+            </Button>
+          )}
+        </div>
+
+        {/* Checkpoint Display */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Content */}
+          <div className="lg:col-span-2">
+            <Card className="overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-2xl">{title}</CardTitle>
+                    {description && (
+                      <p className="text-muted-foreground mt-2">{description}</p>
+                    )}
+                  </div>
+                  <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">
+                    {questions.length} Questions
+                  </Badge>
+                </div>
+                <div className="flex items-center space-x-4 mt-4 text-sm text-muted-foreground">
+                  <span>Passing Score: {passingScore}%</span>
+                  {timeLimit && <span>• Time Limit: {timeLimit} minutes</span>}
+                </div>
+              </CardHeader>
+              <CardContent className="p-8">
+                <div className="space-y-8">
+                  {questions.map((question, qIndex) => (
+                    <div key={question.id} className="space-y-4">
+                      <div className="flex items-start space-x-3">
+                        <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
+                          Q{qIndex + 1}
+                        </Badge>
+                        <div className="flex-1">
+                          <p className="font-medium text-foreground">{question.question}</p>
+                          
+                          <div className="mt-4 space-y-2">
+                            {question.answers.map((answer, aIndex) => (
+                              <div 
+                                key={answer.id}
+                                className={`p-3 rounded-lg border-2 transition-colors ${
+                                  answer.isCorrect 
+                                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                                    : 'border-border bg-accent/30'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-3">
+                                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${
+                                    answer.isCorrect 
+                                      ? 'border-green-500 bg-green-500' 
+                                      : 'border-border'
+                                  }`}>
+                                    {answer.isCorrect && (
+                                      <CheckCircle className="h-4 w-4 text-white" />
+                                    )}
+                                  </div>
+                                  <span className={answer.isCorrect ? 'font-medium text-green-700 dark:text-green-300' : 'text-foreground'}>
+                                    {answer.text}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {question.explanation && (
+                            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded">
+                              <p className="text-sm text-blue-900 dark:text-blue-100">
+                                <span className="font-semibold">Explanation: </span>
+                                {question.explanation}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {qIndex < questions.length - 1 && <Separator />}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Publishing Status */}
+            {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Publishing Status</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Status</span>
+                    <Badge 
+                      variant="outline"
+                      className={`cursor-pointer transition-colors ${
+                        existingTrack.status === 'published'
+                          ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
+                          : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
+                      }`}
+                      onClick={async () => {
+                        const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
+                        try {
+                          await crud.updateTrack({ id: currentTrackId, status: newStatus });
+                          toast.success(`Checkpoint ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          // Update local state and call onUpdate if available
+                          setExistingTrack({ ...existingTrack, status: newStatus });
+                          if (onUpdate) {
+                            await onUpdate();
+                          }
+                        } catch (error: any) {
+                          console.error('Error updating status:', error);
+                          toast.error('Failed to update status');
+                        }
+                      }}
+                    >
+                      {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Click the status badge to {existingTrack.status === 'published' ? 'move to drafts' : 'publish'}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Checkpoint Stats */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Checkpoint Stats</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Total Questions</p>
+                  <p className="text-2xl font-bold text-foreground">{questions.length}</p>
+                </div>
+                <Separator />
+                <div>
+                  <p className="text-muted-foreground">Passing Score</p>
+                  <p className="font-medium text-foreground">{passingScore}%</p>
+                </div>
+                {timeLimit && (
+                  <>
+                    <Separator />
+                    <div>
+                      <p className="text-muted-foreground">Time Limit</p>
+                      <p className="font-medium text-foreground">{timeLimit} minutes</p>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Tags */}
+            {tags.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center">
+                    <TagIcon className="h-4 w-4 mr-2" />
+                    Tags
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map((tag, index) => (
+                      <Badge key={index} variant="secondary">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button variant="outline" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <h1 className="text-foreground">Checkpoint Editor</h1>
+          <h1 className="text-foreground">
+            {currentTrackId ? title || 'Edit Checkpoint' : 'Create New Checkpoint'}
+          </h1>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={() => setShowPreview(true)}>
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-          <Button variant="outline" onClick={handleSaveDraft}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Draft
-          </Button>
-          <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
-            <Send className="h-4 w-4 mr-2" />
-            Publish & Assign
-          </Button>
+          {currentTrackId && (
+            <>
+              <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleSaveDraft} disabled={isSaving} className="hero-primary">
+                <Save className="h-4 w-4 mr-2" />
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </>
+          )}
+          {!currentTrackId && (
+            <>
+              <Button variant="outline" onClick={() => setShowPreview(true)}>
+                <Eye className="h-4 w-4 mr-2" />
+                Preview
+              </Button>
+              <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
+                <Save className="h-4 w-4 mr-2" />
+                {isSaving ? 'Saving...' : 'Save Draft'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -501,9 +950,52 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Publishing Status */}
+          {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Publishing Status</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  <Badge 
+                    variant="outline"
+                    className={`cursor-pointer transition-colors ${
+                      existingTrack.status === 'published'
+                        ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
+                        : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
+                    }`}
+                    onClick={async () => {
+                      const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
+                      try {
+                        await crud.updateTrack({ id: currentTrackId, status: newStatus });
+                        toast.success(`Checkpoint ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                        // Update local state and call onUpdate if available
+                        setExistingTrack({ ...existingTrack, status: newStatus });
+                        if (onUpdate) {
+                          await onUpdate();
+                        }
+                      } catch (error: any) {
+                        console.error('Error updating status:', error);
+                        toast.error('Failed to update status');
+                      }
+                    }}
+                  >
+                    {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Click the status badge to {existingTrack.status === 'published' ? 'move to drafts' : 'publish'}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Checkpoint Stats */}
           <Card>
             <CardHeader>
-              <CardTitle>Checkpoint Stats</CardTitle>
+              <CardTitle className="text-lg">Checkpoint Stats</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
@@ -515,19 +1007,53 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
                 <p className="text-muted-foreground">Passing Score</p>
                 <p className="font-medium text-foreground">{passingScore}%</p>
               </div>
-              <Separator />
-              <div>
-                <p className="text-muted-foreground">Status</p>
-                <p className="font-medium text-foreground">Draft</p>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-muted-foreground">Content Type</p>
-                <p className="font-medium text-foreground">Checkpoint (Quiz)</p>
-              </div>
+              {timeLimit && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-muted-foreground">Time Limit</p>
+                    <p className="font-medium text-foreground">{timeLimit} minutes</p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
+          {/* Tags */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Tags</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {tags.map((tag, index) => (
+                  <Badge
+                    key={index}
+                    variant="secondary"
+                    className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={() => setTags(tags.filter((_, i) => i !== index))}
+                  >
+                    {tag}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+                {tags.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No tags added</p>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsTagSelectorOpen(true)}
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tags
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Quick Tips */}
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardHeader>
               <CardTitle className="text-sm text-blue-900 dark:text-blue-100">Quick Tips</CardTitle>
@@ -536,40 +1062,19 @@ export function CheckpointEditor({ onClose, onSave, onPublishAndAssign, initialD
               <p>• Each question must have at least 2 answer options</p>
               <p>• Mark the correct answer using the radio button</p>
               <p>• Add explanations to help learners understand</p>
-              <p>• Drag questions to reorder them</p>
               <p>• Preview before publishing</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Publishing</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="w-full"
-                onClick={() => {
-                  if (validateCheckpoint()) {
-                    onSave({ title, description, passingScore, timeLimit, questions }, true);
-                    toast.success('Checkpoint published!');
-                  }
-                }}
-              >
-                Publish Now
-              </Button>
-              <Button 
-                size="sm" 
-                className="w-full bg-brand-gradient text-white shadow-brand"
-                onClick={handlePublishAndAssign}
-              >
-                Publish & Assign to Users
-              </Button>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Tag Selector Dialog */}
+      <TagSelectorDialog
+        isOpen={isTagSelectorOpen}
+        onClose={() => setIsTagSelectorOpen(false)}
+        selectedTags={tags}
+        onTagsChange={setTags}
+      />
     </div>
   );
 }

@@ -20,7 +20,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
  */
 export async function getCurrentUserOrgId(): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  if (!user) {
+    // DEVELOPMENT: Return demo org ID when not authenticated
+    // TODO: Remove this in production and require proper auth
+    return '10000000-0000-0000-0000-000000000001';
+  }
 
   const { data } = await supabase
     .from('users')
@@ -36,15 +40,35 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
  */
 export async function getCurrentUserProfile() {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  if (!user) {
+    // DEVELOPMENT: Return demo admin user when not authenticated
+    // TODO: Remove this in production and require proper auth
+    console.log('No authenticated user, fetching demo admin user...');
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        role:roles(*),
+        store:stores!users_store_id_fkey(*, district:districts(*))
+      `)
+      .eq('id', '50000000-0000-0000-0000-000000000001') // Sarah Admin
+      .single();
+    
+    if (error) {
+      console.error('Error fetching demo user profile:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      return null;
+    }
+    console.log('Demo user loaded successfully:', data);
+    return data;
+  }
 
   const { data, error } = await supabase
     .from('users')
     .select(`
       *,
       role:roles(*),
-      store:stores(*),
-      district:districts(*)
+      store:stores!users_store_id_fkey(*, district:districts(*))
     `)
     .eq('auth_user_id', user.id)
     .single();

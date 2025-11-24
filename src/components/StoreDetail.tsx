@@ -38,7 +38,7 @@ import {
 import { Reports } from './Reports';
 import { Info } from 'lucide-react';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface Store {
   id: string;

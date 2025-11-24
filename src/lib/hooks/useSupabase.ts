@@ -3,8 +3,11 @@
 // ============================================================================
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../supabase';
+import { supabase, getCurrentUserProfile } from '../supabase';
 import * as crud from '../crud';
+
+// Debug: Check if function is imported correctly
+console.log('🔍 Hook module loaded. getCurrentUserProfile is:', typeof getCurrentUserProfile);
 
 /**
  * Hook to get current user profile
@@ -17,9 +20,13 @@ export function useCurrentUser() {
   useEffect(() => {
     async function fetchUser() {
       try {
-        const profile = await crud.getCurrentUserProfile();
+        console.log('👤 useCurrentUser: Fetching user profile...');
+        console.log('👤 getCurrentUserProfile type:', typeof getCurrentUserProfile);
+        const profile = await getCurrentUserProfile();
+        console.log('👤 useCurrentUser: Profile fetched:', profile);
         setUser(profile);
       } catch (err) {
+        console.error('👤 useCurrentUser: Error fetching user:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
@@ -46,14 +53,19 @@ export function useTracks(filters?: Parameters<typeof crud.getTracks>[0]) {
   const [tracks, setTracks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchTracks() {
       try {
         setLoading(true);
+        console.log('🔄 useTracks: Fetching tracks with filters:', filters);
         const data = await crud.getTracks(filters);
+        console.log('✅ useTracks: Fetched', data.length, 'tracks');
         setTracks(data);
+        setError(null);
       } catch (err) {
+        console.error('❌ useTracks: Error fetching tracks:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
@@ -61,9 +73,14 @@ export function useTracks(filters?: Parameters<typeof crud.getTracks>[0]) {
     }
 
     fetchTracks();
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), refetchTrigger]);
 
-  return { tracks, loading, error, refetch: () => setLoading(true) };
+  const refetch = async () => {
+    console.log('🔄 useTracks: Refetch triggered');
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { tracks, loading, error, refetch };
 }
 
 /**
@@ -106,7 +123,26 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
       try {
         setLoading(true);
         const data = await crud.getAssignments(filters);
-        setAssignments(data);
+        
+        // Transform assignments data for Dashboard display
+        const transformedAssignments = data.map((assignment: any) => {
+          const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
+          const today = new Date();
+          const daysLeft = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+          
+          return {
+            id: assignment.id,
+            title: assignment.playlist?.title || 'Unnamed Assignment',
+            playlistId: assignment.playlist_id,
+            status: assignment.status,
+            assignedTo: 1, // This would need to be calculated based on assignment_type
+            dueDate: dueDate ? dueDate.toLocaleDateString() : 'No due date',
+            daysLeft,
+            completion: assignment.progress_percent || 0
+          };
+        });
+        
+        setAssignments(transformedAssignments);
       } catch (err) {
         setError(err as Error);
       } finally {
@@ -214,6 +250,42 @@ export function useNotifications() {
     markAsRead,
     markAllAsRead
   };
+}
+
+/**
+ * Hook to get stores with enriched data
+ */
+export function useStores(filters?: Parameters<typeof crud.getStores>[0]) {
+  const [stores, setStores] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function fetchStores() {
+      try {
+        setLoading(true);
+        const data = await crud.getStores(filters);
+        setStores(data);
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchStores();
+  }, [JSON.stringify(filters)]);
+
+  return { stores, loading, error, refetch: () => {
+    setLoading(true);
+    crud.getStores(filters).then(data => {
+      setStores(data);
+      setLoading(false);
+    }).catch(err => {
+      setError(err as Error);
+      setLoading(false);
+    });
+  }};
 }
 
 /**

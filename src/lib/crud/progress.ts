@@ -94,7 +94,7 @@ export async function updateTrackProgress(
 
       await logActivity({
         user_id: userId,
-        activity_type: 'completion',
+        action: 'completion',
         entity_type: 'track',
         entity_id: trackId,
         description: `Completed "${track.title}" with score ${updates.score || 'N/A'}`
@@ -269,7 +269,7 @@ async function cascadeToAlbumProgress(userId: string, trackId: string) {
 
         await logActivity({
           user_id: userId,
-          activity_type: 'completion',
+          action: 'completion',
           entity_type: 'album',
           entity_id: album_id,
           description: `Completed album "${album.title}"`
@@ -359,7 +359,7 @@ async function cascadeToPlaylistProgress(userId: string, trackId: string) {
 
         await logActivity({
           user_id: userId,
-          activity_type: 'completion',
+          action: 'completion',
           entity_type: 'playlist',
           entity_id: playlistId,
           description: `Completed playlist "${playlist.title}"`

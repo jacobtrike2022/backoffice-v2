@@ -72,7 +72,7 @@ export async function createAssignment(input: CreateAssignmentInput) {
   // Log activity
   await logActivity({
     user_id: userProfile.id,
-    activity_type: 'assignment',
+    action: 'assignment',
     entity_type: input.assignable_type,
     entity_id: input.assignable_id,
     description: `Assigned "${input.title}" to ${affectedUsers.length} user(s)`
@@ -188,7 +188,8 @@ export async function getAssignments(filters: {
     .from('assignments')
     .select(`
       *,
-      assigned_by:users!assignments_assigned_by_id_fkey(name, email)
+      assigned_by:users!assignments_assigned_by_fkey(id, first_name, last_name, email),
+      playlist:playlists(id, title, description)
     `)
     .eq('organization_id', orgId);
 

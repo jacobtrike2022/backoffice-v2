@@ -55,7 +55,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 type ReportType = 'performance' | 'training' | 'compliance' | 'custom';
 type TimeRange = '7d' | '30d' | '90d' | '1y' | 'custom';
 
@@ -708,16 +708,16 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
                   <div 
                     key={index} 
                     className={`p-4 rounded-lg text-center ${
-                      item.overdue === 0 ? 'bg-green-100' :
-                      item.overdue <= 3 ? 'bg-yellow-100' :
-                      'bg-red-100'
+                      item.overdue === 0 ? 'bg-green-100 dark:bg-green-900/30' :
+                      item.overdue <= 3 ? 'bg-yellow-100 dark:bg-yellow-900/30' :
+                      'bg-red-100 dark:bg-red-900/30'
                     }`}
                   >
                     <h4 className="font-semibold text-sm mb-2">{item.category}</h4>
                     <p className={`text-2xl font-bold ${
-                      item.overdue === 0 ? 'text-green-700' :
-                      item.overdue <= 3 ? 'text-yellow-700' :
-                      'text-red-700'
+                      item.overdue === 0 ? 'text-green-700 dark:text-green-400' :
+                      item.overdue <= 3 ? 'text-yellow-700 dark:text-yellow-400' :
+                      'text-red-700 dark:text-red-400'
                     }`}>
                       {item.overdue}
                     </p>

@@ -31,7 +31,7 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import trikeLogo from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -65,7 +65,7 @@ const navigationGroups: NavigationGroup[] = [
         id: 'dashboard',
         label: 'Dashboard',
         icon: Home,
-        roles: ['admin', 'district-manager', 'store-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       }
     ]
   },
@@ -76,13 +76,13 @@ const navigationGroups: NavigationGroup[] = [
         id: 'people',
         label: 'People',
         icon: Users,
-        roles: ['admin', 'district-manager', 'store-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'units',
         label: 'Units',
         icon: Building,
-        roles: ['admin', 'district-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'my-store',
@@ -99,31 +99,31 @@ const navigationGroups: NavigationGroup[] = [
         id: 'content',
         label: 'Content Library',
         icon: CheckSquare,
-        roles: ['admin', 'district-manager', 'store-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'assignments',
         label: 'Playlists',
         icon: ListChecks,
-        roles: ['admin', 'district-manager', 'store-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'authoring',
         label: 'Content Authoring',
         icon: Edit,
-        roles: ['admin']
+        roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'forms',
         label: 'Forms',
         icon: ClipboardList,
-        roles: ['admin']
+        roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'knowledge-base',
         label: 'Knowledge Base',
         icon: BookOpen,
-        roles: ['admin', 'district-manager', 'store-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       }
     ]
   },
@@ -134,13 +134,13 @@ const navigationGroups: NavigationGroup[] = [
         id: 'analytics',
         label: 'Analytics',
         icon: BarChart3,
-        roles: ['admin', 'district-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'reports',
         label: 'Reports',
         icon: FileText,
-        roles: ['admin', 'district-manager']
+        roles: ['admin', 'trike-super-admin', 'district-manager']
       }
     ]
   },
@@ -151,14 +151,14 @@ const navigationGroups: NavigationGroup[] = [
         id: 'compliance',
         label: 'Compliance',
         icon: UserCheck,
-        roles: ['admin'],
+        roles: ['admin', 'trike-super-admin'],
         badge: '2'
       },
       {
         id: 'settings',
         label: 'Settings',
         icon: Settings,
-        roles: ['admin']
+        roles: ['admin', 'trike-super-admin']
       }
     ]
   }
@@ -184,8 +184,9 @@ export function DashboardLayout({
   const roleLabels = {
     'admin': 'Administrator',
     'district-manager': 'District Manager',
-    'store-manager': 'Store Manager'
-  };
+    'store-manager': 'Store Manager',
+    'trike-super-admin': 'Trike Super Admin'
+  } as const;
 
   const getRoleDescription = () => {
     switch (currentRole) {
@@ -306,6 +307,13 @@ export function DashboardLayout({
                       <div className="flex items-center space-x-2">
                         <Users className="h-4 w-4 text-primary" />
                         <span>Store Manager</span>
+                      </div>
+                    </SelectItem>
+                    <Separator className="my-2" />
+                    <SelectItem value="trike-super-admin">
+                      <div className="flex items-center space-x-2">
+                        <Shield className="h-4 w-4 text-orange-500" />
+                        <span className="font-semibold">Trike Super Admin</span>
                       </div>
                     </SelectItem>
                   </SelectContent>

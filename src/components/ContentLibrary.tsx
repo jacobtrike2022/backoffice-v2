@@ -24,7 +24,11 @@ import {
   X,
   ChevronLeft,
   ArrowUpDown,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  Edit,
+  Save,
+  Trash2
 } from 'lucide-react';
 import {
   Select,
@@ -34,20 +38,47 @@ import {
   SelectValue,
 } from './ui/select';
 import { Separator } from './ui/separator';
+import { Textarea } from './ui/textarea';
+import { TrackDetailEdit } from './TrackDetailEdit';
+import { ArticleDetailEdit } from './ArticleDetailEdit';
+import { CheckpointEditor } from './content-authoring/CheckpointEditor';
+import { StoryEditor } from './content-authoring/StoryEditor';
 import { useTracks } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 
 interface ContentLibraryProps {
-  currentRole?: 'admin' | 'district-manager' | 'store-manager';
+  currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
+  isSuperAdminAuthenticated?: boolean;
 }
 
-export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
+// Calculate reading time based on word count (200 words per minute)
+const calculateReadingTime = (htmlContent: string): number => {
+  if (!htmlContent) return 0;
+  
+  // Strip HTML tags and get plain text
+  const plainText = htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Count words
+  const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+  
+  // Calculate reading time (200 words per minute)
+  const readingTime = Math.ceil(wordCount / 200);
+  
+  return readingTime || 1; // Minimum 1 minute
+};
+
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false }: ContentLibraryProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editFormData, setEditFormData] = useState<any>({});
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
@@ -56,15 +87,31 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
     search: searchQuery || undefined
   });
 
+  // Debug logging
+  console.log('ContentLibrary - tracks:', tracks);
+  console.log('ContentLibrary - loading:', loading);
+  console.log('ContentLibrary - error:', error);
+
   const handleViewTrack = async (track: any) => {
+    console.log('Viewing track:', track);
+    
+    // Fetch fresh track data instead of using cached list data
     try {
-      // Increment view count
-      await crud.incrementTrackViews(track.id);
-      setSelectedTrack(track);
-      refetch(); // Refresh to show updated view count
+      const freshTrack = await crud.getTrackById(track.id);
+      setSelectedTrack(freshTrack);
+      console.log('Loaded fresh track data:', freshTrack);
     } catch (error) {
-      console.error('Error viewing track:', error);
-      toast.error('Failed to load track');
+      console.error('Failed to load track:', error);
+      // Fallback to cached data if fetch fails
+      setSelectedTrack(track);
+    }
+    
+    // Try to increment view count in the background (non-blocking)
+    try {
+      await crud.incrementTrackViews(track.id);
+    } catch (error) {
+      // Silently fail - don't prevent the page from opening
+      console.warn('Failed to increment view count:', error);
     }
   };
 
@@ -95,8 +142,8 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
     return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
   });
 
-  // Loading state
-  if (loading) {
+  // Loading state - only show skeleton on initial load, not on refetch
+  if (loading && (!tracks || tracks.length === 0)) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -125,215 +172,56 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
 
   // Detail view for selected track
   if (selectedTrack) {
+    const handleUpdate = async () => {
+      console.log('ContentLibrary - handleUpdate called, fetching updated track...');
+      // Just refetch the selected track data to show updated values
+      // Don't call refetch() as it triggers loading state and hides the detail view
+      const updatedTrack = await crud.getTrackById(selectedTrack.id);
+      setSelectedTrack(updatedTrack);
+      console.log('ContentLibrary - updated track:', updatedTrack);
+    };
+
+    const handleBack = async () => {
+      console.log('ContentLibrary - Back clicked, refetching list...');
+      // Wait for refetch to complete before clearing selected track
+      await refetch();
+      console.log('ContentLibrary - Refetch complete, clearing selected track');
+      setSelectedTrack(null);
+    };
+
     return (
-      <div className="space-y-6">
-        {/* Header with Back Button */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              onClick={() => setSelectedTrack(null)}
-              className="flex items-center"
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Back to Library
-            </Button>
-            <div>
-              <h1 className="text-foreground">{selectedTrack.title}</h1>
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground mt-1">
-                <Badge className={getTypeBadgeColor(selectedTrack.type)}>
-                  {getTypeIcon(selectedTrack.type)}
-                  <span className="ml-1 capitalize">{selectedTrack.type}</span>
-                </Badge>
-                <span>•</span>
-                <span>{selectedTrack.duration_minutes ? `${selectedTrack.duration_minutes} min` : 'N/A'}</span>
-                <span>•</span>
-                <span>Version {selectedTrack.version || '1.0'}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content Area */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Video/Media Preview */}
-            <Card>
-              <CardContent className="p-0">
-                <div className="relative aspect-video bg-muted rounded-t-lg overflow-hidden">
-                  {selectedTrack.thumbnail_url ? (
-                    <img 
-                      src={selectedTrack.thumbnail_url} 
-                      alt={selectedTrack.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50">
-                      {getTypeIcon(selectedTrack.type)}
-                    </div>
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                    <Button size="lg" className="rounded-full h-16 w-16 hero-primary">
-                      <Play className="h-8 w-8 text-white fill-white ml-1" />
-                    </Button>
-                  </div>
-                  {selectedTrack.duration_minutes && (
-                    <div className="absolute bottom-4 right-4 bg-black/70 text-white px-2 py-1 rounded text-sm">
-                      {selectedTrack.duration_minutes} min
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Description */}
-            {selectedTrack.description && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Description</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground leading-relaxed">
-                    {selectedTrack.description}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Learning Objectives */}
-            {selectedTrack.learning_objectives && selectedTrack.learning_objectives.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Learning Objectives</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {selectedTrack.learning_objectives.map((objective: string, index: number) => (
-                      <li key={index} className="flex items-start space-x-2">
-                        <div className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs mt-0.5 flex-shrink-0">
-                          {index + 1}
-                        </div>
-                        <span className="text-muted-foreground leading-relaxed pt-0.5">{objective}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Content/Transcript */}
-            {selectedTrack.transcript && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    {selectedTrack.type === 'article' ? 'Content' : 'Transcript'}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-muted-foreground leading-relaxed whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
-                    {selectedTrack.transcript}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Sidebar - Metadata */}
-          <div className="space-y-6">
-            {/* Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Performance Metrics</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Eye className="h-4 w-4" />
-                    Views
-                  </span>
-                  <span className="font-semibold">{selectedTrack.view_count || 0}</span>
-                </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Published
-                  </span>
-                  <span className="text-sm">
-                    {selectedTrack.published_at 
-                      ? new Date(selectedTrack.published_at).toLocaleDateString()
-                      : 'N/A'}
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Last Updated
-                  </span>
-                  <span className="text-sm">
-                    {new Date(selectedTrack.updated_at).toLocaleDateString()}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tags */}
-            {selectedTrack.tags && selectedTrack.tags.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Tags</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedTrack.tags.map((tag: string, index: number) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        <Tag className="h-3 w-3 mr-1" />
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Metadata */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Metadata</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Type:</span>
-                  <span className="ml-2 capitalize">{selectedTrack.type}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Status:</span>
-                  <span className="ml-2 capitalize">{selectedTrack.status}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Version:</span>
-                  <span className="ml-2">{selectedTrack.version || '1.0'}</span>
-                </div>
-                {selectedTrack.passing_score && (
-                  <div>
-                    <span className="text-muted-foreground">Passing Score:</span>
-                    <span className="ml-2">{selectedTrack.passing_score}%</span>
-                  </div>
-                )}
-                {selectedTrack.max_attempts && (
-                  <div>
-                    <span className="text-muted-foreground">Max Attempts:</span>
-                    <span className="ml-2">{selectedTrack.max_attempts}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
+      <>
+        {selectedTrack.type === 'article' ? (
+          <ArticleDetailEdit
+            track={selectedTrack}
+            onBack={handleBack}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+          />
+        ) : selectedTrack.type === 'checkpoint' ? (
+          <CheckpointEditor
+            track={selectedTrack}
+            onBack={handleBack}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+          />
+        ) : selectedTrack.type === 'story' ? (
+          <StoryEditor
+            track={selectedTrack}
+            onBack={handleBack}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+          />
+        ) : (
+          <TrackDetailEdit
+            track={selectedTrack}
+            onBack={handleBack}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+          />
+        )}
         <Footer />
-      </div>
+      </>
     );
   }
 
@@ -479,16 +367,27 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
                   </div>
-                  {track.duration_minutes && (
+                  {/* Duration/Reading Time Badge */}
+                  {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
-                      {track.duration_minutes} min
+                      {track.type === 'article' 
+                        ? calculateReadingTime(track.transcript || '')
+                        : track.duration_minutes
+                      } min
                     </div>
                   )}
                 </div>
 
                 {/* Content */}
                 <div className="p-4 space-y-2">
-                  <h3 className="font-semibold line-clamp-2">{track.title}</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold line-clamp-2 flex-1">{track.title}</h3>
+                    {track.is_system_content && (
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
+                        <Lock className="h-3 w-3" />
+                      </Badge>
+                    )}
+                  </div>
                   {track.description && (
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {track.description}
@@ -555,12 +454,13 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
                   {/* Info */}
                   <div className="flex-1 space-y-2">
                     <div className="flex items-start justify-between gap-4">
-                      <div>
+                      <div className="flex items-center gap-2 flex-1">
                         <h3 className="font-semibold">{track.title}</h3>
-                        {track.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                            {track.description}
-                          </p>
+                        {track.is_system_content && (
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
+                            <Lock className="h-3 w-3 mr-1" />
+                            Trike Library
+                          </Badge>
                         )}
                       </div>
                       <Badge className={getTypeBadgeColor(track.type)}>
@@ -568,16 +468,24 @@ export function ContentLibrary({ currentRole = 'admin' }: ContentLibraryProps) {
                         <span className="ml-1 capitalize">{track.type}</span>
                       </Badge>
                     </div>
+                    {track.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {track.description}
+                      </p>
+                    )}
 
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Eye className="h-4 w-4" />
                         {track.view_count || 0} views
                       </div>
-                      {track.duration_minutes && (
+                      {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
                         <div className="flex items-center gap-1">
                           <Clock className="h-4 w-4" />
-                          {track.duration_minutes} min
+                          {track.type === 'article' 
+                            ? calculateReadingTime(track.transcript || '')
+                            : track.duration_minutes
+                          } min
                         </div>
                       )}
                       <div className="flex items-center gap-1">

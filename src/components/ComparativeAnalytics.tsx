@@ -20,7 +20,7 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, Users, CheckCircle, AlertTriangle, Eye, Building } from 'lucide-react';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface ComparativeAnalyticsProps {
   currentRole: UserRole;

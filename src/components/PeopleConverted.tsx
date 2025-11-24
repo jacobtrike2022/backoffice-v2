@@ -31,13 +31,14 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
 import { useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager';
+type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface PeopleProps {
   currentRole: UserRole;
@@ -437,6 +438,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add New Employee</DialogTitle>
+            <DialogDescription>
+              Enter the employee's details to create a new account.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
