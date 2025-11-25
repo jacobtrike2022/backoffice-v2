@@ -8,6 +8,9 @@ import { Separator } from './ui/separator';
 import { RichTextEditor } from './RichTextEditor';
 import { AttachmentPreviewDialog } from './AttachmentPreviewDialog';
 import { TagSelectorDialog } from './TagSelectorDialog';
+import { VersionHistory } from './content-authoring/VersionHistory';
+import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
+import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import {
   Calendar,
   Clock,
@@ -28,7 +31,8 @@ import {
   Download,
   Trash2,
   Paperclip,
-  ExternalLink
+  ExternalLink,
+  History
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
@@ -38,11 +42,13 @@ interface ArticleDetailEditProps {
   track: any;
   onBack: () => void;
   onUpdate: () => void;
+  onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
   isNewContent?: boolean;
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthenticated = false, isNewContent = false }: ArticleDetailEditProps) {
+export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist }: ArticleDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -50,6 +56,12 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
   const [attachments, setAttachments] = useState<any[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<any | null>(null);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [isFormDataLoaded, setIsFormDataLoaded] = useState(false); // Track if form data is ready
+  
+  // Versioning state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -111,6 +123,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
   // Initialize form data when entering edit mode
   useEffect(() => {
     if (isEditMode) {
+      console.log('📝 ArticleDetailEdit - Initializing form data in edit mode');
+      console.log('📝 Track object:', track);
+      console.log('📝 Track transcript:', track.transcript);
+      console.log('📝 Track article_body:', track.article_body);
+      
       setEditFormData({
         title: track.title || '',
         description: track.description || '',
@@ -122,15 +139,21 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
         type: track.type || 'article',
         article_body: track.transcript || '', // Article body is stored in transcript field
       });
+      
+      console.log('📝 Form data initialized with article_body:', track.transcript || '');
+      setIsFormDataLoaded(true); // Mark form data as loaded
     }
   }, [isEditMode, track]);
 
   const handleSave = async () => {
+    console.log('💾 handleSave called in ArticleDetailEdit');
+    
     if (!editFormData.title.trim()) {
       toast.error('Title is required');
       return;
     }
 
+    console.log('💾 Title validated, setting isSaving to true');
     setIsSaving(true);
     try {
       const updateData = {
@@ -145,8 +168,32 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
         transcript: editFormData.article_body || '', // Store article body as transcript
       };
 
-      console.log('Saving track with data:', updateData);
+      console.log('💾 Update data prepared:', updateData);
+      console.log('💾 Track status:', track.status);
 
+      // Check if track is published and has assignments
+      if (track.status === 'published') {
+        console.log('💾 Track is published, checking assignment stats...');
+        const stats = await crud.getTrackAssignmentStats(track.id);
+        console.log('💾 Assignment stats:', stats);
+        
+        // Trigger versioning if track is in ANY playlist (even if not assigned to users yet)
+        if (stats.playlistCount > 0) {
+          // Show version decision modal instead of saving directly
+          console.log('🔔 Track is in playlists, showing version decision modal. Stats:', stats);
+          console.log('🔔 Setting pendingChanges:', updateData);
+          setPendingChanges(updateData);
+          console.log('🔔 Opening version modal...');
+          setIsVersionModalOpen(true);
+          console.log('🔔 Resetting isSaving to false');
+          setIsSaving(false);
+          console.log('🔔 Returning from handleSave');
+          return;
+        }
+      }
+
+      console.log('💾 No versioning needed, updating track directly...');
+      // If no assignments or not published, just update normally
       const result = await crud.updateTrack(updateData);
       console.log('Track saved, result:', result);
       toast.success('Article updated successfully!');
@@ -156,15 +203,17 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
       await onUpdate();
       console.log('onUpdate complete, track should be refreshed');
     } catch (error: any) {
-      console.error('Error saving track:', error);
+      console.error('❌ Error saving track:', error);
       toast.error(error.message || 'Failed to save article');
     } finally {
+      console.log('💾 handleSave finally block, resetting isSaving');
       setIsSaving(false);
     }
   };
 
   const handleCancel = () => {
     setIsEditMode(false);
+    setIsFormDataLoaded(false); // Reset the flag
     setEditFormData({
       title: track.title || '',
       description: track.description || '',
@@ -444,6 +493,36 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Article Content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Old Version Banner - Show when viewing a non-latest version */}
+          {track.version_number && !track.is_latest_version && (
+            <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                    <History className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-blue-900 dark:text-blue-100">
+                      Viewing Version {track.version_number}
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      This is an older version. Changes made here won't be saved.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onBack}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Back
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           {/* Title & Tags */}
           <Card>
             <CardHeader className="pb-4">
@@ -507,12 +586,22 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
 
           {/* Article Body - WYSIWYG Editor */}
           {isEditMode ? (
-            <RichTextEditor
-              content={editFormData.article_body}
-              onChange={(content) =>
-                setEditFormData({ ...editFormData, article_body: content })
-              }
-            />
+            // Only render editor after form data is initialized
+            isFormDataLoaded ? (
+              <RichTextEditor
+                key={`${track.id}-edit`} // Include mode in key to force remount when entering edit mode
+                content={editFormData.article_body}
+                onChange={(content) =>
+                  setEditFormData({ ...editFormData, article_body: content })
+                }
+              />
+            ) : (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <p className="text-muted-foreground">Loading editor...</p>
+                </CardContent>
+              </Card>
+            )
           ) : (
             <Card>
               <CardContent className="p-8">
@@ -882,6 +971,26 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
               </CardContent>
             </Card>
           )}
+          
+          {/* Associated Playlists */}
+          <AssociatedPlaylists 
+            trackId={track.id}
+            onPlaylistClick={onNavigateToPlaylist}
+          />
+          
+          {/* Version History */}
+          <VersionHistory
+            trackId={track.id}
+            currentVersion={track.version_number || 1}
+            onVersionClick={async (versionTrackId) => {
+              console.log('🔍 Version clicked, navigating to:', versionTrackId);
+              if (onVersionClick) {
+                onVersionClick(versionTrackId);
+              } else {
+                window.location.href = `/article/${versionTrackId}`;
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -898,6 +1007,38 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthent
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={editFormData.tags || []}
         onTagsChange={(tags) => setEditFormData({ ...editFormData, tags })}
+      />
+
+      {/* Version Decision Modal */}
+      <VersionDecisionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => {
+          setIsVersionModalOpen(false);
+          setPendingChanges(null);
+        }}
+        trackId={track.id}
+        trackTitle={track.title}
+        currentVersion={track.version_number || 1}
+        pendingChanges={pendingChanges}
+        onVersionCreated={async (newTrackId, strategy) => {
+          console.log('📍 Parent: onVersionCreated callback triggered');
+          console.log('✅ Version created! New track ID:', newTrackId);
+          console.log('📝 Strategy:', strategy);
+          
+          toast.success(`Version ${(track.version_number || 1) + 1} created with ${strategy} strategy!`);
+          
+          console.log('🔄 Closing modal...');
+          setIsVersionModalOpen(false);
+          console.log('🔄 Exiting edit mode...');
+          setIsEditMode(false);
+          
+          console.log('⏳ Waiting 300ms before navigation...');
+          // Small delay to let modal close gracefully before navigation
+          setTimeout(() => {
+            console.log('🚀 Navigating to:', `/article/${newTrackId}`);
+            window.location.href = `/article/${newTrackId}`;
+          }, 300);
+        }}
       />
     </div>
   );

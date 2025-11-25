@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -28,7 +28,8 @@ import {
   Lock,
   Edit,
   Save,
-  Trash2
+  Trash2,
+  Copy
 } from 'lucide-react';
 import {
   Select,
@@ -50,6 +51,8 @@ import { toast } from 'sonner@2.0.3';
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   isSuperAdminAuthenticated?: boolean;
+  initialTrackId?: string; // Track ID to open on mount
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -68,12 +71,14 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist }: ContentLibraryProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
+  const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
+  const [statusFilter, setStatusFilter] = useState<'published' | 'archived'>('published'); // NEW: Status filter
   
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -82,7 +87,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
-    status: 'published',
+    status: statusFilter, // Use dynamic status filter
     type: selectedType !== 'all' ? selectedType as any : undefined,
     search: searchQuery || undefined
   });
@@ -92,6 +97,49 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   console.log('ContentLibrary - loading:', loading);
   console.log('ContentLibrary - error:', error);
 
+  // Load initial track from URL if provided - ONLY ONCE
+  useEffect(() => {
+    if (initialTrackId && !selectedTrack && !hasLoadedInitialTrack) {
+      console.log('📍 ContentLibrary: Loading initial track from URL:', initialTrackId);
+      setHasLoadedInitialTrack(true); // Mark as loaded immediately to prevent re-runs
+      crud.getTrackById(initialTrackId).then(track => {
+        if (track) {
+          console.log('📍 ContentLibrary: Initial track loaded:', track);
+          setSelectedTrack(track);
+        }
+      }).catch(error => {
+        console.error('📍 ContentLibrary: Failed to load initial track:', error);
+      });
+    }
+  }, [initialTrackId, selectedTrack, hasLoadedInitialTrack]);
+
+  const handleDuplicateTrack = async (track: any, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    
+    try {
+      const newTrack = await crud.duplicateTrack(track.id);
+      
+      // Show persistent toast with link to view the duplicated track
+      toast.success(`"${track.title}" duplicated successfully!`, {
+        description: `New draft: "${newTrack.title}"`,
+        duration: Infinity, // Stay visible until dismissed
+        action: {
+          label: 'View Copy',
+          onClick: async () => {
+            // Load and view the duplicated track
+            const freshTrack = await crud.getTrackById(newTrack.id);
+            setSelectedTrack(freshTrack);
+          }
+        }
+      });
+      
+      await refetch(); // Refresh the list
+    } catch (error: any) {
+      console.error('Failed to duplicate track:', error);
+      toast.error(`Failed to duplicate: ${error.message}`);
+    }
+  };
+
   const handleViewTrack = async (track: any) => {
     console.log('Viewing track:', track);
     
@@ -100,6 +148,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       const freshTrack = await crud.getTrackById(track.id);
       setSelectedTrack(freshTrack);
       console.log('Loaded fresh track data:', freshTrack);
+      
+      // Update URL without page reload
+      const trackType = freshTrack.type;
+      const newUrl = `/${trackType}/${freshTrack.id}`;
+      window.history.pushState({ trackId: freshTrack.id, trackType }, '', newUrl);
     } catch (error) {
       console.error('Failed to load track:', error);
       // Fallback to cached data if fetch fails
@@ -113,6 +166,34 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       // Silently fail - don't prevent the page from opening
       console.warn('Failed to increment view count:', error);
     }
+  };
+  
+  // Handle version navigation smoothly without page reload
+  const handleVersionClick = async (versionTrackId: string) => {
+    console.log('🔍 Version clicked, loading version:', versionTrackId);
+    try {
+      const versionTrack = await crud.getTrackById(versionTrackId);
+      setSelectedTrack(versionTrack);
+      
+      // Update URL without page reload
+      const trackType = versionTrack.type;
+      const newUrl = `/${trackType}/${versionTrackId}`;
+      window.history.pushState({ trackId: versionTrackId, trackType }, '', newUrl);
+      
+      console.log('✅ Version loaded successfully');
+    } catch (error) {
+      console.error('❌ Failed to load version:', error);
+      toast.error('Failed to load this version');
+    }
+  };
+  
+  // Handle back to library
+  const handleBackToLibrary = () => {
+    console.log('🔙 Returning to content library');
+    setSelectedTrack(null);
+    
+    // Update URL to content library without page reload
+    window.history.pushState({}, '', '/content-library');
   };
 
   const getTypeIcon = (type: string) => {
@@ -194,30 +275,38 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         {selectedTrack.type === 'article' ? (
           <ArticleDetailEdit
             track={selectedTrack}
-            onBack={handleBack}
+            onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
+            onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            onNavigateToPlaylist={onNavigateToPlaylist}
           />
         ) : selectedTrack.type === 'checkpoint' ? (
           <CheckpointEditor
             track={selectedTrack}
-            onBack={handleBack}
+            onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
+            onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            onNavigateToPlaylist={onNavigateToPlaylist}
           />
         ) : selectedTrack.type === 'story' ? (
           <StoryEditor
             track={selectedTrack}
-            onBack={handleBack}
+            onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
+            onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            onNavigateToPlaylist={onNavigateToPlaylist}
           />
         ) : (
           <TrackDetailEdit
             track={selectedTrack}
-            onBack={handleBack}
+            onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
+            onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            onNavigateToPlaylist={onNavigateToPlaylist}
           />
         )}
         <Footer />
@@ -233,7 +322,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         <div>
           <h1 className="text-foreground">Content Library</h1>
           <p className="text-muted-foreground mt-1">
-            Browse and explore all published training content
+            Browse and explore all {statusFilter === 'published' ? 'published' : 'archived'} training content
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -252,6 +341,26 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <List className="h-4 w-4" />
           </Button>
         </div>
+      </div>
+
+      {/* Status Filter Tabs */}
+      <div className="flex gap-2">
+        <Button
+          variant={statusFilter === 'published' ? 'default' : 'outline'}
+          onClick={() => setStatusFilter('published')}
+          className="flex-1 sm:flex-initial"
+        >
+          <CheckCircle2 className="h-4 w-4 mr-2" />
+          Published
+        </Button>
+        <Button
+          variant={statusFilter === 'archived' ? 'default' : 'outline'}
+          onClick={() => setStatusFilter('archived')}
+          className="flex-1 sm:flex-initial"
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Archived
+        </Button>
       </div>
 
       {/* Filters & Search */}
@@ -367,6 +476,19 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
                   </div>
+                  {/* Duplicate Button (shows on hover) */}
+                  <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-8 shadow-md"
+                      onClick={(e) => handleDuplicateTrack(track, e)}
+                      title="Duplicate this track"
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Duplicate
+                    </Button>
+                  </div>
                   {/* Duration/Reading Time Badge */}
                   {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
@@ -382,11 +504,18 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold line-clamp-2 flex-1">{track.title}</h3>
-                    {track.is_system_content && (
-                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
-                        <Lock className="h-3 w-3" />
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {track.version_number && track.version_number > 1 && (
+                        <Badge variant="outline" className="text-xs">
+                          V{track.version_number}
+                        </Badge>
+                      )}
+                      {track.is_system_content && (
+                        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+                          <Lock className="h-3 w-3" />
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   {track.description && (
                     <p className="text-sm text-muted-foreground line-clamp-2">
@@ -456,6 +585,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-center gap-2 flex-1">
                         <h3 className="font-semibold">{track.title}</h3>
+                        {track.version_number && track.version_number > 1 && (
+                          <Badge variant="outline" className="text-xs">
+                            V{track.version_number}
+                          </Badge>
+                        )}
                         {track.is_system_content && (
                           <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
                             <Lock className="h-3 w-3 mr-1" />

@@ -365,6 +365,60 @@ app.delete("/make-server-2858cc8b/attachment/:attachmentId", async (c) => {
   }
 });
 
+// Get track versions
+app.get("/make-server-2858cc8b/track-versions/:trackId", async (c) => {
+  try {
+    const trackId = c.req.param('trackId');
+    
+    if (!trackId) {
+      return c.json({ error: 'Track ID is required' }, 400);
+    }
+    
+    console.log(`Getting versions for track ${trackId}...`);
+    
+    // Get the track to find parent ID
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id')
+      .eq('id', trackId)
+      .single();
+    
+    if (trackError) {
+      console.error('Error getting track:', trackError);
+      return c.json({ error: `Failed to get track: ${trackError.message}` }, 500);
+    }
+    
+    if (!track) {
+      return c.json({ error: 'Track not found' }, 404);
+    }
+    
+    // Find the parent track ID (could be this track or its parent)
+    const parentId = track.parent_track_id || track.id;
+    
+    // Get all versions (parent + children)
+    const { data: versions, error: versionsError } = await supabase
+      .from('tracks')
+      .select('*')
+      .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+      .order('version_number', { ascending: true });
+    
+    if (versionsError) {
+      console.error('Error getting versions:', versionsError);
+      return c.json({ error: `Failed to get versions: ${versionsError.message}` }, 500);
+    }
+    
+    console.log(`Found ${versions?.length || 0} versions`);
+    return c.json({ 
+      success: true,
+      versions: versions || []
+    });
+    
+  } catch (error: any) {
+    console.error('Get track versions error:', error);
+    return c.json({ error: `Failed to get versions: ${error.message}` }, 500);
+  }
+});
+
 // Mount tagsApp
 app.route("/make-server-2858cc8b/tags", tagsApp);
 

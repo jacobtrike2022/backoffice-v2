@@ -119,7 +119,8 @@ export async function getKBArticleById(articleId: string, incrementView: boolean
     .select(`
       *,
       category:kb_categories(*),
-      author:users(name, email),
+      author:users!kb_articles_created_by_fkey(name, email),
+      publisher:users!kb_articles_published_by_fkey(name, email),
       kb_article_tags(tags(*))
     `)
     .eq('id', articleId)
@@ -152,7 +153,7 @@ export async function getKBArticles(filters: {
     .select(`
       *,
       category:kb_categories(name),
-      author:users(name),
+      author:users!kb_articles_created_by_fkey(name),
       kb_article_tags(tags(name))
     `)
     .eq('organization_id', orgId);
@@ -194,6 +195,40 @@ export async function getKBCategories() {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Get KB categories with article counts
+ */
+export async function getKBCategoriesWithCounts() {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data: categories, error: categoriesError } = await supabase
+    .from('kb_categories')
+    .select('*')
+    .eq('organization_id', orgId)
+    .order('display_order', { ascending: true });
+
+  if (categoriesError) throw categoriesError;
+
+  // Get article counts for each category
+  const categoriesWithCounts = await Promise.all(
+    categories.map(async (category) => {
+      const { count } = await supabase
+        .from('kb_articles')
+        .select('*', { count: 'exact', head: true })
+        .eq('category_id', category.id)
+        .eq('status', 'published');
+
+      return {
+        ...category,
+        articleCount: count || 0
+      };
+    })
+  );
+
+  return categoriesWithCounts;
 }
 
 /**

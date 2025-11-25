@@ -53,7 +53,7 @@ import { supabase } from '../lib/supabase';
 interface PlaylistWizardProps {
   onClose: () => void;
   mode?: 'create' | 'edit';
-  existingPlaylist?: any;
+  existingPlaylistId?: string;
   isFullPage?: boolean;
 }
 
@@ -119,8 +119,9 @@ const AVAILABLE_TRACKS = [
 // Tags that match existing patterns
 const AVAILABLE_TAGS = ['onboarding', 'compliance', 'safety', 'customer-service', 'leadership', 'technology', 'operations', 'policy'];
 
-export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isFullPage = false }: PlaylistWizardProps) {
+export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, isFullPage = false }: PlaylistWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
+  const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   
   // Form state
   const [assignmentType, setAssignmentType] = useState<'auto' | 'manual'>('auto');
@@ -235,12 +236,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
       
       setLoadingContent(true);
       try {
-        // Fetch albums
-        const albumsData = await crud.getAlbums();
+        // Fetch albums (only published)
+        const albumsData = await crud.getAlbums({ status: 'published' });
         setAlbums(albumsData || []);
 
-        // Fetch tracks
-        const tracksData = await crud.getTracks();
+        // Fetch tracks (only published)
+        const tracksData = await crud.getTracks({ status: 'published' });
         setTracks(tracksData || []);
       } catch (error) {
         console.error('Error fetching content:', error);
@@ -252,6 +253,88 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
 
     fetchContent();
   }, [user?.organization_id]);
+
+  // Load existing playlist data when in edit mode
+  useEffect(() => {
+    const loadPlaylist = async () => {
+      if (!existingPlaylistId || mode !== 'edit' || !user?.organization_id) return;
+      
+      setIsLoadingPlaylist(true);
+      try {
+        const playlist = await crud.getPlaylistById(existingPlaylistId);
+        if (!playlist) {
+          toast.error('Playlist not found');
+          return;
+        }
+
+        console.log('📂 Loading playlist for editing:', playlist);
+
+        // Set basic details
+        setPlaylistName(playlist.title || '');
+        setPlaylistDescription(playlist.description || '');
+        setAssignmentType(playlist.type || 'manual');
+        
+        // Set trigger conditions for auto playlists
+        if (playlist.type === 'auto' && playlist.trigger_rules) {
+          // TODO: Parse trigger_rules and populate triggerConditions
+          // For now, just set a default
+          setTriggerConditions([{ field: 'role', operator: 'equals', value: '' }]);
+        }
+
+        // Load assigned employees for manual playlists
+        if (playlist.type === 'manual') {
+          const { data: assignments } = await supabase
+            .from('assignments')
+            .select('user_id')
+            .eq('playlist_id', existingPlaylistId)
+            .eq('organization_id', user.organization_id);
+
+          if (assignments && assignments.length > 0) {
+            const employeeIds = assignments.map(a => a.user_id);
+            setSelectedEmployees(employeeIds);
+            console.log('👥 Loaded', employeeIds.length, 'assigned employees');
+          }
+        }
+
+        // Load tracks and albums into stages
+        const loadedStages = [{
+          id: 's1',
+          name: 'Stage 1',
+          albums: [],
+          tracks: [],
+          unlockType: 'immediate',
+          unlockDays: 0,
+          unlockAfterStage: '',
+          unlockAssignment: '',
+          unlockAssignmentCompleter: 'learner',
+          allowManagerOverride: false,
+          allowAdminOverride: true,
+        }];
+
+        // Load track and album IDs (stages store IDs, not full objects)
+        if (playlist.track_ids && playlist.track_ids.length > 0) {
+          loadedStages[0].tracks = playlist.track_ids;
+          console.log('🎵 Loaded', playlist.track_ids.length, 'tracks');
+        }
+
+        if (playlist.album_ids && playlist.album_ids.length > 0) {
+          loadedStages[0].albums = playlist.album_ids;
+          console.log('💿 Loaded', playlist.album_ids.length, 'albums');
+        }
+
+        setStages(loadedStages);
+        
+        toast.success('Playlist loaded for editing');
+      } catch (error) {
+        console.error('Error loading playlist:', error);
+        toast.error('Failed to load playlist');
+      } finally {
+        setIsLoadingPlaylist(false);
+      }
+    };
+    
+    loadPlaylist();
+  }, [existingPlaylistId, mode, user?.organization_id]);
 
   const addTriggerCondition = () => {
     setTriggerConditions([...triggerConditions, { field: 'role', operator: 'equals', value: '' }]);
@@ -278,14 +361,16 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
       const allTrackIds: string[] = [];
 
       stages.forEach(stage => {
-        stage.albums.forEach((album: any) => {
-          if (album.id && !allAlbumIds.includes(album.id)) {
-            allAlbumIds.push(album.id);
+        // Albums are stored as IDs (strings)
+        stage.albums.forEach((albumId: string) => {
+          if (albumId && !allAlbumIds.includes(albumId)) {
+            allAlbumIds.push(albumId);
           }
         });
-        stage.tracks.forEach((track: any) => {
-          if (track.id && !allTrackIds.includes(track.id)) {
-            allTrackIds.push(track.id);
+        // Tracks are stored as IDs (strings)
+        stage.tracks.forEach((trackId: string) => {
+          if (trackId && !allTrackIds.includes(trackId)) {
+            allTrackIds.push(trackId);
           }
         });
       });
@@ -327,8 +412,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
         });
       }
 
-      // 1. Create the playlist
-      console.log('📝 Creating playlist:', {
+      // 1. Create or update the playlist
+      console.log(mode === 'edit' ? '📝 Updating playlist:' : '📝 Creating playlist:', {
         title: playlistName,
         description: playlistDescription,
         type: assignmentType,
@@ -336,26 +421,50 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
         track_count: allTrackIds.length,
       });
 
-      const playlist = await crud.createPlaylist({
-        title: playlistName,
-        description: playlistDescription,
-        type: assignmentType,
-        trigger_rules: triggerRules,
-        release_type: releaseType,
-        release_schedule: releaseSchedule,
-        album_ids: allAlbumIds,
-        track_ids: allTrackIds,
-      });
+      let playlist;
+      if (mode === 'edit' && existingPlaylistId) {
+        // Update existing playlist
+        playlist = await crud.updatePlaylist(existingPlaylistId, {
+          title: playlistName,
+          description: playlistDescription,
+          type: assignmentType,
+          trigger_rules: triggerRules,
+          release_type: releaseType,
+          release_schedule: releaseSchedule,
+          album_ids: allAlbumIds,
+          track_ids: allTrackIds,
+        });
+      } else {
+        // Create new playlist
+        playlist = await crud.createPlaylist({
+          title: playlistName,
+          description: playlistDescription,
+          type: assignmentType,
+          trigger_rules: triggerRules,
+          release_type: releaseType,
+          release_schedule: releaseSchedule,
+          album_ids: allAlbumIds,
+          track_ids: allTrackIds,
+        });
+      }
 
-      console.log('✅ Playlist created:', playlist.id);
+      console.log(mode === 'edit' ? '✅ Playlist updated:' : '✅ Playlist created:', playlist.id);
 
-      // 2. If manual assignment, create assignments for selected employees
+      // 2. Handle manual assignment for employees
       if (assignmentType === 'manual' && selectedEmployees.length > 0) {
-        console.log(`📋 Creating ${selectedEmployees.length} assignments...`);
+        console.log(`📋 ${mode === 'edit' ? 'Updating' : 'Creating'} ${selectedEmployees.length} assignments...`);
 
         // Calculate due date based on completion deadline
         const dueDate = new Date();
         dueDate.setDate(dueDate.getDate() + completionDeadlineDays);
+
+        if (mode === 'edit' && existingPlaylistId) {
+          // In edit mode, delete existing assignments and recreate them
+          await supabase
+            .from('assignments')
+            .delete()
+            .eq('playlist_id', existingPlaylistId);
+        }
 
         const assignmentRecords = selectedEmployees.map(userId => ({
           organization_id: user.organization_id,
@@ -378,7 +487,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
         console.log('✅ All assignments created');
       }
 
-      toast.success(`Playlist "${playlistName}" published successfully!`, {
+      toast.success(`Playlist "${playlistName}" ${mode === 'edit' ? 'updated' : 'published'} successfully!`, {
         description: assignmentType === 'manual' 
           ? `Assigned to ${selectedEmployees.length} employees` 
           : 'Auto-assignment configured',
@@ -653,12 +762,19 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                         {selectedEmployees.map(empId => {
                           const emp = employees.find(e => e.id === empId);
                           return emp ? (
-                            <Badge key={empId} variant="secondary" className="bg-brand-gradient text-white">
-                              {emp.first_name} {emp.last_name}
-                              <X 
-                                className="h-3 w-3 ml-1 cursor-pointer" 
-                                onClick={() => toggleEmployee(empId)}
-                              />
+                            <Badge key={empId} variant="secondary" className="bg-brand-gradient text-white pr-1">
+                              <span>{emp.first_name} {emp.last_name}</span>
+                              <button
+                                type="button"
+                                className="ml-1 hover:bg-white/20 rounded p-0.5"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  toggleEmployee(empId);
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
                             </Badge>
                           ) : null;
                         })}
@@ -1046,12 +1162,16 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                             />
                             <div className="flex-1">
                               <p className="font-medium text-sm">{album.title}</p>
-                              <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-1">
-                                <span>{album.trackCount} tracks</span>
+                              <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
+                                <span>{album.duration_minutes || 0} min</span>
                                 <span>•</span>
-                                <span>{album.duration}</span>
-                                <span>•</span>
-                                <Badge variant="secondary" className="text-xs bg-brand-gradient text-white">{album.category}</Badge>
+                                <span>{new Date(album.updated_at || album.created_at).toLocaleDateString()}</span>
+                                {album.version_number && album.version_number > 1 && (
+                                  <>
+                                    <span>•</span>
+                                    <span>v{album.version_number}</span>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1078,10 +1198,18 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                             />
                             <div className="flex-1">
                               <p className="font-medium text-sm">{track.title}</p>
-                              <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-1">
-                                <span>{track.duration}</span>
-                                <span>•</span>
+                              <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
                                 <Badge variant="secondary" className="text-xs bg-brand-gradient text-white">{track.type}</Badge>
+                                <span>•</span>
+                                <span>{track.duration_minutes || 0} min</span>
+                                <span>•</span>
+                                <span>{new Date(track.updated_at || track.created_at).toLocaleDateString()}</span>
+                                {track.version_number && track.version_number > 1 && (
+                                  <>
+                                    <span>•</span>
+                                    <span>v{track.version_number}</span>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1828,8 +1956,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                 <div className="flex items-start space-x-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
                   <div className="text-sm text-green-900 dark:text-green-100">
-                    <p className="font-medium mb-1">Ready to Publish</p>
-                    <p>Your playlist is configured and ready to be published. Click "Publish Playlist" to make it active.</p>
+                    <p className="font-medium mb-1">Ready to {mode === 'edit' ? 'Update' : 'Publish'}</p>
+                    <p>Your playlist is configured and ready to be {mode === 'edit' ? 'updated' : 'published'}. Click "{mode === 'edit' ? 'Update' : 'Publish'} Playlist" to make it active.</p>
                   </div>
                 </div>
               </CardContent>
@@ -1945,7 +2073,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylist, isF
                   disabled={!canProceed || isSubmitting}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  {isSubmitting ? 'Publishing...' : 'Publish Playlist'}
+                  {isSubmitting 
+                    ? (mode === 'edit' ? 'Updating...' : 'Publishing...') 
+                    : (mode === 'edit' ? 'Update Playlist' : 'Publish Playlist')
+                  }
                 </Button>
               )}
             </div>

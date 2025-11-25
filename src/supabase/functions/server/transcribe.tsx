@@ -1,4 +1,39 @@
 import { Context } from 'npm:hono';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
+
+// Create Supabase client
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+);
+
+// Upload file to AssemblyAI
+async function uploadToAssemblyAI(fileBuffer: Uint8Array): Promise<string> {
+  const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+  
+  if (!apiKey) {
+    throw new Error('ASSEMBLYAI_API_KEY environment variable is not set');
+  }
+
+  console.log('Uploading file to AssemblyAI...');
+
+  const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
+    method: 'POST',
+    headers: {
+      'Authorization': apiKey,
+    },
+    body: fileBuffer,
+  });
+
+  if (!uploadResponse.ok) {
+    const error = await uploadResponse.text();
+    throw new Error(`AssemblyAI upload error: ${error}`);
+  }
+
+  const { upload_url } = await uploadResponse.json();
+  console.log('File uploaded to AssemblyAI successfully');
+  return upload_url;
+}
 
 // AssemblyAI transcription helper
 export async function transcribeVideo(audioUrl: string) {
@@ -10,7 +45,45 @@ export async function transcribeVideo(audioUrl: string) {
 
   console.log('Starting transcription for:', audioUrl);
 
-  // Step 1: Submit transcription request
+  // Download file from Supabase Storage first
+  let uploadUrl: string;
+  
+  try {
+    // Extract bucket and path from the URL
+    // URL format: https://[project].supabase.co/storage/v1/object/sign/[bucket]/[path]?token=...
+    // or: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
+    const urlObj = new URL(audioUrl);
+    const pathParts = urlObj.pathname.split('/');
+    const bucketIndex = pathParts.findIndex(part => part === 'sign' || part === 'public') + 1;
+    const bucket = pathParts[bucketIndex];
+    const filePath = pathParts.slice(bucketIndex + 1).join('/');
+    
+    console.log('Downloading from Supabase Storage:', { bucket, filePath });
+    
+    // Download the file using service role
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from(bucket)
+      .download(filePath);
+    
+    if (downloadError || !fileData) {
+      throw new Error(`Failed to download file from storage: ${downloadError?.message || 'No data'}`);
+    }
+    
+    console.log('File downloaded, size:', fileData.size);
+    
+    // Convert blob to buffer
+    const arrayBuffer = await fileData.arrayBuffer();
+    const fileBuffer = new Uint8Array(arrayBuffer);
+    
+    // Upload to AssemblyAI
+    uploadUrl = await uploadToAssemblyAI(fileBuffer);
+    
+  } catch (error: any) {
+    console.error('Error downloading file:', error);
+    throw new Error(`Failed to process file: ${error.message}`);
+  }
+
+  // Step 1: Submit transcription request with the uploaded file
   const response = await fetch('https://api.assemblyai.com/v2/transcript', {
     method: 'POST',
     headers: {
@@ -18,7 +91,7 @@ export async function transcribeVideo(audioUrl: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      audio_url: audioUrl,
+      audio_url: uploadUrl,
       speaker_labels: true, // Enable speaker diarization
       format_text: true, // Better formatting
     }),

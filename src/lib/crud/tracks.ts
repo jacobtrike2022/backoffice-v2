@@ -20,6 +20,12 @@ export interface CreateTrackInput {
   learning_objectives?: string[];
   tags?: string[];
   is_system_content?: boolean; // System tracks from Trike Library (non-editable)
+  content_text?: string;
+  // Versioning fields
+  parent_track_id?: string; // Points to original track (V1) for versions
+  version_number?: number; // 1, 2, 3...
+  version_notes?: string; // Admin changelog notes
+  is_latest_version?: boolean; // True for current version
 }
 
 export interface UpdateTrackInput extends Partial<CreateTrackInput> {
@@ -48,7 +54,12 @@ export async function createTrack(input: CreateTrackInput) {
       status: input.status || 'draft',
       learning_objectives: input.learning_objectives || [],
       tags: input.tags || [],
-      is_system_content: input.is_system_content || false
+      is_system_content: input.is_system_content || false,
+      content_text: input.content_text,
+      parent_track_id: input.parent_track_id,
+      version_number: input.version_number,
+      version_notes: input.version_notes,
+      is_latest_version: input.is_latest_version
     })
     .select()
     .single();
@@ -93,12 +104,21 @@ export async function archiveTrack(trackId: string) {
  * Delete a track
  */
 export async function deleteTrack(trackId: string) {
-  const { error } = await supabase
-    .from('tracks')
-    .delete()
-    .eq('id', trackId);
+  // Check if track has playlist history
+  const hasHistory = await checkTrackHasPlaylistHistory(trackId);
+  
+  if (hasHistory) {
+    // Soft delete: preserve for audit trail
+    await softDeleteTrack(trackId);
+  } else {
+    // Hard delete: truly remove from database
+    const { error } = await supabase
+      .from('tracks')
+      .delete()
+      .eq('id', trackId);
 
-  if (error) throw error;
+    if (error) throw error;
+  }
 }
 
 /**
@@ -123,6 +143,8 @@ export async function getTracks(filters: {
   status?: string;
   search?: string;
   tags?: string[];
+  ids?: string[]; // Filter by specific IDs
+  includeAllVersions?: boolean; // Set to true to include old versions
 } = {}) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
@@ -132,21 +154,77 @@ export async function getTracks(filters: {
     .select('*')
     .eq('organization_id', orgId);
 
+  if (filters.ids && filters.ids.length > 0) {
+    query = query.in('id', filters.ids);
+  }
+
   if (filters.type) {
     query = query.eq('type', filters.type);
   }
 
   if (filters.status) {
-    query = query.eq('status', filters.status);
+    if (filters.status === 'archived') {
+      // For archived view, just show tracks with status='archived'
+      // (deleted_at column may not exist yet)
+      query = query.eq('status', 'archived');
+    } else {
+      // For published/draft, filter by status
+      query = query.eq('status', filters.status);
+    }
   }
 
   if (filters.search) {
     query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
   }
 
+  // By default, only show latest versions (gracefully handle missing column)
+  if (!filters.includeAllVersions) {
+    try {
+      query = query.or('is_latest_version.eq.true,is_latest_version.is.null');
+    } catch (error: any) {
+      // Column doesn't exist yet - migration not run. That's okay, continue without filter
+      console.log('Versioning columns not yet added. Please run migration.');
+    }
+  }
+
   const { data, error } = await query.order('created_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    // If error is about missing column, just log it and continue
+    if (error.code === '42703') {
+      console.warn('⚠️ Some database columns are missing. Continuing without advanced filters.');
+      console.log('💡 To enable all features, run migrations from MIGRATION_INSTRUCTIONS.md');
+      
+      // Retry query without the problematic filter
+      const simpleQuery = supabase
+        .from('tracks')
+        .select('*')
+        .eq('organization_id', orgId);
+      
+      if (filters.ids && filters.ids.length > 0) {
+        simpleQuery.in('id', filters.ids);
+      }
+      
+      if (filters.type) {
+        simpleQuery.eq('type', filters.type);
+      }
+      
+      if (filters.status) {
+        simpleQuery.eq('status', filters.status);
+      }
+      
+      if (filters.search) {
+        simpleQuery.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      }
+      
+      const { data: retryData, error: retryError } = await simpleQuery.order('created_at', { ascending: false });
+      
+      if (retryError) throw retryError;
+      
+      return retryData || [];
+    }
+    throw error;
+  }
 
   // Filter by tags if provided (client-side for now)
   if (filters.tags && filters.tags.length > 0) {
@@ -156,7 +234,7 @@ export async function getTracks(filters: {
     });
   }
 
-  return data;
+  return data || [];
 }
 
 /**
@@ -167,13 +245,25 @@ export async function uploadTrackMedia(
   file: File,
   type: 'content' | 'thumbnail'
 ): Promise<string> {
-  const orgId = await getCurrentUserOrgId();
-  const bucket = 'track-media';
-  const path = `${orgId}/${trackId}/${type}/${file.name}`;
+  // Upload through server to avoid RLS issues
+  const formData = new FormData();
+  formData.append('file', file);
 
-  const { url, error } = await uploadFile(bucket, path, file);
-  if (error) throw error;
-  if (!url) throw new Error('Failed to upload file');
+  const response = await fetch(`${SERVER_URL}/upload-media`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${publicAnonKey}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to upload file');
+  }
+
+  const data = await response.json();
+  const url = data.url;
 
   // Update track with new URL
   const updateData = type === 'content' 
@@ -306,6 +396,7 @@ export async function getAlbums(filters: {
   status?: string;
   search?: string;
   tags?: string[];
+  ids?: string[]; // Filter by specific IDs
 } = {}) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
@@ -325,6 +416,10 @@ export async function getAlbums(filters: {
       )
     `)
     .eq('organization_id', orgId);
+
+  if (filters.ids && filters.ids.length > 0) {
+    query = query.in('id', filters.ids);
+  }
 
   if (filters.status) {
     query = query.eq('status', filters.status);
@@ -348,4 +443,443 @@ export async function getAlbums(filters: {
   }));
 
   return enrichedAlbums;
+}
+
+// ============================================================================
+// VERSIONING OPERATIONS
+// ============================================================================
+
+/**
+ * Duplicate a track (creates a copy with "(Copy)" suffix)
+ */
+export async function duplicateTrack(trackId: string) {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get original track
+  const originalTrack = await getTrackById(trackId);
+  if (!originalTrack) throw new Error('Track not found');
+
+  // Create duplicate with "(Copy)" suffix
+  const copyNumber = await getNextCopyNumber(originalTrack.title);
+  const newTitle = copyNumber === 1 
+    ? `${originalTrack.title} (Copy)` 
+    : `${originalTrack.title} (Copy ${copyNumber})`;
+
+  const duplicateData: CreateTrackInput = {
+    title: newTitle,
+    description: originalTrack.description,
+    type: originalTrack.type,
+    content_url: originalTrack.content_url,
+    thumbnail_url: originalTrack.thumbnail_url,
+    duration_minutes: originalTrack.duration_minutes,
+    transcript: originalTrack.transcript,
+    summary: originalTrack.summary,
+    content_text: originalTrack.content_text,
+    status: 'draft', // Always start as draft
+    learning_objectives: originalTrack.learning_objectives,
+    tags: originalTrack.tags,
+    is_system_content: false, // Copies are never system content
+    parent_track_id: null, // Not a version, it's a duplicate
+    version_number: 1, // Fresh track
+    is_latest_version: true
+  };
+
+  const newTrack = await createTrack(duplicateData);
+  return newTrack;
+}
+
+/**
+ * Helper to get next copy number for duplicate naming
+ */
+async function getNextCopyNumber(originalTitle: string): Promise<number> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) return 1;
+
+  const { data: tracks } = await supabase
+    .from('tracks')
+    .select('title')
+    .eq('organization_id', orgId)
+    .or(`title.eq.${originalTitle} (Copy),title.like.${originalTitle} (Copy %)`);
+
+  if (!tracks || tracks.length === 0) return 1;
+
+  // Find highest copy number
+  let maxNumber = 0;
+  tracks.forEach(track => {
+    const match = track.title.match(/\(Copy (\d+)\)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNumber) maxNumber = num;
+    } else if (track.title.endsWith('(Copy)')) {
+      maxNumber = Math.max(maxNumber, 1);
+    }
+  });
+
+  return maxNumber + 1;
+}
+
+/**
+ * Get all versions of a track (including the track itself)
+ */
+export async function getTrackVersions(trackId: string) {
+  try {
+    console.log('🔍 getTrackVersions: Fetching versions for track:', trackId);
+    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/track-versions/${trackId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${publicAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('❌ getTrackVersions: Server error:', errorData);
+      // Return empty array instead of throwing - graceful degradation
+      return [];
+    }
+
+    const data = await response.json();
+    console.log('✅ getTrackVersions: Received data:', data);
+    console.log('✅ getTrackVersions: Returning versions:', data.versions || []);
+    return data.versions || [];
+  } catch (error: any) {
+    console.error('❌ getTrackVersions: Error fetching track versions:', error);
+    // Return empty array instead of throwing - graceful degradation
+    // This allows the UI to continue functioning even if version history fails
+    return [];
+  }
+}
+
+/**
+ * Create a new version of a track (used when editing published tracks)
+ */
+export async function createTrackVersion(
+  originalTrackId: string, 
+  updates: Partial<CreateTrackInput>,
+  versionNotes: string
+) {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const originalTrack = await getTrackById(originalTrackId);
+  if (!originalTrack) throw new Error('Track not found');
+
+  // Determine parent and next version number
+  const parentId = originalTrack.parent_track_id || originalTrack.id;
+  const currentVersion = originalTrack.version_number || 1;
+  const nextVersion = currentVersion + 1;
+
+  // Create new version
+  const newVersionData: CreateTrackInput = {
+    ...originalTrack,
+    ...updates,
+    parent_track_id: parentId,
+    version_number: nextVersion,
+    version_notes: versionNotes,
+    is_latest_version: true,
+    status: 'published' // New version is published
+  };
+
+  const newVersion = await createTrack(newVersionData);
+
+  // Mark old version as no longer latest
+  await updateTrack({
+    id: originalTrackId,
+    is_latest_version: false
+  });
+
+  return newVersion;
+}
+
+/**
+ * Get playlists that use a specific track
+ */
+export async function getPlaylistsForTrack(trackId: string) {
+  const { data, error } = await supabase
+    .from('playlist_tracks')
+    .select(`
+      playlist:playlists (
+        id,
+        title,
+        description
+      )
+    `)
+    .eq('track_id', trackId);
+
+  if (error) throw error;
+  
+  // Extract unique playlists
+  const playlists = data?.map(pt => pt.playlist).filter(Boolean) || [];
+  return playlists;
+}
+
+/**
+ * Get assignment stats for a track (pending and completed)
+ */
+export async function getTrackAssignmentStats(trackId: string) {
+  console.log('🔍 getTrackAssignmentStats - Checking stats for track:', trackId);
+  
+  // Get all playlist assignments for this track
+  const { data: playlistTracks, error: playlistError } = await supabase
+    .from('playlist_tracks')
+    .select('playlist_id')
+    .eq('track_id', trackId);
+
+  console.log('🔍 Playlist tracks found:', playlistTracks);
+  console.log('🔍 Playlist tracks error:', playlistError);
+
+  if (!playlistTracks || playlistTracks.length === 0) {
+    console.log('🔍 No playlists found for this track');
+    return { 
+      pendingCount: 0, 
+      completedCount: 0, 
+      totalAssignments: 0,
+      playlistCount: 0 
+    };
+  }
+
+  const playlistIds = playlistTracks.map(pt => pt.playlist_id);
+  console.log('🔍 Playlist IDs to check:', playlistIds);
+
+  // Query the assignments table using the ACTUAL schema (playlist_id, user_id, status='assigned')
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from('assignments')
+    .select('id, status, playlist_id, user_id, completed_at, progress_percent')
+    .in('playlist_id', playlistIds)
+    .eq('status', 'assigned');
+
+  console.log('🔍 Full query details:');
+  console.log('   - playlist_id IN:', playlistIds);
+  console.log('   - status: assigned');
+  console.log('🔍 Assignments found:', assignments);
+  console.log('🔍 Assignments count:', assignments?.length);
+  console.log('🔍 Assignments error:', assignmentsError);
+
+  if (!assignments || assignments.length === 0) {
+    console.log('🔍 No assignments found for these playlists - checking if ANY assignments exist');
+    
+    // Debug query: Check if ANY assignments exist for these playlists (without filters)
+    const { data: allAssignments, error: allError } = await supabase
+      .from('assignments')
+      .select('*')
+      .in('playlist_id', playlistIds);
+    
+    console.log('🔍 ALL assignments (no filter):', allAssignments);
+    console.log('🔍 ALL assignments error:', allError);
+    
+    return {
+      pendingCount: 0,
+      completedCount: 0,
+      totalAssignments: 0,
+      playlistCount: playlistTracks.length
+    };
+  }
+
+  // Calculate stats directly from assignments (no separate progress table needed)
+  const totalAssignments = assignments.length;
+  const completedCount = assignments.filter(a => a.completed_at).length;
+  const pendingCount = totalAssignments - completedCount;
+
+  const stats = {
+    pendingCount,
+    completedCount,
+    totalAssignments,
+    playlistCount: playlistTracks.length
+  };
+  
+  console.log('🔍 Final stats:', stats);
+  
+  return stats;
+}
+
+/**
+ * Replace track in playlists (used when creating new version)
+ */
+export async function replaceTrackInPlaylists(
+  oldTrackId: string,
+  newTrackId: string,
+  playlistIds?: string[]
+) {
+  let query = supabase
+    .from('playlist_tracks')
+    .update({ track_id: newTrackId })
+    .eq('track_id', oldTrackId);
+
+  // Optionally filter by specific playlists
+  if (playlistIds && playlistIds.length > 0) {
+    query = query.in('playlist_id', playlistIds);
+  }
+
+  const { error } = await query;
+  if (error) throw error;
+}
+
+/**
+ * Reassign completed users to new track version
+ */
+export async function reassignCompletedUsers(
+  oldTrackId: string,
+  newTrackId: string,
+  playlistIds?: string[]
+) {
+  // This function marks completed users as needing to re-do the track
+  // Implementation depends on your completion tracking structure
+  
+  // Get playlist tracks
+  let query = supabase
+    .from('playlist_tracks')
+    .select('playlist_id')
+    .eq('track_id', oldTrackId);
+
+  if (playlistIds && playlistIds.length > 0) {
+    query = query.in('playlist_id', playlistIds);
+  }
+
+  const { data: playlistTracks } = await query;
+  if (!playlistTracks) return;
+
+  const affectedPlaylistIds = playlistTracks.map(pt => pt.playlist_id);
+
+  // Get user progress records that completed these playlists
+  const { data: completedProgressRecords } = await supabase
+    .from('playlist_progress')
+    .select('id, user_id, playlist_id')
+    .in('playlist_id', affectedPlaylistIds)
+    .not('completed_at', 'is', null);
+
+  if (!completedProgressRecords) return;
+
+  // Reset completion status (they need to complete the new version)
+  for (const progress of completedProgressRecords) {
+    await supabase
+      .from('playlist_progress')
+      .update({
+        completed_at: null,
+        progress_percentage: 0
+      })
+      .eq('id', progress.id);
+  }
+}
+
+/**
+ * Check if track has ever been assigned to a playlist
+ */
+export async function checkTrackHasPlaylistHistory(trackId: string): Promise<boolean> {
+  // Check if track exists in the playlist_tracks junction table
+  const { data, error } = await supabase
+    .from('playlist_tracks')
+    .select('id')
+    .eq('track_id', trackId)
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking playlist history:', error);
+    return false; // Default to false if error
+  }
+  
+  return data && data.length > 0;
+}
+
+/**
+ * Mark track as having playlist history (one-way gate)
+ * NOTE: This is now handled automatically by checking the playlist_tracks table
+ * Keeping this function for backwards compatibility but it's a no-op
+ */
+export async function markTrackHasPlaylistHistory(trackId: string) {
+  // No longer needed - we check playlist_tracks junction table directly
+  // This function is kept for backwards compatibility
+  return;
+}
+
+/**
+ * Get detailed playlist assignments with activity stats for a track
+ */
+export async function getTrackPlaylistAssignments(trackId: string) {
+  // Get all playlists containing this track
+  const { data: playlistTracks, error: ptError } = await supabase
+    .from('playlist_tracks')
+    .select(`
+      playlist_id,
+      playlists (
+        id,
+        title,
+        description,
+        is_active
+      )
+    `)
+    .eq('track_id', trackId);
+
+  if (ptError) throw ptError;
+  if (!playlistTracks || playlistTracks.length === 0) return [];
+
+  // Get assignment stats for each playlist
+  const results = await Promise.all(
+    playlistTracks.map(async (pt: any) => {
+      const playlist = pt.playlists;
+      if (!playlist) return null;
+
+      // Query assignments using the ACTUAL schema (playlist_id, user_id, status='assigned')
+      const { data: assignments } = await supabase
+        .from('assignments')
+        .select('id, completed_at, progress_percent')
+        .eq('playlist_id', playlist.id)
+        .eq('status', 'assigned');
+
+      const totalAssignments = assignments?.length || 0;
+      const completedCount = assignments?.filter(a => a.completed_at).length || 0;
+      const pendingCount = totalAssignments - completedCount;
+      const progressPercent = totalAssignments > 0 
+        ? Math.round((completedCount / totalAssignments) * 100) 
+        : 0;
+
+      return {
+        playlistId: playlist.id,
+        playlistTitle: playlist.title,
+        playlistDescription: playlist.description,
+        playlistStatus: playlist.is_active ? 'active' : 'archived',
+        pendingCount,
+        completedCount,
+        totalAssignments,
+        progressPercent
+      };
+    })
+  );
+
+  return results.filter(Boolean);
+}
+
+/**
+ * Soft delete track (for tracks with playlist history)
+ */
+export async function softDeleteTrack(trackId: string) {
+  // Try to set deleted_at if column exists, otherwise just set status to archived
+  try {
+    const { error } = await supabase
+      .from('tracks')
+      .update({ 
+        deleted_at: new Date().toISOString(),
+        status: 'archived'
+      })
+      .eq('id', trackId);
+
+    if (error) {
+      // If deleted_at column doesn't exist, just set status
+      if (error.code === '42703') {
+        console.log('⚠️ deleted_at column not found, using status only');
+        const { error: statusError } = await supabase
+          .from('tracks')
+          .update({ status: 'archived' })
+          .eq('id', trackId);
+        
+        if (statusError) throw statusError;
+      } else {
+        throw error;
+      }
+    }
+  } catch (err) {
+    console.error('Error in softDeleteTrack:', err);
+    throw err;
+  }
 }

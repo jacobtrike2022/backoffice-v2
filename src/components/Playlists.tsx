@@ -68,10 +68,13 @@ import { toast } from 'sonner@2.0.3';
 interface PlaylistsProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
   onOpenPlaylistWizard?: () => void;
+  onEditPlaylist?: (playlistId: string) => void;
   selectedPlaylistId?: string;
+  previousView?: string | null;
+  onBackToPreviousView?: () => void;
 }
 
-export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selectedPlaylistId }: PlaylistsProps) {
+export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditPlaylist, selectedPlaylistId, previousView, onBackToPreviousView }: PlaylistsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewFilter, setViewFilter] = useState<string>('all');
   const [selectedPlaylist, setSelectedPlaylist] = useState<any | null>(null);
@@ -80,6 +83,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [totalDuration, setTotalDuration] = useState<number>(0); // in minutes
 
   const { user } = useCurrentUser();
 
@@ -97,6 +101,34 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
       }
     }
   }, [selectedPlaylistId, playlists.length, selectedPlaylist]);
+
+  // Calculate total duration when a playlist is selected
+  useEffect(() => {
+    const calculateTotalDuration = async () => {
+      if (!selectedPlaylist || !selectedPlaylist.track_ids || selectedPlaylist.track_ids.length === 0) {
+        setTotalDuration(0);
+        return;
+      }
+
+      try {
+        // Fetch all tracks in this playlist
+        const tracks = await crud.getTracks({ ids: selectedPlaylist.track_ids });
+        
+        // Sum up all durations
+        const totalMinutes = tracks.reduce((sum: number, track: any) => {
+          return sum + (track.duration_minutes || 0);
+        }, 0);
+        
+        setTotalDuration(totalMinutes);
+        console.log(`⏱️ Total playlist duration: ${totalMinutes} minutes`);
+      } catch (error) {
+        console.error('Error calculating playlist duration:', error);
+        setTotalDuration(0);
+      }
+    };
+
+    calculateTotalDuration();
+  }, [selectedPlaylist?.id, selectedPlaylist?.track_ids]);
 
   const fetchPlaylists = async () => {
     if (!user?.organization_id) return;
@@ -118,8 +150,41 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
 
       const data = await crud.getPlaylists(filters);
 
+      // Calculate durations for each playlist
+      const playlistsWithDurations = await Promise.all(
+        data.map(async (playlist: any) => {
+          let totalDuration = 0;
+          
+          // Fetch tracks if playlist has track_ids
+          if (playlist.track_ids && playlist.track_ids.length > 0) {
+            try {
+              console.log(`🔍 Calculating duration for playlist "${playlist.title}":`, {
+                trackIds: playlist.track_ids,
+                trackCount: playlist.track_ids.length
+              });
+              
+              const tracks = await crud.getTracks({ ids: playlist.track_ids });
+              
+              console.log(`📦 Fetched ${tracks.length} tracks for "${playlist.title}":`, 
+                tracks.map((t: any) => ({ title: t.title, duration: t.duration_minutes }))
+              );
+              
+              totalDuration = tracks.reduce((sum: number, track: any) => sum + (track.duration_minutes || 0), 0);
+              
+              console.log(`⏱️ Total duration for "${playlist.title}": ${totalDuration} minutes`);
+            } catch (error) {
+              console.error(`❌ Error calculating duration for playlist ${playlist.id}:`, error);
+            }
+          } else {
+            console.log(`⚠️ Playlist "${playlist.title}" has no track_ids:`, playlist.track_ids);
+          }
+          
+          return { ...playlist, totalDuration };
+        })
+      );
+
       // Transform data for display
-      const transformedPlaylists = data.map((playlist: any) => ({
+      const transformedPlaylists = playlistsWithDurations.map((playlist: any) => ({
         ...playlist,
         albumCount: playlist.album_count || 0,
         totalTracks: playlist.track_count || 0,
@@ -131,7 +196,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
         stages: playlist.release_schedule ? Object.keys(playlist.release_schedule).length : 0,
         createdDate: playlist.created_at,
         trigger: playlist.trigger_rules ? 'Auto-assignment enabled' : undefined,
-        status: playlist.is_active ? 'active' : 'archived'
+        status: playlist.is_active ? 'active' : 'archived',
+        totalDuration: playlist.totalDuration || 0
       }));
 
       setPlaylists(transformedPlaylists);
@@ -213,16 +279,23 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
           <div className="flex items-center space-x-4">
             <Button
               variant="ghost"
-              onClick={() => setSelectedPlaylist(null)}
+              onClick={() => {
+                if (previousView === 'content') {
+                  setCurrentView('content');
+                  setSelectedPlaylist(null);
+                } else {
+                  setSelectedPlaylist(null);
+                }
+              }}
               className="flex items-center"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Back to Playlists
+              {previousView ? `Back to ${previousView === 'content' ? 'Content Library' : 'Previous View'}` : 'Back to Playlists'}
             </Button>
             <div>
               <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center">
-                  <ListChecks className="h-6 w-6 text-white" />
+                <div className="h-10 w-10 rounded-lg flex items-center justify-center">
+                  <ListChecks className="h-6 w-6 text-foreground dark:text-white" />
                 </div>
                 <h1 className="text-foreground">{selectedPlaylist.title}</h1>
               </div>
@@ -254,7 +327,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => onEditPlaylist?.(selectedPlaylist.id)}>
               <Edit className="h-4 w-4 mr-2" />
               Edit Playlist
             </Button>
@@ -324,8 +397,15 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Est. Completion</p>
-                  <p className="text-2xl font-bold">4.5</p>
-                  <p className="text-xs text-muted-foreground">hours</p>
+                  <p className="text-2xl font-bold">
+                    {totalDuration >= 60 
+                      ? (totalDuration / 60).toFixed(1)
+                      : totalDuration
+                    }
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {totalDuration >= 60 ? 'hours' : 'minutes'}
+                  </p>
                 </div>
                 <Clock className="h-8 w-8 text-orange-500" />
               </div>
@@ -712,8 +792,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-start space-x-3 flex-1">
-                    <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center flex-shrink-0">
-                      <ListChecks className="h-6 w-6 text-white" />
+                    <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <ListChecks className="h-6 w-6 text-foreground dark:text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold mb-1">{playlist.title}</h3>
@@ -792,6 +872,15 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, selecte
                     <div className="flex items-center gap-1.5">
                       <Library className="h-4 w-4" />
                       <span className="font-medium">{playlist.totalTracks} tracks</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-4 w-4" />
+                      <span className="font-medium">
+                        {playlist.totalDuration >= 60 
+                          ? `${(playlist.totalDuration / 60).toFixed(1)} hrs`
+                          : `${playlist.totalDuration} min`
+                        }
+                      </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Users className="h-4 w-4" />

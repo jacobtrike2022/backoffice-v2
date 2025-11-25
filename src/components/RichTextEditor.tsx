@@ -193,6 +193,8 @@ interface RichTextEditorProps {
 }
 
 export function RichTextEditor({ content, onChange }: RichTextEditorProps) {
+  console.log('🎨 RichTextEditor - Rendering with content length:', content?.length || 0);
+
   return (
     <div className="tiptap-editor-wrapper">
       <EditorProvider

@@ -6,6 +6,9 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import { TagSelectorDialog } from './TagSelectorDialog';
+import { VersionHistory } from './content-authoring/VersionHistory';
+import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
+import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import {
   Play,
   Calendar,
@@ -25,7 +28,8 @@ import {
   Plus,
   Upload,
   Link as LinkIcon,
-  Sparkles
+  Sparkles,
+  History
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
@@ -35,11 +39,13 @@ interface TrackDetailEditProps {
   track: any;
   onBack: () => void;
   onUpdate: () => void;
+  onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
   isNewContent?: boolean;
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthenticated = false, isNewContent = false }: TrackDetailEditProps) {
+export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist }: TrackDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -48,6 +54,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
   const videoRef = useRef<HTMLVideoElement>(null);
   const youtubePlayerRef = useRef<any>(null);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  
+  // Versioning state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -189,6 +200,22 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
       console.log('Saving track with data:', saveData);
       console.log('Transcript data being saved:', JSON.stringify(saveData.transcript_data, null, 2));
 
+      // Check if track is published and has assignments
+      if (track.status === 'published') {
+        const stats = await crud.getTrackAssignmentStats(track.id);
+        
+        // Trigger versioning if track is in ANY playlist (even if not assigned to users yet)
+        if (stats.playlistCount > 0) {
+          // Show version decision modal instead of saving directly
+          console.log('Track is in playlists, showing version decision modal. Stats:', stats);
+          setPendingChanges(saveData);
+          setIsVersionModalOpen(true);
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      // If no assignments or not published, just update normally
       await crud.updateTrack(saveData);
 
       console.log('Track updated successfully, calling onUpdate...');
@@ -604,6 +631,36 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Old Version Banner - Show when viewing a non-latest version */}
+          {track.version_number && !track.is_latest_version && (
+            <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                    <History className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-blue-900 dark:text-blue-100">
+                      Viewing Version {track.version_number}
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      This is an older version. Changes made here won't be saved.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.history.back()}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Back
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           {/* Video/Media Preview */}
           <Card>
             <CardContent className="p-0">
@@ -826,8 +883,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
             </CardContent>
           </Card>
 
-          {/* Interactive Transcript - Always show for video/audio tracks */}
-          {(track.type === 'video' || track.type === 'audio' || track.content_url?.match(/\\.(mp4|webm|ogg|mp3|wav)$/i)) && (
+          {/* Transcript Section */}
+          {track.type !== 'article' && (
             <InteractiveTranscript
               transcript={track.transcript_data}
               currentTime={currentTime}
@@ -1049,6 +1106,27 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
               )}
             </CardContent>
           </Card>
+          
+          {/* Associated Playlists */}
+          <AssociatedPlaylists 
+            trackId={track.id}
+            onPlaylistClick={onNavigateToPlaylist}
+          />
+          
+          {/* Version History */}
+          <VersionHistory
+            trackId={track.id}
+            currentVersion={track.version_number || 1}
+            onVersionClick={async (versionTrackId) => {
+              console.log('🔍 Version clicked, loading version:', versionTrackId);
+              if (onVersionClick) {
+                onVersionClick(versionTrackId);
+              } else {
+                // Fallback to URL navigation if prop not provided
+                window.location.href = `/video/${versionTrackId}`;
+              }
+            }}
+          />
         </div>
       </div>
 
@@ -1058,6 +1136,30 @@ export function TrackDetailEdit({ track, onBack, onUpdate, isSuperAdminAuthentic
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={editFormData.tags || []}
         onTagsChange={(tags) => setEditFormData({ ...editFormData, tags })}
+      />
+      
+      {/* Version Decision Modal */}
+      <VersionDecisionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => {
+          setIsVersionModalOpen(false);
+          setPendingChanges(null);
+        }}
+        trackId={track.id}
+        trackTitle={track.title}
+        currentVersion={track.version_number || 1}
+        pendingChanges={pendingChanges}
+        onVersionCreated={async (newTrackId, strategy) => {
+          console.log('✅ Version created! New track ID:', newTrackId);
+          toast.success(`Version ${(track.version_number || 1) + 1} created with ${strategy} strategy!`);
+          setIsVersionModalOpen(false);
+          setIsEditMode(false);
+          
+          // Small delay to let modal close gracefully before navigation
+          setTimeout(() => {
+            window.location.href = `/track/${newTrackId}`;
+          }, 300);
+        }}
       />
     </div>
   );

@@ -8,6 +8,9 @@ import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { TagSelectorDialog } from '../TagSelectorDialog';
+import { VersionHistory } from './VersionHistory';
+import { AssociatedPlaylists } from './AssociatedPlaylists';
+import { VersionDecisionModal } from './VersionDecisionModal';
 import { 
   ArrowLeft, 
   Save, 
@@ -23,7 +26,9 @@ import {
   Calendar,
   Clock,
   Tag as TagIcon,
-  Lock
+  Lock,
+  History,
+  ChevronLeft
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
@@ -49,10 +54,12 @@ interface CheckpointEditorProps {
   currentRole?: string;
   onBack?: () => void; // For content library view
   onUpdate?: () => void; // For content library view
+  onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, isSuperAdminAuthenticated }: CheckpointEditorProps) {
+export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist }: CheckpointEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,6 +83,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     }
   ]);
   const [showPreview, setShowPreview] = useState(false);
+
+  // Versioning state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<any>(null);
 
   // Determine the current track ID - either from props or from track object
   const currentTrackId = trackId || track?.id;
@@ -268,7 +279,22 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       };
 
       if (currentTrackId) {
-        // Update existing checkpoint (save changes without changing status)
+        // Check if track is published and has assignments
+        if (existingTrack?.status === 'published') {
+          const stats = await crud.getTrackAssignmentStats(currentTrackId);
+          
+          // Trigger versioning if track is in ANY playlist (even if not assigned to users yet)
+          if (stats.playlistCount > 0) {
+            // Show version decision modal instead of saving directly
+            console.log('Track is in playlists, showing version decision modal. Stats:', stats);
+            setPendingChanges({ id: currentTrackId, ...trackData });
+            setIsVersionModalOpen(true);
+            setIsSaving(false);
+            return;
+          }
+        }
+        
+        // If no assignments or not published, update normally
         await crud.updateTrack({ id: currentTrackId, ...trackData });
         toast.success('Changes saved!');
         
@@ -565,6 +591,36 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2">
+            {/* Old Version Banner - Show when viewing a non-latest version */}
+            {existingTrack && existingTrack.version_number && !existingTrack.is_latest_version && (
+              <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 mb-6">
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                      <History className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-blue-900 dark:text-blue-100">
+                        Viewing Version {existingTrack.version_number}
+                      </p>
+                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                        This is an older version. Changes made here won't be saved.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.history.back()}
+                      className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Back
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
             <Card className="overflow-hidden">
               <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5">
                 <div className="flex items-center justify-between">
@@ -730,6 +786,31 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                   </div>
                 </CardContent>
               </Card>
+            )}
+            
+            {/* Associated Playlists */}
+            {currentTrackId && (
+              <AssociatedPlaylists 
+                trackId={currentTrackId}
+                onPlaylistClick={onNavigateToPlaylist}
+              />
+            )}
+            
+            {/* Version History */}
+            {currentTrackId && (
+              <VersionHistory
+                trackId={currentTrackId}
+                currentVersion={existingTrack?.version_number || 1}
+                onVersionClick={async (versionTrackId) => {
+                  console.log('🔍 Version clicked, loading version:', versionTrackId);
+                  if (onVersionClick) {
+                    onVersionClick(versionTrackId);
+                  } else {
+                    // Fallback to URL navigation if prop not provided
+                    window.location.href = `/checkpoint/${versionTrackId}`;
+                  }
+                }}
+              />
             )}
           </div>
         </div>
@@ -1065,6 +1146,31 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               <p>• Preview before publishing</p>
             </CardContent>
           </Card>
+          
+          {/* Version History */}
+          {currentTrackId && (
+            <VersionHistory
+              trackId={currentTrackId}
+              currentVersion={existingTrack?.version_number || 1}
+              onVersionClick={async (versionTrackId) => {
+                console.log('🔍 Version clicked, loading version:', versionTrackId);
+                if (onVersionClick) {
+                  onVersionClick(versionTrackId);
+                } else {
+                  // Fallback to URL navigation if prop not provided
+                  window.location.href = `/checkpoint/${versionTrackId}`;
+                }
+              }}
+            />
+          )}
+          
+          {/* Associated Playlists */}
+          {currentTrackId && (
+            <AssociatedPlaylists 
+              trackId={currentTrackId}
+              onPlaylistClick={onNavigateToPlaylist}
+            />
+          )}
         </div>
       </div>
 
@@ -1074,6 +1180,30 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
         onTagsChange={setTags}
+      />
+      
+      {/* Version Decision Modal */}
+      <VersionDecisionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => {
+          setIsVersionModalOpen(false);
+          setPendingChanges(null);
+        }}
+        trackId={currentTrackId || ''}
+        trackTitle={title}
+        currentVersion={existingTrack?.version_number || 1}
+        pendingChanges={pendingChanges}
+        onVersionCreated={async (newTrackId, strategy) => {
+          console.log('✅ Version created! New track ID:', newTrackId);
+          toast.success(`Version ${(existingTrack?.version_number || 1) + 1} created with ${strategy} strategy!`);
+          setIsVersionModalOpen(false);
+          setIsEditMode(false);
+          
+          // Small delay to let modal close gracefully before navigation
+          setTimeout(() => {
+            window.location.href = `/checkpoint/${newTrackId}`;
+          }, 300);
+        }}
       />
     </div>
   );

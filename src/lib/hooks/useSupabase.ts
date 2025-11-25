@@ -317,3 +317,77 @@ export function useRealtimeSubscription(
     };
   }, [table, filter, callback]);
 }
+
+/**
+ * Hook to get KB articles with filters
+ */
+export function useKBArticles(filters?: Parameters<typeof crud.getKBArticles>[0]) {
+  const [articles, setArticles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  useEffect(() => {
+    async function fetchArticles() {
+      try {
+        setLoading(true);
+        console.log('🔄 useKBArticles: Fetching articles with filters:', filters);
+        const data = await crud.getKBArticles(filters);
+        console.log('✅ useKBArticles: Fetched', data.length, 'articles');
+        setArticles(data);
+        setError(null);
+      } catch (err) {
+        console.error('❌ useKBArticles: Error fetching articles:', err);
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchArticles();
+  }, [JSON.stringify(filters), refetchTrigger]);
+
+  const refetch = async () => {
+    console.log('🔄 useKBArticles: Refetch triggered');
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { articles, loading, error, refetch };
+}
+
+/**
+ * Hook to get KB categories with article counts
+ */
+export function useKBCategories() {
+  const [categories, setCategories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  useEffect(() => {
+    async function fetchCategories() {
+      try {
+        setLoading(true);
+        console.log('🔄 useKBCategories: Fetching categories with counts');
+        const data = await crud.getKBCategoriesWithCounts();
+        console.log('✅ useKBCategories: Fetched', data.length, 'categories');
+        setCategories(data);
+        setError(null);
+      } catch (err) {
+        console.error('❌ useKBCategories: Error fetching categories:', err);
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchCategories();
+  }, [refetchTrigger]);
+
+  const refetch = async () => {
+    console.log('🔄 useKBCategories: Refetch triggered');
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { categories, loading, error, refetch };
+}

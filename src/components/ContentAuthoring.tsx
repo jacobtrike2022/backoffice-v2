@@ -75,17 +75,40 @@ const contentTypes = [
 interface ContentAuthoringProps {
   onNavigateToLibrary?: () => void;
   currentRole?: string;
+  initialTrackId?: string; // For URL-based track loading
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAuthoringProps) {
+export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrackId, onNavigateToPlaylist }: ContentAuthoringProps) {
   const [selectedType, setSelectedType] = useState<ContentType>(null);
   const [editingTrack, setEditingTrack] = useState<any>(null);
   const [draftTracks, setDraftTracks] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set(['article', 'video', 'story', 'checkpoint']));
+  const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
 
   const isSuperAdmin = currentRole === 'Trike Super Admin';
+
+  // Load initial track from URL if provided - ONLY ONCE
+  useEffect(() => {
+    if (initialTrackId && !editingTrack && !hasLoadedInitialTrack) {
+      console.log('📍 ContentAuthoring: Loading initial track from URL:', initialTrackId);
+      setHasLoadedInitialTrack(true); // Mark as loaded immediately to prevent re-runs
+      import('../lib/crud').then(crud => {
+        crud.getTracks({ ids: [initialTrackId], includeAllVersions: true }).then(tracks => {
+          if (tracks && tracks.length > 0) {
+            const track = tracks[0];
+            console.log('📍 ContentAuthoring: Initial track loaded:', track);
+            setEditingTrack(track);
+            setSelectedType(track.type);
+          }
+        }).catch(error => {
+          console.error('📍 ContentAuthoring: Failed to load initial track:', error);
+        });
+      });
+    }
+  }, [initialTrackId, editingTrack, hasLoadedInitialTrack]);
 
   useEffect(() => {
     loadDraftTracks();
@@ -190,6 +213,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAu
           onUpdate={handleUpdate}
           isSuperAdminAuthenticated={isSuperAdmin}
           isNewContent={false}
+          onNavigateToPlaylist={onNavigateToPlaylist}
         />
       );
     } else if (editingTrack.type === 'video') {
@@ -200,6 +224,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAu
           onUpdate={handleUpdate}
           isSuperAdminAuthenticated={isSuperAdmin}
           isNewContent={false}
+          onNavigateToPlaylist={onNavigateToPlaylist}
         />
       );
     } else if (editingTrack.type === 'story') {
@@ -210,6 +235,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAu
           onUpdate={handleUpdate}
           currentRole={currentRole}
           isSuperAdminAuthenticated={isSuperAdmin}
+          onNavigateToPlaylist={onNavigateToPlaylist}
         />
       );
     } else if (editingTrack.type === 'checkpoint') {
@@ -219,6 +245,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole }: ContentAu
           trackId={editingTrack.id}
           isNewContent={false}
           currentRole={currentRole}
+          onNavigateToPlaylist={onNavigateToPlaylist}
         />
       );
     }

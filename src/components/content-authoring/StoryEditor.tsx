@@ -7,6 +7,9 @@ import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { TagSelectorDialog } from '../TagSelectorDialog';
+import { VersionHistory } from './VersionHistory';
+import { AssociatedPlaylists } from './AssociatedPlaylists';
+import { VersionDecisionModal } from './VersionDecisionModal';
 import { 
   ArrowLeft, 
   Save, 
@@ -25,7 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   PlayCircle,
-  Loader2
+  Loader2,
+  History
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
@@ -37,6 +41,7 @@ interface Slide {
   type: 'image' | 'video';
   url: string;
   order: number;
+  duration?: number; // Duration in seconds (for videos) or default for images
 }
 
 interface StoryEditorProps {
@@ -47,7 +52,9 @@ interface StoryEditorProps {
   currentRole?: string;
   onBack?: () => void;
   onUpdate?: () => void;
+  onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
+  onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
 export function StoryEditor({ 
@@ -57,8 +64,10 @@ export function StoryEditor({
   isNewContent = false, 
   currentRole, 
   onBack, 
-  onUpdate, 
-  isSuperAdminAuthenticated 
+  onUpdate,
+  onVersionClick, 
+  isSuperAdminAuthenticated,
+  onNavigateToPlaylist
 }: StoryEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent);
   const [isSaving, setIsSaving] = useState(false);
@@ -87,6 +96,10 @@ export function StoryEditor({
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
   const [showBottomAddButton, setShowBottomAddButton] = useState(false);
+  
+  // Versioning state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<any>(null);
 
   const currentTrackId = trackId || track?.id;
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
@@ -95,12 +108,32 @@ export function StoryEditor({
   
   // Calculate story duration
   const calculateStoryDuration = () => {
-    // For now, estimate: videos use their actual duration (when available), images = 1 min each
-    // Since we don't have video metadata yet, use a simple heuristic:
-    // Videos: 2 minutes each (average), Images: 1 minute each
-    const videoCount = slides.filter(s => s.type === 'video').length;
-    const imageCount = slides.filter(s => s.type === 'image').length;
-    return (videoCount * 2) + imageCount;
+    if (slides.length === 0) return 0; // No slides yet
+    
+    // Sum up all slide durations
+    const totalSeconds = slides.reduce((total, slide) => {
+      if (slide.duration && !isNaN(slide.duration)) {
+        return total + slide.duration;
+      } else if (slide.url) {
+        // If slide has content but no duration, use default 10 seconds
+        return total + 10;
+      } else {
+        // Slide has no content yet, don't count it
+        return total;
+      }
+    }, 0);
+    
+    if (totalSeconds === 0) return 0; // No valid content yet
+    
+    // Convert to minutes, minimum 1 minute for valid content
+    const minutes = Math.max(1, Math.round(totalSeconds / 60));
+    console.log('Story duration calculation:', {
+      slideCount: slides.length,
+      totalSeconds,
+      minutes,
+      slides: slides.map(s => ({ type: s.type, duration: s.duration, hasUrl: !!s.url }))
+    });
+    return minutes;
   };
   
   const storyDuration = calculateStoryDuration();
@@ -172,6 +205,42 @@ export function StoryEditor({
     let originalSizeMB = file.size / (1024 * 1024);
     let wasCompressed = false;
     
+    // Extract video duration BEFORE compression (from original file)
+    let videoDuration: number | undefined = undefined;
+    if (type === 'video') {
+      try {
+        console.log('Starting video duration extraction from original file...');
+        const videoElement = document.createElement('video');
+        const objectUrl = URL.createObjectURL(file); // Use original file
+        videoElement.preload = 'metadata';
+        
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Timeout loading video metadata'));
+          }, 10000); // 10 second timeout
+          
+          videoElement.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            videoDuration = Math.round(videoElement.duration); // Duration in seconds
+            console.log('Video duration extracted successfully:', videoDuration, 'seconds (', Math.round(videoDuration / 60), 'minutes)');
+            URL.revokeObjectURL(objectUrl);
+            resolve();
+          };
+          videoElement.onerror = (e) => {
+            clearTimeout(timeout);
+            console.error('Video element error:', e);
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Failed to load video metadata'));
+          };
+          videoElement.src = objectUrl;
+        });
+      } catch (error) {
+        console.error('Error extracting video duration:', error);
+        // Continue without duration
+      }
+    }
+    
     // Compress video if needed (client-side)
     if (type === 'video' && shouldCompressVideo(file, 15)) {
       setIsCompressing(true);
@@ -209,7 +278,7 @@ export function StoryEditor({
         setIsCompressing(false);
       }
     }
-
+    
     setIsUploading(true);
     try {
       const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
@@ -234,9 +303,10 @@ export function StoryEditor({
       const data = await response.json();
       
       if (slideId) {
-        // Update existing slide
+        // Update existing slide with URL, type, and duration
+        console.log('Updating slide with duration:', { slideId, type, videoDuration });
         setSlides(slides.map(slide => 
-          slide.id === slideId ? { ...slide, url: data.url, type } : slide
+          slide.id === slideId ? { ...slide, url: data.url, type, duration: videoDuration } : slide
         ));
       }
       
@@ -333,12 +403,27 @@ export function StoryEditor({
         type: 'story' as const,
         transcript: JSON.stringify(storyData),
         content_text: notes,
-        duration_minutes: Math.max(1, Math.ceil(slides.length * 0.5)), // Estimate duration
+        duration_minutes: calculateStoryDuration(), // Use actual calculated duration
         tags,
         thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
       };
 
       if (currentTrackId) {
+        // Check if track is published and has assignments
+        if (existingTrack?.status === 'published') {
+          const stats = await crud.getTrackAssignmentStats(currentTrackId);
+          
+          if (stats.totalAssignments > 0) {
+            // Show version decision modal instead of saving directly
+            console.log('Track has assignments, showing version decision modal. Stats:', stats);
+            setPendingChanges({ id: currentTrackId, ...trackData });
+            setIsVersionModalOpen(true);
+            setIsSaving(false);
+            return;
+          }
+        }
+        
+        // If no assignments or not published, update normally
         await crud.updateTrack({ id: currentTrackId, ...trackData });
         toast.success('Changes saved!');
         
@@ -433,6 +518,36 @@ export function StoryEditor({
   if (!isEditMode && existingTrack) {
     return (
       <div className="space-y-6">
+        {/* Old Version Banner - Show when viewing a non-latest version */}
+        {existingTrack.version_number && !existingTrack.is_latest_version && (
+          <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+            <CardContent className="py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                  <History className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-blue-900 dark:text-blue-100">
+                    Viewing Version {existingTrack.version_number}
+                  </p>
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    This is an older version. Changes made here won't be saved.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onBack}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Back
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={handleBackClick}>
@@ -641,6 +756,31 @@ export function StoryEditor({
                 </CardContent>
               </Card>
             )}
+            
+            {/* Associated Playlists */}
+            {currentTrackId && (
+              <AssociatedPlaylists 
+                trackId={currentTrackId}
+                onPlaylistClick={onNavigateToPlaylist}
+              />
+            )}
+            
+            {/* Version History */}
+            {currentTrackId && (
+              <VersionHistory
+                trackId={currentTrackId}
+                currentVersion={existingTrack?.version_number || 1}
+                onVersionClick={async (versionTrackId) => {
+                  console.log('🔍 Version clicked, loading version:', versionTrackId);
+                  if (onVersionClick) {
+                    onVersionClick(versionTrackId);
+                  } else {
+                    // Fallback to URL navigation if prop not provided
+                    window.location.href = `/story/${versionTrackId}`;
+                  }
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -667,9 +807,11 @@ export function StoryEditor({
                 <Smartphone className="h-3 w-3 mr-1" />
                 Story
               </Badge>
-              <Badge variant="outline" className="text-muted-foreground">
-                {storyDuration} {storyDuration === 1 ? 'min' : 'mins'}
-              </Badge>
+              {storyDuration > 0 && (
+                <Badge variant="outline" className="text-muted-foreground">
+                  {storyDuration} {storyDuration === 1 ? 'min' : 'mins'}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -1217,6 +1359,104 @@ export function StoryEditor({
             </CardContent>
           </Card>
 
+          {/* Thumbnail Upload/Edit */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center">
+                <ImageIcon className="h-4 w-4 mr-2" />
+                Thumbnail
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {thumbnailUrl ? (
+                <div className="space-y-3">
+                  <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
+                    <img 
+                      src={thumbnailUrl} 
+                      alt="Story thumbnail" 
+                      className="w-full h-full object-cover" 
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <label className="flex-1">
+                      <Button variant="outline" size="sm" className="w-full" asChild>
+                        <span>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Replace
+                        </span>
+                      </Button>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file && currentTrackId) {
+                            try {
+                              setIsUploading(true);
+                              const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
+                              setThumbnailUrl(url);
+                              toast.success('Thumbnail updated!');
+                            } catch (error: any) {
+                              console.error('Error uploading thumbnail:', error);
+                              toast.error('Failed to upload thumbnail');
+                            } finally {
+                              setIsUploading(false);
+                            }
+                          }
+                        }}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setThumbnailUrl('')}
+                      disabled={isUploading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <label>
+                  <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
+                    <div className="text-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
+                      <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file && currentTrackId) {
+                        try {
+                          setIsUploading(true);
+                          const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
+                          setThumbnailUrl(url);
+                          toast.success('Thumbnail uploaded!');
+                        } catch (error: any) {
+                          console.error('Error uploading thumbnail:', error);
+                          toast.error('Failed to upload thumbnail');
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }
+                    }}
+                    disabled={isUploading || !currentTrackId}
+                  />
+                </label>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {currentTrackId ? 'Used in playlists and library views' : 'Save story first to upload thumbnail'}
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Quick Tips */}
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardHeader>
@@ -1229,6 +1469,31 @@ export function StoryEditor({
               <p>• Click slide thumbnails to preview</p>
             </CardContent>
           </Card>
+          
+          {/* Version History */}
+          {currentTrackId && (
+            <VersionHistory
+              trackId={currentTrackId}
+              currentVersion={existingTrack?.version_number || 1}
+              onVersionClick={async (versionTrackId) => {
+                console.log('🔍 Version clicked, loading version:', versionTrackId);
+                if (onVersionClick) {
+                  onVersionClick(versionTrackId);
+                } else {
+                  // Fallback to URL navigation if prop not provided
+                  window.location.href = `/story/${versionTrackId}`;
+                }
+              }}
+            />
+          )}
+          
+          {/* Associated Playlists */}
+          {currentTrackId && (
+            <AssociatedPlaylists 
+              trackId={currentTrackId}
+              onPlaylistClick={onNavigateToPlaylist}
+            />
+          )}
         </div>
       </div>
 
@@ -1237,6 +1502,30 @@ export function StoryEditor({
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
         onTagsChange={setTags}
+      />
+      
+      {/* Version Decision Modal */}
+      <VersionDecisionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => {
+          setIsVersionModalOpen(false);
+          setPendingChanges(null);
+        }}
+        trackId={currentTrackId || ''}
+        trackTitle={title}
+        currentVersion={existingTrack?.version_number || 1}
+        pendingChanges={pendingChanges}
+        onVersionCreated={async (newTrackId, strategy) => {
+          console.log('✅ Version created! New track ID:', newTrackId);
+          toast.success(`Version ${(existingTrack?.version_number || 1) + 1} created with ${strategy} strategy!`);
+          setIsVersionModalOpen(false);
+          setIsEditMode(false);
+          
+          // Small delay to let modal close gracefully before navigation
+          setTimeout(() => {
+            window.location.href = `/story/${newTrackId}`;
+          }, 300);
+        }}
       />
       
       {/* Compression Progress Overlay */}

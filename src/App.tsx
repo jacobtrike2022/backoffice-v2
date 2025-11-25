@@ -12,7 +12,7 @@ import { ContentAuthoring } from './components/ContentAuthoring';
 import { ContentLibrary } from './components/ContentLibrary';
 import { Playlists } from './components/Playlists';
 import { PlaylistWizard } from './components/PlaylistWizard';
-import { KnowledgeBase } from './components/KnowledgeBase';
+import { KnowledgeBaseConverted } from './components/KnowledgeBaseConverted';
 import { Forms } from './components/Forms';
 import { Settings } from './components/Settings';
 import { SuperAdminPasswordDialog } from './components/SuperAdminPasswordDialog';
@@ -34,12 +34,51 @@ export default function App() {
   const [editingArticle, setEditingArticle] = useState<any>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | undefined>(undefined);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | undefined>(undefined);
+  const [editingPlaylistId, setEditingPlaylistId] = useState<string | undefined>(undefined);
+  const [initialTrackId, setInitialTrackId] = useState<string | undefined>(undefined); // For URL-based track loading
+  const [previousView, setPreviousView] = useState<AppView | null>(null); // Track where user came from
   const [isSuperAdminAuthenticated, setIsSuperAdminAuthenticated] = useState<boolean>(() => {
     // Check localStorage on mount
     return localStorage.getItem('trike_super_admin_auth') === 'true';
   });
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
+
+  // Navigation helper - use this instead of window.location.href to avoid hard reloads
+  const navigateToPlaylist = (playlistId: string) => {
+    console.log('📍 Navigation: Going to playlist:', playlistId);
+    // Save current view before navigating
+    setPreviousView(currentView);
+    setSelectedPlaylistId(playlistId);
+    setCurrentView('assignments');
+    // Update URL without reload
+    window.history.pushState({}, '', `/playlist/${playlistId}`);
+  };
+
+  const navigateToTrack = (trackId: string, trackType: 'article' | 'video' | 'checkpoint' | 'story') => {
+    console.log(`📍 Navigation: Going to ${trackType}:`, trackId);
+    
+    // Load the track
+    import('./lib/crud').then(crud => {
+      crud.getTracks({ ids: [trackId], includeAllVersions: true }).then(tracks => {
+        if (tracks && tracks.length > 0) {
+          setEditingArticle(tracks[0]);
+          
+          // Route to appropriate view
+          if (trackType === 'article' || trackType === 'video') {
+            setCurrentView('content');
+            setInitialTrackId(trackId);
+          } else if (trackType === 'checkpoint' || trackType === 'story') {
+            setCurrentView('authoring');
+            setInitialTrackId(trackId);
+          }
+          
+          // Update URL without reload
+          window.history.pushState({}, '', `/${trackType}/${trackId}`);
+        }
+      });
+    });
+  };
 
   // Apply dark mode class to document
   useEffect(() => {
@@ -49,6 +88,67 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // Handle URL-based routing for direct article links
+  useEffect(() => {
+    const path = window.location.pathname;
+    
+    // Check for /article/{id}, /video/{id}, /checkpoint/{id}, /story/{id} patterns
+    const articleMatch = path.match(/\/article\/([a-f0-9-]+)/);
+    const videoMatch = path.match(/\/video\/([a-f0-9-]+)/);
+    const checkpointMatch = path.match(/\/checkpoint\/([a-f0-9-]+)/);
+    const storyMatch = path.match(/\/story\/([a-f0-9-]+)/);
+    const playlistMatch = path.match(/\/playlist\/([a-f0-9-]+)/);
+    
+    const trackMatch = articleMatch || videoMatch || checkpointMatch || storyMatch;
+    
+    if (playlistMatch) {
+      const playlistId = playlistMatch[1];
+      console.log('📍 URL routing: Detected playlist URL, loading playlist:', playlistId);
+      
+      // Navigate to playlist detail view
+      setSelectedPlaylistId(playlistId);
+      setCurrentView('assignments');
+      
+      return; // Exit early so we don't process track routing
+    }
+    
+    if (trackMatch) {
+      const trackId = trackMatch[1];
+      const trackType = articleMatch ? 'article' : videoMatch ? 'video' : checkpointMatch ? 'checkpoint' : 'story';
+      console.log(`📍 URL routing: Detected ${trackType} URL, loading track:`, trackId);
+      
+      // Load the track and switch to appropriate view
+      import('./lib/crud').then(crud => {
+        crud.getTracks({ ids: [trackId], includeAllVersions: true }).then(tracks => {
+          if (tracks && tracks.length > 0) {
+            console.log(`📍 URL routing: ${trackType} loaded, switching to view`);
+            setEditingArticle(tracks[0]);
+            
+            // Route to appropriate view based on track type
+            if (trackType === 'article' || trackType === 'video') {
+              setCurrentView('content');
+              setInitialTrackId(trackId);
+            } else if (trackType === 'checkpoint' || trackType === 'story') {
+              setCurrentView('authoring');
+              setInitialTrackId(trackId);
+            }
+          } else {
+            console.error(`📍 URL routing: ${trackType} not found`);
+            toast.error(`${trackType.charAt(0).toUpperCase() + trackType.slice(1)} not found`);
+            // Clear the URL and go back to dashboard
+            window.history.replaceState({}, '', '/');
+            setCurrentView('dashboard');
+          }
+        }).catch(error => {
+          console.error(`📍 URL routing: Error loading ${trackType}:`, error);
+          toast.error(`Failed to load ${trackType}`);
+          window.history.replaceState({}, '', '/');
+          setCurrentView('dashboard');
+        });
+      });
+    }
+  }, []); // Run only once on mount
 
   const handleRoleChange = (role: UserRole) => {
     const roleLabels = {
@@ -128,9 +228,13 @@ export default function App() {
   };
 
   const handleNavigateToPlaylist = (playlistId: string) => {
-    setCurrentView('assignments');
-    setSelectedPlaylistId(playlistId);
-    toast.info('Opening playlist details...', {
+    navigateToPlaylist(playlistId);
+  };
+
+  const handleEditPlaylist = (playlistId: string) => {
+    setEditingPlaylistId(playlistId);
+    setCurrentView('playlist-wizard');
+    toast.info('Opening playlist editor...', {
       duration: 2000
     });
   };
@@ -242,17 +346,37 @@ export default function App() {
           <ContentLibrary 
             currentRole={currentRole}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            initialTrackId={initialTrackId}
+            onNavigateToPlaylist={navigateToPlaylist}
           />
         ) : currentView === 'assignments' ? (
           <Playlists 
             currentRole={currentRole} 
             onOpenPlaylistWizard={handleOpenAssignmentWizard}
+            onEditPlaylist={handleEditPlaylist}
             selectedPlaylistId={selectedPlaylistId}
+            previousView={previousView}
+            onBackToPreviousView={() => {
+              if (previousView) {
+                console.log('📍 Navigation: Going back to previous view:', previousView);
+                setCurrentView(previousView);
+                setPreviousView(null);
+                setSelectedPlaylistId(undefined);
+              } else {
+                // Default to playlist list view
+                setSelectedPlaylistId(undefined);
+              }
+            }}
           />
         ) : currentView === 'playlist-wizard' ? (
           <PlaylistWizard
             isFullPage={true}
-            onClose={handleBackToDashboard}
+            onClose={() => {
+              setEditingPlaylistId(undefined);
+              handleBackToDashboard();
+            }}
+            mode={editingPlaylistId ? 'edit' : 'create'}
+            existingPlaylistId={editingPlaylistId}
           />
         ) : currentView === 'people' ? (
           <People 
@@ -269,15 +393,15 @@ export default function App() {
           <ContentAuthoring 
             onNavigateToLibrary={() => setCurrentView('content')}
             currentRole={currentRole}
+            initialTrackId={initialTrackId}
+            onNavigateToPlaylist={navigateToPlaylist}
           />
         ) : currentView === 'forms' ? (
           <Forms 
             currentRole={currentRole}
           />
         ) : currentView === 'knowledge-base' ? (
-          <KnowledgeBase 
-            onNavigateToAssignment={() => setCurrentView('assignment')}
-            onEditArticle={handleEditArticle}
+          <KnowledgeBaseConverted 
             currentRole={currentRole}
           />
         ) : currentView === 'settings' ? (

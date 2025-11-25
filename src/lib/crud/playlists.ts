@@ -24,6 +24,8 @@ export interface UpdatePlaylistInput {
   release_type?: 'immediate' | 'progressive';
   release_schedule?: any;
   is_active?: boolean;
+  album_ids?: string[];
+  track_ids?: string[];
 }
 
 /**
@@ -70,11 +72,20 @@ export async function getPlaylists(filters: {
         .select('id', { count: 'exact', head: true })
         .eq('playlist_id', playlist.id);
 
-      // Get standalone track count
+      // Get standalone track count from junction table
       const { count: trackCount } = await supabase
         .from('playlist_tracks')
         .select('id', { count: 'exact', head: true })
         .eq('playlist_id', playlist.id);
+
+      // Get track IDs from junction table
+      const { data: playlistTracks } = await supabase
+        .from('playlist_tracks')
+        .select('track_id')
+        .eq('playlist_id', playlist.id)
+        .order('display_order', { ascending: true });
+
+      const track_ids = playlistTracks?.map((pt: any) => pt.track_id).filter(Boolean) || [];
 
       // Get assignment count
       const { count: assignmentCount } = await supabase
@@ -109,6 +120,7 @@ export async function getPlaylists(filters: {
         assignment_count: assignmentCount || 0,
         completion_rate: completionRate,
         avg_progress: avgProgress,
+        track_ids,
       };
     })
   );
@@ -174,10 +186,16 @@ export async function getPlaylistById(playlistId: string) {
     .eq('playlist_id', playlistId)
     .in('status', ['assigned', 'in_progress', 'completed']);
 
+  // Extract album and track IDs for easier access
+  const album_ids = playlistAlbums?.map((pa: any) => pa.album.id).filter(Boolean) || [];
+  const track_ids = playlistTracks?.map((pt: any) => pt.track.id).filter(Boolean) || [];
+
   return {
     ...playlist,
     albums: playlistAlbums || [],
     tracks: playlistTracks || [],
+    album_ids,
+    track_ids,
     assignment_count: assignmentCount || 0,
   };
 }
@@ -261,10 +279,14 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
   const userProfile = await getCurrentUserProfile();
   if (!userProfile) throw new Error('User not authenticated');
 
+  // Extract album_ids and track_ids from input (they're not columns)
+  const { album_ids, track_ids, ...playlistData } = input;
+
+  // Update the playlist basic data
   const { data: playlist, error } = await supabase
     .from('playlists')
     .update({
-      ...input,
+      ...playlistData,
       updated_at: new Date().toISOString(),
     })
     .eq('id', playlistId)
@@ -272,6 +294,56 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
     .single();
 
   if (error) throw error;
+
+  // Handle album updates if provided
+  if (album_ids !== undefined) {
+    // Delete existing albums
+    await supabase
+      .from('playlist_albums')
+      .delete()
+      .eq('playlist_id', playlistId);
+
+    // Add new albums
+    if (album_ids.length > 0) {
+      const albumRecords = album_ids.map((albumId, index) => ({
+        playlist_id: playlistId,
+        album_id: albumId,
+        display_order: index + 1,
+        release_stage: 1,
+      }));
+
+      const { error: albumError } = await supabase
+        .from('playlist_albums')
+        .insert(albumRecords);
+
+      if (albumError) throw albumError;
+    }
+  }
+
+  // Handle track updates if provided
+  if (track_ids !== undefined) {
+    // Delete existing tracks
+    await supabase
+      .from('playlist_tracks')
+      .delete()
+      .eq('playlist_id', playlistId);
+
+    // Add new tracks
+    if (track_ids.length > 0) {
+      const trackRecords = track_ids.map((trackId, index) => ({
+        playlist_id: playlistId,
+        track_id: trackId,
+        display_order: (album_ids?.length || 0) + index + 1,
+        release_stage: 1,
+      }));
+
+      const { error: trackError } = await supabase
+        .from('playlist_tracks')
+        .insert(trackRecords);
+
+      if (trackError) throw trackError;
+    }
+  }
 
   // Log activity
   await logActivity({

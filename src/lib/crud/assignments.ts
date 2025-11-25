@@ -8,15 +8,13 @@ import { logActivity } from './activity';
 
 export interface CreateAssignmentInput {
   title: string;
-  assignable_type: 'playlist' | 'album' | 'track';
-  assignable_id: string;
-  assignment_type: 'user' | 'store' | 'district' | 'role' | 'group';
-  target_id: string;
+  playlist_id: string; // Changed from assignable_type/assignable_id to direct playlist_id
+  user_id: string; // Changed from assignment_type/target_id to direct user_id
   due_date?: string;
 }
 
 /**
- * Create assignment and generate progress records for all affected users
+ * Create assignment for a single user to a playlist
  */
 export async function createAssignment(input: CreateAssignmentInput) {
   const orgId = await getCurrentUserOrgId();
@@ -24,58 +22,38 @@ export async function createAssignment(input: CreateAssignmentInput) {
   
   if (!orgId || !userProfile) throw new Error('User not authenticated');
 
-  // Create the assignment
+  // Create the assignment using the ACTUAL database schema
   const { data: assignment, error } = await supabase
     .from('assignments')
     .insert({
       organization_id: orgId,
-      title: input.title,
-      assignable_type: input.assignable_type,
-      assignable_id: input.assignable_id,
-      assignment_type: input.assignment_type,
-      target_id: input.target_id,
-      assigned_by_id: userProfile.id,
+      user_id: input.user_id,
+      playlist_id: input.playlist_id,
+      status: 'assigned',
+      progress_percent: 0,
       due_date: input.due_date,
-      status: 'active'
     })
     .select()
     .single();
 
   if (error) throw error;
 
-  // Get all affected users
-  const affectedUsers = await getAffectedUsers(
-    input.assignment_type,
-    input.target_id,
-    orgId
-  );
-
-  // Create progress records for all affected users
-  await createProgressRecords(
-    assignment.id,
-    input.assignable_type,
-    input.assignable_id,
-    affectedUsers
-  );
-
-  // Create notifications for all affected users
-  for (const userId of affectedUsers) {
-    await createNotification({
-      user_id: userId,
-      type: 'assignment',
-      title: 'New Assignment',
-      message: `You have been assigned: ${input.title}`,
-      link_url: `/assignments/${assignment.id}`
-    });
-  }
+  // Create notification for the user
+  await createNotification({
+    user_id: input.user_id,
+    type: 'assignment',
+    title: 'New Assignment',
+    message: `You have been assigned: ${input.title}`,
+    link_url: `/assignments/${assignment.id}`
+  });
 
   // Log activity
   await logActivity({
     user_id: userProfile.id,
     action: 'assignment',
-    entity_type: input.assignable_type,
-    entity_id: input.assignable_id,
-    description: `Assigned "${input.title}" to ${affectedUsers.length} user(s)`
+    entity_type: 'playlist',
+    entity_id: input.playlist_id,
+    description: `Assigned "${input.title}" to user`
   });
 
   return assignment;
@@ -252,15 +230,13 @@ export async function runPlaylistTrigger(playlistId: string) {
   // Get matching users based on trigger rules
   const matchingUsers = await getMatchingUsers(playlist.trigger_rules, orgId);
 
-  // Create assignments for all matching users
+  // Create assignments for all matching users using the correct schema
   const assignments = [];
   for (const userId of matchingUsers) {
     const assignment = await createAssignment({
       title: playlist.title,
-      assignable_type: 'playlist',
-      assignable_id: playlistId,
-      assignment_type: 'user',
-      target_id: userId
+      playlist_id: playlistId,
+      user_id: userId,
     });
     assignments.push(assignment);
   }
