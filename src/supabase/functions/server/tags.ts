@@ -120,4 +120,49 @@ tagsApp.delete('/:id', async (c) => {
   }
 });
 
+// Assign tags to an entity (User or Store)
+tagsApp.post('/assign', async (c) => {
+  try {
+    const { entityId, entityType, tagIds } = await c.req.json();
+
+    if (!entityId || !entityType) {
+      return c.json({ error: 'Entity ID and Type are required' }, 400);
+    }
+
+    // Validate entityType
+    if (entityType !== 'user' && entityType !== 'store') {
+       return c.json({ error: 'Invalid entity type for KV storage' }, 400);
+    }
+
+    const key = `${entityType}_tags:${entityId}`;
+    
+    await kv.set(key, tagIds);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('Error assigning tags:', error);
+    return c.json({ error: error.message || 'Failed to assign tags' }, 500);
+  }
+});
+
+// Get tags for an entity
+tagsApp.get('/entity/:type/:id', async (c) => {
+  try {
+    const entityType = c.req.param('type');
+    const entityId = c.req.param('id');
+
+    if (entityType !== 'user' && entityType !== 'store') {
+       return c.json({ error: 'Invalid entity type for KV storage' }, 400);
+    }
+
+    const key = `${entityType}_tags:${entityId}`;
+    const tagIds = await kv.get(key);
+
+    return c.json({ tagIds: tagIds || [] });
+  } catch (error: any) {
+    console.error('Error getting entity tags:', error);
+    return c.json({ error: error.message || 'Failed to get entity tags' }, 500);
+  }
+});
+
 export default tagsApp;

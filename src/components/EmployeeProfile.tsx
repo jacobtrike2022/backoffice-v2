@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Checkbox } from './ui/checkbox';
 import { Skeleton } from './ui/skeleton';
+import { TagSelectorDialog } from './TagSelectorDialog';
+import * as tagCrud from '../lib/crud/tags';
 import { 
   ArrowLeft,
   Mail,
@@ -36,7 +38,9 @@ import {
   Target,
   Zap,
   MessageSquare,
-  Bell
+  Bell,
+  Tag as TagIcon,
+  Plus
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -118,6 +122,8 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [userProgress, setUserProgress] = useState<any[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const { user: currentUser } = useCurrentUser();
@@ -131,6 +137,10 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const fetchEmployeeData = async () => {
     try {
       setLoading(true);
+
+      // Fetch tags
+      const employeeTags = await tagCrud.getEntityTags(employee.id, 'user');
+      setTags(employeeTags.map(t => t.name));
 
       // Fetch assignments for this employee
       const { data: assignmentsData, error: assignmentsError } = await supabase
@@ -226,6 +236,21 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     if (diffHours < 24) return `${diffHours} hours ago`;
     if (diffDays < 7) return `${diffDays} days ago`;
     return date.toLocaleDateString();
+  };
+
+  const handleTagsChange = async (newTags: string[], tagObjects?: any[]) => {
+    setTags(newTags);
+    
+    if (tagObjects) {
+      const tagIds = tagObjects.map(t => t.id);
+      try {
+        await tagCrud.assignTags(employee.id, 'user', tagIds);
+        toast.success('Tags updated successfully');
+      } catch (error) {
+        console.error('Error updating tags:', error);
+        toast.error('Failed to update tags');
+      }
+    }
   };
 
   const handleSave = async () => {
@@ -432,6 +457,31 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                       <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
                         Last active {employee.lastActive}
                       </Badge>
+                    </div>
+                    
+                    {/* Tags Section */}
+                    <div className="flex items-center gap-2 mt-4 flex-wrap">
+                      {tags.map((tag, index) => (
+                        <Badge 
+                          key={index} 
+                          variant="secondary"
+                          className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 transition-colors"
+                        >
+                          <TagIcon className="h-3 w-3 mr-1" />
+                          {tag}
+                        </Badge>
+                      ))}
+                      {(currentRole === 'admin' || currentRole === 'district-manager') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setIsTagSelectorOpen(true)}
+                          className="h-6 px-2 text-xs"
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Manage Tags
+                        </Button>
+                      )}
                     </div>
                   </>
                 )}
@@ -927,6 +977,15 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Tag Selector Dialog */}
+      <TagSelectorDialog
+        isOpen={isTagSelectorOpen}
+        onClose={() => setIsTagSelectorOpen(false)}
+        selectedTags={tags}
+        onTagsChange={handleTagsChange}
+        systemCategory="people"
+      />
     </div>
   );
 }

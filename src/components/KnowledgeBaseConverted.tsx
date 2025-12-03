@@ -16,16 +16,19 @@ import {
   Home,
   Shield,
   RefreshCw,
-  User
+  User,
+  Video,
+  FileText,
+  BookMarked
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { useKBArticles, useKBCategories, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useKBCategoryTracks, useKBCategories, useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 
 interface KnowledgeBaseProps {
-  onArticleClick?: (articleId: string) => void;
+  onTrackClick?: (trackId: string) => void;
   onNavigateToAssignment?: () => void;
-  onEditArticle?: (article: any) => void;
+  onEditTrack?: (track: any) => void;
   currentRole?: string;
 }
 
@@ -49,19 +52,27 @@ const CATEGORY_COLORS: Record<string, string> = {
   'default': 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300'
 };
 
-export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment, onEditArticle, currentRole }: KnowledgeBaseProps) {
+// Track type icons
+const TRACK_TYPE_ICONS: Record<string, React.ComponentType<any>> = {
+  'article': FileText,
+  'video': Video,
+  'story': BookMarked
+};
+
+export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, onEditTrack, currentRole }: KnowledgeBaseProps) {
   const { user, loading: userLoading } = useCurrentUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  // Fetch all published articles
-  const { articles: allArticles, loading: articlesLoading, error: articlesError, refetch } = useKBArticles({ 
-    status: 'published'
-  });
+  // Fetch categories with track counts
+  const { categories, loading: categoriesLoading, error: categoriesError, refetch: refetchCategories } = useKBCategories();
 
-  // Fetch categories with counts
-  const { categories, loading: categoriesLoading, error: categoriesError } = useKBCategories();
+  // Fetch tracks for selected category
+  const { tracks: categoryTracks, loading: tracksLoading, error: tracksError, refetch: refetchTracks } = useKBCategoryTracks(
+    selectedCategory,
+    { search: debouncedSearch }
+  );
 
   // Debounce search
   React.useEffect(() => {
@@ -71,61 +82,43 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Filter articles based on search and category
-  const filteredArticles = useMemo(() => {
-    let filtered = allArticles || [];
+  // Get all tracks across all categories for "Recently Updated" and "Most Viewed"
+  // For now, we'll use the selected category tracks
+  const allTracks = useMemo(() => {
+    return categoryTracks.map((assignment: any) => assignment.track).filter(Boolean);
+  }, [categoryTracks]);
 
-    // Filter by category
-    if (selectedCategory) {
-      filtered = filtered.filter(article => article.category_id === selectedCategory);
-    }
-
-    // Filter by search query
-    if (debouncedSearch) {
-      const query = debouncedSearch.toLowerCase();
-      filtered = filtered.filter(article => 
-        article.title?.toLowerCase().includes(query) ||
-        article.content?.toLowerCase().includes(query) ||
-        article.excerpt?.toLowerCase().includes(query) ||
-        article.tags?.some((tag: string) => tag.toLowerCase().includes(query))
-      );
-    }
-
-    return filtered;
-  }, [allArticles, selectedCategory, debouncedSearch]);
-
-  // Get recently updated articles (top 4)
+  // Get recently updated tracks (top 4)
   const recentlyUpdated = useMemo(() => {
-    return [...(allArticles || [])]
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return [...allTracks]
+      .sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime())
       .slice(0, 4);
-  }, [allArticles]);
+  }, [allTracks]);
 
-  // Get most viewed articles (top 4)
+  // Get most viewed tracks (top 4) - we'll use a placeholder for now
   const mostViewed = useMemo(() => {
-    return [...(allArticles || [])]
-      .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
-      .slice(0, 4);
-  }, [allArticles]);
+    return allTracks.slice(0, 4);
+  }, [allTracks]);
 
-  const handleArticleClick = async (articleId: string) => {
+  const handleTrackClick = async (trackId: string) => {
     try {
-      // Increment view count
-      await crud.getKBArticleById(articleId, true);
+      // Record KB track view
+      if (selectedCategory) {
+        await crud.recordKBTrackView(trackId, selectedCategory);
+      }
       
       // Call parent callback if provided
-      if (onArticleClick) {
-        onArticleClick(articleId);
+      if (onTrackClick) {
+        onTrackClick(trackId);
       } else {
-        // Default: show toast (replace with navigation in real app)
-        toast.success('Opening article...');
+        toast.success('Opening content...');
       }
       
       // Refetch to update view counts
-      refetch();
+      refetchTracks();
     } catch (error: any) {
-      console.error('Error opening article:', error);
-      toast.error('Failed to open article');
+      console.error('Error opening track:', error);
+      toast.error('Failed to open content');
     }
   };
 
@@ -134,8 +127,8 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
       setSelectedCategory(null); // Deselect if clicking the same category
     } else {
       setSelectedCategory(categoryId);
-      // Scroll to All Articles section
-      document.getElementById('all-articles')?.scrollIntoView({ behavior: 'smooth' });
+      // Scroll to All Content section
+      document.getElementById('all-content')?.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
@@ -159,7 +152,16 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
     return CATEGORY_COLORS.default;
   };
 
-  const getArticleBadge = (tags: string[]) => {
+  const getTrackBadge = (displayType?: string, tags?: string[]) => {
+    // Check display_type from KB assignment
+    if (displayType === 'required') {
+      return <Badge variant="destructive" className="text-xs">Required</Badge>;
+    }
+    if (displayType === 'manager-only') {
+      return <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">Manager-Only</Badge>;
+    }
+    
+    // Fallback to checking tags
     if (!tags || tags.length === 0) return null;
     
     const tagStrings = tags.map(t => typeof t === 'string' ? t : t.name || '').filter(Boolean);
@@ -182,7 +184,7 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
   };
 
   // Loading state
-  if (userLoading || articlesLoading || categoriesLoading) {
+  if (userLoading || categoriesLoading || tracksLoading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-48 w-full" />
@@ -195,12 +197,12 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
   }
 
   // Error state
-  if (articlesError || categoriesError) {
+  if (categoriesError || tracksError) {
     return (
       <Card>
         <CardContent className="py-12 text-center">
           <p className="text-destructive mb-4">Failed to load knowledge base</p>
-          <Button onClick={() => refetch()} variant="outline">
+          <Button onClick={() => refetchCategories()} variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
             Try Again
           </Button>
@@ -222,8 +224,8 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
               </p>
               <div className="flex gap-8 text-sm">
                 <div>
-                  <div className="text-2xl">{allArticles?.length || 0}</div>
-                  <div className="text-white/80">Articles</div>
+                  <div className="text-2xl">{categoryTracks?.length || 0}</div>
+                  <div className="text-white/80">Tracks</div>
                 </div>
                 <div>
                   <div className="text-2xl">{categories?.length || 0}</div>
@@ -261,7 +263,7 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
           </div>
           {debouncedSearch && (
             <p className="text-sm text-muted-foreground mt-2">
-              Found {filteredArticles.length} result{filteredArticles.length !== 1 ? 's' : ''}
+              Found {categoryTracks.length} result{categoryTracks.length !== 1 ? 's' : ''}
             </p>
           )}
         </CardContent>
@@ -295,7 +297,7 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
                           {category.description || 'No description'}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {category.articleCount || 0} article{category.articleCount !== 1 ? 's' : ''}
+                          {category.trackCount || 0} track{category.trackCount !== 1 ? 's' : ''}
                         </p>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
@@ -324,29 +326,29 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
           </CardHeader>
           <CardContent className="space-y-3">
             {recentlyUpdated.length > 0 ? (
-              recentlyUpdated.map((article) => (
+              recentlyUpdated.map((track) => (
                 <div
-                  key={article.id}
+                  key={track.id}
                   className="p-3 rounded-lg hover:bg-muted cursor-pointer transition-colors"
-                  onClick={() => handleArticleClick(article.id)}
+                  onClick={() => handleTrackClick(track.id)}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1">
-                    <h4 className="font-medium line-clamp-1 flex-1">{article.title}</h4>
-                    {getArticleBadge(article.tags || [])}
+                    <h4 className="font-medium line-clamp-1 flex-1">{track.title}</h4>
+                    {getTrackBadge(track.display_type, track.tags || [])}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>{formatDate(article.updated_at)}</span>
+                    <span>{formatDate(track.updated_at)}</span>
                     <span>•</span>
                     <span className="flex items-center gap-1">
                       <Eye className="h-3 w-3" />
-                      {article.view_count || 0}
+                      {track.view_count || 0}
                     </span>
-                    {article.created_by && (
+                    {track.created_by && (
                       <>
                         <span>•</span>
                         <span className="flex items-center gap-1">
                           <User className="h-3 w-3" />
-                          {typeof article.created_by === 'object' ? article.created_by.name : article.created_by}
+                          {typeof track.created_by === 'object' ? track.created_by.name : track.created_by}
                         </span>
                       </>
                     )}
@@ -355,7 +357,7 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
               ))
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No articles yet
+                No tracks yet
               </p>
             )}
           </CardContent>
@@ -371,29 +373,29 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
           </CardHeader>
           <CardContent className="space-y-3">
             {mostViewed.length > 0 ? (
-              mostViewed.map((article) => (
+              mostViewed.map((track) => (
                 <div
-                  key={article.id}
+                  key={track.id}
                   className="p-3 rounded-lg hover:bg-muted cursor-pointer transition-colors"
-                  onClick={() => handleArticleClick(article.id)}
+                  onClick={() => handleTrackClick(track.id)}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1">
-                    <h4 className="font-medium line-clamp-1 flex-1">{article.title}</h4>
-                    {getArticleBadge(article.tags || [])}
+                    <h4 className="font-medium line-clamp-1 flex-1">{track.title}</h4>
+                    {getTrackBadge(track.display_type, track.tags || [])}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>{formatDate(article.updated_at)}</span>
+                    <span>{formatDate(track.updated_at)}</span>
                     <span>•</span>
                     <span className="flex items-center gap-1">
                       <Eye className="h-3 w-3" />
-                      {article.view_count || 0}
+                      {track.view_count || 0}
                     </span>
-                    {article.created_by && (
+                    {track.created_by && (
                       <>
                         <span>•</span>
                         <span className="flex items-center gap-1">
                           <User className="h-3 w-3" />
-                          {typeof article.created_by === 'object' ? article.created_by.name : article.created_by}
+                          {typeof track.created_by === 'object' ? track.created_by.name : track.created_by}
                         </span>
                       </>
                     )}
@@ -402,20 +404,20 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
               ))
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No articles yet
+                No tracks yet
               </p>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* All Articles */}
-      <Card id="all-articles">
+      {/* All Content */}
+      <Card id="all-content">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>All Articles</CardTitle>
+            <CardTitle>All Content</CardTitle>
             <div className="text-sm text-muted-foreground">
-              {filteredArticles.length} article{filteredArticles.length !== 1 ? 's' : ''}
+              {categoryTracks.length} track{categoryTracks.length !== 1 ? 's' : ''}
               {selectedCategory && (
                 <Button
                   variant="ghost"
@@ -431,43 +433,45 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {filteredArticles.length > 0 ? (
-              filteredArticles.map((article) => {
-                const Icon = getCategoryIcon(article.category?.name || '');
+            {categoryTracks.length > 0 ? (
+              categoryTracks.map((assignment) => {
+                const track = assignment.track;
+                const Icon = getCategoryIcon(track.category?.name || '');
+                const TrackIcon = TRACK_TYPE_ICONS[track.type || 'article'];
                 
                 return (
                   <div
-                    key={article.id}
+                    key={track.id}
                     className="p-4 rounded-lg border hover:bg-muted cursor-pointer transition-colors group"
-                    onClick={() => handleArticleClick(article.id)}
+                    onClick={() => handleTrackClick(track.id)}
                   >
                     <div className="flex items-start gap-4">
-                      <div className={`w-10 h-10 rounded-lg ${getCategoryColor(article.category?.name || '')} flex items-center justify-center flex-shrink-0`}>
+                      <div className={`w-10 h-10 rounded-lg ${getCategoryColor(track.category?.name || '')} flex items-center justify-center flex-shrink-0`}>
                         <Icon className="h-5 w-5" />
                       </div>
                       
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <h3 className="font-semibold group-hover:text-orange-600 transition-colors">
-                            {article.title}
+                            {track.title}
                           </h3>
-                          {getArticleBadge(article.tags || [])}
+                          {getTrackBadge(track.display_type, track.tags || [])}
                         </div>
                         
-                        {article.excerpt && (
+                        {track.excerpt && (
                           <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                            {article.excerpt}
+                            {track.excerpt}
                           </p>
                         )}
                         
                         <div className="flex items-center flex-wrap gap-3 text-xs text-muted-foreground">
-                          {article.category?.name && (
+                          {track.category?.name && (
                             <Badge variant="outline" className="text-xs">
-                              {article.category.name}
+                              {track.category.name}
                             </Badge>
                           )}
-                          {article.tags && article.tags.length > 0 && (
-                            article.tags.slice(0, 3).map((tag: any, idx: number) => (
+                          {track.tags && track.tags.length > 0 && (
+                            track.tags.slice(0, 3).map((tag: any, idx: number) => (
                               <Badge key={idx} className="bg-orange-100 text-orange-700 border-orange-200 text-xs">
                                 {typeof tag === 'string' ? tag : tag.name || 'Tag'}
                               </Badge>
@@ -475,9 +479,10 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
                           )}
                           <span className="flex items-center gap-1">
                             <Eye className="h-3 w-3" />
-                            {article.view_count || 0}
+                            {track.view_count || 0}
                           </span>
-                          <span>{formatDate(article.updated_at)}</span>
+                          <span>{formatDate(track.updated_at)}</span>
+                          <TrackIcon className="h-4 w-4" />
                         </div>
                       </div>
                       
@@ -490,12 +495,12 @@ export function KnowledgeBaseConverted({ onArticleClick, onNavigateToAssignment,
               <div className="text-center py-12">
                 <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
                 <h3 className="font-medium mb-2">
-                  {debouncedSearch ? 'No articles match your search' : 'No articles found'}
+                  {debouncedSearch ? 'No content matches your search' : 'No content found'}
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   {debouncedSearch 
                     ? 'Try different keywords or browse by category' 
-                    : 'Create your first article to help your team succeed'}
+                    : 'Create your first track to help your team succeed'}
                 </p>
                 {debouncedSearch && (
                   <Button variant="outline" onClick={() => setSearchQuery('')}>

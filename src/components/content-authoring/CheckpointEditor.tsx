@@ -1180,6 +1180,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
         onTagsChange={setTags}
+        systemCategory="content"
       />
       
       {/* Version Decision Modal */}

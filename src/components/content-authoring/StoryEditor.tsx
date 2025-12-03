@@ -6,6 +6,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
+import { Switch } from '../ui/switch';
 import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
@@ -22,6 +23,7 @@ import {
   Calendar,
   Tag as TagIcon,
   Lock,
+  BookOpen,
   Plus,
   GripVertical,
   Trash2,
@@ -91,6 +93,12 @@ export function StoryEditor({
   const [tags, setTags] = useState<string[]>([]);
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [tagSelectorConfig, setTagSelectorConfig] = useState<{
+    systemCategory: any;
+    restrictToParentName?: string;
+  }>({ systemCategory: 'content' });
+  const [showInKnowledgeBase, setShowInKnowledgeBase] = useState(false);
+  const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
   
   // Preview state
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -138,6 +146,27 @@ export function StoryEditor({
   
   const storyDuration = calculateStoryDuration();
 
+  // Load KB tags
+  useEffect(() => {
+    const loadKBTags = async () => {
+      try {
+        const hierarchy = await crud.getTagHierarchy('knowledge-base');
+        const names = new Set<string>();
+        const traverse = (nodes: any[]) => {
+          for (const node of nodes) {
+            names.add(node.name);
+            if (node.children) traverse(node.children);
+          }
+        };
+        traverse(hierarchy);
+        setKbTagNames(names);
+      } catch (e) {
+        console.error("Failed to load KB tags", e);
+      }
+    };
+    loadKBTags();
+  }, []);
+
   // Load existing story
   useEffect(() => {
     if (track) {
@@ -170,6 +199,7 @@ export function StoryEditor({
     setTags(trackData.tags || []);
     setThumbnailUrl(trackData.thumbnail_url || '');
     setNotes(trackData.content_text || '');
+    setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
     if (trackData.transcript) {
@@ -382,6 +412,27 @@ export function StoryEditor({
     setDraggedSlideId(null);
   };
 
+  const handleKBToggle = (checked: boolean) => {
+    setShowInKnowledgeBase(checked);
+    
+    if (checked) {
+      setTagSelectorConfig({
+        systemCategory: 'knowledge-base',
+        restrictToParentName: 'KB Category'
+      });
+      setIsTagSelectorOpen(true);
+    }
+  };
+
+  const areArraysEqual = (a: any[] | undefined | null, b: any[] | undefined | null) => {
+    const arr1 = a || [];
+    const arr2 = b || [];
+    if (arr1.length !== arr2.length) return false;
+    const sorted1 = [...arr1].sort();
+    const sorted2 = [...arr2].sort();
+    return sorted1.every((val, idx) => val === sorted2[idx]);
+  };
+
   const handleSave = async () => {
     if (isSystemContent) {
       toast.error('Cannot edit Trike Library content');
@@ -397,6 +448,14 @@ export function StoryEditor({
         objectives: objectives.filter(o => o.trim() !== '')
       };
 
+      // Prepare tags including the system KB tag
+      const currentTags = new Set<string>(tags || []);
+      if (showInKnowledgeBase) {
+        currentTags.add('system:show_in_knowledge_base');
+      } else {
+        currentTags.delete('system:show_in_knowledge_base');
+      }
+
       const trackData = {
         title,
         description,
@@ -404,18 +463,35 @@ export function StoryEditor({
         transcript: JSON.stringify(storyData),
         content_text: notes,
         duration_minutes: calculateStoryDuration(), // Use actual calculated duration
-        tags,
+        tags: Array.from(currentTags),
         thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
       };
 
       if (currentTrackId) {
-        // Check if track is published and has assignments
-        if (existingTrack?.status === 'published') {
+        // Check for meaningful content changes that require versioning
+        const contentChanged = 
+          trackData.title !== existingTrack.title ||
+          trackData.description !== existingTrack.description ||
+          trackData.transcript !== existingTrack.transcript ||
+          trackData.content_text !== (existingTrack.content_text || '') ||
+          trackData.duration_minutes !== (existingTrack.duration_minutes || 0) ||
+          trackData.thumbnail_url !== (existingTrack.thumbnail_url || '') ||
+          !areArraysEqual(storyData.objectives || [], existingTrack.learning_objectives || []);
+
+        const tagsChanged = !areArraysEqual(trackData.tags, existingTrack.tags);
+        
+        const wasInKb = (existingTrack.tags || []).includes('system:show_in_knowledge_base') || existingTrack.show_in_knowledge_base;
+        const kbChanged = showInKnowledgeBase !== wasInKb;
+
+        console.log('Changes detected:', { contentChanged, tagsChanged, kbChanged });
+
+        // Check if track is published and has assignments AND has content changes
+        if (existingTrack?.status === 'published' && contentChanged) {
           const stats = await crud.getTrackAssignmentStats(currentTrackId);
           
-          if (stats.totalAssignments > 0) {
+          if (stats.playlistCount > 0) {
             // Show version decision modal instead of saving directly
-            console.log('Track has assignments, showing version decision modal. Stats:', stats);
+            console.log('Track is in playlists and content changed, showing version decision modal. Stats:', stats);
             setPendingChanges({ id: currentTrackId, ...trackData });
             setIsVersionModalOpen(true);
             setIsSaving(false);
@@ -423,9 +499,9 @@ export function StoryEditor({
           }
         }
         
-        // If no assignments or not published, update normally
+        // If no assignments or not published OR only metadata changed, update normally
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        toast.success('Changes saved!');
+        toast.success(contentChanged ? 'Changes saved!' : 'Knowledge Base settings updated!');
         
         setIsEditMode(false);
         
@@ -711,6 +787,51 @@ export function StoryEditor({
                 </CardContent>
               </Card>
             )}
+
+            {/* Knowledge Base */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" />
+                  Knowledge Base
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="show-in-kb-view" className="text-sm">Show in KB</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Available in Knowledge Base
+                    </p>
+                  </div>
+                  <Switch
+                    id="show-in-kb-view"
+                    checked={showInKnowledgeBase}
+                    disabled
+                  />
+                </div>
+                
+                {showInKnowledgeBase && (
+                  <div className="pt-2">
+                    <div>
+                      <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {tags
+                          .filter((t: string) => kbTagNames.has(t))
+                          .map((tag: string) => (
+                            <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
+                              {tag}
+                            </Badge>
+                        ))}
+                        {tags.filter((t: string) => kbTagNames.has(t)).length === 0 && (
+                          <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Details */}
             <Card>
@@ -1084,18 +1205,25 @@ export function StoryEditor({
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
-                {tags.map((tag, index) => (
+                {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
+                {showInKnowledgeBase && (
+                  <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
+                    <BookOpen className="h-3 w-3 mr-1" />
+                    In Knowledge Base
+                  </Badge>
+                )}
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
                     className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                    onClick={() => setTags(tags.filter((_, i) => i !== index))}
+                    onClick={() => setTags(tags.filter((t) => t !== tag))}
                   >
                     {tag}
                     <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}
-                {tags.length === 0 && (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
@@ -1171,6 +1299,72 @@ export function StoryEditor({
             </Card>
           )}
 
+          {/* Knowledge Base */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <BookOpen className="h-4 w-4" />
+                Knowledge Base
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="show-in-kb-edit" className="text-sm">Show in KB</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Available in Knowledge Base
+                  </p>
+                </div>
+                <Switch
+                  id="show-in-kb-edit"
+                  checked={showInKnowledgeBase}
+                  onCheckedChange={handleKBToggle}
+                />
+              </div>
+              
+              {showInKnowledgeBase && (
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mb-3"
+                    onClick={() => {
+                      setTagSelectorConfig({
+                        systemCategory: 'knowledge-base',
+                        restrictToParentName: 'KB Category'
+                      });
+                      setIsTagSelectorOpen(true);
+                    }}
+                  >
+                    <TagIcon className="h-4 w-4 mr-2" />
+                    Manage KB Tags
+                  </Button>
+                  
+                  {/* Selected KB Tags Display */}
+                  <div>
+                    <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tags
+                        .filter((t: string) => kbTagNames.has(t))
+                        .map((tag: string) => (
+                          <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
+                            {tag}
+                          </Badge>
+                      ))}
+                      {tags.filter((t: string) => kbTagNames.has(t)).length === 0 && (
+                        <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Select "KB Category" tags to organize this content in the Knowledge Base.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Story Details */}
           <Card>
             <CardHeader>
@@ -1222,18 +1416,25 @@ export function StoryEditor({
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
-                {tags.map((tag, index) => (
+                {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
+                {showInKnowledgeBase && (
+                  <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
+                    <BookOpen className="h-3 w-3 mr-1" />
+                    In Knowledge Base
+                  </Badge>
+                )}
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
                     className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                    onClick={() => setTags(tags.filter((_, i) => i !== index))}
+                    onClick={() => setTags(tags.filter((t) => t !== tag))}
                   >
                     {tag}
                     <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}
-                {tags.length === 0 && (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
@@ -1502,6 +1703,8 @@ export function StoryEditor({
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
         onTagsChange={setTags}
+        systemCategory={tagSelectorConfig.systemCategory}
+        restrictToParentName={tagSelectorConfig.restrictToParentName}
       />
       
       {/* Version Decision Modal */}

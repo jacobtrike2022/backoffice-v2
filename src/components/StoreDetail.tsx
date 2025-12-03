@@ -36,7 +36,10 @@ import {
   Area
 } from 'recharts';
 import { Reports } from './Reports';
-import { Info } from 'lucide-react';
+import { Info, Tag as TagIcon, Plus } from 'lucide-react';
+import { TagSelectorDialog } from './TagSelectorDialog';
+import * as tagCrud from '../lib/crud/tags';
+import { toast } from 'sonner@2.0.3';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -144,6 +147,38 @@ const employeeProgressData = [
 
 export function StoreDetail({ store, onBack, currentRole }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [tags, setTags] = useState<string[]>([]);
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (store.id) {
+      loadTags();
+    }
+  }, [store.id]);
+
+  const loadTags = async () => {
+    try {
+      const storeTags = await tagCrud.getEntityTags(store.id, 'store');
+      setTags(storeTags.map(t => t.name));
+    } catch (error) {
+      console.error('Error loading tags:', error);
+    }
+  };
+
+  const handleTagsChange = async (newTags: string[], tagObjects?: any[]) => {
+    setTags(newTags);
+    
+    if (tagObjects) {
+      const tagIds = tagObjects.map(t => t.id);
+      try {
+        await tagCrud.assignTags(store.id, 'store', tagIds);
+        toast.success('Tags updated successfully');
+      } catch (error) {
+        console.error('Error updating tags:', error);
+        toast.error('Failed to update tags');
+      }
+    }
+  };
 
   const getPerformanceColor = (performance: string) => {
     switch (performance) {
@@ -236,6 +271,31 @@ export function StoreDetail({ store, onBack, currentRole }: StoreDetailProps) {
                     <Phone className="h-3 w-3 mr-1" />
                     (555) 123-4567
                   </Badge>
+                </div>
+
+                {/* Tags Section */}
+                <div className="flex items-center gap-2 mt-4 flex-wrap">
+                  {tags.map((tag, index) => (
+                    <Badge 
+                      key={index} 
+                      variant="secondary"
+                      className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 transition-colors"
+                    >
+                      <TagIcon className="h-3 w-3 mr-1" />
+                      {tag}
+                    </Badge>
+                  ))}
+                  {currentRole === 'admin' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsTagSelectorOpen(true)}
+                      className="h-6 px-2 text-xs"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Manage Tags
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -546,6 +606,15 @@ export function StoreDetail({ store, onBack, currentRole }: StoreDetailProps) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Tag Selector Dialog */}
+      <TagSelectorDialog
+        isOpen={isTagSelectorOpen}
+        onClose={() => setIsTagSelectorOpen(false)}
+        selectedTags={tags}
+        onTagsChange={handleTagsChange}
+        systemCategory="units"
+      />
     </div>
   );
 }

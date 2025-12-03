@@ -230,7 +230,9 @@ export async function getTracks(filters: {
   if (filters.tags && filters.tags.length > 0) {
     return data.filter(track => {
       const trackTags = track.track_tags?.map((tt: any) => tt.tags.name) || [];
-      return filters.tags!.some(tag => trackTags.includes(tag));
+      const columnTags = track.tags || [];
+      const allTags = [...trackTags, ...columnTags];
+      return filters.tags!.some(tag => allTags.includes(tag));
     });
   }
 

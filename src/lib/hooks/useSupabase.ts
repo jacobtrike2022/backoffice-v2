@@ -319,44 +319,50 @@ export function useRealtimeSubscription(
 }
 
 /**
- * Hook to get KB articles with filters
+ * Hook to get KB category tracks (tracks assigned to KB category)
  */
-export function useKBArticles(filters?: Parameters<typeof crud.getKBArticles>[0]) {
-  const [articles, setArticles] = useState<any[]>([]);
+export function useKBCategoryTracks(categoryId: string | null, filters?: Parameters<typeof crud.getKBCategoryTracks>[1]) {
+  const [tracks, setTracks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
-    async function fetchArticles() {
+    async function fetchTracks() {
+      if (!categoryId) {
+        setTracks([]);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
-        console.log('🔄 useKBArticles: Fetching articles with filters:', filters);
-        const data = await crud.getKBArticles(filters);
-        console.log('✅ useKBArticles: Fetched', data.length, 'articles');
-        setArticles(data);
+        console.log('🔄 useKBCategoryTracks: Fetching tracks for category:', categoryId);
+        const data = await crud.getKBCategoryTracks(categoryId, filters);
+        console.log('✅ useKBCategoryTracks: Fetched', data.length, 'tracks');
+        setTracks(data);
         setError(null);
       } catch (err) {
-        console.error('❌ useKBArticles: Error fetching articles:', err);
+        console.error('❌ useKBCategoryTracks: Error fetching tracks:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchArticles();
-  }, [JSON.stringify(filters), refetchTrigger]);
+    fetchTracks();
+  }, [categoryId, JSON.stringify(filters), refetchTrigger]);
 
   const refetch = async () => {
-    console.log('🔄 useKBArticles: Refetch triggered');
+    console.log('🔄 useKBCategoryTracks: Refetch triggered');
     setRefetchTrigger(prev => prev + 1);
   };
 
-  return { articles, loading, error, refetch };
+  return { tracks, loading, error, refetch };
 }
 
 /**
- * Hook to get KB categories with article counts
+ * Hook to get KB categories with track counts
  */
 export function useKBCategories() {
   const [categories, setCategories] = useState<any[]>([]);
@@ -368,7 +374,7 @@ export function useKBCategories() {
     async function fetchCategories() {
       try {
         setLoading(true);
-        console.log('🔄 useKBCategories: Fetching categories with counts');
+        console.log('🔄 useKBCategories: Fetching categories with track counts');
         const data = await crud.getKBCategoriesWithCounts();
         console.log('✅ useKBCategories: Fetched', data.length, 'categories');
         setCategories(data);

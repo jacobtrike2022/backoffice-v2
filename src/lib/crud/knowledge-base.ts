@@ -1,183 +1,169 @@
 // ============================================================================
 // KNOWLEDGE BASE CRUD OPERATIONS
+// Knowledge Base = Organizational layer on top of existing tracks
+// Tracks can live in playlists (assigned) AND/OR KB categories (reference)
 // ============================================================================
 
-import { supabase, getCurrentUserOrgId, getCurrentUserProfile, uploadFile } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
-export interface CreateKBArticleInput {
-  category_id: string;
-  title: string;
-  description?: string;
-  content: string;
-  type: 'required' | 'optional' | 'manager-only';
-  reading_time_minutes?: number;
-  tags?: string[];
+export interface AddTrackToKBInput {
+  track_id: string;
+  kb_category_id: string;
+  display_type?: 'required' | 'optional' | 'manager-only';
+  pinned?: boolean;
+  display_order?: number;
 }
 
 /**
- * Create a knowledge base article (defaults to draft, admin/manager only)
+ * Add existing track to KB category
  */
-export async function createKBArticle(input: CreateKBArticleInput) {
+export async function addTrackToKB(input: AddTrackToKBInput) {
   const orgId = await getCurrentUserOrgId();
   const userProfile = await getCurrentUserProfile();
   
   if (!orgId || !userProfile) throw new Error('User not authenticated');
 
-  // Check if user is admin or manager
-  const isAuthorized = await checkKBAuthorization(userProfile.id);
-  if (!isAuthorized) {
-    throw new Error('Only admins and managers can create KB articles');
-  }
-
-  const { data: article, error } = await supabase
-    .from('kb_articles')
+  const { data, error } = await supabase
+    .from('kb_track_assignments')
     .insert({
       organization_id: orgId,
-      category_id: input.category_id,
-      title: input.title,
-      description: input.description,
-      content: input.content,
-      type: input.type,
-      reading_time_minutes: input.reading_time_minutes,
-      author_id: userProfile.id,
-      status: 'draft',
-      view_count: 0
+      track_id: input.track_id,
+      kb_category_id: input.kb_category_id,
+      display_type: input.display_type || 'optional',
+      pinned: input.pinned || false,
+      display_order: input.display_order || 0,
+      added_by: userProfile.id
     })
     .select()
     .single();
 
   if (error) throw error;
-
-  // Add tags if provided
-  if (input.tags && input.tags.length > 0) {
-    await addKBArticleTags(article.id, input.tags);
-  }
-
-  return article;
+  return data;
 }
 
 /**
- * Update KB article
+ * Remove track from KB category
  */
-export async function updateKBArticle(
-  articleId: string,
-  updates: Partial<CreateKBArticleInput> & { status?: 'draft' | 'published' | 'archived' }
+export async function removeTrackFromKB(trackId: string, categoryId: string) {
+  const { error } = await supabase
+    .from('kb_track_assignments')
+    .delete()
+    .eq('track_id', trackId)
+    .eq('kb_category_id', categoryId);
+
+  if (error) throw error;
+}
+
+/**
+ * Update KB track assignment settings
+ */
+export async function updateKBTrackAssignment(
+  trackId: string,
+  categoryId: string,
+  updates: {
+    display_type?: 'required' | 'optional' | 'manager-only';
+    pinned?: boolean;
+    display_order?: number;
+  }
 ) {
-  const userProfile = await getCurrentUserProfile();
-  if (!userProfile) throw new Error('User not authenticated');
-
-  const isAuthorized = await checkKBAuthorization(userProfile.id);
-  if (!isAuthorized) {
-    throw new Error('Only admins and managers can edit KB articles');
-  }
-
-  const { tags, ...articleUpdates } = updates;
-
   const { data, error } = await supabase
-    .from('kb_articles')
-    .update({
-      ...articleUpdates,
-      last_updated_at: new Date().toISOString()
-    })
-    .eq('id', articleId)
+    .from('kb_track_assignments')
+    .update(updates)
+    .eq('track_id', trackId)
+    .eq('kb_category_id', categoryId)
     .select()
     .single();
 
   if (error) throw error;
-
-  // Update tags if provided
-  if (tags !== undefined) {
-    await supabase.from('kb_article_tags').delete().eq('kb_article_id', articleId);
-    if (tags.length > 0) {
-      await addKBArticleTags(articleId, tags);
-    }
-  }
-
   return data;
 }
 
 /**
- * Publish KB article
+ * Get tracks in a KB category
  */
-export async function publishKBArticle(articleId: string) {
-  return updateKBArticle(articleId, { status: 'published' });
-}
-
-/**
- * Archive KB article
- */
-export async function archiveKBArticle(articleId: string) {
-  return updateKBArticle(articleId, { status: 'archived' });
-}
-
-/**
- * Get KB article by ID and increment view count
- */
-export async function getKBArticleById(articleId: string, incrementView: boolean = true) {
-  const { data, error } = await supabase
-    .from('kb_articles')
-    .select(`
-      *,
-      category:kb_categories(*),
-      author:users!kb_articles_created_by_fkey(name, email),
-      publisher:users!kb_articles_published_by_fkey(name, email),
-      kb_article_tags(tags(*))
-    `)
-    .eq('id', articleId)
-    .single();
-
-  if (error) throw error;
-
-  // Increment view count
-  if (incrementView) {
-    await incrementArticleViews(articleId);
-  }
-
-  return data;
-}
-
-/**
- * Get KB articles with filters
- */
-export async function getKBArticles(filters: {
-  category_id?: string;
-  type?: string;
-  status?: string;
+export async function getKBCategoryTracks(categoryId: string, filters: {
+  display_type?: string;
   search?: string;
+  track_type?: string; // 'article', 'video', 'story'
 } = {}) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
   let query = supabase
-    .from('kb_articles')
+    .from('kb_track_assignments')
     .select(`
       *,
-      category:kb_categories(name),
-      author:users!kb_articles_created_by_fkey(name),
-      kb_article_tags(tags(name))
+      track:tracks!inner(
+        *,
+        created_by_user:users!tracks_created_by_fkey(first_name, last_name, email),
+        track_tags(tags(name, color))
+      )
     `)
-    .eq('organization_id', orgId);
+    .eq('organization_id', orgId)
+    .eq('kb_category_id', categoryId);
 
-  if (filters.category_id) {
-    query = query.eq('category_id', filters.category_id);
+  if (filters.display_type) {
+    query = query.eq('display_type', filters.display_type);
   }
 
-  if (filters.type) {
-    query = query.eq('type', filters.type);
+  // Filter by track type (article, video, story)
+  if (filters.track_type) {
+    query = query.eq('track.track_type', filters.track_type);
   }
 
-  if (filters.status) {
-    query = query.eq('status', filters.status);
-  }
+  // Filter by published tracks only
+  query = query.eq('track.status', 'published');
 
-  if (filters.search) {
-    query = query.or(`title.ilike.%${filters.search}%,content.ilike.%${filters.search}%`);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
+  const { data, error } = await query.order('pinned', { ascending: false })
+                                     .order('display_order', { ascending: true });
 
   if (error) throw error;
-  return data;
+
+  // Client-side search filter if needed
+  let results = data || [];
+  if (filters.search) {
+    const searchLower = filters.search.toLowerCase();
+    results = results.filter((item: any) => 
+      item.track?.title?.toLowerCase().includes(searchLower) ||
+      item.track?.description?.toLowerCase().includes(searchLower)
+    );
+  }
+
+  return results;
+}
+
+/**
+ * Get all KB categories with track counts
+ */
+export async function getKBCategoriesWithCounts() {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data: categories, error: categoriesError } = await supabase
+    .from('kb_categories')
+    .select('*')
+    .eq('organization_id', orgId)
+    .order('display_order', { ascending: true });
+
+  if (categoriesError) throw categoriesError;
+
+  // Get track counts for each category
+  const categoriesWithCounts = await Promise.all(
+    categories.map(async (category) => {
+      const { count } = await supabase
+        .from('kb_track_assignments')
+        .select('*', { count: 'exact', head: true })
+        .eq('kb_category_id', category.id);
+
+      return {
+        ...category,
+        trackCount: count || 0
+      };
+    })
+  );
+
+  return categoriesWithCounts;
 }
 
 /**
@@ -195,40 +181,6 @@ export async function getKBCategories() {
 
   if (error) throw error;
   return data;
-}
-
-/**
- * Get KB categories with article counts
- */
-export async function getKBCategoriesWithCounts() {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
-
-  const { data: categories, error: categoriesError } = await supabase
-    .from('kb_categories')
-    .select('*')
-    .eq('organization_id', orgId)
-    .order('display_order', { ascending: true });
-
-  if (categoriesError) throw categoriesError;
-
-  // Get article counts for each category
-  const categoriesWithCounts = await Promise.all(
-    categories.map(async (category) => {
-      const { count } = await supabase
-        .from('kb_articles')
-        .select('*', { count: 'exact', head: true })
-        .eq('category_id', category.id)
-        .eq('status', 'published');
-
-      return {
-        ...category,
-        articleCount: count || 0
-      };
-    })
-  );
-
-  return categoriesWithCounts;
 }
 
 /**
@@ -259,94 +211,289 @@ export async function createKBCategory(input: {
 }
 
 /**
- * Upload attachment for KB article
+ * Update KB category
  */
-export async function uploadKBAttachment(
-  articleId: string,
-  file: File
-): Promise<string> {
-  const orgId = await getCurrentUserOrgId();
-  const bucket = 'kb-attachments';
-  const path = `${orgId}/${articleId}/${file.name}`;
+export async function updateKBCategory(
+  categoryId: string,
+  updates: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    display_order?: number;
+  }
+) {
+  const { data, error } = await supabase
+    .from('kb_categories')
+    .update(updates)
+    .eq('id', categoryId)
+    .select()
+    .single();
 
-  const { url, error } = await uploadFile(bucket, path, file);
   if (error) throw error;
-  if (!url) throw new Error('Failed to upload file');
-
-  return url;
+  return data;
 }
 
 /**
- * Increment article view count
+ * Delete KB category
  */
-async function incrementArticleViews(articleId: string) {
-  const { data: article } = await supabase
-    .from('kb_articles')
-    .select('view_count')
-    .eq('id', articleId)
+export async function deleteKBCategory(categoryId: string) {
+  const { error } = await supabase
+    .from('kb_categories')
+    .delete()
+    .eq('id', categoryId);
+
+  if (error) throw error;
+}
+
+/**
+ * Get KB categories a track belongs to
+ */
+export async function getTrackKBCategories(trackId: string) {
+  const { data, error } = await supabase
+    .from('kb_track_assignments')
+    .select(`
+      *,
+      category:kb_categories(*)
+    `)
+    .eq('track_id', trackId);
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Bookmark a track in KB
+ */
+export async function bookmarkKBTrack(trackId: string) {
+  const userProfile = await getCurrentUserProfile();
+  if (!userProfile) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('kb_track_bookmarks')
+    .insert({
+      user_id: userProfile.id,
+      track_id: trackId
+    })
+    .select()
     .single();
 
-  if (article) {
-    await supabase
-      .from('kb_articles')
-      .update({ view_count: (article.view_count || 0) + 1 })
-      .eq('id', articleId);
-  }
+  if (error) throw error;
+  return data;
 }
 
 /**
- * Check if user can edit KB articles (admin or manager)
+ * Remove bookmark from track
  */
-async function checkKBAuthorization(userId: string): Promise<boolean> {
-  const { data: user } = await supabase
-    .from('users')
-    .select('role:roles(name)')
-    .eq('id', userId)
+export async function removeKBTrackBookmark(trackId: string) {
+  const userProfile = await getCurrentUserProfile();
+  if (!userProfile) throw new Error('User not authenticated');
+
+  const { error } = await supabase
+    .from('kb_track_bookmarks')
+    .delete()
+    .eq('user_id', userProfile.id)
+    .eq('track_id', trackId);
+
+  if (error) throw error;
+}
+
+/**
+ * Get user's bookmarked tracks
+ */
+export async function getUserKBBookmarks() {
+  const userProfile = await getCurrentUserProfile();
+  if (!userProfile) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('kb_track_bookmarks')
+    .select(`
+      *,
+      track:tracks(*)
+    `)
+    .eq('user_id', userProfile.id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Check if track is bookmarked
+ */
+export async function isTrackBookmarked(trackId: string): Promise<boolean> {
+  const userProfile = await getCurrentUserProfile();
+  if (!userProfile) return false;
+
+  const { data } = await supabase
+    .from('kb_track_bookmarks')
+    .select('id')
+    .eq('user_id', userProfile.id)
+    .eq('track_id', trackId)
     .single();
 
-  const roleName = (user?.role as any)?.name;
-  return roleName === 'Administrator' || roleName === 'District Manager' || roleName === 'Store Manager';
+  return !!data;
 }
 
 /**
- * Add tags to KB article
+ * Record KB track view
  */
-async function addKBArticleTags(articleId: string, tagNames: string[]) {
+export async function recordKBTrackView(trackId: string, categoryId?: string) {
+  const userProfile = await getCurrentUserProfile();
+  if (!userProfile) return;
+
+  await supabase
+    .from('kb_track_views')
+    .insert({
+      user_id: userProfile.id,
+      track_id: trackId,
+      kb_category_id: categoryId
+    });
+}
+
+/**
+ * Get popular tracks in KB (most viewed)
+ */
+export async function getPopularKBTracks(limit: number = 10) {
   const orgId = await getCurrentUserOrgId();
-  if (!orgId) return;
+  if (!orgId) throw new Error('User not authenticated');
 
-  // Get or create tags
-  const tagIds: string[] = [];
-  for (const tagName of tagNames) {
-    const { data: existingTag } = await supabase
-      .from('tags')
-      .select('id')
-      .eq('organization_id', orgId)
-      .eq('name', tagName)
-      .single();
+  const { data, error } = await supabase
+    .from('kb_track_views')
+    .select(`
+      track_id,
+      track:tracks!inner(
+        *,
+        created_by_user:users!tracks_created_by_fkey(first_name, last_name)
+      )
+    `)
+    .eq('track.organization_id', orgId)
+    .limit(limit);
 
-    if (existingTag) {
-      tagIds.push(existingTag.id);
-    } else {
-      const { data: newTag } = await supabase
-        .from('tags')
-        .insert({
-          organization_id: orgId,
-          name: tagName,
-          type: 'kb'
-        })
-        .select('id')
-        .single();
+  if (error) throw error;
 
-      if (newTag) tagIds.push(newTag.id);
-    }
-  }
+  // Group by track and count views
+  const trackViewCounts = new Map();
+  data?.forEach((view: any) => {
+    const count = trackViewCounts.get(view.track_id) || 0;
+    trackViewCounts.set(view.track_id, count + 1);
+  });
 
-  // Link tags to article
-  const articleTagsToInsert = tagIds.map(tagId => ({
-    kb_article_id: articleId,
-    tag_id: tagId
+  // Get unique tracks with view counts
+  const uniqueTracks = Array.from(new Map(data?.map((v: any) => [v.track_id, v.track])).values());
+  const tracksWithCounts = uniqueTracks.map((track: any) => ({
+    ...track,
+    viewCount: trackViewCounts.get(track.id) || 0
   }));
 
-  await supabase.from('kb_article_tags').insert(articleTagsToInsert);
+  // Sort by view count
+  return tracksWithCounts.sort((a: any, b: any) => b.viewCount - a.viewCount).slice(0, limit);
+}
+
+/**
+ * Search all tracks available for KB (published tracks not yet in category)
+ */
+export async function searchAvailableTracksForKB(categoryId: string, search: string = '') {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get all published tracks
+  let query = supabase
+    .from('tracks')
+    .select(`
+      *,
+      created_by_user:users!tracks_created_by_fkey(first_name, last_name, email),
+      track_tags(tags(name, color))
+    `)
+    .eq('organization_id', orgId)
+    .eq('status', 'published');
+
+  if (search) {
+    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+  }
+
+  const { data: allTracks, error } = await query.order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  // Get tracks already in this category
+  const { data: assignedTracks } = await supabase
+    .from('kb_track_assignments')
+    .select('track_id')
+    .eq('kb_category_id', categoryId);
+
+  const assignedTrackIds = new Set(assignedTracks?.map((a: any) => a.track_id) || []);
+
+  // Filter out already assigned tracks
+  return allTracks?.filter((track: any) => !assignedTrackIds.has(track.id)) || [];
+}
+
+/**
+ * Toggle like on a track (increment/decrement)
+ * Note: Currently simple increment. For per-user toggle, we need a junction table or KV.
+ * We will use optimistic UI update, but here we persist to DB.
+ */
+export async function toggleTrackLike(trackId: string) {
+  const { data: track, error: fetchError } = await supabase
+    .from('tracks')
+    .select('likes')
+    .eq('id', trackId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const newLikes = (track.likes || 0) + 1;
+
+  const { error } = await supabase
+    .from('tracks')
+    .update({ likes: newLikes })
+    .eq('id', trackId);
+
+  if (error) throw error;
+  return newLikes;
+}
+
+/**
+ * Record detailed feedback (Helpful / Not Helpful)
+ */
+export async function recordKBFeedback(trackId: string, helpful: boolean) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || publicAnonKey;
+
+  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/feedback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ trackId, helpful })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to record feedback');
+  }
+  
+  return await response.json();
+}
+
+/**
+ * Get user's feedback for a track
+ */
+export async function getUserKBFeedback(trackId: string) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || publicAnonKey;
+
+  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/feedback/${trackId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+  
+  return await response.json();
 }

@@ -49,6 +49,8 @@ import { useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../lib/supabase';
+import { TagSelectorDialog } from './TagSelectorDialog';
+import { type Tag, assignTags, getEntityTags } from '../lib/crud/tags';
 
 interface PlaylistWizardProps {
   onClose: () => void;
@@ -117,7 +119,7 @@ const AVAILABLE_TRACKS = [
 ];
 
 // Tags that match existing patterns
-const AVAILABLE_TAGS = ['onboarding', 'compliance', 'safety', 'customer-service', 'leadership', 'technology', 'operations', 'policy'];
+// const AVAILABLE_TAGS = ['onboarding', 'compliance', 'safety', 'customer-service', 'leadership', 'technology', 'operations', 'policy'];
 
 export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, isFullPage = false }: PlaylistWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -133,8 +135,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   
   const [playlistName, setPlaylistName] = useState('');
   const [playlistDescription, setPlaylistDescription] = useState('');
-  const [playlistCategory, setPlaylistCategory] = useState('onboarding');
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [playlistTags, setPlaylistTags] = useState<string[]>([]);
+  const [selectedTagObjects, setSelectedTagObjects] = useState<Tag[]>([]);
   
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState('');
@@ -254,7 +258,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     fetchContent();
   }, [user?.organization_id]);
 
-  // Load existing playlist data when in edit mode
+        // Load existing playlist data when in edit mode
   useEffect(() => {
     const loadPlaylist = async () => {
       if (!existingPlaylistId || mode !== 'edit' || !user?.organization_id) return;
@@ -274,6 +278,15 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         setPlaylistDescription(playlist.description || '');
         setAssignmentType(playlist.type || 'manual');
         
+        // Load tags
+        try {
+          const tags = await getEntityTags(existingPlaylistId, 'playlist');
+          setPlaylistTags(tags.map(t => t.name));
+          setSelectedTagObjects(tags);
+        } catch (error) {
+          console.error('Error loading playlist tags:', error);
+        }
+
         // Set trigger conditions for auto playlists
         if (playlist.type === 'auto' && playlist.trigger_rules) {
           // TODO: Parse trigger_rules and populate triggerConditions
@@ -450,6 +463,15 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
       console.log(mode === 'edit' ? '✅ Playlist updated:' : '✅ Playlist created:', playlist.id);
 
+      // 1.5 Assign Tags
+      if (playlistTags.length > 0 && selectedTagObjects.length > 0) {
+        const tagIds = selectedTagObjects.map(t => t.id);
+        await assignTags(playlist.id, 'playlist', tagIds);
+      } else if (playlistTags.length === 0) {
+        // Clear tags if none selected
+        await assignTags(playlist.id, 'playlist', []);
+      }
+
       // 2. Handle manual assignment for employees
       if (assignmentType === 'manual' && selectedEmployees.length > 0) {
         console.log(`📋 ${mode === 'edit' ? 'Updating' : 'Creating'} ${selectedEmployees.length} assignments...`);
@@ -587,11 +609,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     setCompletionActions(completionActions.filter((_, i) => i !== index));
   };
 
-  const toggleTag = (tag: string) => {
-    if (playlistTags.includes(tag)) {
-      setPlaylistTags(playlistTags.filter(t => t !== tag));
-    } else {
-      setPlaylistTags([...playlistTags, tag]);
+  const handleTagsChange = (newTags: string[], newTagObjects?: Tag[]) => {
+    setPlaylistTags(newTags);
+    if (newTagObjects) {
+      setSelectedTagObjects(newTagObjects);
     }
   };
 
@@ -1027,41 +1048,46 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select value={playlistCategory} onValueChange={setPlaylistCategory}>
-                    <SelectTrigger id="category">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="onboarding">Onboarding</SelectItem>
-                      <SelectItem value="compliance">Compliance</SelectItem>
-                      <SelectItem value="leadership">Leadership</SelectItem>
-                      <SelectItem value="skills">Skills Development</SelectItem>
-                      <SelectItem value="safety">Safety</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
                   <Label>Tags</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {AVAILABLE_TAGS.map(tag => (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {selectedTagObjects.map(tag => (
                       <Badge
-                        key={tag}
-                        variant={playlistTags.includes(tag) ? "default" : "outline"}
-                        className={`cursor-pointer ${playlistTags.includes(tag) ? 'bg-brand-gradient' : ''}`}
-                        onClick={() => toggleTag(tag)}
+                        key={tag.id}
+                        variant="secondary"
+                        className="px-3 py-1 rounded-full text-sm font-medium border"
+                        style={{
+                          backgroundColor: `${tag.color || '#F74A05'}15`,
+                          color: tag.color || '#F74A05',
+                          borderColor: `${tag.color || '#F74A05'}40`,
+                        }}
                       >
-                        {tag}
+                        {tag.name}
                       </Badge>
                     ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsTagSelectorOpen(true)}
+                      className="h-7 text-xs rounded-full border-dashed border-primary/50 text-primary hover:text-primary hover:bg-primary/5"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      {selectedTagObjects.length > 0 ? 'Edit Tags' : 'Add Tags'}
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Click tags to add or remove them from this playlist
+                    Organize this playlist with system tags for better discovery
                   </p>
                 </div>
               </CardContent>
             </Card>
+
+            <TagSelectorDialog
+              isOpen={isTagSelectorOpen}
+              onClose={() => setIsTagSelectorOpen(false)}
+              selectedTags={playlistTags}
+              onTagsChange={handleTagsChange}
+              systemCategory="playlists"
+            />
           </div>
         );
 

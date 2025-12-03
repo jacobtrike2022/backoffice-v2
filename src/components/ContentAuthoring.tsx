@@ -76,10 +76,11 @@ interface ContentAuthoringProps {
   onNavigateToLibrary?: () => void;
   currentRole?: string;
   initialTrackId?: string; // For URL-based track loading
+  initialMode?: 'create-article' | null;
   onNavigateToPlaylist?: (playlistId: string) => void;
 }
 
-export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrackId, onNavigateToPlaylist }: ContentAuthoringProps) {
+export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrackId, initialMode, onNavigateToPlaylist }: ContentAuthoringProps) {
   const [selectedType, setSelectedType] = useState<ContentType>(null);
   const [editingTrack, setEditingTrack] = useState<any>(null);
   const [draftTracks, setDraftTracks] = useState<any[]>([]);
@@ -92,6 +93,13 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
 
   // Load initial track from URL if provided - ONLY ONCE
   useEffect(() => {
+    // Handle initial creation mode
+    if (initialMode === 'create-article' && !selectedType) {
+      console.log('📍 ContentAuthoring: Entering create article mode');
+      handleCreateNew('article');
+      return;
+    }
+
     if (initialTrackId && !editingTrack && !hasLoadedInitialTrack) {
       console.log('📍 ContentAuthoring: Loading initial track from URL:', initialTrackId);
       setHasLoadedInitialTrack(true); // Mark as loaded immediately to prevent re-runs

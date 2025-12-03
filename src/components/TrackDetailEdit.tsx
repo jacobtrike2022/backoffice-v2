@@ -5,6 +5,8 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
+import { Switch } from './ui/switch';
+import { Label } from './ui/label';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
@@ -54,6 +56,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   const videoRef = useRef<HTMLVideoElement>(null);
   const youtubePlayerRef = useRef<any>(null);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  const [tagSelectorConfig, setTagSelectorConfig] = useState<{
+    systemCategory: any;
+    restrictToParentName?: string;
+  }>({ systemCategory: 'content' });
   
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -70,7 +76,29 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     content_url: '',
   });
 
+  const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
+
   const isSystemContent = track.is_system_content;
+
+  useEffect(() => {
+    const loadKBTags = async () => {
+      try {
+        const hierarchy = await crud.getTagHierarchy('knowledge-base');
+        const names = new Set<string>();
+        const traverse = (nodes: any[]) => {
+          for (const node of nodes) {
+            names.add(node.name);
+            if (node.children) traverse(node.children);
+          }
+        };
+        traverse(hierarchy);
+        setKbTagNames(names);
+      } catch (e) {
+        console.error("Failed to load KB tags", e);
+      }
+    };
+    loadKBTags();
+  }, []);
 
   // Helper function to detect and extract YouTube video ID
   const getYouTubeVideoId = (url: string): string | null => {
@@ -167,6 +195,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         content_url: track.content_url || '',
         thumbnail_url: track.thumbnail_url || '',
         type: track.type || 'video',
+        show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
       });
     }
   }, [isEditMode, track]);
@@ -176,6 +205,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     console.log('editFormData changed:', editFormData);
   }, [editFormData]);
 
+  const areArraysEqual = (a: any[] | undefined | null, b: any[] | undefined | null) => {
+    const arr1 = a || [];
+    const arr2 = b || [];
+    if (arr1.length !== arr2.length) return false;
+    const sorted1 = [...arr1].sort();
+    const sorted2 = [...arr2].sort();
+    return sorted1.every((val, idx) => val === sorted2[idx]);
+  };
+
   const handleSave = async () => {
     if (!editFormData.title.trim()) {
       toast.error('Title is required');
@@ -184,6 +222,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
     setIsSaving(true);
     try {
+      // Prepare tags including the system KB tag
+      const currentTags = new Set<string>(editFormData.tags || []);
+      if (editFormData.show_in_knowledge_base) {
+        currentTags.add('system:show_in_knowledge_base');
+      } else {
+        currentTags.delete('system:show_in_knowledge_base');
+      }
+
       const saveData = {
         id: track.id,
         title: editFormData.title || track.title,
@@ -191,7 +237,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         content_url: editFormData.content_url || track.content_url,
         duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
         learning_objectives: editFormData.learning_objectives || track.learning_objectives || [],
-        tags: editFormData.tags || track.tags || [],
+        tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
         type: editFormData.type,
         transcript_data: editFormData.transcript_data || track.transcript_data || null,
@@ -200,14 +246,32 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       console.log('Saving track with data:', saveData);
       console.log('Transcript data being saved:', JSON.stringify(saveData.transcript_data, null, 2));
 
-      // Check if track is published and has assignments
-      if (track.status === 'published') {
+      // Check for meaningful content changes that require versioning
+      const contentChanged = 
+        saveData.title !== track.title ||
+        saveData.description !== track.description ||
+        saveData.duration_minutes !== (track.duration_minutes || 0) ||
+        saveData.content_url !== (track.content_url || '') ||
+        saveData.thumbnail_url !== (track.thumbnail_url || '') ||
+        saveData.type !== track.type ||
+        JSON.stringify(saveData.transcript_data) !== JSON.stringify(track.transcript_data || null) ||
+        !areArraysEqual(saveData.learning_objectives || [], track.learning_objectives || []);
+
+      const tagsChanged = !areArraysEqual(saveData.tags, track.tags);
+      
+      const wasInKb = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
+      const kbChanged = editFormData.show_in_knowledge_base !== wasInKb;
+
+      console.log('Changes detected:', { contentChanged, tagsChanged, kbChanged });
+
+      // Check if track is published and has assignments AND has content changes
+      if (track.status === 'published' && contentChanged) {
         const stats = await crud.getTrackAssignmentStats(track.id);
         
         // Trigger versioning if track is in ANY playlist (even if not assigned to users yet)
         if (stats.playlistCount > 0) {
           // Show version decision modal instead of saving directly
-          console.log('Track is in playlists, showing version decision modal. Stats:', stats);
+          console.log('Track is in playlists and content changed, showing version decision modal. Stats:', stats);
           setPendingChanges(saveData);
           setIsVersionModalOpen(true);
           setIsSaving(false);
@@ -215,11 +279,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         }
       }
 
-      // If no assignments or not published, just update normally
+      // If no assignments or not published OR only metadata changed, just update normally
       await crud.updateTrack(saveData);
 
       console.log('Track updated successfully, calling onUpdate...');
-      toast.success('Track updated successfully!');
+      toast.success(contentChanged ? 'Track updated successfully!' : 'Knowledge Base settings updated!');
       setIsEditMode(false);
       
       // Call onUpdate to trigger refetch
@@ -262,18 +326,28 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   };
 
   const handleAddTag = () => {
-    const newTag = prompt('Enter new tag:');
-    if (newTag && newTag.trim()) {
-      setEditFormData({
-        ...editFormData,
-        tags: [...(editFormData.tags || []), newTag.trim()]
-      });
-    }
+    setTagSelectorConfig({
+      systemCategory: 'content',
+      restrictToParentName: undefined
+    });
+    setIsTagSelectorOpen(true);
   };
 
   const handleRemoveTag = (index: number) => {
     const newTags = editFormData.tags.filter((_: any, i: number) => i !== index);
     setEditFormData({ ...editFormData, tags: newTags });
+  };
+
+  const handleKBToggle = (checked: boolean) => {
+    setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
+    
+    if (checked) {
+      setTagSelectorConfig({
+        systemCategory: 'knowledge-base',
+        restrictToParentName: 'KB Category'
+      });
+      setIsTagSelectorOpen(true);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -785,14 +859,21 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
+                {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
+                {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
+                  <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
+                    <BookOpen className="h-3 w-3 mr-1" />
+                    In Knowledge Base
+                  </Badge>
+                )}
                 {isEditMode ? (
                   <>
-                    {(editFormData.tags || []).map((tag: string, index: number) => (
+                    {(editFormData.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
                       <Badge
                         key={index}
                         variant="secondary"
                         className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                        onClick={() => handleRemoveTag(index)}
+                        onClick={() => handleRemoveTag((editFormData.tags || []).indexOf(tag))}
                       >
                         {tag}
                         <X className="h-3 w-3 ml-1" />
@@ -810,13 +891,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   </>
                 ) : (
                   <>
-                    {track.tags && track.tags.length > 0 ? (
-                      track.tags.map((tag: string, index: number) => (
-                        <Badge key={index} variant="secondary">
-                          {tag}
-                        </Badge>
-                      ))
-                    ) : (
+                    {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
+                      <Badge key={index} variant="secondary">
+                        {tag}
+                      </Badge>
+                    ))}
+                    {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !(track.tags || []).includes('system:show_in_knowledge_base') && (
                       <p className="text-sm text-muted-foreground">No tags</p>
                     )}
                   </>
@@ -934,6 +1014,80 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <p className="text-xs text-muted-foreground">
                   Click the status badge to {track.status === 'published' ? 'move to drafts' : 'publish'}
                 </p>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Knowledge Base Settings */}
+          {['article', 'video', 'story'].includes(isEditMode ? editFormData.type : track.type) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <BookOpen className="h-5 w-5" />
+                  Knowledge Base
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="show-in-kb" className="text-base">Show in KB</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Available in Knowledge Base
+                    </p>
+                  </div>
+                  <Switch
+                    id="show-in-kb"
+                    checked={isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)}
+                    onCheckedChange={handleKBToggle}
+                    disabled={!isEditMode}
+                  />
+                </div>
+                
+                {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
+                  <div className="pt-2">
+                     {isEditMode && (
+                       <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full mb-3"
+                          onClick={() => {
+                            setTagSelectorConfig({
+                               systemCategory: 'knowledge-base',
+                               restrictToParentName: 'KB Category'
+                            });
+                            setIsTagSelectorOpen(true);
+                          }}
+                       >
+                         <Tag className="h-4 w-4 mr-2" />
+                         Manage KB Tags
+                       </Button>
+                     )}
+                     
+                     {/* Selected KB Tags Display */}
+                     <div>
+                       <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                       <div className="flex flex-wrap gap-2">
+                         {(isEditMode ? editFormData.tags : track.tags || [])
+                           .filter((t: string) => kbTagNames.has(t))
+                           .map((tag: string) => (
+                             <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
+                               {tag}
+                             </Badge>
+                         ))}
+                         {(isEditMode ? editFormData.tags : track.tags || [])
+                           .filter((t: string) => kbTagNames.has(t)).length === 0 && (
+                           <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                         )}
+                       </div>
+                     </div>
+                     
+                     {isEditMode && (
+                       <p className="text-xs text-muted-foreground mt-2">
+                         Select "KB Category" tags to organize this content in the Knowledge Base.
+                       </p>
+                     )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -1136,6 +1290,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={editFormData.tags || []}
         onTagsChange={(tags) => setEditFormData({ ...editFormData, tags })}
+        systemCategory={tagSelectorConfig.systemCategory}
+        restrictToParentName={tagSelectorConfig.restrictToParentName}
       />
       
       {/* Version Decision Modal */}

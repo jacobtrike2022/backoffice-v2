@@ -5,6 +5,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import * as kv from "./kv_store.tsx";
 import { handleTranscribeRequest } from "./transcribe.tsx";
 import tagsApp from "./tags.ts";
+import kbApp from "./kb.ts";
 
 const app = new Hono();
 
@@ -421,5 +422,8 @@ app.get("/make-server-2858cc8b/track-versions/:trackId", async (c) => {
 
 // Mount tagsApp
 app.route("/make-server-2858cc8b/tags", tagsApp);
+
+// Mount kbApp
+app.route("/make-server-2858cc8b/kb", kbApp);
 
 Deno.serve(app.fetch);

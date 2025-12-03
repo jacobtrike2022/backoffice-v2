@@ -156,11 +156,13 @@ export function VersionDecisionModal({
           <DialogTitle className="text-xl">
             Who should get Version {nextVersion}?
           </DialogTitle>
-          <DialogDescription className="space-y-1.5 pt-2">
-            <div>You're publishing Version {nextVersion} of "{trackTitle}".</div>
-            <div className="flex items-center text-primary">
-              <Info className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-              <span>We'll keep a record of everything learners completed on Version {currentVersion}.</span>
+          <DialogDescription className="space-y-1.5 pt-2" asChild>
+            <div>
+              <div>You're publishing Version {nextVersion} of "{trackTitle}".</div>
+              <div className="flex items-center text-primary">
+                <Info className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
+                <span>We'll keep a record of everything learners completed on Version {currentVersion}.</span>
+              </div>
             </div>
           </DialogDescription>
         </DialogHeader>

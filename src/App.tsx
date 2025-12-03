@@ -8,11 +8,12 @@ import { ComplianceDashboard } from './components/ComplianceDashboard';
 import { ComplianceAudit } from './components/ComplianceAudit';
 import { People } from './components/People';
 import { Units } from './components/Units';
+import { Organization } from './components/Organization';
 import { ContentAuthoring } from './components/ContentAuthoring';
 import { ContentLibrary } from './components/ContentLibrary';
 import { Playlists } from './components/Playlists';
 import { PlaylistWizard } from './components/PlaylistWizard';
-import { KnowledgeBaseConverted } from './components/KnowledgeBaseConverted';
+import { KnowledgeBaseRevamp } from './components/KnowledgeBaseRevamp';
 import { Forms } from './components/Forms';
 import { Settings } from './components/Settings';
 import { SuperAdminPasswordDialog } from './components/SuperAdminPasswordDialog';
@@ -20,7 +21,7 @@ import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner@2.0.3';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
-type AppView = 'dashboard' | 'reports' | 'analytics' | 'compliance' | 'compliance-audit' | 'content' | 'assignments' | 'assignment' | 'playlist-wizard' | 'people' | 'units' | 'authoring' | 'forms' | 'knowledge-base' | 'settings';
+type AppView = 'dashboard' | 'reports' | 'analytics' | 'compliance' | 'compliance-audit' | 'content' | 'assignments' | 'assignment' | 'playlist-wizard' | 'people' | 'units' | 'organization' | 'authoring' | 'forms' | 'knowledge-base' | 'settings';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>(() => {
@@ -36,6 +37,7 @@ export default function App() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | undefined>(undefined);
   const [editingPlaylistId, setEditingPlaylistId] = useState<string | undefined>(undefined);
   const [initialTrackId, setInitialTrackId] = useState<string | undefined>(undefined); // For URL-based track loading
+  const [initialMode, setInitialMode] = useState<'create-article' | null>(null);
   const [previousView, setPreviousView] = useState<AppView | null>(null); // Track where user came from
   const [isSuperAdminAuthenticated, setIsSuperAdminAuthenticated] = useState<boolean>(() => {
     // Check localStorage on mount
@@ -271,6 +273,14 @@ export default function App() {
     });
   };
 
+  const handleCreateArticle = () => {
+    setInitialMode('create-article');
+    setEditingArticle(null);
+    setInitialTrackId(undefined);
+    setCurrentView('authoring');
+    toast.info('Starting new article...', { duration: 2000 });
+  };
+
   const handleClearEditingArticle = () => {
     setEditingArticle(null);
   };
@@ -389,11 +399,17 @@ export default function App() {
             onBackToDashboard={handleBackToDashboard}
             initialStoreId={selectedStoreId}
           />
+        ) : currentView === 'organization' ? (
+          <Organization 
+            currentRole={currentRole}
+            onBackToDashboard={handleBackToDashboard}
+          />
         ) : currentView === 'authoring' ? (
           <ContentAuthoring 
             onNavigateToLibrary={() => setCurrentView('content')}
             currentRole={currentRole}
             initialTrackId={initialTrackId}
+            initialMode={initialMode}
             onNavigateToPlaylist={navigateToPlaylist}
           />
         ) : currentView === 'forms' ? (
@@ -401,8 +417,10 @@ export default function App() {
             currentRole={currentRole}
           />
         ) : currentView === 'knowledge-base' ? (
-          <KnowledgeBaseConverted 
+          <KnowledgeBaseRevamp 
             currentRole={currentRole}
+            onTrackClick={(trackId) => navigateToTrack(trackId, 'article')}
+            onCreateArticle={handleCreateArticle}
           />
         ) : currentView === 'settings' ? (
           <Settings 

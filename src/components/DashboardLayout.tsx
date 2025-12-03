@@ -6,6 +6,7 @@ import {
   BarChart3,
   Users,
   Building,
+  Building2,
   Shield,
   CheckSquare,
   ChevronLeft,
@@ -83,6 +84,12 @@ const navigationGroups: NavigationGroup[] = [
         label: 'Units',
         icon: Building,
         roles: ['admin', 'trike-super-admin', 'district-manager']
+      },
+      {
+        id: 'organization',
+        label: 'Organization',
+        icon: Building2,
+        roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'my-store',
@@ -373,6 +380,8 @@ export function DashboardLayout({
                               onNavigate('people');
                             } else if (item.id === 'units') {
                               onNavigate('units');
+                            } else if (item.id === 'organization') {
+                              onNavigate('organization');
                             } else if (item.id === 'settings') {
                               onNavigate('settings');
                             } else {
