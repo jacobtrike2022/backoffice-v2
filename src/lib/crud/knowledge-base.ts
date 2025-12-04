@@ -430,27 +430,25 @@ export async function searchAvailableTracksForKB(categoryId: string, search: str
 
 /**
  * Toggle like on a track (increment/decrement)
- * Note: Currently simple increment. For per-user toggle, we need a junction table or KV.
- * We will use optimistic UI update, but here we persist to DB.
+ * Uses KV store to persist likes count
  */
 export async function toggleTrackLike(trackId: string) {
-  const { data: track, error: fetchError } = await supabase
-    .from('tracks')
-    .select('likes')
-    .eq('id', trackId)
-    .single();
+  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/like`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${publicAnonKey}`
+    },
+    body: JSON.stringify({ trackId })
+  });
 
-  if (fetchError) throw fetchError;
-
-  const newLikes = (track.likes || 0) + 1;
-
-  const { error } = await supabase
-    .from('tracks')
-    .update({ likes: newLikes })
-    .eq('id', trackId);
-
-  if (error) throw error;
-  return newLikes;
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to like track');
+  }
+  
+  const data = await response.json();
+  return data.likes;
 }
 
 /**

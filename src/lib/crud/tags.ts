@@ -37,11 +37,7 @@ export async function getAllTags(includeSystemLocked: boolean = true): Promise<T
   
   let query = supabase
     .from('tags')
-    .select(`
-      *,
-      parent:tags!tags_parent_id_fkey(id, name, type),
-      children:tags!tags_parent_id_fkey(*)
-    `)
+    .select('*')
     .or(`organization_id.eq.${orgId},organization_id.is.null`)
     .order('display_order', { ascending: true });
   
@@ -77,11 +73,7 @@ export async function getTagsByCategory(category: SystemCategory, includeSystemL
   
   let query = supabase
     .from('tags')
-    .select(`
-      *,
-      parent:tags!tags_parent_id_fkey(id, name, type),
-      children:tags!tags_parent_id_fkey(*)
-    `)
+    .select('*')
     .eq('system_category', category)
     .or(`organization_id.eq.${orgId},organization_id.is.null`)
     .order('display_order', { ascending: true });
@@ -223,10 +215,10 @@ export async function updateTag(
  * Delete a tag
  */
 export async function deleteTag(tagId: string): Promise<void> {
-  // Check if tag is system-locked
+  // Check if tag is system-locked and get children
   const { data: existingTag } = await supabase
     .from('tags')
-    .select('is_system_locked, children:tags!tags_parent_id_fkey(id)')
+    .select('is_system_locked')
     .eq('id', tagId)
     .single();
   
@@ -234,7 +226,13 @@ export async function deleteTag(tagId: string): Promise<void> {
     throw new Error('Cannot delete system-locked tags');
   }
   
-  if (existingTag?.children && existingTag.children.length > 0) {
+  // Check for children separately
+  const { data: children } = await supabase
+    .from('tags')
+    .select('id')
+    .eq('parent_id', tagId);
+  
+  if (children && children.length > 0) {
     throw new Error('Cannot delete tag with children. Delete children first.');
   }
   
@@ -250,8 +248,9 @@ export async function deleteTag(tagId: string): Promise<void> {
  * Get tags for a specific entity (track, playlist, etc.)
  */
 export async function getEntityTags(entityId: string, entityType: 'track' | 'album' | 'playlist' | 'user' | 'store'): Promise<Tag[]> {
-  // For user and store tags, use KV store via Server to avoid RLS
-  if (entityType === 'user' || entityType === 'store') {
+  // For user, store, and playlist tags, use KV store via Server to avoid RLS
+  // (playlist_tags table doesn't exist, so we use KV store for playlists)
+  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.session?.access_token || publicAnonKey;
@@ -265,7 +264,8 @@ export async function getEntityTags(entityId: string, entityType: 'track' | 'alb
       if (!response.ok) {
         // If 404 or other non-critical error, just return empty
         if (response.status === 404) return [];
-        console.error(`Failed to fetch tags: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        console.error(`Failed to fetch tags for ${entityType}:`, errorData);
         return [];
       }
       
@@ -303,10 +303,9 @@ export async function getEntityTags(entityId: string, entityType: 'track' | 'alb
       junctionTable = 'album_tags';
       foreignKey = 'album_id';
       break;
-    case 'playlist':
-      junctionTable = 'playlist_tags';
-      foreignKey = 'playlist_id';
-      break;
+    default:
+      // This should not be reached as playlist is handled above
+      return [];
   }
   
   const { data, error } = await supabase
@@ -328,8 +327,9 @@ export async function assignTags(
   entityType: 'track' | 'album' | 'playlist' | 'user' | 'store',
   tagIds: string[]
 ): Promise<void> {
-  // For user and store tags, use KV store via Server
-  if (entityType === 'user' || entityType === 'store') {
+  // For user, store, and playlist tags, use KV store via Server
+  // (playlist_tags table doesn't exist, so we use KV store for playlists)
+  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.session?.access_token || publicAnonKey;
     
@@ -365,10 +365,9 @@ export async function assignTags(
       junctionTable = 'album_tags';
       foreignKey = 'album_id';
       break;
-    case 'playlist':
-      junctionTable = 'playlist_tags';
-      foreignKey = 'playlist_id';
-      break;
+    default:
+      // This should not be reached as playlist is handled above
+      return;
   }
   
   // Remove existing tags

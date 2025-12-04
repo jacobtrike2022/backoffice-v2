@@ -355,7 +355,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               <div>
                 <h3 className="font-semibold mb-3 flex items-center">
                   <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Learning Objectives
+                  Content Key Facts
                 </h3>
                 <div className="bg-accent/30 p-4 rounded-lg space-y-2">
                   <div className="flex items-start space-x-2">
@@ -564,7 +564,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               <div>
                 <h3 className="font-semibold mb-3 flex items-center">
                   <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Learning Objectives
+                  Content Key Facts
                 </h3>
                 <div className="bg-accent/30 p-4 rounded-lg space-y-2">
                   <div className="flex items-start space-x-2">
@@ -729,7 +729,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               <div>
                 <h3 className="font-semibold mb-3 flex items-center">
                   <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Learning Objectives
+                  Content Key Facts
                 </h3>
                 <div className="bg-accent/30 p-4 rounded-lg space-y-2">
                   <div className="flex items-start space-x-2">

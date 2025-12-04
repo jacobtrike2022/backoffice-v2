@@ -202,10 +202,14 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
 
   // If editing a specific track
   if (editingTrack) {
-    const handleUpdate = async () => {
+    const handleUpdate = async (newTrackId?: string) => {
       // Reload the track data
       try {
-        const updatedTrack = await crud.getTrackById(editingTrack.id);
+        console.log('ContentAuthoring - handleUpdate called, newTrackId:', newTrackId);
+        // If a new track ID is provided (e.g., after version creation), use that
+        const trackIdToFetch = newTrackId || editingTrack.id;
+        console.log('ContentAuthoring - fetching track ID:', trackIdToFetch);
+        const updatedTrack = await crud.getTrackById(trackIdToFetch);
         setEditingTrack(updatedTrack);
         loadDraftTracks(); // Also reload the drafts list
       } catch (error) {

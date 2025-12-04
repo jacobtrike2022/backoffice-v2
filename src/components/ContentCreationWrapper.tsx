@@ -55,11 +55,14 @@ export function ContentCreationWrapper({
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (newTrackId?: string) => {
     // Reload the track data after save
-    if (track?.id) {
+    console.log('ContentCreationWrapper - handleUpdate called, newTrackId:', newTrackId);
+    const trackIdToFetch = newTrackId || track?.id;
+    if (trackIdToFetch) {
       try {
-        const updatedTrack = await crud.getTrackById(track.id);
+        console.log('ContentCreationWrapper - fetching track ID:', trackIdToFetch);
+        const updatedTrack = await crud.getTrackById(trackIdToFetch);
         setTrack(updatedTrack);
       } catch (error) {
         console.error('Error reloading track:', error);

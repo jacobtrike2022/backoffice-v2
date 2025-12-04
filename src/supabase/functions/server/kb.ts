@@ -73,4 +73,45 @@ kbApp.get('/feedback/:trackId', async (c) => {
   }
 });
 
+// Like a track (increment likes counter in KV store)
+kbApp.post('/like', async (c) => {
+  try {
+    const { trackId } = await c.req.json();
+
+    if (!trackId) {
+      return c.json({ error: 'Missing trackId' }, 400);
+    }
+
+    const likesKey = `kb_likes:${trackId}`;
+    
+    // Get current likes count
+    const currentData = await kv.get(likesKey);
+    const currentLikes = currentData?.count || 0;
+    const newLikes = currentLikes + 1;
+    
+    // Update likes count
+    await kv.set(likesKey, { count: newLikes, lastUpdated: new Date().toISOString() });
+
+    return c.json({ success: true, likes: newLikes });
+  } catch (error: any) {
+    console.error('Error liking track:', error);
+    return c.json({ error: error.message || 'Failed to like track' }, 500);
+  }
+});
+
+// Get likes count for a track
+kbApp.get('/likes/:trackId', async (c) => {
+  try {
+    const trackId = c.req.param('trackId');
+    const likesKey = `kb_likes:${trackId}`;
+    
+    const data = await kv.get(likesKey);
+    const likes = data?.count || 0;
+
+    return c.json({ likes });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 export default kbApp;

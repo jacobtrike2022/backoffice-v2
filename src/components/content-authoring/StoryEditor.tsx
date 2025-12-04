@@ -11,6 +11,7 @@ import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
 import { VersionDecisionModal } from './VersionDecisionModal';
+import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { 
   ArrowLeft, 
   Save, 
@@ -57,6 +58,7 @@ interface StoryEditorProps {
   onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
 export function StoryEditor({ 
@@ -69,7 +71,8 @@ export function StoryEditor({
   onUpdate,
   onVersionClick, 
   isSuperAdminAuthenticated,
-  onNavigateToPlaylist
+  onNavigateToPlaylist,
+  registerUnsavedChangesCheck
 }: StoryEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent);
   const [isSaving, setIsSaving] = useState(false);
@@ -108,11 +111,17 @@ export function StoryEditor({
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
+  // Unsaved changes dialog
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  
+  // Track initial state for unsaved changes detection
+  const [initialState, setInitialState] = useState<any>(null);
 
   const currentTrackId = trackId || track?.id;
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
   const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
-  const handleBackClick = onBack || onClose;
   
   // Calculate story duration
   const calculateStoryDuration = () => {
@@ -202,20 +211,88 @@ export function StoryEditor({
     setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
+    let parsedSlides: any[] = [];
+    let parsedObjectives: string[] = [];
     if (trackData.transcript) {
       try {
         const storyData = JSON.parse(trackData.transcript);
         if (storyData.slides && Array.isArray(storyData.slides)) {
           setSlides(storyData.slides);
+          parsedSlides = storyData.slides;
         }
         if (storyData.objectives) {
           setObjectives(storyData.objectives);
+          parsedObjectives = storyData.objectives;
         }
       } catch (e) {
         console.error('Error parsing story data:', e);
       }
     }
+    
+    // Save initial state for unsaved changes detection
+    setInitialState({
+      title: trackData.title || '',
+      description: trackData.description || '',
+      tags: trackData.tags || [],
+      thumbnailUrl: trackData.thumbnail_url || '',
+      notes: trackData.content_text || '',
+      slides: parsedSlides,
+      objectives: parsedObjectives,
+    });
   };
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = () => {
+    if (!initialState || !isEditMode) return false;
+    
+    const arraysEqual = (a: any[], b: any[]) => {
+      if (a.length !== b.length) return false;
+      return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+    };
+    
+    return (
+      title !== initialState.title ||
+      description !== initialState.description ||
+      !arraysEqual(tags, initialState.tags) ||
+      thumbnailUrl !== initialState.thumbnailUrl ||
+      notes !== initialState.notes ||
+      JSON.stringify(slides) !== JSON.stringify(initialState.slides) ||
+      JSON.stringify(objectives) !== JSON.stringify(initialState.objectives)
+    );
+  };
+
+  // Warn user before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isEditMode, initialState, title, description, tags, thumbnailUrl, notes, slides, objectives]);
+
+  // Register unsaved changes check with parent
+  useEffect(() => {
+    if (registerUnsavedChangesCheck) {
+      if (isEditMode) {
+        console.log('📝 StoryEditor: Registering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(hasUnsavedChanges);
+      } else {
+        console.log('📝 StoryEditor: Unregistering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(null);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
+    };
+  }, [isEditMode, registerUnsavedChangesCheck]);
 
   const handleMediaUpload = async (file: File, type: 'image' | 'video', slideId?: string) => {
     if (!file) return;
@@ -433,6 +510,102 @@ export function StoryEditor({
     return sorted1.every((val, idx) => val === sorted2[idx]);
   };
 
+  // Handle back button with unsaved changes check
+  const handleBackWithCheck = () => {
+    const backFn = onBack || onClose;
+    if (!backFn) return;
+    
+    console.log('🔍 handleBackWithCheck called', {
+      isEditMode,
+      hasChanges: hasUnsavedChanges(),
+      initialState,
+      currentState: { title, description, tags, thumbnailUrl, notes, slides, objectives }
+    });
+    
+    if (hasUnsavedChanges()) {
+      setPendingNavigation(() => backFn);
+      setShowUnsavedDialog(true);
+    } else {
+      backFn();
+    }
+  };
+
+  // Handle discard from dialog
+  const handleDiscardChanges = () => {
+    setShowUnsavedDialog(false);
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+  };
+
+  // Handle save and navigate
+  const handleSaveAndNavigate = async () => {
+    if (isSystemContent) {
+      toast.error('Cannot edit Trike Library content');
+      setShowUnsavedDialog(false);
+      return;
+    }
+
+    if (!validateStory()) {
+      setShowUnsavedDialog(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const storyData = {
+        slides,
+        objectives: objectives.filter(o => o.trim() !== '')
+      };
+
+      // Prepare tags including the system KB tag
+      const currentTags = new Set<string>(tags || []);
+      if (showInKnowledgeBase) {
+        currentTags.add('system:show_in_knowledge_base');
+      } else {
+        currentTags.delete('system:show_in_knowledge_base');
+      }
+
+      const trackData = {
+        title,
+        description,
+        type: 'story' as const,
+        transcript: JSON.stringify(storyData),
+        content_text: notes,
+        duration_minutes: calculateStoryDuration(),
+        tags: Array.from(currentTags),
+        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+      };
+
+      if (currentTrackId) {
+        await crud.updateTrack({ id: currentTrackId, ...trackData });
+        toast.success('Changes saved!');
+      } else {
+        await crud.createTrack({ ...trackData, status: 'draft' as const });
+        toast.success('Story created as draft!');
+      }
+
+      // Close dialog and navigate
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+      
+      if (pendingNavigation) {
+        setTimeout(() => {
+          if (pendingNavigation) {
+            pendingNavigation();
+            setPendingNavigation(null);
+          }
+        }, 100);
+      }
+    } catch (error: any) {
+      console.error('Error saving story:', error);
+      toast.error('Failed to save story');
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (isSystemContent) {
       toast.error('Cannot edit Trike Library content');
@@ -501,7 +674,7 @@ export function StoryEditor({
         
         // If no assignments or not published OR only metadata changed, update normally
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        toast.success(contentChanged ? 'Changes saved!' : 'Knowledge Base settings updated!');
+        toast.success(contentChanged ? 'Changes saved!' : 'Settings updated!');
         
         setIsEditMode(false);
         
@@ -513,7 +686,8 @@ export function StoryEditor({
       } else {
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
         toast.success('Story created as draft!');
-        if (handleBackClick) handleBackClick();
+        const backFn = onBack || onClose;
+        if (backFn) backFn();
       }
     } catch (error: any) {
       console.error('Error saving story:', error);
@@ -532,7 +706,8 @@ export function StoryEditor({
         loadStory();
       }
     } else {
-      if (handleBackClick) handleBackClick();
+      const backFn = onBack || onClose;
+      if (backFn) backFn();
     }
   };
 
@@ -626,7 +801,7 @@ export function StoryEditor({
         
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button variant="outline" size="sm" onClick={handleBackClick}>
+            <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
@@ -723,11 +898,11 @@ export function StoryEditor({
               </CardContent>
             </Card>
 
-            {/* Learning Objectives */}
+            {/* Key Facts */}
             {objectives.filter(o => o.trim()).length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Learning Objectives</CardTitle>
+                  <CardTitle>Key Facts</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-3">
@@ -788,14 +963,15 @@ export function StoryEditor({
               </Card>
             )}
 
-            {/* Knowledge Base */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  Knowledge Base
-                </CardTitle>
-              </CardHeader>
+            {/* Knowledge Base - Only show for published tracks */}
+            {existingTrack?.status === 'published' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    Knowledge Base
+                  </CardTitle>
+                </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
@@ -832,6 +1008,7 @@ export function StoryEditor({
                 )}
               </CardContent>
             </Card>
+            )}
 
             {/* Details */}
             <Card>
@@ -913,7 +1090,7 @@ export function StoryEditor({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button variant="outline" size="sm" onClick={handleBackClick}>
+          <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
@@ -1163,7 +1340,7 @@ export function StoryEditor({
           {/* Learning Objectives */}
           <Card>
             <CardHeader>
-              <CardTitle>Learning Objectives</CardTitle>
+              <CardTitle>Key Facts</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {objectives.map((objective, index) => (
@@ -1719,16 +1896,34 @@ export function StoryEditor({
         currentVersion={existingTrack?.version_number || 1}
         pendingChanges={pendingChanges}
         onVersionCreated={async (newTrackId, strategy) => {
+          console.log('📍 StoryEditor: onVersionCreated callback triggered');
           console.log('✅ Version created! New track ID:', newTrackId);
+          console.log('📝 Strategy:', strategy);
+          
           toast.success(`Version ${(existingTrack?.version_number || 1) + 1} created with ${strategy} strategy!`);
+          
+          console.log('🔄 Closing modal...');
           setIsVersionModalOpen(false);
+          console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           
-          // Small delay to let modal close gracefully before navigation
-          setTimeout(() => {
-            window.location.href = `/story/${newTrackId}`;
+          console.log('⏳ Waiting 300ms before refreshing data...');
+          // Small delay to let modal close gracefully
+          setTimeout(async () => {
+            console.log('🔄 Calling onUpdate with new track ID:', newTrackId);
+            // Pass the new track ID to onUpdate so it loads the new version
+            await onUpdate(newTrackId);
+            console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+      
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onOpenChange={(open) => setShowUnsavedDialog(open)}
+        onDiscard={handleDiscardChanges}
+        onSave={handleSaveAndNavigate}
       />
       
       {/* Compression Progress Overlay */}

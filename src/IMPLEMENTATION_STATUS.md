@@ -2,6 +2,31 @@
 
 ## 📊 CURRENT STATE
 
+## 📖 DATA MODEL & UI TERMINOLOGY
+
+### Database Field vs. UI Label Mappings
+
+Due to database stability and backward compatibility, some database field names differ from their UI labels. This is intentional and follows standard practices.
+
+| Database Field | UI Label | Notes |
+|---------------|----------|-------|
+| `learning_objectives` | **Key Facts** | Array of strings stored in `tracks_2858cc8b` table. Used across Articles, Videos, and Stories. Will be used for future functionality. |
+
+**Important for Developers:**
+- Database field names are kept stable to prevent migration complexity
+- UI labels can evolve based on product/UX requirements
+- Always reference this table when working on features that bridge backend and frontend
+- When adding new features, check if the field name and UI label match your expectations
+
+### Knowledge Base System Notes
+
+- The `show_in_knowledge_base` flag is controlled via a system tag: `system:show_in_knowledge_base`
+- KB content filtering is strict - only content with this flag appears in Knowledge Base
+- KB categories are managed through the tag hierarchy system under the 'knowledge-base' category
+- Content can have multiple KB category tags to appear in multiple KB sections
+
+---
+
 ### ✅ **COMPLETED (100%)**
 
 #### **1. Core Infrastructure**

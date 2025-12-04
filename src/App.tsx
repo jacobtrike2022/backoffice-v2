@@ -17,6 +17,7 @@ import { KnowledgeBaseRevamp } from './components/KnowledgeBaseRevamp';
 import { Forms } from './components/Forms';
 import { Settings } from './components/Settings';
 import { SuperAdminPasswordDialog } from './components/SuperAdminPasswordDialog';
+import { UnsavedChangesDialog } from './components/UnsavedChangesDialog';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner@2.0.3';
 
@@ -45,6 +46,50 @@ export default function App() {
   });
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
+
+  // Unsaved changes tracking
+  const [hasUnsavedChangesRef, setHasUnsavedChangesRef] = useState<(() => boolean) | null>(null);
+  const [pendingNavigationView, setPendingNavigationView] = useState<AppView | null>(null);
+  const [showUnsavedChangesWarning, setShowUnsavedChangesWarning] = useState(false);
+
+  // Register unsaved changes check from child components
+  const registerUnsavedChangesCheck = (checkFn: (() => boolean) | null) => {
+    console.log('📝 App: Registering unsaved changes check:', !!checkFn);
+    setHasUnsavedChangesRef(() => checkFn);
+  };
+
+  // Check for unsaved changes before navigation
+  const checkUnsavedBeforeNavigate = (targetView: AppView): boolean => {
+    console.log('🔍 App: Checking for unsaved changes before navigating to:', targetView);
+    
+    if (hasUnsavedChangesRef && hasUnsavedChangesRef()) {
+      console.log('⚠️ App: Unsaved changes detected, blocking navigation');
+      setPendingNavigationView(targetView);
+      setShowUnsavedChangesWarning(true);
+      return false; // Navigation blocked
+    }
+    
+    console.log('✅ App: No unsaved changes, allowing navigation');
+    return true; // Navigation allowed
+  };
+
+  // Handle discard from navigation warning
+  const handleDiscardChanges = () => {
+    console.log('🗑️ App: Discarding changes and navigating to:', pendingNavigationView);
+    setShowUnsavedChangesWarning(false);
+    if (pendingNavigationView) {
+      setCurrentView(pendingNavigationView);
+      setPendingNavigationView(null);
+    }
+    setHasUnsavedChangesRef(() => null);
+  };
+
+  // Handle cancel from navigation warning
+  const handleCancelNavigation = () => {
+    console.log('❌ App: Navigation cancelled');
+    setShowUnsavedChangesWarning(false);
+    setPendingNavigationView(null);
+  };
 
   // Navigation helper - use this instead of window.location.href to avoid hard reloads
   const navigateToPlaylist = (playlistId: string) => {
@@ -320,7 +365,24 @@ export default function App() {
         darkMode={darkMode}
         onDarkModeToggle={handleDarkModeToggle}
         currentView={currentView}
-        onNavigate={setCurrentView}
+        onNavigate={(view) => {
+          // Check for unsaved changes before navigation
+          if (!checkUnsavedBeforeNavigate(view as AppView)) {
+            return; // Navigation blocked, dialog will be shown
+          }
+          
+          // No unsaved changes, proceed with navigation
+          setCurrentView(view);
+          // Reset track selection when navigating to content library
+          if (view === 'content') {
+            setInitialTrackId(undefined);
+          }
+          // Reset track selection when navigating to authoring
+          if (view === 'authoring') {
+            setInitialTrackId(undefined);
+            setInitialMode(null);
+          }
+        }}
       >
         {currentView === 'dashboard' ? (
           <Dashboard 
@@ -358,6 +420,11 @@ export default function App() {
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             initialTrackId={initialTrackId}
             onNavigateToPlaylist={navigateToPlaylist}
+            onBackToLibrary={() => {
+              // Reset initialTrackId to ensure library view is shown
+              setInitialTrackId(undefined);
+            }}
+            registerUnsavedChangesCheck={registerUnsavedChangesCheck}
           />
         ) : currentView === 'assignments' ? (
           <Playlists 
@@ -442,6 +509,13 @@ export default function App() {
         onClose={() => setShowPasswordPrompt(false)}
         onSubmit={handleSuperAdminPasswordSubmit}
         onCancel={handlePasswordDialogCancel}
+      />
+
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedChangesWarning}
+        onOpenChange={setShowUnsavedChangesWarning}
+        onDiscard={handleDiscardChanges}
       />
 
       {/* Enhanced Toast Notifications */}

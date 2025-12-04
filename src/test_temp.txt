@@ -1,0 +1,17 @@
+                       <Bookmark 
+                        className={cn(
+                          "h-4 w-4 mr-2",
+                          bookmarkedTracks.has(selectedTrack.id) && "fill-current"
+                        )}
+                      />
+                      {bookmarkedTracks.has(selectedTrack.id) ? "Saved" : "Save"}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleDownloadPDF}
+                      title="Download as PDF"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download PDF
+                    </Button>

@@ -11,6 +11,8 @@ import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
 import { VersionDecisionModal } from './VersionDecisionModal';
+import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
+import { CheckpointPreviewModal } from './CheckpointPreviewModal';
 import { 
   ArrowLeft, 
   Save, 
@@ -57,9 +59,10 @@ interface CheckpointEditorProps {
   onVersionClick?: (versionTrackId: string) => void; // Optional version navigation callback
   isSuperAdminAuthenticated?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
-export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist }: CheckpointEditorProps) {
+export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck }: CheckpointEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -83,18 +86,23 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     }
   ]);
   const [showPreview, setShowPreview] = useState(false);
+  const [showLearnerPreview, setShowLearnerPreview] = useState(false);
 
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
+  // Unsaved changes dialog
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  
+  // Track initial state for unsaved changes detection
+  const [initialState, setInitialState] = useState<any>(null);
 
   // Determine the current track ID - either from props or from track object
   const currentTrackId = trackId || track?.id;
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
   const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
-  
-  // Determine which callback to use for back action
-  const handleBackClick = onBack || onClose;
 
   // Load existing checkpoint if editing
   useEffect(() => {
@@ -107,22 +115,39 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       setThumbnailUrl(track.thumbnail_url || '');
       
       // Parse checkpoint data from transcript field
+      let parsedQuestions: any[] = questions;
+      let parsedPassingScore = '70';
+      let parsedTimeLimit = '';
       if (track.transcript) {
         try {
           const checkpointData = JSON.parse(track.transcript);
           if (checkpointData.questions) {
             setQuestions(checkpointData.questions);
+            parsedQuestions = checkpointData.questions;
           }
           if (checkpointData.passingScore) {
             setPassingScore(checkpointData.passingScore.toString());
+            parsedPassingScore = checkpointData.passingScore.toString();
           }
           if (checkpointData.timeLimit) {
             setTimeLimit(checkpointData.timeLimit.toString());
+            parsedTimeLimit = checkpointData.timeLimit.toString();
           }
         } catch (e) {
           console.error('Error parsing checkpoint data:', e);
         }
       }
+      
+      // Save initial state
+      setInitialState({
+        title: track.title || '',
+        description: track.description || '',
+        tags: track.tags || [],
+        thumbnailUrl: track.thumbnail_url || '',
+        questions: parsedQuestions,
+        passingScore: parsedPassingScore,
+        timeLimit: parsedTimeLimit,
+      });
     } else if (trackId) {
       loadCheckpoint();
     }
@@ -141,22 +166,39 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       setThumbnailUrl(track.thumbnail_url || '');
       
       // Parse checkpoint data from transcript field (we'll store JSON there)
+      let parsedQuestions: any[] = questions;
+      let parsedPassingScore = '70';
+      let parsedTimeLimit = '';
       if (track.transcript) {
         try {
           const checkpointData = JSON.parse(track.transcript);
           if (checkpointData.questions) {
             setQuestions(checkpointData.questions);
+            parsedQuestions = checkpointData.questions;
           }
           if (checkpointData.passingScore) {
             setPassingScore(checkpointData.passingScore.toString());
+            parsedPassingScore = checkpointData.passingScore.toString();
           }
           if (checkpointData.timeLimit) {
             setTimeLimit(checkpointData.timeLimit.toString());
+            parsedTimeLimit = checkpointData.timeLimit.toString();
           }
         } catch (e) {
           console.error('Error parsing checkpoint data:', e);
         }
       }
+      
+      // Save initial state
+      setInitialState({
+        title: track.title || '',
+        description: track.description || '',
+        tags: track.tags || [],
+        thumbnailUrl: track.thumbnail_url || '',
+        questions: parsedQuestions,
+        passingScore: parsedPassingScore,
+        timeLimit: parsedTimeLimit,
+      });
     } catch (error: any) {
       console.error('Error loading checkpoint:', error);
       toast.error('Failed to load checkpoint');
@@ -164,6 +206,59 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       setIsLoading(false);
     }
   };
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = () => {
+    if (!initialState || !isEditMode) return false;
+    
+    const arraysEqual = (a: any[], b: any[]) => {
+      if (a.length !== b.length) return false;
+      return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+    };
+    
+    return (
+      title !== initialState.title ||
+      description !== initialState.description ||
+      !arraysEqual(tags, initialState.tags) ||
+      thumbnailUrl !== initialState.thumbnailUrl ||
+      passingScore !== initialState.passingScore ||
+      timeLimit !== initialState.timeLimit ||
+      JSON.stringify(questions) !== JSON.stringify(initialState.questions)
+    );
+  };
+
+  // Warn user before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isEditMode, initialState, title, description, tags, thumbnailUrl, passingScore, timeLimit, questions]);
+
+  // Register unsaved changes check with parent
+  useEffect(() => {
+    if (registerUnsavedChangesCheck) {
+      if (isEditMode) {
+        console.log('📝 CheckpointEditor: Registering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(hasUnsavedChanges);
+      } else {
+        console.log('📝 CheckpointEditor: Unregistering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(null);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
+    };
+  }, [isEditMode, registerUnsavedChangesCheck]);
 
   const addQuestion = () => {
     const newQuestion: Question = {
@@ -252,13 +347,47 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     }));
   };
 
-  const handleSaveDraft = async () => {
+  // Handle back button with unsaved changes check
+  const handleBackWithCheck = () => {
+    const backFn = onBack || onClose;
+    if (!backFn) return;
+    
+    console.log('🔍 handleBackWithCheck called', {
+      isEditMode,
+      hasChanges: hasUnsavedChanges(),
+      initialState,
+      currentState: { title, description, tags, thumbnailUrl, passingScore, timeLimit, questions }
+    });
+    
+    if (hasUnsavedChanges()) {
+      setPendingNavigation(() => backFn);
+      setShowUnsavedDialog(true);
+    } else {
+      backFn();
+    }
+  };
+
+  // Handle discard from dialog
+  const handleDiscardChanges = () => {
+    setShowUnsavedDialog(false);
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+  };
+
+  // Handle save and navigate
+  const handleSaveAndNavigate = async () => {
     if (isSystemContent) {
       toast.error('Cannot edit Trike Library content');
+      setShowUnsavedDialog(false);
       return;
     }
 
-    if (!validateCheckpoint()) return;
+    if (!validateCheckpoint()) {
+      setShowUnsavedDialog(false);
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -279,46 +408,29 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       };
 
       if (currentTrackId) {
-        // Check if track is published and has assignments
-        if (existingTrack?.status === 'published') {
-          const stats = await crud.getTrackAssignmentStats(currentTrackId);
-          
-          // Trigger versioning if track is in ANY playlist (even if not assigned to users yet)
-          if (stats.playlistCount > 0) {
-            // Show version decision modal instead of saving directly
-            console.log('Track is in playlists, showing version decision modal. Stats:', stats);
-            setPendingChanges({ id: currentTrackId, ...trackData });
-            setIsVersionModalOpen(true);
-            setIsSaving(false);
-            return;
-          }
-        }
-        
-        // If no assignments or not published, update normally
         await crud.updateTrack({ id: currentTrackId, ...trackData });
         toast.success('Changes saved!');
-        
-        // Exit edit mode and refresh data
-        setIsEditMode(false);
-        
-        // If we have onUpdate callback (from ContentLibrary), call it
-        if (onUpdate) {
-          await onUpdate();
-        } else {
-          // Otherwise reload local data
-          await loadCheckpoint();
-        }
       } else {
-        // Create new checkpoint as draft
-        const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
+        await crud.createTrack({ ...trackData, status: 'draft' as const });
         toast.success('Checkpoint created as draft!');
-        // Close and go back to list
-        if (handleBackClick) handleBackClick();
+      }
+
+      // Close dialog and navigate
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+      
+      if (pendingNavigation) {
+        setTimeout(() => {
+          if (pendingNavigation) {
+            pendingNavigation();
+            setPendingNavigation(null);
+          }
+        }, 100);
       }
     } catch (error: any) {
       console.error('Error saving checkpoint:', error);
       toast.error('Failed to save checkpoint');
-    } finally {
+      setShowUnsavedDialog(false);
       setIsSaving(false);
     }
   };
@@ -349,7 +461,112 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
     } else {
       // If creating new, go back
-      if (handleBackClick) handleBackClick();
+      handleBackWithCheck();
+    }
+  };
+
+  // Handle save draft without navigation
+  const handleSaveDraft = async () => {
+    if (isSystemContent) {
+      toast.error('Cannot edit Trike Library content');
+      return;
+    }
+
+    if (!validateCheckpoint()) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const checkpointData = {
+        questions,
+        passingScore: parseInt(passingScore),
+        timeLimit: timeLimit ? parseInt(timeLimit) : null
+      };
+
+      const trackData = {
+        title,
+        description,
+        type: 'checkpoint' as const,
+        transcript: JSON.stringify(checkpointData),
+        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        tags,
+        thumbnail_url: thumbnailUrl
+      };
+
+      if (currentTrackId) {
+        // Detect if this is a version-triggering change
+        const hasVersionTriggeringChanges = 
+          title !== initialState?.title ||
+          description !== initialState?.description ||
+          JSON.stringify(questions) !== JSON.stringify(initialState?.questions) ||
+          passingScore !== initialState?.passingScore ||
+          timeLimit !== initialState?.timeLimit;
+
+        if (hasVersionTriggeringChanges && existingTrack?.status === 'published') {
+          console.log('🔍 Version-triggering changes detected for published track, checking playlists...');
+          const stats = await crud.getTrackAssignmentStats(currentTrackId);
+          console.log('🔍 Assignment stats:', stats);
+          
+          // Only trigger versioning if track is in at least one playlist
+          if (stats.playlistCount > 0) {
+            console.log('🔔 Track is in playlists, showing version decision modal. Stats:', stats);
+            setPendingChanges(trackData);
+            setIsVersionModalOpen(true);
+            setIsSaving(false);
+            return;
+          } else {
+            console.log('✅ No playlists found - saving directly without versioning');
+          }
+        }
+
+        await crud.updateTrack({ id: currentTrackId, ...trackData });
+        toast.success('Changes saved!');
+        
+        // Update initial state to reflect saved state
+        setInitialState({
+          title,
+          description,
+          tags,
+          thumbnailUrl,
+          questions,
+          passingScore,
+          timeLimit,
+        });
+        
+        // Exit edit mode to show view mode
+        setIsEditMode(false);
+        
+        // Refresh the track data
+        if (onUpdate) {
+          await onUpdate();
+        }
+      } else {
+        const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
+        toast.success('Checkpoint created as draft!');
+        
+        // Update initial state to reflect saved state
+        setInitialState({
+          title,
+          description,
+          tags,
+          thumbnailUrl,
+          questions,
+          passingScore,
+          timeLimit,
+        });
+        
+        // For new content creation, close the editor and return to library
+        const backFn = onBack || onClose;
+        if (backFn) {
+          backFn();
+        }
+      }
+    } catch (error: any) {
+      console.error('Error saving checkpoint:', error);
+      toast.error('Failed to save checkpoint');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -548,7 +765,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button variant="outline" size="sm" onClick={handleBackClick}>
+            <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
@@ -574,17 +791,30 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               </div>
             </div>
           </div>
-          {(!isSystemContent || isSuperAdmin) && (
-            <Button onClick={() => setIsEditMode(true)} className="hero-primary">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Track
-              {isSystemContent && isSuperAdmin && (
-                <Badge className="ml-2 bg-orange-100 text-orange-800">
-                  Super Admin
-                </Badge>
-              )}
+          <div className="flex items-center gap-2">
+            {/* Preview Button */}
+            <Button 
+              onClick={() => setShowLearnerPreview(true)} 
+              variant="outline"
+              className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              Preview
             </Button>
-          )}
+            
+            {/* Edit Button */}
+            {(!isSystemContent || isSuperAdmin) && (
+              <Button onClick={() => setIsEditMode(true)} className="hero-primary">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Track
+                {isSystemContent && isSuperAdmin && (
+                  <Badge className="ml-2 bg-orange-100 text-orange-800">
+                    Super Admin
+                  </Badge>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Checkpoint Display */}
@@ -814,6 +1044,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             )}
           </div>
         </div>
+        
+        {/* Checkpoint Preview Modal */}
+        <CheckpointPreviewModal
+          isOpen={showLearnerPreview}
+          onClose={() => setShowLearnerPreview(false)}
+          questions={questions}
+          passingScore={passingScore}
+          timeLimit={timeLimit}
+          title={title}
+        />
       </div>
     );
   }
@@ -823,7 +1063,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button variant="outline" size="sm" onClick={handleBackClick}>
+          <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
@@ -846,10 +1086,6 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           )}
           {!currentTrackId && (
             <>
-              <Button variant="outline" onClick={() => setShowPreview(true)}>
-                <Eye className="h-4 w-4 mr-2" />
-                Preview
-              </Button>
               <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
                 <Save className="h-4 w-4 mr-2" />
                 {isSaving ? 'Saving...' : 'Save Draft'}
@@ -1134,6 +1370,104 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             </CardContent>
           </Card>
 
+          {/* Thumbnail */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center">
+                <ImageIcon className="h-4 w-4 mr-2" />
+                Thumbnail
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {thumbnailUrl ? (
+                <div className="space-y-3">
+                  <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
+                    <img 
+                      src={thumbnailUrl} 
+                      alt="Checkpoint thumbnail" 
+                      className="w-full h-full object-cover" 
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <label className="flex-1">
+                      <Button variant="outline" size="sm" className="w-full" asChild>
+                        <span>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Replace
+                        </span>
+                      </Button>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file && currentTrackId) {
+                            try {
+                              setIsUploading(true);
+                              const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
+                              setThumbnailUrl(url);
+                              toast.success('Thumbnail updated!');
+                            } catch (error: any) {
+                              console.error('Error uploading thumbnail:', error);
+                              toast.error('Failed to upload thumbnail');
+                            } finally {
+                              setIsUploading(false);
+                            }
+                          }
+                        }}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setThumbnailUrl('')}
+                      disabled={isUploading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <label>
+                  <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
+                    <div className="text-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
+                      <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file && currentTrackId) {
+                        try {
+                          setIsUploading(true);
+                          const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
+                          setThumbnailUrl(url);
+                          toast.success('Thumbnail uploaded!');
+                        } catch (error: any) {
+                          console.error('Error uploading thumbnail:', error);
+                          toast.error('Failed to upload thumbnail');
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }
+                    }}
+                    disabled={isUploading || !currentTrackId}
+                  />
+                </label>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {currentTrackId ? 'Used in playlists and library views' : 'Save checkpoint first to upload thumbnail'}
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Quick Tips */}
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardHeader>
@@ -1195,16 +1529,44 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         currentVersion={existingTrack?.version_number || 1}
         pendingChanges={pendingChanges}
         onVersionCreated={async (newTrackId, strategy) => {
+          console.log('📍 CheckpointEditor: onVersionCreated callback triggered');
           console.log('✅ Version created! New track ID:', newTrackId);
+          console.log('📝 Strategy:', strategy);
+          
           toast.success(`Version ${(existingTrack?.version_number || 1) + 1} created with ${strategy} strategy!`);
+          
+          console.log('🔄 Closing modal...');
           setIsVersionModalOpen(false);
+          console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           
-          // Small delay to let modal close gracefully before navigation
-          setTimeout(() => {
-            window.location.href = `/checkpoint/${newTrackId}`;
+          console.log('⏳ Waiting 300ms before refreshing data...');
+          // Small delay to let modal close gracefully
+          setTimeout(async () => {
+            console.log('🔄 Calling onUpdate with new track ID:', newTrackId);
+            // Pass the new track ID to onUpdate so it loads the new version
+            await onUpdate(newTrackId);
+            console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+      
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onOpenChange={(open) => setShowUnsavedDialog(open)}
+        onDiscard={handleDiscardChanges}
+        onSave={handleSaveAndNavigate}
+      />
+      
+      {/* Checkpoint Preview Modal */}
+      <CheckpointPreviewModal
+        isOpen={showLearnerPreview}
+        onClose={() => setShowLearnerPreview(false)}
+        questions={questions}
+        passingScore={passingScore}
+        timeLimit={timeLimit}
+        title={title}
       />
     </div>
   );

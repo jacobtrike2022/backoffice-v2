@@ -111,7 +111,7 @@ export function useForms(filters?: Parameters<typeof crud.getForms>[0]) {
 }
 
 /**
- * Hook to get assignments with filters
+ * Hook to get active playlists with enriched data for Dashboard
  */
 export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[0]) {
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -119,38 +119,58 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    async function fetchAssignments() {
+    async function fetchActivePlaylists() {
       try {
         setLoading(true);
-        const data = await crud.getAssignments(filters);
         
-        // Transform assignments data for Dashboard display
-        const transformedAssignments = data.map((assignment: any) => {
-          const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
-          const today = new Date();
-          const daysLeft = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)) : 0;
-          
-          return {
-            id: assignment.id,
-            title: assignment.playlist?.title || 'Unnamed Assignment',
-            playlistId: assignment.playlist_id,
-            status: assignment.status,
-            assignedTo: 1, // This would need to be calculated based on assignment_type
-            dueDate: dueDate ? dueDate.toLocaleDateString() : 'No due date',
-            daysLeft,
-            completion: assignment.progress_percent || 0
-          };
-        });
+        // Fetch active playlists with enriched data (same as Playlists component)
+        const playlists = await crud.getPlaylists({ is_active: true });
         
-        setAssignments(transformedAssignments);
+        console.log('[useAssignments] Raw playlists data:', playlists);
+        console.log('[useAssignments] Total playlists:', playlists.length);
+        
+        // Filter to only playlists with assignments and calculate durations
+        const playlistsWithDurations = await Promise.all(
+          playlists
+            .filter((playlist: any) => playlist.assignment_count > 0) // Only playlists with learners
+            .slice(0, 5) // Limit to 5 most recent
+            .map(async (playlist: any) => {
+              let totalDuration = 0;
+              
+              // Calculate total duration from tracks (same as Playlists component)
+              if (playlist.track_ids && playlist.track_ids.length > 0) {
+                try {
+                  const tracks = await crud.getTracks({ ids: playlist.track_ids });
+                  totalDuration = tracks.reduce((sum: number, track: any) => sum + (track.duration_minutes || 0), 0);
+                } catch (error) {
+                  console.error(`Error calculating duration for playlist ${playlist.id}:`, error);
+                }
+              }
+              
+              return {
+                id: playlist.id,
+                title: playlist.title,
+                totalTracks: playlist.track_count || 0,
+                totalDuration, // in minutes
+                assignedTo: playlist.assignment_count || 0, // # of learners
+                completion: playlist.completion_rate || 0, // % completion
+                type: playlist.type,
+                description: playlist.description
+              };
+            })
+        );
+
+        console.log('[useAssignments] Transformed playlists for dashboard:', playlistsWithDurations);
+        setAssignments(playlistsWithDurations);
       } catch (err) {
+        console.error('[useAssignments] Error fetching playlists:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchAssignments();
+    fetchActivePlaylists();
   }, [JSON.stringify(filters)]);
 
   return { assignments, loading, error, refetch: () => setLoading(true) };

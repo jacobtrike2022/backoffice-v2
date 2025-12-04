@@ -280,11 +280,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <Button
               variant="ghost"
               onClick={() => {
-                if (previousView === 'content') {
-                  setCurrentView('content');
-                  setSelectedPlaylist(null);
-                } else {
-                  setSelectedPlaylist(null);
+                console.log('🔙 Back button clicked, clearing playlist selection');
+                setSelectedPlaylist(null);
+                // Call parent handler to clear selectedPlaylistId and previousView
+                if (onBackToPreviousView) {
+                  onBackToPreviousView();
                 }
               }}
               className="flex items-center"

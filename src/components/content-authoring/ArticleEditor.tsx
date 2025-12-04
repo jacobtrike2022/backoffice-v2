@@ -178,7 +178,7 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
                 <>
                   <Separator className="my-6" />
                   <div>
-                    <h3 className="font-semibold text-foreground mb-3">Learning Objectives</h3>
+                    <h3 className="font-semibold text-foreground mb-3">Key Facts</h3>
                     <ul className="space-y-2">
                       {objectives.filter(o => o.trim()).map((obj, idx) => (
                         <li key={idx} className="text-sm text-muted-foreground flex items-start">
@@ -375,7 +375,7 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Learning Objectives</CardTitle>
+              <CardTitle>Key Facts</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {objectives.map((objective, index) => (

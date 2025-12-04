@@ -190,7 +190,22 @@ export async function getAssignments(filters: {
   const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data;
+  
+  // Enrich each assignment with learner count
+  const enrichedData = await Promise.all((data || []).map(async (assignment: any) => {
+    const affectedUsers = await getAffectedUsers(
+      assignment.assignment_type,
+      assignment.target_id,
+      orgId
+    );
+    
+    return {
+      ...assignment,
+      learner_count: affectedUsers.length
+    };
+  }));
+  
+  return enrichedData;
 }
 
 /**
@@ -251,7 +266,7 @@ export async function runPlaylistTrigger(playlistId: string) {
 /**
  * Get all affected users based on assignment type and target
  */
-async function getAffectedUsers(
+export async function getAffectedUsers(
   assignmentType: string,
   targetId: string,
   orgId: string

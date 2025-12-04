@@ -26,13 +26,20 @@ import {
   Edit,
   Trash2,
   Save,
-  Download
+  Download,
+  Bookmark,
+  FileText as FileTextIcon,
+  Image as ImageIcon,
+  FileVideo,
+  FileAudio,
+  Paperclip
 } from 'lucide-react';
 import { 
   useTracks,
   useCurrentUser 
 } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
+import * as attachmentCrud from '../lib/crud/attachments';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import type { Tag } from '../lib/crud/tags';
 import { Button } from './ui/button';
@@ -57,6 +64,7 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import { cn } from './ui/utils';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -291,7 +299,17 @@ const CommandPalette = ({
 };
 
 // 2. Article Card Component
-const ArticleCard = ({ track, onClick }: { track: any, onClick: () => void }) => {
+const ArticleCard = ({ 
+  track, 
+  onClick, 
+  isBookmarked, 
+  onToggleBookmark 
+}: { 
+  track: any, 
+  onClick: () => void,
+  isBookmarked?: boolean,
+  onToggleBookmark?: (trackId: string, e: React.MouseEvent) => void
+}) => {
   const TypeIcon = track.type === 'video' ? Video : track.type === 'story' ? BookMarked : FileText;
   
   return (
@@ -299,10 +317,29 @@ const ArticleCard = ({ track, onClick }: { track: any, onClick: () => void }) =>
       whileHover={{ y: -4, boxShadow: "0 8px 16px rgba(0,0,0,0.08)" }}
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className="bg-white dark:bg-card border border-border rounded-xl p-6 cursor-pointer transition-colors duration-200 h-full flex flex-col"
+      className="bg-white dark:bg-card border border-border rounded-xl p-6 cursor-pointer transition-colors duration-200 h-full flex flex-col relative group"
     >
+      {/* Bookmark Button */}
+      {onToggleBookmark && (
+        <button
+          onClick={(e) => onToggleBookmark(track.id, e)}
+          className="absolute top-4 right-4 p-2 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-50 dark:hover:bg-slate-700 z-10"
+          title={isBookmarked ? "Remove from saved" : "Save for later"}
+        >
+          <Bookmark 
+            size={16} 
+            className={cn(
+              "transition-colors",
+              isBookmarked 
+                ? "fill-[#F64A05] text-[#F64A05]" 
+                : "text-slate-400"
+            )}
+          />
+        </button>
+      )}
+
       <div className="flex items-start justify-between mb-4">
-        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-orange-500 dark:text-orange-400">
+        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-[#F64A05]">
           <TypeIcon size={ICON_SIZE_MD} />
         </div>
         {track.category && (
@@ -411,6 +448,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
   // Tag Management
   const [isTagManagerOpen, setIsTagManagerOpen] = useState(false);
 
+  // Bookmarks
+  const [bookmarkedTracks, setBookmarkedTracks] = useState<Set<string>>(new Set());
+  const [showSavedItems, setShowSavedItems] = useState(false);
+  const [savedItems, setSavedItems] = useState<any[]>([]);
+  
+  // Attachments
+  const [attachments, setAttachments] = useState<any[]>([]);
+
   // URL Deep Linking & State Sync
   useEffect(() => {
     // Initial load from URL
@@ -462,11 +507,29 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
   // Data Fetching (Tags)
   const [categories, setCategories] = useState<Tag[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]); // All tags for color lookup
   const [loadingCats, setLoadingCats] = useState(true);
 
   const fetchCategories = async () => {
     setLoadingCats(true);
     try {
+      // Fetch ALL tags (without category filter) for complete color lookup
+      const allTagsData = await crud.getTagHierarchy();
+      
+      // Flatten ALL tags for color lookup
+      const flattenTags = (tags: Tag[]): Tag[] => {
+        const result: Tag[] = [];
+        for (const tag of tags) {
+          result.push(tag);
+          if (tag.children) {
+            result.push(...flattenTags(tag.children));
+          }
+        }
+        return result;
+      };
+      setAllTags(flattenTags(allTagsData));
+      
+      // Now fetch KB-specific tags for the sidebar
       const data = await crud.getTagHierarchy('knowledge-base');
       
       // Filter for "KB Category" (or "Tag Category" as alias) for the sidebar
@@ -531,8 +594,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     return found ? found.name : null;
   }, [selectedCategory, categories]);
 
+  // Helper to get tag object by name from all tags
+  const getTagByName = (tagName: string): Tag | undefined => {
+    return allTags.find(t => t.name === tagName);
+  };
+
   // Fetch tracks using tags filter
   const { tracks: allTracks, loading: loadingTracks, refetch: refetchCatTracks } = useTracks({ 
+    status: 'published', // Only show published tracks in Knowledge Base
     search: debouncedSearch,
     tags: selectedCategoryName ? [selectedCategoryName] : undefined
   });
@@ -629,15 +698,50 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
   const [userFeedback, setUserFeedback] = useState<boolean | null>(null);
 
-  // Fetch feedback state when track changes
+  // Fetch feedback state and likes count when track changes
   useEffect(() => {
     if (selectedTrack?.id) {
        setUserFeedback(null);
+       
+       // Fetch feedback
        crud.getUserKBFeedback(selectedTrack.id)
          .then(data => {
             if (data && data.helpful !== null) setUserFeedback(data.helpful);
          })
          .catch(e => console.error("Failed to fetch feedback", e));
+       
+       // Fetch likes count from KV store
+       fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${selectedTrack.id}`, {
+         method: 'GET',
+         headers: {
+           'Authorization': `Bearer ${publicAnonKey}`
+         }
+       })
+         .then(res => res.json())
+         .then(data => {
+           if (data.likes !== undefined) {
+             setSelectedTrack(prev => ({ ...prev, likes: data.likes }));
+           }
+         })
+         .catch(e => console.error("Failed to fetch likes", e));
+    }
+  }, [selectedTrack?.id]);
+
+  // Load attachments when track is selected
+  useEffect(() => {
+    if (selectedTrack?.id) {
+      const loadAttachments = async () => {
+        try {
+          const trackAttachments = await attachmentCrud.getAttachments(selectedTrack.id);
+          setAttachments(trackAttachments);
+        } catch (error) {
+          console.error('Error loading attachments:', error);
+          setAttachments([]);
+        }
+      };
+      loadAttachments();
+    } else {
+      setAttachments([]);
     }
   }, [selectedTrack?.id]);
 
@@ -973,6 +1077,70 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     }
   };
 
+  // Bookmark Handlers
+  useEffect(() => {
+    // Load bookmarks on mount
+    const loadBookmarks = async () => {
+      try {
+        const bookmarks = await crud.getUserKBBookmarks();
+        const bookmarkIds = new Set(bookmarks.map((b: any) => b.track_id));
+        setBookmarkedTracks(bookmarkIds);
+      } catch (e) {
+        console.error("Failed to load bookmarks", e);
+      }
+    };
+    loadBookmarks();
+  }, []);
+
+  // Load saved items when modal opens
+  useEffect(() => {
+    if (showSavedItems) {
+      const loadSavedItems = async () => {
+        try {
+          const bookmarks = await crud.getUserKBBookmarks();
+          setSavedItems(bookmarks);
+        } catch (e) {
+          console.error("Failed to load saved items", e);
+          toast.error("Failed to load saved items");
+        }
+      };
+      loadSavedItems();
+    }
+  }, [showSavedItems]);
+
+  const toggleBookmark = async (trackId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
+    const isBookmarked = bookmarkedTracks.has(trackId);
+    
+    // Optimistic update
+    const newBookmarks = new Set(bookmarkedTracks);
+    if (isBookmarked) {
+      newBookmarks.delete(trackId);
+    } else {
+      newBookmarks.add(trackId);
+    }
+    setBookmarkedTracks(newBookmarks);
+
+    try {
+      if (isBookmarked) {
+        await crud.removeKBTrackBookmark(trackId);
+        toast.success("Removed from saved items");
+      } else {
+        await crud.bookmarkKBTrack(trackId);
+        toast.success("Saved for later");
+      }
+    } catch (error) {
+      console.error("Bookmark error:", error);
+      // Revert on error
+      setBookmarkedTracks(bookmarkedTracks);
+      toast.error("Failed to update bookmark");
+    }
+  };
+
   // Recent Searches
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
@@ -1040,7 +1208,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           <div className="flex items-center gap-3">
              {currentRole === 'admin' && (
                <Button 
-                 className="hidden sm:flex bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-50 dark:text-slate-900"
+                 className="hidden sm:flex bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90 transition-opacity border-0"
                  onClick={onCreateArticle}
                >
                  <Plus className="h-4 w-4 mr-2" />
@@ -1090,7 +1258,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                 </div>
                <div className="space-y-1">
                  <button
-                   onClick={() => setSelectedCategory(null)}
+                   onClick={() => {
+                     setSelectedCategory(null);
+                     setSelectedTrack(null);
+                   }}
                    className={cn(
                      "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors",
                      selectedCategory === null 
@@ -1108,7 +1279,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                  {categories?.map((category: any) => (
                    <button
                      key={category.id}
-                     onClick={() => setSelectedCategory(category.id)}
+                     onClick={() => {
+                       setSelectedCategory(category.id);
+                       setSelectedTrack(null);
+                     }}
                      className={cn(
                        "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors group",
                        selectedCategory === category.id 
@@ -1154,9 +1328,19 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
              {/* Footer Links */}
              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 px-3">
-                <button className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 transition-colors">
-                  <Star className="h-4 w-4" />
+                <button 
+                  onClick={() => setShowSavedItems(true)}
+                  className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                >
+                  <Bookmark className="h-4 w-4" />
                   Saved Items
+                  {bookmarkedTracks.size > 0 && (
+                    <Badge 
+                      className="ml-auto text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0"
+                    >
+                      {bookmarkedTracks.size}
+                    </Badge>
+                  )}
                 </button>
              </div>
 
@@ -1171,7 +1355,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
             <div className="flex items-center text-sm text-muted-foreground mb-6">
               <span 
                 className="hover:text-foreground cursor-pointer"
-                onClick={() => setSelectedCategory(null)}
+                onClick={() => {
+                  setSelectedCategory(null);
+                  setSelectedTrack(null);
+                }}
               >
                 Knowledge Base
               </span>
@@ -1210,7 +1397,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     <ArticleCard 
                       key={track.id} 
                       track={track} 
-                      onClick={() => handleTrackSelect(track)} 
+                      onClick={() => handleTrackSelect(track)}
+                      isBookmarked={bookmarkedTracks.has(track.id)}
+                      onToggleBookmark={toggleBookmark}
                     />
                   ))
                 ) : (
@@ -1248,11 +1437,26 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     <Button 
                       variant="outline" 
                       size="sm"
+                      onClick={(e) => toggleBookmark(selectedTrack.id, e)}
+                      title={bookmarkedTracks.has(selectedTrack.id) ? "Remove from saved" : "Save for later"}
+                      className="px-3"
+                    >
+                      <Bookmark 
+                        className={cn(
+                          "h-4 w-4",
+                          bookmarkedTracks.has(selectedTrack.id) && "fill-current"
+                        )}
+                      />
+
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
                       onClick={handleDownloadPDF}
                       title="Download as PDF"
+                      className="px-3"
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download PDF
+                      <Download className="h-4 w-4" />
                     </Button>
                   </div>
                </div>
@@ -1260,10 +1464,6 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                {/* Article Header */}
                <div className="mb-8">
                   <div className="flex items-center gap-3 mb-6 text-sm text-slate-500">
-                     <Badge variant="outline" className="font-normal">
-                        {selectedTrack.category?.name || 'General'}
-                     </Badge>
-                     <span>•</span>
                      <span>{selectedTrack.type ? selectedTrack.type.charAt(0).toUpperCase() + selectedTrack.type.slice(1) : 'Article'}</span>
                      <span>•</span>
                      <span>Last updated {formatDate(selectedTrack.updated_at)}</span>
@@ -1273,7 +1473,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     {selectedTrack.title}
                   </h1>
                   
-                  <div className="flex items-center justify-between pb-8 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between pb-4 border-b-0">
                      <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                            <AvatarImage src={selectedTrack.created_by?.avatar_url} />
@@ -1295,7 +1495,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                            {selectedTrack.view_count || 0}
                         </div>
                         <button 
-                          className="flex items-center gap-1 hover:text-orange-500 transition-colors" 
+                          className="flex items-center gap-1 hover:text-[#F64A05] transition-colors" 
                           title="Like this article"
                           onClick={handleLike}
                         >
@@ -1304,6 +1504,34 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                         </button>
                      </div>
               </div>
+              
+              {/* Tags Section - Display tags from flat array */}
+              {selectedTrack.tags && Array.isArray(selectedTrack.tags) && selectedTrack.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 pb-6">
+                  {selectedTrack.tags
+                    .filter((tagName: string) => !tagName.startsWith('system:'))
+                    .map((tagName: string, index: number) => {
+                      const tag = getTagByName(tagName);
+                      const tagColor = tag?.color || '#3b82f6'; // Default to blue if not found
+                      
+                      return (
+                        <div
+                          key={`${tagName}-${index}`}
+                          className="inline-flex items-center px-3 py-1 rounded-full text-sm border"
+                          style={{
+                            backgroundColor: `${tagColor}15`,
+                            borderColor: `${tagColor}40`,
+                            color: tagColor
+                          }}
+                        >
+                          <span>{tagName}</span>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+              
+              <div className="border-b border-slate-200 dark:border-slate-800 mb-8"></div>
            </div>
 
                {/* Article Content */}
@@ -1403,38 +1631,58 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                       />
                     </div>
                   )}
-            </div>
 
-               {/* Feedback Section */}
-               <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-8 text-center mb-12">
-                  <h3 className="text-lg font-medium mb-4">Was this article helpful?</h3>
-                  <div className="flex justify-center gap-4">
-                     <Button 
-                       variant={userFeedback === true ? "default" : "outline"} 
-                       className={cn(
-                         "w-24 gap-2 transition-colors",
-                         userFeedback === true 
-                           ? "bg-green-600 hover:bg-green-700 text-white border-transparent" 
-                           : "hover:bg-green-50 hover:text-green-600 hover:border-green-200"
-                       )}
-                       onClick={() => handleFeedback(true)}
-                     >
-                        <ThumbsUp className="h-4 w-4" /> Yes
-                     </Button>
-                     <Button 
-                       variant={userFeedback === false ? "default" : "outline"} 
-                       className={cn(
-                         "w-24 gap-2 transition-colors",
-                         userFeedback === false 
-                           ? "bg-red-600 hover:bg-red-700 text-white border-transparent" 
-                           : "hover:bg-red-50 hover:text-red-600 hover:border-red-200"
-                       )}
-                       onClick={() => handleFeedback(false)}
-                     >
-                        <ThumbsDown className="h-4 w-4" /> No
-                     </Button>
-                  </div>
-               </div>
+                  {/* Resources Section - Attachments */}
+                  {attachments.length > 0 && (
+                    <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 not-prose">
+                      <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">
+                        Resources
+                      </h2>
+                      <div className="space-y-3">
+                        {attachments.map((attachment) => {
+                          const isImage = attachment.fileType?.startsWith('image/');
+                          const isVideo = attachment.fileType?.startsWith('video/');
+                          const isAudio = attachment.fileType?.startsWith('audio/');
+                          const isPdf = attachment.fileType === 'application/pdf';
+                          
+                          let icon = <FileTextIcon className="h-6 w-6 text-[#F64A05]" />;
+                          if (isImage) icon = <ImageIcon className="h-6 w-6 text-[#F64A05]" />;
+                          else if (isVideo) icon = <FileVideo className="h-6 w-6 text-[#F64A05]" />;
+                          else if (isAudio) icon = <FileAudio className="h-6 w-6 text-[#F64A05]" />;
+                          else if (isPdf) icon = <FileTextIcon className="h-6 w-6 text-[#F64A05]" />;
+
+                          return (
+                            <a
+                              key={attachment.id}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-4 px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-600 hover:bg-slate-800/70 transition-all group"
+                            >
+                              {/* Icon */}
+                              <div className="shrink-0">
+                                {icon}
+                              </div>
+                              
+                              {/* File Info */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-slate-300 truncate">
+                                  {attachment.fileName}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {attachment.fileSize ? `${(attachment.fileSize / 1024).toFixed(1)} KB` : ''}
+                                </p>
+                              </div>
+                              
+                              {/* Download Icon */}
+                              <Download className="h-4 w-4 text-slate-500 group-hover:text-slate-400 shrink-0" />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+            </div>
 
             </div>
           )}
@@ -1471,7 +1719,11 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-1">Collections</h3>
                <div className="space-y-1">
                  <button
-                   onClick={() => { setSelectedCategory(null); setSidebarOpen(false); }}
+                   onClick={() => { 
+                     setSelectedCategory(null); 
+                     setSelectedTrack(null);
+                     setSidebarOpen(false); 
+                   }}
                    className="w-full flex items-center px-3 py-3 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
                  >
                    <BookOpen className="h-4 w-4 mr-3" />
@@ -1480,8 +1732,12 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                  {categories?.map((category: any) => (
                    <button
                      key={category.id}
-                     onClick={() => { setSelectedCategory(category.id); setSidebarOpen(false); }}
-                     className="w-full flex items-center px-3 py-3 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
+                     onClick={() => { 
+                       setSelectedCategory(category.id); 
+                       setSelectedTrack(null);
+                       setSidebarOpen(false); 
+                     }}
+                     className="w-full flex items-center px-3 py-3 rounded-md text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                    >
                      <Hash className="h-4 w-4 mr-3" />
                      {category.name}
@@ -1523,6 +1779,104 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         allowManagement={true}
         restrictToParentName="KB Category"
       />
+
+      {/* Saved Items Dialog */}
+      <Dialog open={showSavedItems} onOpenChange={setShowSavedItems}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogTitle>Saved Items</DialogTitle>
+          <DialogDescription>
+            Articles you've bookmarked for later reference
+          </DialogDescription>
+          
+          <ScrollArea className="h-[60vh] pr-4">
+            {savedItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="bg-slate-100 dark:bg-slate-800 h-20 w-20 rounded-full flex items-center justify-center mb-6">
+                  <Bookmark className="h-10 w-10 text-slate-400" />
+                </div>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
+                  No saved items yet
+                </h3>
+                <p className="text-slate-500 dark:text-slate-400 max-w-sm">
+                  Bookmark articles to save them for later. Click the bookmark icon on any article card or detail page.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {savedItems.map((bookmark: any) => {
+                  const track = bookmark.track;
+                  if (!track) return null;
+                  
+                  const TypeIcon = track.type === 'video' ? Video : track.type === 'story' ? BookMarked : FileText;
+                  
+                  return (
+                    <div
+                      key={bookmark.id}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer group relative"
+                      onClick={() => {
+                        handleTrackSelect(track);
+                        setShowSavedItems(false);
+                      }}
+                    >
+                      {/* Remove bookmark button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleBookmark(track.id, e);
+                          // Remove from local list immediately
+                          setSavedItems(prev => prev.filter(b => b.id !== bookmark.id));
+                        }}
+                        className="absolute top-3 right-3 p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove bookmark"
+                      >
+                        <X className="h-4 w-4 text-slate-400" />
+                      </button>
+
+                      <div className="flex items-start gap-4">
+                        <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-[#F64A05] shrink-0">
+                          <TypeIcon size={20} />
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-slate-900 dark:text-slate-100 line-clamp-2 mb-1">
+                            {track.title}
+                          </h4>
+                          {track.description && (
+                            <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-2">
+                              {track.description}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3 text-xs text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <Eye size={12} /> {track.view_count || 0}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <ThumbsUp size={12} /> {track.likes || 0}
+                            </span>
+                            <span>•</span>
+                            <span>Saved {formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </ScrollArea>
+
+          {savedItems.length > 0 && (
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
+              <p className="text-sm text-slate-500">
+                {savedItems.length} {savedItems.length === 1 ? 'item' : 'items'} saved
+              </p>
+              <Button variant="outline" onClick={() => setShowSavedItems(false)}>
+                Close
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

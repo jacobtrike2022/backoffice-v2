@@ -29,7 +29,9 @@ import {
   Edit,
   Save,
   Trash2,
-  Copy
+  Copy,
+  MoreVertical,
+  Archive
 } from 'lucide-react';
 import {
   Select,
@@ -40,12 +42,24 @@ import {
 } from './ui/select';
 import { Separator } from './ui/separator';
 import { Textarea } from './ui/textarea';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from './ui/hover-card';
 import { TrackDetailEdit } from './TrackDetailEdit';
 import { ArticleDetailEdit } from './ArticleDetailEdit';
 import { CheckpointEditor } from './content-authoring/CheckpointEditor';
 import { StoryEditor } from './content-authoring/StoryEditor';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { useTracks } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
+import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 
 interface ContentLibraryProps {
@@ -53,6 +67,8 @@ interface ContentLibraryProps {
   isSuperAdminAuthenticated?: boolean;
   initialTrackId?: string; // Track ID to open on mount
   onNavigateToPlaylist?: (playlistId: string) => void;
+  onBackToLibrary?: () => void; // Callback to notify parent when returning to library
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -71,19 +87,62 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onBackToLibrary, registerUnsavedChangesCheck }: ContentLibraryProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
-  const [statusFilter, setStatusFilter] = useState<'published' | 'archived'>('published'); // NEW: Status filter
+  const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published'); // Status filter
+  const [orgTags, setOrgTags] = useState<tagsCrud.Tag[]>([]); // Organization tags with colors
   
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editFormData, setEditFormData] = useState<any>({});
+  
+  // Unsaved changes tracking
+  const [hasUnsavedChangesRef, setHasUnsavedChangesRef] = useState<(() => boolean) | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const [showNavigationWarning, setShowNavigationWarning] = useState(false);
+
+  // Register unsaved changes check from child editors
+  const registerUnsavedChangesCheckLocal = (checkFn: (() => boolean) | null) => {
+    console.log('📝 ContentLibrary: Registering unsaved changes check:', !!checkFn);
+    setHasUnsavedChangesRef(() => checkFn);
+    if (registerUnsavedChangesCheck) {
+      registerUnsavedChangesCheck(checkFn);
+    }
+  };
+
+  // Check for unsaved changes before navigation
+  const checkUnsavedBeforeNavigate = (navigationFn: () => void): boolean => {
+    console.log('🔍 Checking for unsaved changes...', { hasRef: !!hasUnsavedChangesRef });
+    
+    if (hasUnsavedChangesRef && hasUnsavedChangesRef()) {
+      console.log('⚠️ Unsaved changes detected, showing warning');
+      setPendingNavigation(() => navigationFn);
+      setShowNavigationWarning(true);
+      return false; // Navigation blocked
+    }
+    
+    console.log('✅ No unsaved changes, allowing navigation');
+    return true; // Navigation allowed
+  };
+
+  // Handle discard from navigation warning
+  const handleDiscardAndNavigate = () => {
+    setShowNavigationWarning(false);
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+    setHasUnsavedChangesRef(() => null);
+  };
+
+  // Handle save from navigation warning - removed, use editor's own save button
+  // const handleSaveAndNavigate = () => { ... }
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
@@ -113,8 +172,31 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
   }, [initialTrackId, selectedTrack, hasLoadedInitialTrack]);
 
-  const handleDuplicateTrack = async (track: any, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
+  // Listen for initialTrackId being undefined to clear the selected track
+  useEffect(() => {
+    if (initialTrackId === undefined && selectedTrack) {
+      console.log('📍 ContentLibrary: Clearing selected track (initialTrackId is undefined)');
+      setSelectedTrack(null);
+      setHasLoadedInitialTrack(false);
+    }
+  }, [initialTrackId]);
+
+  // Fetch organization tags on mount to get colors
+  useEffect(() => {
+    async function fetchOrgTags() {
+      try {
+        const tags = await tagsCrud.getAllTags(true);
+        setOrgTags(tags);
+        console.log('Fetched organization tags:', tags);
+      } catch (error) {
+        console.error('Failed to fetch organization tags:', error);
+      }
+    }
+    fetchOrgTags();
+  }, []);
+
+  const handleDuplicateTrack = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation(); // Prevent card click
     
     try {
       const newTrack = await crud.duplicateTrack(track.id);
@@ -140,32 +222,74 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
   };
 
+  const handleEditTrack = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    await handleViewTrack(track);
+  };
+
+  const handleMoveToDrafts = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    try {
+      await crud.updateTrack({ id: track.id, status: 'draft' });
+      toast.success(`"${track.title}" moved to drafts`);
+      await refetch();
+    } catch (error: any) {
+      console.error('Failed to move to drafts:', error);
+      toast.error(`Failed to move to drafts: ${error.message}`);
+    }
+  };
+
+  const handleArchiveTrack = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    try {
+      await crud.archiveTrack(track.id);
+      toast.success(`"${track.title}" archived`);
+      await refetch();
+    } catch (error: any) {
+      console.error('Failed to archive:', error);
+      toast.error(`Failed to archive: ${error.message}`);
+    }
+  };
+
   const handleViewTrack = async (track: any) => {
     console.log('Viewing track:', track);
     
-    // Fetch fresh track data instead of using cached list data
-    try {
-      const freshTrack = await crud.getTrackById(track.id);
-      setSelectedTrack(freshTrack);
-      console.log('Loaded fresh track data:', freshTrack);
+    // Check for unsaved changes before navigating
+    const navigationFn = async () => {
+      // Fetch fresh track data instead of using cached list data
+      try {
+        const freshTrack = await crud.getTrackById(track.id);
+        setSelectedTrack(freshTrack);
+        console.log('Loaded fresh track data:', freshTrack);
+        
+        // Update URL without page reload
+        const trackType = freshTrack.type;
+        const newUrl = `/${trackType}/${freshTrack.id}`;
+        window.history.pushState({ trackId: freshTrack.id, trackType }, '', newUrl);
+      } catch (error) {
+        console.error('Failed to load track:', error);
+        // Fallback to cached data if fetch fails
+        setSelectedTrack(track);
+      }
       
-      // Update URL without page reload
-      const trackType = freshTrack.type;
-      const newUrl = `/${trackType}/${freshTrack.id}`;
-      window.history.pushState({ trackId: freshTrack.id, trackType }, '', newUrl);
-    } catch (error) {
-      console.error('Failed to load track:', error);
-      // Fallback to cached data if fetch fails
-      setSelectedTrack(track);
+      // Try to increment view count in the background (non-blocking)
+      try {
+        await crud.incrementTrackViews(track.id);
+      } catch (error) {
+        // Silently fail - don't prevent the page from opening
+        console.warn('Failed to increment view count:', error);
+      }
+    };
+    
+    // Check for unsaved changes and block navigation if needed
+    if (!checkUnsavedBeforeNavigate(navigationFn)) {
+      return; // Navigation blocked, dialog will be shown
     }
     
-    // Try to increment view count in the background (non-blocking)
-    try {
-      await crud.incrementTrackViews(track.id);
-    } catch (error) {
-      // Silently fail - don't prevent the page from opening
-      console.warn('Failed to increment view count:', error);
-    }
+    // No unsaved changes, navigate immediately
+    await navigationFn();
   };
   
   // Handle version navigation smoothly without page reload
@@ -194,6 +318,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     
     // Update URL to content library without page reload
     window.history.pushState({}, '', '/content-library');
+    
+    // Notify parent component if provided
+    if (onBackToLibrary) {
+      onBackToLibrary();
+    }
   };
 
   const getTypeIcon = (type: string) => {
@@ -253,13 +382,23 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Detail view for selected track
   if (selectedTrack) {
-    const handleUpdate = async () => {
+    const handleUpdate = async (newTrackId?: string) => {
       console.log('ContentLibrary - handleUpdate called, fetching updated track...');
-      // Just refetch the selected track data to show updated values
-      // Don't call refetch() as it triggers loading state and hides the detail view
-      const updatedTrack = await crud.getTrackById(selectedTrack.id);
+      console.log('ContentLibrary - newTrackId:', newTrackId);
+      // If a new track ID is provided (e.g., after version creation), use that
+      // Otherwise, refetch the current selected track
+      const trackIdToFetch = newTrackId || selectedTrack.id;
+      console.log('ContentLibrary - fetching track ID:', trackIdToFetch);
+      const updatedTrack = await crud.getTrackById(trackIdToFetch);
       setSelectedTrack(updatedTrack);
       console.log('ContentLibrary - updated track:', updatedTrack);
+      
+      // If we're loading a new version, update the URL
+      if (newTrackId) {
+        const newUrl = `/${updatedTrack.type}/${newTrackId}`;
+        console.log('ContentLibrary - updating URL to:', newUrl);
+        window.history.pushState({ trackId: newTrackId, trackType: updatedTrack.type }, '', newUrl);
+      }
     };
 
     const handleBack = async () => {
@@ -280,6 +419,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
           />
         ) : selectedTrack.type === 'checkpoint' ? (
           <CheckpointEditor
@@ -289,6 +429,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
           />
         ) : selectedTrack.type === 'story' ? (
           <StoryEditor
@@ -298,6 +439,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
           />
         ) : (
           <TrackDetailEdit
@@ -307,9 +449,17 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onVersionClick={handleVersionClick}
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
           />
         )}
         <Footer />
+        
+        {/* Unsaved Changes Dialog */}
+        <UnsavedChangesDialog
+          open={showNavigationWarning}
+          onOpenChange={(open) => setShowNavigationWarning(open)}
+          onDiscard={handleDiscardAndNavigate}
+        />
       </>
     );
   }
@@ -322,7 +472,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         <div>
           <h1 className="text-foreground">Content Library</h1>
           <p className="text-muted-foreground mt-1">
-            Browse and explore all {statusFilter === 'published' ? 'published' : 'archived'} training content
+            Browse and edit your published content.
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -343,26 +493,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </div>
       </div>
 
-      {/* Status Filter Tabs */}
-      <div className="flex gap-2">
-        <Button
-          variant={statusFilter === 'published' ? 'default' : 'outline'}
-          onClick={() => setStatusFilter('published')}
-          className="flex-1 sm:flex-initial"
-        >
-          <CheckCircle2 className="h-4 w-4 mr-2" />
-          Published
-        </Button>
-        <Button
-          variant={statusFilter === 'archived' ? 'default' : 'outline'}
-          onClick={() => setStatusFilter('archived')}
-          className="flex-1 sm:flex-initial"
-        >
-          <Trash2 className="h-4 w-4 mr-2" />
-          Archived
-        </Button>
-      </div>
-
       {/* Filters & Search */}
       <Card>
         <CardContent className="pt-6">
@@ -378,13 +508,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               />
             </div>
 
-            {/* Type Filter */}
+            {/* View Filter (combining Type and Status) */}
             <Select value={selectedType} onValueChange={setSelectedType}>
               <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="All Types" />
+                <SelectValue placeholder="View" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="all">All Content</SelectItem>
+                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Content Types</div>
                 <SelectItem value="video">
                   <div className="flex items-center gap-2">
                     <Video className="h-4 w-4" />
@@ -412,18 +543,76 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               </SelectContent>
             </Select>
 
-            {/* Sort */}
-            <Select value={sortBy} onValueChange={(val: any) => setSortBy(val)}>
+            {/* Status Filter */}
+            <Select value={statusFilter} onValueChange={(val: any) => setStatusFilter(val)}>
               <SelectTrigger className="w-full sm:w-48">
-                <ArrowUpDown className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="recent">Most Recent</SelectItem>
-                <SelectItem value="title">Title (A-Z)</SelectItem>
-                <SelectItem value="views">Most Viewed</SelectItem>
+                <SelectItem value="published">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Published
+                  </div>
+                </SelectItem>
+                <SelectItem value="drafts">
+                  <div className="flex items-center gap-2">
+                    <Edit className="h-4 w-4" />
+                    Drafts
+                  </div>
+                </SelectItem>
+                <SelectItem value="archived">
+                  <div className="flex items-center gap-2">
+                    <Archive className="h-4 w-4" />
+                    Archived
+                  </div>
+                </SelectItem>
+                <SelectItem value="in-kb">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    In Knowledge Base
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Sort - Icon only with popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="w-auto">
+                  <ArrowUpDown className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48" align="end">
+                <div className="space-y-1">
+                  <div className="px-2 py-1.5 text-xs font-semibold">Sort by</div>
+                  <Button
+                    variant={sortBy === 'recent' ? 'secondary' : 'ghost'}
+                    className="w-full justify-start"
+                    onClick={() => setSortBy('recent')}
+                  >
+                    <Clock className="h-4 w-4 mr-2" />
+                    Most Recent
+                  </Button>
+                  <Button
+                    variant={sortBy === 'title' ? 'secondary' : 'ghost'}
+                    className="w-full justify-start"
+                    onClick={() => setSortBy('title')}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Title (A-Z)
+                  </Button>
+                  <Button
+                    variant={sortBy === 'views' ? 'secondary' : 'ghost'}
+                    className="w-full justify-start"
+                    onClick={() => setSortBy('views')}
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    Most Viewed
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </CardContent>
       </Card>
@@ -476,18 +665,69 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
                   </div>
-                  {/* Duplicate Button (shows on hover) */}
+                  {/* Actions Menu (shows on hover) */}
                   <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="h-8 shadow-md"
-                      onClick={(e) => handleDuplicateTrack(track, e)}
-                      title="Duplicate this track"
-                    >
-                      <Copy className="h-3 w-3 mr-1" />
-                      Duplicate
-                    </Button>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 w-8 p-0 shadow-md"
+                          onClick={(e) => e.stopPropagation()}
+                          title="More actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-48 p-1" align="start">
+                        <div className="flex flex-col">
+                          <Button
+                            variant="ghost"
+                            className="justify-start h-9"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditTrack(track);
+                            }}
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="justify-start h-9"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDuplicateTrack(track);
+                            }}
+                          >
+                            <Copy className="h-4 w-4 mr-2" />
+                            Duplicate
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="justify-start h-9"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMoveToDrafts(track);
+                            }}
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            Move to Drafts
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="justify-start h-9"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleArchiveTrack(track);
+                            }}
+                          >
+                            <Archive className="h-4 w-4 mr-2" />
+                            Archive
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   {/* Duration/Reading Time Badge */}
                   {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
@@ -517,12 +757,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       )}
                     </div>
                   </div>
-                  {track.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {track.description}
-                    </p>
-                  )}
-
                   {/* Stats */}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2">
                     <div className="flex items-center gap-1">
@@ -535,21 +769,108 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     </div>
                   </div>
 
-                  {/* Tags */}
-                  {track.tags && track.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-2">
-                      {track.tags.slice(0, 3).map((tag: string, idx: number) => (
-                        <Badge key={idx} variant="outline" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                      {track.tags.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{track.tags.length - 3}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
+                  {/* Tags - 2 line limit with popover for overflow */}
+                  {(() => {
+                    // Build complete tag list with metadata
+                    const allTags: Array<{ name: string; color?: string; isSystem: boolean }> = [];
+                    
+                    // Debug logging
+                    if (track.track_tags) {
+                      console.log('Track tags for', track.title, ':', track.track_tags);
+                    }
+                    
+                    // Get tags from track_tags (with color info) - NEW SYSTEM
+                    if (track.track_tags && Array.isArray(track.track_tags)) {
+                      track.track_tags.forEach((tt: any) => {
+                        if (tt.tags && tt.tags.name && tt.tags.name !== 'system:show_in_knowledge_base') {
+                          allTags.push({ 
+                            name: tt.tags.name, 
+                            color: tt.tags.color,
+                            isSystem: false
+                          });
+                        }
+                      });
+                    }
+                    
+                    // FALLBACK: Get tags from legacy tags array and match with orgTags for colors
+                    if (allTags.length === 0 && track.tags && Array.isArray(track.tags)) {
+                      track.tags.forEach((tagName: string) => {
+                        if (tagName !== 'system:show_in_knowledge_base') {
+                          // Find matching org tag for color
+                          const orgTag = orgTags.find(t => t.name === tagName);
+                          allTags.push({ 
+                            name: tagName,
+                            color: orgTag?.color,
+                            isSystem: false
+                          });
+                        }
+                      });
+                    }
+                    
+                    // Add system:show_in_knowledge_base tag as "In Knowledge Base" if present
+                    const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
+                    if (hasKBTag) {
+                      allTags.unshift({
+                        name: 'In Knowledge Base',
+                        isSystem: true
+                      });
+                    }
+                    
+                    console.log('All tags for', track.title, ':', allTags);
+                    
+                    // Limit to first ~4 tags (approximating 2 lines)
+                    const displayTags = allTags.slice(0, 4);
+                    const overflowTags = allTags.slice(4);
+                    
+                    return allTags.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 pt-2">
+                        {displayTags.map((tag, idx) => (
+                          <Badge 
+                            key={idx} 
+                            variant="outline" 
+                            className={tag.isSystem ? "text-xs bg-gray-100 text-gray-700 border-gray-300" : "text-xs"}
+                            style={tag.isSystem ? {} : (tag.color ? { 
+                              backgroundColor: tag.color, 
+                              borderColor: tag.color,
+                              color: '#fff'
+                            } : {})}
+                          >
+                            {tag.name}
+                          </Badge>
+                        ))}
+                        {overflowTags.length > 0 && (
+                          <HoverCard openDelay={200}>
+                            <HoverCardTrigger asChild>
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs bg-orange-500 text-white border-orange-500 hover:bg-orange-600 cursor-default"
+                              >
+                                +{overflowTags.length}
+                              </Badge>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-auto p-2" align="start" side="bottom">
+                              <div className="flex flex-col gap-1">
+                                {overflowTags.map((tag, idx) => (
+                                  <Badge 
+                                    key={idx} 
+                                    variant="outline" 
+                                    className={tag.isSystem ? "text-xs justify-start bg-gray-100 text-gray-700 border-gray-300" : "text-xs justify-start"}
+                                    style={tag.isSystem ? {} : (tag.color ? { 
+                                      backgroundColor: tag.color, 
+                                      borderColor: tag.color,
+                                      color: '#fff'
+                                    } : {})}
+                                  >
+                                    {tag.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </HoverCardContent>
+                          </HoverCard>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -628,15 +949,100 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </div>
                     </div>
 
-                    {track.tags && track.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {track.tags.map((tag: string, idx: number) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      // Build complete tag list with metadata
+                      const allTags: Array<{ name: string; color?: string; isSystem: boolean }> = [];
+                      
+                      // Get tags from track_tags (with color info) - NEW SYSTEM
+                      if (track.track_tags && Array.isArray(track.track_tags)) {
+                        track.track_tags.forEach((tt: any) => {
+                          if (tt.tags && tt.tags.name && tt.tags.name !== 'system:show_in_knowledge_base') {
+                            allTags.push({ 
+                              name: tt.tags.name, 
+                              color: tt.tags.color,
+                              isSystem: false
+                            });
+                          }
+                        });
+                      }
+                      
+                      // FALLBACK: Get tags from legacy tags array and match with orgTags for colors
+                      if (allTags.length === 0 && track.tags && Array.isArray(track.tags)) {
+                        track.tags.forEach((tagName: string) => {
+                          if (tagName !== 'system:show_in_knowledge_base') {
+                            // Find matching org tag for color
+                            const orgTag = orgTags.find(t => t.name === tagName);
+                            allTags.push({ 
+                              name: tagName,
+                              color: orgTag?.color,
+                              isSystem: false
+                            });
+                          }
+                        });
+                      }
+                      
+                      // Add system:show_in_knowledge_base tag as "In Knowledge Base" if present
+                      const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
+                      if (hasKBTag) {
+                        allTags.unshift({
+                          name: 'In Knowledge Base',
+                          isSystem: true
+                        });
+                      }
+                      
+                      // Limit to first ~6 tags (approximating 2 lines in list view)
+                      const displayTags = allTags.slice(0, 6);
+                      const overflowTags = allTags.slice(6);
+                      
+                      return allTags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {displayTags.map((tag, idx) => (
+                            <Badge 
+                              key={idx} 
+                              variant="outline" 
+                              className={tag.isSystem ? "text-xs bg-gray-100 text-gray-700 border-gray-300" : "text-xs"}
+                              style={tag.isSystem ? {} : (tag.color ? { 
+                                backgroundColor: tag.color, 
+                                borderColor: tag.color,
+                                color: '#fff'
+                              } : {})}
+                            >
+                              {tag.name}
+                            </Badge>
+                          ))}
+                          {overflowTags.length > 0 && (
+                            <HoverCard openDelay={200}>
+                              <HoverCardTrigger asChild>
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-xs bg-orange-500 text-white border-orange-500 hover:bg-orange-600 cursor-default"
+                                >
+                                  +{overflowTags.length}
+                                </Badge>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-auto p-2" align="start" side="bottom">
+                                <div className="flex flex-col gap-1">
+                                  {overflowTags.map((tag, idx) => (
+                                    <Badge 
+                                      key={idx} 
+                                      variant="outline" 
+                                      className={tag.isSystem ? "text-xs justify-start bg-gray-100 text-gray-700 border-gray-300" : "text-xs justify-start"}
+                                      style={tag.isSystem ? {} : (tag.color ? { 
+                                        backgroundColor: tag.color, 
+                                        borderColor: tag.color,
+                                        color: '#fff'
+                                      } : {})}
+                                    >
+                                      {tag.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               </CardContent>

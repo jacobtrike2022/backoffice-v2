@@ -13,6 +13,7 @@ import { TagSelectorDialog } from './TagSelectorDialog';
 import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import {
   Calendar,
   Clock,
@@ -34,11 +35,13 @@ import {
   Trash2,
   Paperclip,
   ExternalLink,
-  History
+  History,
+  Zap
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -48,9 +51,10 @@ interface ArticleDetailEditProps {
   isSuperAdminAuthenticated?: boolean;
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
-export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist }: ArticleDetailEditProps) {
+export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: ArticleDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -67,6 +71,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
+  // Unsaved changes dialog
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  
+  // AI Key Facts generation
+  const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
   
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
@@ -183,6 +194,55 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     return sorted1.every((val, idx) => val === sorted2[idx]);
   };
 
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = () => {
+    if (!isEditMode || !isFormDataLoaded) return false;
+    
+    return (
+      editFormData.title !== (track.title || '') ||
+      editFormData.description !== (track.description || '') ||
+      editFormData.duration_minutes !== (track.duration_minutes || '') ||
+      editFormData.article_body !== (track.transcript || '') ||
+      editFormData.content_url !== (track.content_url || '') ||
+      editFormData.thumbnail_url !== (track.thumbnail_url || '') ||
+      !areArraysEqual(editFormData.learning_objectives, track.learning_objectives) ||
+      !areArraysEqual(editFormData.tags, track.tags)
+    );
+  };
+
+  // Warn user before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isEditMode, isFormDataLoaded, editFormData, track]);
+
+  // Register unsaved changes check with parent
+  useEffect(() => {
+    if (registerUnsavedChangesCheck) {
+      if (isEditMode) {
+        console.log('📝 ArticleDetailEdit: Registering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(hasUnsavedChanges);
+      } else {
+        console.log('📝 ArticleDetailEdit: Unregistering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(null);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
+    };
+  }, [isEditMode, registerUnsavedChangesCheck]);
+
   const handleSave = async () => {
     console.log('💾 handleSave called in ArticleDetailEdit');
     
@@ -212,6 +272,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '', // Store article body as transcript
+        learning_objectives: editFormData.learning_objectives || [], // Include Key Facts in update
       };
 
       console.log('💾 Update data prepared:', updateData);
@@ -264,7 +325,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       // If no assignments or not published OR only metadata changed, just update normally
       const result = await crud.updateTrack(updateData);
       console.log('Track saved, result:', result);
-      toast.success(contentChanged ? 'Article updated successfully!' : 'Knowledge Base settings updated!');
+      toast.success(contentChanged ? 'Article updated successfully!' : 'Settings updated!');
       setIsEditMode(false);
       // Call onUpdate to refresh the parent component's data
       console.log('Calling onUpdate to refresh track data...');
@@ -318,6 +379,133 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       ...editFormData,
       learning_objectives: newObjectives
     });
+  };
+
+  // AI: Generate Key Facts from article content
+  const handleGenerateKeyFacts = async () => {
+    // Validation
+    if (!editFormData.article_body || editFormData.article_body.trim().length < 100) {
+      toast.error('Please add some article content first (at least 100 characters)');
+      return;
+    }
+
+    // Confirmation dialog if facts already exist
+    const hasExistingFacts = editFormData.learning_objectives && editFormData.learning_objectives.length > 0;
+    if (hasExistingFacts) {
+      const action = confirm(
+        `You currently have ${editFormData.learning_objectives.length} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
+      );
+      
+      const shouldReplace = action;
+      
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        // Strip HTML from article body to get clean text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = editFormData.article_body;
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        
+        console.log('🤖 Calling AI to generate key facts...');
+        
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: editFormData.title || 'Untitled Article',
+              content: plainText,
+              description: editFormData.description || '',
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const data = await response.json();
+        const newFacts = data.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from this content');
+          return;
+        }
+        
+        const updatedFacts = shouldReplace 
+          ? newFacts
+          : [...editFormData.learning_objectives, ...newFacts];
+        
+        setEditFormData({
+          ...editFormData,
+          learning_objectives: updatedFacts,
+        });
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    } else {
+      // No existing facts, just generate
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = editFormData.article_body;
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: editFormData.title || 'Untitled Article',
+              content: plainText,
+              description: editFormData.description || '',
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const data = await response.json();
+        const newFacts = data.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from this content');
+          return;
+        }
+        
+        setEditFormData({
+          ...editFormData,
+          learning_objectives: newFacts,
+        });
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    }
   };
 
   const handleAddTag = () => {
@@ -513,6 +701,84 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     return `<div class="prose prose-sm max-w-none"><p class="mb-4">${html}</p></div>`;
   };
 
+  // Handle back button with unsaved changes check
+  const handleBackClick = () => {
+    console.log('🔍 ArticleDetailEdit - handleBackClick called', {
+      hasChanges: hasUnsavedChanges(),
+      editFormData,
+      originalTrack: track
+    });
+    
+    if (hasUnsavedChanges()) {
+      setPendingNavigation(() => onBack);
+      setShowUnsavedDialog(true);
+    } else {
+      onBack();
+    }
+  };
+
+  // Handle discard from dialog
+  const handleDiscardChanges = () => {
+    setShowUnsavedDialog(false);
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+  };
+
+  // Handle save and navigate
+  const handleSaveAndNavigate = async () => {
+    if (!editFormData.title.trim()) {
+      toast.error('Title is required');
+      setShowUnsavedDialog(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Prepare tags including the system KB tag
+      const currentTags = new Set<string>(editFormData.tags || []);
+      if (editFormData.show_in_knowledge_base) {
+        currentTags.add('system:show_in_knowledge_base');
+      } else {
+        currentTags.delete('system:show_in_knowledge_base');
+      }
+
+      const updateData = {
+        id: track.id,
+        title: editFormData.title || track.title,
+        description: editFormData.description || track.description,
+        duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
+        content_url: editFormData.content_url || track.content_url || '',
+        thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url || '',
+        type: editFormData.type,
+        tags: Array.from(currentTags),
+        transcript: editFormData.article_body || '',
+      };
+
+      await crud.updateTrack(updateData);
+      toast.success('Article updated successfully!');
+
+      // Close dialog and navigate
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+      
+      if (pendingNavigation) {
+        setTimeout(() => {
+          if (pendingNavigation) {
+            pendingNavigation();
+            setPendingNavigation(null);
+          }
+        }, 100);
+      }
+    } catch (error: any) {
+      console.error('Error saving track:', error);
+      toast.error(error.message || 'Failed to save article');
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -521,7 +787,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           <Button
             variant="ghost"
             size="sm"
-            onClick={onBack}
+            onClick={handleBackClick}
             className="hover:bg-accent"
           >
             <ChevronLeft className="h-4 w-4 mr-1" />
@@ -713,19 +979,56 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5" />
-                  Learning Objectives
+                  Key Facts
                 </CardTitle>
                 {isEditMode && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAddLearningObjective}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {/* AI Generate Button with Neon Orange Glow */}
+                    <button
+                      onClick={handleGenerateKeyFacts}
+                      disabled={isGeneratingKeyFacts}
+                      className="group relative p-2 rounded-lg transition-all duration-300 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      title="Generate Key Facts with AI"
+                    >
+                      {/* Neon glow background - understated but noticeable */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#F74A05] to-[#FF6B35] rounded-lg opacity-20 blur-md group-hover:opacity-40 group-hover:blur-lg transition-all duration-300" />
+                      
+                      {/* Lightning bolt icon with gradient fill */}
+                      <Zap 
+                        className={`relative h-5 w-5 transition-all duration-300 ${
+                          isGeneratingKeyFacts 
+                            ? 'animate-pulse text-[#F74A05]' 
+                            : 'text-[#F74A05] group-hover:drop-shadow-[0_0_8px_rgba(247,74,5,0.6)]'
+                        }`}
+                        fill="currentColor"
+                      />
+                      
+                      {/* Loading state animation - radiating pulses */}
+                      {isGeneratingKeyFacts && (
+                        <>
+                          <div className="absolute inset-0 rounded-lg bg-[#F74A05] opacity-30 animate-ping" />
+                          <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[#F74A05] to-[#FF6B35] opacity-20 animate-pulse" />
+                        </>
+                      )}
+                    </button>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddLearningObjective}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add
+                    </Button>
+                  </div>
                 )}
               </div>
+              {isEditMode && isGeneratingKeyFacts && (
+                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-2">
+                  <span className="inline-block h-1 w-1 rounded-full bg-[#F74A05] animate-pulse" />
+                  AI is analyzing your article and extracting key facts...
+                </p>
+              )}
             </CardHeader>
             <CardContent>
               {isEditMode ? (
@@ -748,19 +1051,21 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     </div>
                   ))}
                   {(!editFormData.learning_objectives || editFormData.learning_objectives.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No learning objectives yet. Click "Add" to create one.</p>
+                    <p className="text-sm text-muted-foreground">No key facts yet. Click "Add" to create one.</p>
                   )}
                 </div>
               ) : (
                 <ul className="space-y-2">
                   {(track.learning_objectives || []).map((objective: string, index: number) => (
-                    <li key={index} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <span>{objective}</span>
+                    <li key={index} className="flex items-start gap-3 text-sm">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-600 text-xs text-white flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <span className="pt-0.5">{objective}</span>
                     </li>
                   ))}
                   {(!track.learning_objectives || track.learning_objectives.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No learning objectives defined</p>
+                    <p className="text-sm text-muted-foreground">No key facts defined</p>
                   )}
                 </ul>
               )}
@@ -808,8 +1113,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             </Card>
           )}
 
-          {/* Knowledge Base Settings */}
-          {['article', 'video', 'story'].includes(isEditMode ? editFormData.type : track.type) && (
+          {/* Knowledge Base Settings - Only show for published tracks */}
+          {['article', 'video', 'story'].includes(isEditMode ? editFormData.type : track.type) && track.status === 'published' && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -1191,7 +1496,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         currentVersion={track.version_number || 1}
         pendingChanges={pendingChanges}
         onVersionCreated={async (newTrackId, strategy) => {
-          console.log('📍 Parent: onVersionCreated callback triggered');
+          console.log('📍 ArticleDetailEdit: onVersionCreated callback triggered');
           console.log('✅ Version created! New track ID:', newTrackId);
           console.log('📝 Strategy:', strategy);
           
@@ -1202,13 +1507,23 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           
-          console.log('⏳ Waiting 300ms before navigation...');
-          // Small delay to let modal close gracefully before navigation
-          setTimeout(() => {
-            console.log('🚀 Navigating to:', `/article/${newTrackId}`);
-            window.location.href = `/article/${newTrackId}`;
+          console.log('⏳ Waiting 300ms before refreshing data...');
+          // Small delay to let modal close gracefully
+          setTimeout(async () => {
+            console.log('🔄 Calling onUpdate with new track ID:', newTrackId);
+            // Pass the new track ID to onUpdate so it loads the new version
+            await onUpdate(newTrackId);
+            console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onOpenChange={setShowUnsavedDialog}
+        onDiscard={handleDiscardChanges}
+        onSave={handleSaveAndNavigate}
       />
     </div>
   );

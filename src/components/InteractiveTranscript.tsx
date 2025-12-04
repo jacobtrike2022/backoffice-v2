@@ -49,6 +49,8 @@ export function InteractiveTranscript({
   const [hoveredWord, setHoveredWord] = useState<number | null>(null);
   const [editedText, setEditedText] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const [userHasScrolled, setUserHasScrolled] = useState(false);
+  const lastScrollTopRef = useRef<number>(0);
 
   // Initialize edited text when entering edit mode (only once!)
   useEffect(() => {
@@ -75,6 +77,24 @@ export function InteractiveTranscript({
       setEditedText('');
     }
   }, [isEditMode]); // Remove transcript and editedText from dependencies
+  
+  // Detect user scroll
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const handleScroll = () => {
+      const currentScrollTop = container.scrollTop;
+      // If scroll position changed and it wasn't from our auto-scroll, mark as user scrolled
+      if (Math.abs(currentScrollTop - lastScrollTopRef.current) > 50) {
+        setUserHasScrolled(true);
+      }
+      lastScrollTopRef.current = currentScrollTop;
+    };
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Handle text changes in edit mode
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -97,18 +117,32 @@ export function InteractiveTranscript({
     });
   }, [transcript, currentTime]);
 
-  // Auto-scroll to current word (only in view mode)
+  // Auto-scroll to current word (only in view mode and if user hasn't manually scrolled)
   useEffect(() => {
-    if (isEditMode || !containerRef.current) return;
+    if (isEditMode || !containerRef.current || userHasScrolled) return;
     
     const currentWordElement = containerRef.current.querySelector('.word-active');
     if (currentWordElement) {
-      currentWordElement.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center' 
-      });
+      // Check if element is already in view
+      const container = containerRef.current;
+      const elementRect = currentWordElement.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      const isInView = (
+        elementRect.top >= containerRect.top &&
+        elementRect.bottom <= containerRect.bottom
+      );
+      
+      // Only scroll if not in view
+      if (!isInView) {
+        lastScrollTopRef.current = container.scrollTop; // Track our auto-scroll
+        currentWordElement.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' 
+        });
+      }
     }
-  }, [currentTime]);
+  }, [currentTime, isEditMode, userHasScrolled]);
 
   const getSpeakerColor = (speaker: string) => {
     const colors = [

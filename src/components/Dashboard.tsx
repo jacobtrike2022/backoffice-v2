@@ -22,7 +22,9 @@ import {
   Calendar, 
   Award, 
   ArrowRight,
-  Zap
+  Zap,
+  Library,
+  Clock
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Line, BarChart, Bar } from 'recharts';
@@ -45,7 +47,7 @@ interface DashboardProps {
 export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist }: DashboardProps) {
   const [activeView, setActiveView] = useState('overview');
   const { user, loading: userLoading } = useCurrentUser();
-  const { assignments, loading: assignmentsLoading } = useAssignments(); // Remove status filter to show all assignments
+  const { assignments, loading: assignmentsLoading } = useAssignments(); // Shows 5 most recent active assignments with live learner counts
   const [activityTrendData, setActivityTrendData] = useState<any[]>([]);
   const [engagementData, setEngagementData] = useState<any[]>([]);
   const [topPerformers, setTopPerformers] = useState<any[]>([]);
@@ -324,11 +326,11 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               </CardContent>
             </Card>
 
-            {/* Active Assignments - Full Width */}
+            {/* Active Playlists - Full Width */}
             <Card className="border-border/50 shadow-sm w-full">
               <CardHeader className="pb-3">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle className="text-base">Active Assignments</CardTitle>
+                  <CardTitle className="text-base">Active Playlists</CardTitle>
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -355,31 +357,33 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                         className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-accent/20 rounded-lg border border-border/50 hover:border-primary/50 transition-colors cursor-pointer"
                         onClick={() => {
                           if (onNavigateToPlaylist) {
-                            onNavigateToPlaylist(assignment.playlistId);
+                            onNavigateToPlaylist(assignment.id);
                           }
                         }}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 className="font-medium text-sm truncate">{assignment.title}</h4>
-                            <Badge className={`${getStatusColor(assignment.status)} text-xs px-2 py-0 whitespace-nowrap`}>
-                              {assignment.status}
+                            <Badge className={`${assignment.type === 'auto' ? 'bg-brand-gradient' : 'bg-secondary'} text-xs px-2 py-0 whitespace-nowrap`}>
+                              {assignment.type === 'auto' ? 'Auto-Assigned' : 'Manual Assignment'}
                             </Badge>
                           </div>
                           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1 whitespace-nowrap">
-                              <Users className="h-3 w-3" />
-                              {assignment.assignedTo} employees
+                              <Library className="h-3 w-3" />
+                              {assignment.totalTracks} tracks
                             </span>
                             <span className="flex items-center gap-1 whitespace-nowrap">
-                              <Calendar className="h-3 w-3" />
-                              Due {assignment.dueDate}
+                              <Clock className="h-3 w-3" />
+                              {assignment.totalDuration >= 60 
+                                ? `${(assignment.totalDuration / 60).toFixed(1)} hrs`
+                                : `${assignment.totalDuration} min`
+                              }
                             </span>
-                            {assignment.daysLeft > 0 && (
-                              <span className={`whitespace-nowrap ${assignment.daysLeft <= 3 ? 'text-red-600 font-medium' : ''}`}>
-                                {assignment.daysLeft}d left
-                              </span>
-                            )}
+                            <span className="flex items-center gap-1 whitespace-nowrap">
+                              <Users className="h-3 w-3" />
+                              {assignment.assignedTo} learners
+                            </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 self-start sm:self-auto">

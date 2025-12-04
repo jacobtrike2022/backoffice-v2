@@ -151,7 +151,10 @@ export async function getTracks(filters: {
 
   let query = supabase
     .from('tracks')
-    .select('*')
+    .select(`
+      *,
+      track_tags(tags(id, name, color, parent_id))
+    `)
     .eq('organization_id', orgId);
 
   if (filters.ids && filters.ids.length > 0) {
@@ -165,10 +168,16 @@ export async function getTracks(filters: {
   if (filters.status) {
     if (filters.status === 'archived') {
       // For archived view, just show tracks with status='archived'
-      // (deleted_at column may not exist yet)
       query = query.eq('status', 'archived');
+    } else if (filters.status === 'drafts') {
+      // For drafts view, show tracks with status='draft'
+      query = query.eq('status', 'draft');
+    } else if (filters.status === 'in-kb') {
+      // For Knowledge Base view, show tracks that have show_in_knowledge_base tag
+      // This will be post-filtered after fetching since we need to check tags array
+      query = query.eq('status', 'published');
     } else {
-      // For published/draft, filter by status
+      // For published/other status, filter by status
       query = query.eq('status', filters.status);
     }
   }
@@ -198,7 +207,10 @@ export async function getTracks(filters: {
       // Retry query without the problematic filter
       const simpleQuery = supabase
         .from('tracks')
-        .select('*')
+        .select(`
+          *,
+          track_tags(tags(id, name, color, parent_id))
+        `)
         .eq('organization_id', orgId);
       
       if (filters.ids && filters.ids.length > 0) {
@@ -226,9 +238,11 @@ export async function getTracks(filters: {
     throw error;
   }
 
+  let filteredData = data || [];
+
   // Filter by tags if provided (client-side for now)
   if (filters.tags && filters.tags.length > 0) {
-    return data.filter(track => {
+    filteredData = filteredData.filter(track => {
       const trackTags = track.track_tags?.map((tt: any) => tt.tags.name) || [];
       const columnTags = track.tags || [];
       const allTags = [...trackTags, ...columnTags];
@@ -236,7 +250,15 @@ export async function getTracks(filters: {
     });
   }
 
-  return data || [];
+  // Filter by Knowledge Base status (client-side)
+  if (filters.status === 'in-kb') {
+    filteredData = filteredData.filter(track => {
+      const columnTags = track.tags || [];
+      return columnTags.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base === true;
+    });
+  }
+
+  return filteredData;
 }
 
 /**

@@ -120,7 +120,7 @@ tagsApp.delete('/:id', async (c) => {
   }
 });
 
-// Assign tags to an entity (User or Store)
+// Assign tags to an entity (User, Store, or Playlist)
 tagsApp.post('/assign', async (c) => {
   try {
     const { entityId, entityType, tagIds } = await c.req.json();
@@ -130,7 +130,7 @@ tagsApp.post('/assign', async (c) => {
     }
 
     // Validate entityType
-    if (entityType !== 'user' && entityType !== 'store') {
+    if (entityType !== 'user' && entityType !== 'store' && entityType !== 'playlist') {
        return c.json({ error: 'Invalid entity type for KV storage' }, 400);
     }
 
@@ -151,7 +151,7 @@ tagsApp.get('/entity/:type/:id', async (c) => {
     const entityType = c.req.param('type');
     const entityId = c.req.param('id');
 
-    if (entityType !== 'user' && entityType !== 'store') {
+    if (entityType !== 'user' && entityType !== 'store' && entityType !== 'playlist') {
        return c.json({ error: 'Invalid entity type for KV storage' }, 400);
     }
 

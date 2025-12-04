@@ -11,6 +11,7 @@ import { TagSelectorDialog } from './TagSelectorDialog';
 import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import {
   Play,
   Calendar,
@@ -45,9 +46,10 @@ interface TrackDetailEditProps {
   isSuperAdminAuthenticated?: boolean;
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
-export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist }: TrackDetailEditProps) {
+export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: TrackDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -64,6 +66,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<any>(null);
+  
+  // Unsaved changes dialog
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
@@ -214,6 +220,73 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     return sorted1.every((val, idx) => val === sorted2[idx]);
   };
 
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = () => {
+    console.log('🔍 hasUnsavedChanges check:', {
+      isEditMode,
+      titleChanged: editFormData.title !== (track.title || ''),
+      descChanged: editFormData.description !== (track.description || ''),
+      durationChanged: editFormData.duration_minutes !== (track.duration_minutes || ''),
+      urlChanged: editFormData.content_url !== (track.content_url || ''),
+      thumbChanged: editFormData.thumbnail_url !== (track.thumbnail_url || ''),
+      objectivesChanged: !areArraysEqual(editFormData.learning_objectives, track.learning_objectives),
+      tagsChanged: !areArraysEqual(editFormData.tags, track.tags),
+      editFormData,
+      trackData: { title: track.title, description: track.description, duration_minutes: track.duration_minutes, tags: track.tags }
+    });
+    
+    if (!isEditMode) {
+      console.log('⚠️ hasUnsavedChanges returning false - not in edit mode');
+      return false;
+    }
+    
+    const hasChanges = (
+      editFormData.title !== (track.title || '') ||
+      editFormData.description !== (track.description || '') ||
+      editFormData.duration_minutes !== (track.duration_minutes || '') ||
+      editFormData.content_url !== (track.content_url || '') ||
+      editFormData.thumbnail_url !== (track.thumbnail_url || '') ||
+      !areArraysEqual(editFormData.learning_objectives, track.learning_objectives) ||
+      !areArraysEqual(editFormData.tags, track.tags)
+    );
+    
+    console.log('✅ hasUnsavedChanges result:', hasChanges);
+    return hasChanges;
+  };
+
+  // Warn user before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isEditMode, editFormData, track]);
+
+  // Register unsaved changes check with parent
+  useEffect(() => {
+    if (registerUnsavedChangesCheck) {
+      if (isEditMode) {
+        console.log('📝 TrackDetailEdit: Registering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(hasUnsavedChanges);
+      } else {
+        console.log('📝 TrackDetailEdit: Unregistering hasUnsavedChanges function');
+        registerUnsavedChangesCheck(null);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
+    };
+  }, [isEditMode, registerUnsavedChangesCheck]);
+
   const handleSave = async () => {
     if (!editFormData.title.trim()) {
       toast.error('Title is required');
@@ -283,7 +356,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       await crud.updateTrack(saveData);
 
       console.log('Track updated successfully, calling onUpdate...');
-      toast.success(contentChanged ? 'Track updated successfully!' : 'Knowledge Base settings updated!');
+      toast.success(contentChanged ? 'Track updated successfully!' : 'Settings updated!');
       setIsEditMode(false);
       
       // Call onUpdate to trigger refetch
@@ -620,6 +693,86 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     }
   };
 
+  // Handle back button with unsaved changes check
+  const handleBackClick = () => {
+    console.log('🔍 TrackDetailEdit - handleBackClick called', {
+      isEditMode,
+      hasChanges: hasUnsavedChanges(),
+      trackData: { title: track.title, description: track.description, tags: track.tags },
+      editFormData: { title: editFormData.title, description: editFormData.description, tags: editFormData.tags }
+    });
+    
+    if (hasUnsavedChanges()) {
+      setPendingNavigation(() => onBack);
+      setShowUnsavedDialog(true);
+    } else {
+      onBack();
+    }
+  };
+
+  // Handle discard from dialog
+  const handleDiscardChanges = () => {
+    setShowUnsavedDialog(false);
+    if (pendingNavigation) {
+      pendingNavigation();
+      setPendingNavigation(null);
+    }
+  };
+
+  // Handle save and navigate
+  const handleSaveAndNavigate = async () => {
+    if (!editFormData.title.trim()) {
+      toast.error('Title is required');
+      setShowUnsavedDialog(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Prepare tags including the system KB tag
+      const currentTags = new Set<string>(editFormData.tags || []);
+      if (editFormData.show_in_knowledge_base) {
+        currentTags.add('system:show_in_knowledge_base');
+      } else {
+        currentTags.delete('system:show_in_knowledge_base');
+      }
+
+      const saveData = {
+        id: track.id,
+        title: editFormData.title || track.title,
+        description: editFormData.description || track.description,
+        content_url: editFormData.content_url || track.content_url,
+        duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
+        learning_objectives: editFormData.learning_objectives || track.learning_objectives || [],
+        tags: Array.from(currentTags),
+        thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
+        type: editFormData.type,
+        transcript_data: editFormData.transcript_data || track.transcript_data || null,
+      };
+
+      await crud.updateTrack(saveData);
+      toast.success('Track updated successfully!');
+
+      // Close dialog and navigate
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+      
+      if (pendingNavigation) {
+        setTimeout(() => {
+          if (pendingNavigation) {
+            pendingNavigation();
+            setPendingNavigation(null);
+          }
+        }, 100);
+      }
+    } catch (error: any) {
+      console.error('Error updating track:', error);
+      toast.error(`Failed to update track: ${error.message || 'Unknown error'}`);
+      setShowUnsavedDialog(false);
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header with Back Button and Edit/Save */}
@@ -627,7 +780,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
-            onClick={onBack}
+            onClick={handleBackClick}
             className="flex items-center"
           >
             <ChevronLeft className="h-4 w-4 mr-1" />
@@ -829,6 +982,20 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             </CardContent>
           </Card>
 
+          {/* Transcript Section - Moved under video player */}
+          {track.type !== 'article' && (
+            <InteractiveTranscript
+              transcript={track.transcript_data}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+              canTranscribe={!!track.content_url && !track.transcript_data}
+              onTranscribe={handleTranscribe}
+              isTranscribing={isTranscribing}
+              isEditMode={isEditMode}
+              onTranscriptEdit={handleTranscriptEdit}
+            />
+          )}
+
           {/* Description */}
           <Card>
             <CardHeader>
@@ -862,7 +1029,6 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
                 {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
-                    <BookOpen className="h-3 w-3 mr-1" />
                     In Knowledge Base
                   </Badge>
                 )}
@@ -905,11 +1071,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             </CardContent>
           </Card>
 
-          {/* Learning Objectives */}
+          {/* Key Facts */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Learning Objectives</CardTitle>
+                <CardTitle>Key Facts</CardTitle>
                 {isEditMode && (
                   <Button size="sm" variant="outline" onClick={handleAddLearningObjective}>
                     <Plus className="h-4 w-4 mr-1" />
@@ -941,7 +1107,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     </div>
                   ))}
                   {(!editFormData.learning_objectives || editFormData.learning_objectives.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No learning objectives yet. Click "Add" to create one.</p>
+                    <p className="text-sm text-muted-foreground">No key facts yet. Click "Add" to create one.</p>
                   )}
                 </div>
               ) : (
@@ -956,26 +1122,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       </li>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">No learning objectives defined</p>
+                    <p className="text-sm text-muted-foreground">No key facts defined</p>
                   )}
                 </ul>
               )}
             </CardContent>
           </Card>
 
-          {/* Transcript Section */}
-          {track.type !== 'article' && (
-            <InteractiveTranscript
-              transcript={track.transcript_data}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              canTranscribe={!!track.content_url && !track.transcript_data}
-              onTranscribe={handleTranscribe}
-              isTranscribing={isTranscribing}
-              isEditMode={isEditMode}
-              onTranscriptEdit={handleTranscriptEdit}
-            />
-          )}
+          {/* REMOVED: Duplicate transcript section - keeping the one under video player */}
         </div>
 
         {/* Sidebar - Metadata */}
@@ -1018,8 +1172,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             </Card>
           )}
           
-          {/* Knowledge Base Settings */}
-          {['article', 'video', 'story'].includes(isEditMode ? editFormData.type : track.type) && (
+          {/* Knowledge Base Settings - Only show for published tracks */}
+          {['article', 'video', 'story'].includes(isEditMode ? editFormData.type : track.type) && track.status === 'published' && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -1306,16 +1460,34 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         currentVersion={track.version_number || 1}
         pendingChanges={pendingChanges}
         onVersionCreated={async (newTrackId, strategy) => {
+          console.log('📍 TrackDetailEdit: onVersionCreated callback triggered');
           console.log('✅ Version created! New track ID:', newTrackId);
+          console.log('📝 Strategy:', strategy);
+          
           toast.success(`Version ${(track.version_number || 1) + 1} created with ${strategy} strategy!`);
+          
+          console.log('🔄 Closing modal...');
           setIsVersionModalOpen(false);
+          console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           
-          // Small delay to let modal close gracefully before navigation
-          setTimeout(() => {
-            window.location.href = `/track/${newTrackId}`;
+          console.log('⏳ Waiting 300ms before refreshing data...');
+          // Small delay to let modal close gracefully
+          setTimeout(async () => {
+            console.log('🔄 Calling onUpdate with new track ID:', newTrackId);
+            // Pass the new track ID to onUpdate so it loads the new version
+            await onUpdate(newTrackId);
+            console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+      
+      {/* Unsaved Changes Dialog */}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onOpenChange={setShowUnsavedDialog}
+        onDiscard={handleDiscardChanges}
+        onSave={handleSaveAndNavigate}
       />
     </div>
   );

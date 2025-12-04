@@ -426,4 +426,48 @@ app.route("/make-server-2858cc8b/tags", tagsApp);
 // Mount kbApp
 app.route("/make-server-2858cc8b/kb", kbApp);
 
+// =====================================================
+// AI: GENERATE KEY FACTS
+// =====================================================
+
+app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
+  try {
+    // Dynamic import to avoid breaking the server if LLM module has issues
+    const { generateKeyFacts } = await import("./llm.ts");
+    
+    const body = await c.req.json();
+    const { title, content, description, transcript } = body;
+    
+    if (!title && !content && !transcript) {
+      return c.json({ 
+        error: 'At least one of title, content, or transcript is required' 
+      }, 400);
+    }
+    
+    console.log('Generating key facts for:', title || 'Untitled');
+    console.log('Content length:', content?.length || 0);
+    console.log('Transcript length:', transcript?.length || 0);
+    
+    const result = await generateKeyFacts({
+      title,
+      content,
+      description,
+      transcript,
+    });
+    
+    console.log(`Successfully generated ${result.enriched.length} key facts`);
+    
+    return c.json({
+      success: true,
+      ...result,
+    });
+    
+  } catch (error: any) {
+    console.error('Generate key facts error:', error);
+    return c.json({ 
+      error: `Failed to generate key facts: ${error.message}` 
+    }, 500);
+  }
+});
+
 Deno.serve(app.fetch);
