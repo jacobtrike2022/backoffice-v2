@@ -66,16 +66,19 @@ class OpenAIProvider implements LLMProvider {
       content && `Content: ${content}`,
     ].filter(Boolean).join('\n\n');
     
-    const systemPrompt = this.buildSystemPrompt();
+    // TWO-PASS EXTRACTION:
+    // Pass 1: Force model to identify all procedural sections
+    // Pass 2: Extract facts based on identified procedures
     
-    // DEBUG: Log prompt and content to verify what's being sent
-    console.log('=== LLM DEBUG ===');
-    console.log('System prompt first 200 chars:', systemPrompt.substring(0, 200));
-    console.log('User content first 500 chars:', fullText.substring(0, 500));
-    console.log('=================');
+    const pass1Prompt = this.buildProcedureDetectionPrompt();
+    const pass2Prompt = this.buildExtractionPrompt();
+    
+    console.log('=== LLM TWO-PASS EXTRACTION ===');
+    console.log('Pass 1: Detecting procedures...');
     
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // PASS 1: Identify all procedural sections
+      const pass1Response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
@@ -84,33 +87,73 @@ class OpenAIProvider implements LLMProvider {
         body: JSON.stringify({
           model: 'gpt-4o',
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: pass1Prompt },
             { role: 'user', content: fullText }
           ],
           response_format: { type: 'json_object' },
-          temperature: 0.3, // Lower temperature for more consistent, factual extraction
+          temperature: 0.1,
         }),
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('OpenAI API error:', error);
+      if (!pass1Response.ok) {
+        const error = await pass1Response.json();
+        console.error('OpenAI API error (Pass 1):', error);
         throw new Error(`OpenAI API error: ${error.error?.message || 'Unknown error'}`);
       }
       
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
+      const pass1Data = await pass1Response.json();
+      const pass1Content = pass1Data.choices[0]?.message?.content;
       
-      if (!content) {
-        throw new Error('No content returned from OpenAI');
+      if (!pass1Content) {
+        throw new Error('No content returned from OpenAI (Pass 1)');
       }
       
-      const parsed = JSON.parse(content);
+      const procedureAnalysis = JSON.parse(pass1Content);
+      console.log('Pass 1 complete. Found', procedureAnalysis.procedures?.length || 0, 'procedural sections');
+      
+      // PASS 2: Extract facts with procedure awareness
+      const pass2Input = `SOURCE CONTENT:\n${fullText}\n\nPROCEDURE ANALYSIS:\n${JSON.stringify(procedureAnalysis, null, 2)}`;
+      
+      console.log('Pass 2: Extracting key facts...');
+      
+      const pass2Response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: pass2Prompt },
+            { role: 'user', content: pass2Input }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.3,
+        }),
+      });
+      
+      if (!pass2Response.ok) {
+        const error = await pass2Response.json();
+        console.error('OpenAI API error (Pass 2):', error);
+        throw new Error(`OpenAI API error: ${error.error?.message || 'Unknown error'}`);
+      }
+      
+      const pass2Data = await pass2Response.json();
+      const pass2Content = pass2Data.choices[0]?.message?.content;
+      
+      if (!pass2Content) {
+        throw new Error('No content returned from OpenAI (Pass 2)');
+      }
+      
+      const parsed = JSON.parse(pass2Content);
       
       // Validate the response structure
       if (!parsed.keyFacts || !Array.isArray(parsed.keyFacts)) {
         throw new Error('Invalid response structure from OpenAI');
       }
+      
+      console.log('Pass 2 complete. Extracted', parsed.keyFacts.length, 'key facts');
       
       return parsed.keyFacts;
       
@@ -120,186 +163,94 @@ class OpenAIProvider implements LLMProvider {
     }
   }
   
-  private buildSystemPrompt(): string {
-    return `You MUST output ONLY valid JSON that conforms exactly to the schema described below.
-You MUST NOT output any explanation, notes, headings, labels, or text outside the JSON.
-You MUST NOT output "Key Facts" or any heading. Begin your response directly with "{".
-Any text before the JSON object renders the response invalid.
+  private buildProcedureDetectionPrompt(): string {
+    return `You MUST output ONLY valid JSON. Begin your response directly with "{".
 
-You are the Key Facts Engine for Trike, a frontline-focused training platform.
+Your task: Identify ALL sections in the provided content that contain multi-step procedures, instructions, or action sequences.
 
-Your task is to extract Key Facts from the provided content. 
-Key Facts represent the smallest, atomic, objective pieces of information or instructions that an employee must know to understand, perform, or comply with the material.
+Look for:
+- Bullet points or numbered lists
+- Sequential actions ("First...", "Then...", "Next...")
+- Multiple imperative statements ("Check X. Verify Y. Ensure Z.")
+- Any section describing HOW to do something step-by-step
 
-====================
-CORE DEFINITIONS
-====================
+For EACH procedural section found, extract:
+1. A short title (3-5 words)
+2. ALL steps, exactly as written in the source (preserve wording and details)
 
-A **Fact** is:
-- One objective, standalone, verifiable truth from the content.
-- Never a summary, interpretation, opinion, or rewriting.
-- Always atomic (one fact per object).
-- Never a category label or meta description.
+Output Schema:
+{
+  "procedures": [
+    {
+      "title": "Short Title Here",
+      "steps": [
+        "Exact step 1 from source",
+        "Exact step 2 from source",
+        "Exact step 3 from source"
+      ]
+    }
+  ]
+}
 
-A **Procedure** is:
-- A multi-step action sequence described in the source.
-- Each step MUST be extracted as its own atomic step.
-- NEVER summarized as a single fact or umbrella phrase.
-- NEVER collapsed into fewer steps than the source implies.
+If NO procedural sections exist, output:
+{
+  "procedures": []
+}
 
-If the content describes actions, steps, "tips," behaviors, or guidance, 
-these MUST be extracted as a Procedure—even if phrased softly ("stay calm," "always ask," "it's best to").
+CRITICAL: Extract steps VERBATIM. Do not summarize or shorten them.
 
-====================
-STRICT EXTRACTION RULES
-====================
+Begin output with "{".`;
+  }
+  
+  private buildExtractionPrompt(): string {
+    return `You MUST output ONLY valid JSON. Begin your response directly with "{".
 
-1. **Atomicity is absolute.**
-   - One fact = one statement.
-   - One step = one action.
-   - Never combine multiple ideas in one entry.
+You are the Key Facts Engine for Trike. Extract ALL Key Facts from the provided content.
 
-2. **Procedures are mandatory when actions exist.**
-   - If any part of the content describes HOW to do something, extract a Procedure.
-   - Every action or sub-action must become its own step.
-   - If uncertain whether content is a Fact or a Procedure, default to a Procedure.
+You will receive:
+1. SOURCE CONTENT - The original training content
+2. PROCEDURE ANALYSIS - Pre-identified procedural sections with steps
 
-3. **Completeness is required.**
-   You MUST extract:
-   - All regulatory details
-   - All conditions (e.g., thresholds like "under 40")
-   - All behavioral requirements
-   - All escalation rules
-   - All sub-steps inside a process (e.g., DOB check, expiration check, photo check)
-   - All consequences
-   Missing ANY of these is failure.
+EXTRACTION RULES:
 
-4. **Zero interpretation.**
-   - No "should," "better to," "it's recommended," unless verbatim in input.
-   - No softening or strengthening.
-   - No implied meaning added.
+1. **For Procedural Sections (identified in PROCEDURE ANALYSIS):**
+   - Output each as type: "Procedure"
+   - Use the title and steps from PROCEDURE ANALYSIS verbatim
+   - Add a one-sentence "fact" field describing the procedure
 
-5. **NO META-LABELS (FORBIDDEN PATTERNS).**
-   You MUST NEVER output anything containing:
-   "steps for", "tips for", "how to", "ways to", "guidelines", "reminders", 
-   "process for", "procedure for", "things to", "handling difficult situations",
-   or any sentence that functions as a section title or category label.
+2. **For Non-Procedural Content:**
+   - Extract as type: "Fact"
+   - Preserve ALL specific details (numbers, times, thresholds, examples)
+   - One fact per statement
+   - NEVER summarize multiple specifics into one fact
 
-6. **Behavior Requirements = Steps.**
-   Any behavioral expectation—"stay calm," "be polite," "follow policy"—must be extracted as atomic procedural steps.
+3. **Forbidden Patterns:**
+   - NO umbrella statements ("Employees must verify..." unless that's literally all the source says)
+   - NO summaries ("Certain behaviors..." - extract each behavior separately)
+   - NO meta-labels ("steps for", "tips for", "how to")
 
-7. **No combining rules into umbrella statements.**
-   Phrases like:
-   - "Employees must verify ID"
-   - "Employees must handle difficult situations appropriately"
-   are NEVER acceptable outputs.
-   These MUST be expanded into atomic Facts or multi-step Procedures.
-
-====================
-OUTPUT SCHEMA (STRICT)
-====================
-
-Return exactly one JSON object:
-
+Output Schema:
 {
   "keyFacts": [
     {
-      "title": "Short descriptive title (3–5 words)",
-      "fact": "One atomic factual sentence.",
+      "title": "Short Title",
+      "fact": "One atomic statement with all details preserved",
       "type": "Fact",
       "contexts": ["universal"]
     },
     {
-      "title": "Short descriptive title (3–5 words)",
-      "fact": "One-sentence description of the procedure.",
+      "title": "Procedure Title",
+      "fact": "One-sentence description of this procedure",
       "type": "Procedure",
-      "steps": [
-        "First atomic action",
-        "Second atomic action",
-        "Third atomic action"
-      ],
+      "steps": ["Step 1", "Step 2", "Step 3"],
       "contexts": ["universal"]
     }
   ]
 }
 
-- Titles MUST NOT be meta labels.
-- "type" MUST be either "Fact" or "Procedure".
-- Steps MUST be pure actions only.
-- Contexts default to ["universal"] unless explicit contextual info is given in source.
+CRITICAL: If PROCEDURE ANALYSIS contains procedures, you MUST output them as Procedures (not Facts).
 
-====================
-NEGATIVE EXAMPLES (NEVER OUTPUT)
-====================
-
-{
-  "title": "Steps for verifying ID",   // Forbidden meta-label
-  "fact": "Steps to check ID",         // Summary, not atomic
-  "type": "Fact"
-}
-
-{
-  "title": "Handling Difficult Situations",   // Meta-header
-  "fact": "Tips for dealing with customers",  // Summary
-  "type": "Fact"
-}
-
-{
-  "title": "Age Verification",
-  "fact": "Employees must verify ID",         // Umbrella statement
-  "type": "Fact"
-}
-
-====================
-POSITIVE EXAMPLES
-====================
-
-Example Procedure:
-{
-  "title": "ID Verification",
-  "fact": "Employees must verify customer identification before completing an alcohol sale.",
-  "type": "Procedure",
-  "steps": [
-    "Ask for ID if the customer appears under 40",
-    "Check the customer's date of birth",
-    "Check the ID expiration date",
-    "Check the ID photo",
-    "Ensure the ID is not fake or altered"
-  ],
-  "contexts": ["universal"]
-}
-
-====================
-MANDATORY SELF-AUDIT BEFORE FINAL OUTPUT
-====================
-
-Before returning your output, you MUST internally verify ALL of the following:
-
-1. **Procedures extracted?**
-   - Did I output a Procedure wherever actions, steps, behaviors, or guidance appear?
-   - Did I break multi-action sentences into separate atomic steps?
-
-2. **Atomicity?**
-   - Is every Fact one fact only?
-   - Is every Step one action only?
-
-3. **No meta-labels?**
-   - Did I avoid forbidden patterns entirely?
-   - Are none of my titles acting as category headers?
-
-4. **Completeness?**
-   - Did I extract all rules, thresholds, steps, behaviors, and consequences?
-
-5. **JSON purity?**
-   - Did I output valid JSON with no text before it?
-
-If ANY checklist item would fail, you MUST revise the output BEFORE returning it.
-
-====================
-FINAL INSTRUCTION
-====================
-
-Extract Key Facts and nothing else. Begin output immediately with "{".`;
+Begin output with "{".`;
   }
 }
 
