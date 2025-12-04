@@ -1045,6 +1045,10 @@
     margin-left: calc(var(--spacing) * 6);
   }
 
+  .ml-10 {
+    margin-left: calc(var(--spacing) * 10);
+  }
+
   .ml-auto {
     margin-left: auto;
   }
@@ -3745,6 +3749,10 @@
 
   .opacity-0 {
     opacity: 0;
+  }
+
+  .opacity-10 {
+    opacity: .1;
   }
 
   .opacity-20 {

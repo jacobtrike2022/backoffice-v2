@@ -32,11 +32,13 @@ import {
   Upload,
   Link as LinkIcon,
   Sparkles,
-  History
+  History,
+  Zap
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 import { InteractiveTranscript } from './InteractiveTranscript';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface TrackDetailEditProps {
   track: any;
@@ -70,6 +72,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   // Unsaved changes dialog
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  
+  // AI Key Facts generation
+  const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
   
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
@@ -396,6 +401,140 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   const handleRemoveLearningObjective = (index: number) => {
     const newObjectives = editFormData.learning_objectives.filter((_: any, i: number) => i !== index);
     setEditFormData({ ...editFormData, learning_objectives: newObjectives });
+  };
+
+  // AI: Generate Key Facts from video transcript
+  const handleGenerateKeyFacts = async () => {
+    // Extract text from transcript_data
+    let transcriptText = '';
+    
+    if (editFormData.transcript_data && editFormData.transcript_data.words) {
+      // Extract text from word-level transcript
+      transcriptText = editFormData.transcript_data.words
+        .map((w: any) => w.word || w.text || '')
+        .join(' ')
+        .trim();
+    } else if (editFormData.transcript) {
+      // Fallback to plain transcript
+      transcriptText = editFormData.transcript;
+    }
+    
+    // Validation
+    if (!transcriptText || transcriptText.length < 100) {
+      toast.error('Please add a transcript first (at least 100 characters)');
+      return;
+    }
+
+    // Confirmation dialog if facts already exist
+    const hasExistingFacts = editFormData.learning_objectives && editFormData.learning_objectives.length > 0;
+    if (hasExistingFacts) {
+      const action = confirm(
+        `You currently have ${editFormData.learning_objectives.length} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
+      );
+      
+      const shouldReplace = action;
+      
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        console.log('🤖 Calling AI to generate key facts from transcript...');
+        
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: editFormData.title || 'Untitled Video',
+              transcript: transcriptText,
+              description: editFormData.description || '',
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const data = await response.json();
+        // Use enriched KeyFact objects (with type, steps, etc.) instead of simple strings
+        const newFacts = data.enriched || data.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from this transcript');
+          return;
+        }
+        
+        const updatedFacts = shouldReplace 
+          ? newFacts
+          : [...editFormData.learning_objectives, ...newFacts];
+        
+        setEditFormData({
+          ...editFormData,
+          learning_objectives: updatedFacts,
+        });
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    } else {
+      // No existing facts, just generate
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: editFormData.title || 'Untitled Video',
+              transcript: transcriptText,
+              description: editFormData.description || '',
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const data = await response.json();
+        // Use enriched KeyFact objects (with type, steps, etc.) instead of simple strings
+        const newFacts = data.enriched || data.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from this transcript');
+          return;
+        }
+        
+        setEditFormData({
+          ...editFormData,
+          learning_objectives: newFacts,
+        });
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    }
   };
 
   const handleAddTag = () => {
@@ -1077,35 +1216,96 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <div className="flex items-center justify-between">
                 <CardTitle>Key Facts</CardTitle>
                 {isEditMode && (
-                  <Button size="sm" variant="outline" onClick={handleAddLearningObjective}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {/* AI Generate Button with Neon Orange Glow */}
+                    <button
+                      onClick={handleGenerateKeyFacts}
+                      disabled={isGeneratingKeyFacts}
+                      className="group relative p-2 rounded-lg transition-all duration-300 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      title="Generate Key Facts with AI"
+                    >
+                      {/* Neon glow background - understated but noticeable */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#F74A05] to-[#FF6B35] rounded-lg opacity-20 blur-md group-hover:opacity-40 group-hover:blur-lg transition-all duration-300" />
+                      
+                      {/* Lightning bolt icon with gradient fill */}
+                      <Zap 
+                        className={`relative h-5 w-5 transition-all duration-300 ${
+                          isGeneratingKeyFacts 
+                            ? 'animate-pulse text-[#F74A05]' 
+                            : 'text-[#F74A05] group-hover:drop-shadow-[0_0_8px_rgba(247,74,5,0.6)]'
+                        }`}
+                        fill="currentColor"
+                      />
+                      
+                      {/* Loading state animation - radiating pulses */}
+                      {isGeneratingKeyFacts && (
+                        <>
+                          <div className="absolute inset-0 animate-ping rounded-lg bg-[#F74A05] opacity-20" />
+                          <div className="absolute inset-0 animate-pulse rounded-lg bg-[#F74A05] opacity-10" />
+                        </>
+                      )}
+                    </button>
+                    
+                    <Button size="sm" variant="outline" onClick={handleAddLearningObjective}>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardHeader>
             <CardContent>
               {isEditMode ? (
                 <div className="space-y-2">
-                  {(editFormData.learning_objectives || []).map((objective: string, index: number) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <div className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs flex-shrink-0">
-                        {index + 1}
+                  {(editFormData.learning_objectives || []).map((objective: any, index: number) => {
+                    // Parse if stored as JSON string
+                    let parsed = objective;
+                    if (typeof objective === 'string' && objective.startsWith('{')) {
+                      try {
+                        parsed = JSON.parse(objective);
+                      } catch (e) {
+                        // If parsing fails, treat as plain string
+                        parsed = objective;
+                      }
+                    }
+                    
+                    // Check if this is an enriched KeyFact object
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'fact' in parsed;
+                    const displayValue = isEnriched ? parsed.fact : parsed;
+                    const isProcedure = isEnriched && parsed.type === 'Procedure';
+                    
+                    return (
+                      <div key={index} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs flex-shrink-0">
+                            {index + 1}
+                          </div>
+                          <Input
+                            value={displayValue}
+                            onChange={(e) => handleUpdateLearningObjective(index, e.target.value)}
+                            placeholder="Key fact..."
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRemoveLearningObjective(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        {isProcedure && parsed.steps && (
+                          <div className="ml-10 pl-4 border-l-2 border-orange-200 space-y-1 text-xs text-muted-foreground">
+                            {parsed.steps.map((step: string, stepIdx: number) => (
+                              <div key={stepIdx} className="flex gap-2">
+                                <span className="text-orange-500 font-semibold">{stepIdx + 1}.</span>
+                                <span>{step}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <Input
-                        value={objective}
-                        onChange={(e) => handleUpdateLearningObjective(index, e.target.value)}
-                        placeholder="Enter learning objective..."
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleRemoveLearningObjective(index)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {(!editFormData.learning_objectives || editFormData.learning_objectives.length === 0) && (
                     <p className="text-sm text-muted-foreground">No key facts yet. Click "Add" to create one.</p>
                   )}
@@ -1113,14 +1313,44 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               ) : (
                 <ul className="space-y-2">
                   {track.learning_objectives && track.learning_objectives.length > 0 ? (
-                    track.learning_objectives.map((objective: string, index: number) => (
-                      <li key={index} className="flex items-start space-x-2">
-                        <div className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs mt-0.5 flex-shrink-0">
-                          {index + 1}
-                        </div>
-                        <span className="text-muted-foreground leading-relaxed pt-0.5">{objective}</span>
-                      </li>
-                    ))
+                    track.learning_objectives.map((objective: any, index: number) => {
+                      // Parse if stored as JSON string
+                      let parsed = objective;
+                      if (typeof objective === 'string' && objective.startsWith('{')) {
+                        try {
+                          parsed = JSON.parse(objective);
+                        } catch (e) {
+                          // If parsing fails, treat as plain string
+                          parsed = objective;
+                        }
+                      }
+                      
+                      // Check if this is an enriched KeyFact object with type and steps
+                      const isEnriched = typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+                      const isProcedure = isEnriched && parsed.type === 'Procedure' && parsed.steps;
+                      const displayText = isEnriched ? parsed.fact : parsed;
+                      
+                      return (
+                        <li key={index} className="flex items-start space-x-2">
+                          <div className="h-6 w-6 rounded-full bg-brand-gradient flex items-center justify-center text-white text-xs mt-0.5 flex-shrink-0">
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 pt-0.5">
+                            <span className="text-muted-foreground leading-relaxed">{displayText}</span>
+                            {isProcedure && (
+                              <ul className="mt-2 ml-4 space-y-1 text-xs text-muted-foreground border-l-2 border-orange-200 pl-3">
+                                {parsed.steps.map((step: string, stepIndex: number) => (
+                                  <li key={stepIndex} className="flex items-start gap-2">
+                                    <span className="text-orange-500 font-semibold">{stepIndex + 1}.</span>
+                                    <span>{step}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })
                   ) : (
                     <p className="text-sm text-muted-foreground">No key facts defined</p>
                   )}

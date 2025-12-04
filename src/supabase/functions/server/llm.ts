@@ -218,16 +218,36 @@ EXTRACTION RULES:
    - Use the title and steps from PROCEDURE ANALYSIS verbatim
    - Add a one-sentence "fact" field describing the procedure
 
-2. **For Non-Procedural Content:**
+2. **For Non-Procedural Content (CRITICAL - MAXIMUM ATOMICITY):**
    - Extract as type: "Fact"
+   - ONE FACT PER STATEMENT - NEVER combine multiple specifics
+   - If source lists 4 behaviors, output 4 separate Facts
+   - If source lists 2 requirements, output 2 separate Facts
    - Preserve ALL specific details (numbers, times, thresholds, examples)
-   - One fact per statement
-   - NEVER summarize multiple specifics into one fact
+   
+   EXAMPLES OF ATOMICITY:
+   ❌ WRONG: "Behaviors indicating risk include looking toward store, staying in driver's seat, obscured plates, and minimal communication"
+   ✅ RIGHT: Output 4 separate Facts:
+      - "A customer repeatedly looking toward the store instead of their pump may indicate an increased risk"
+      - "Someone staying in the driver's seat while another person fuels may indicate an increased risk"
+      - "A vehicle with an obscured license plate may indicate an increased risk"
+      - "A customer requesting minimal communication may indicate an increased risk"
+   
+   ❌ WRONG: "States require authorization and some mandate pre-payment between 10 p.m. and 6 a.m."
+   ✅ RIGHT: Output 2 separate Facts:
+      - "Most states require fuel to be authorized by an employee before a pump can dispense fuel"
+      - "Some states mandate pre-payment after certain hours, usually between 10 p.m. and 6 a.m."
 
 3. **Forbidden Patterns:**
-   - NO umbrella statements ("Employees must verify..." unless that's literally all the source says)
+   - NO umbrella statements combining multiple specifics
    - NO summaries ("Certain behaviors..." - extract each behavior separately)
    - NO meta-labels ("steps for", "tips for", "how to")
+   - NO combining with "and", "including", or lists within one fact
+
+4. **Completeness:**
+   - Extract EVERY specific detail from the source
+   - Extract EVERY example, threshold, time range, condition
+   - If uncertain, extract MORE facts rather than fewer
 
 Output Schema:
 {
@@ -248,7 +268,10 @@ Output Schema:
   ]
 }
 
-CRITICAL: If PROCEDURE ANALYSIS contains procedures, you MUST output them as Procedures (not Facts).
+FINAL CHECK: Before outputting, verify that:
+- All Procedures from PROCEDURE ANALYSIS are included with their steps
+- No Facts combine multiple specifics with "and", "include", or commas
+- Each Fact is truly atomic (one statement only)
 
 Begin output with "{".`;
   }

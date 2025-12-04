@@ -103,8 +103,8 @@ const getPriorityColor = (priority: string) => {
 };
 
 export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate }: ComplianceDashboardProps) {
-  // Only admins see full compliance dashboard
-  if (currentRole !== 'admin') {
+  // Only admins and trike-super-admin see full compliance dashboard
+  if (currentRole !== 'admin' && currentRole !== 'trike-super-admin') {
     return null;
   }
 

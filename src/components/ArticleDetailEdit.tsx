@@ -430,7 +430,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         }
         
         const data = await response.json();
-        const newFacts = data.simple || [];
+        // Use enriched KeyFact objects (with type, steps, etc.) instead of simple strings
+        const newFacts = data.enriched || data.simple || [];
         
         if (newFacts.length === 0) {
           toast.error('No key facts could be generated from this content');
@@ -485,7 +486,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         }
         
         const data = await response.json();
-        const newFacts = data.simple || [];
+        // Use enriched KeyFact objects (with type, steps, etc.) instead of simple strings
+        const newFacts = data.enriched || data.simple || [];
         
         if (newFacts.length === 0) {
           toast.error('No key facts could be generated from this content');
@@ -754,6 +756,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '',
+        learning_objectives: editFormData.learning_objectives || [], // Include Key Facts in update
       };
 
       await crud.updateTrack(updateData);
@@ -1033,37 +1036,97 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             <CardContent>
               {isEditMode ? (
                 <div className="space-y-2">
-                  {(editFormData.learning_objectives || []).map((objective: string, index: number) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <Input
-                        value={objective}
-                        onChange={(e) => handleUpdateLearningObjective(index, e.target.value)}
-                        placeholder="Learning objective..."
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemoveLearningObjective(index)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                  {(editFormData.learning_objectives || []).map((objective: any, index: number) => {
+                    // Parse if stored as JSON string
+                    let parsed = objective;
+                    if (typeof objective === 'string' && objective.startsWith('{')) {
+                      try {
+                        parsed = JSON.parse(objective);
+                      } catch (e) {
+                        // If parsing fails, treat as plain string
+                        parsed = objective;
+                      }
+                    }
+                    
+                    // Check if this is an enriched KeyFact object
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'fact' in parsed;
+                    const displayValue = isEnriched ? parsed.fact : parsed;
+                    const isProcedure = isEnriched && parsed.type === 'Procedure';
+                    
+                    return (
+                      <div key={index} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={displayValue}
+                            onChange={(e) => handleUpdateLearningObjective(index, e.target.value)}
+                            placeholder="Key fact..."
+                            className="flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveLearningObjective(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        {isProcedure && parsed.steps && (
+                          <div className="ml-6 pl-4 border-l-2 border-orange-200 space-y-1 text-xs text-muted-foreground">
+                            {parsed.steps.map((step: string, stepIdx: number) => (
+                              <div key={stepIdx} className="flex gap-2">
+                                <span className="text-orange-500 font-semibold">{stepIdx + 1}.</span>
+                                <span>{step}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {(!editFormData.learning_objectives || editFormData.learning_objectives.length === 0) && (
                     <p className="text-sm text-muted-foreground">No key facts yet. Click "Add" to create one.</p>
                   )}
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {(track.learning_objectives || []).map((objective: string, index: number) => (
-                    <li key={index} className="flex items-start gap-3 text-sm">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-600 text-xs text-white flex-shrink-0">
-                        {index + 1}
-                      </span>
-                      <span className="pt-0.5">{objective}</span>
-                    </li>
-                  ))}
+                  {(track.learning_objectives || []).map((objective: any, index: number) => {
+                    // Parse if stored as JSON string
+                    let parsed = objective;
+                    if (typeof objective === 'string' && objective.startsWith('{')) {
+                      try {
+                        parsed = JSON.parse(objective);
+                      } catch (e) {
+                        // If parsing fails, treat as plain string
+                        parsed = objective;
+                      }
+                    }
+                    
+                    // Check if this is an enriched KeyFact object with type and steps
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+                    const isProcedure = isEnriched && parsed.type === 'Procedure' && parsed.steps;
+                    const displayText = isEnriched ? parsed.fact : parsed;
+                    
+                    return (
+                      <li key={index} className="flex items-start gap-3 text-sm">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-orange-600 text-xs text-white flex-shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="pt-0.5 flex-1">
+                          <span>{displayText}</span>
+                          {isProcedure && (
+                            <ul className="mt-2 ml-4 space-y-1 text-xs text-muted-foreground border-l-2 border-orange-200 pl-3">
+                              {parsed.steps.map((step: string, stepIndex: number) => (
+                                <li key={stepIndex} className="flex items-start gap-2">
+                                  <span className="text-orange-500 font-semibold">{stepIndex + 1}.</span>
+                                  <span>{step}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                   {(!track.learning_objectives || track.learning_objectives.length === 0) && (
                     <p className="text-sm text-muted-foreground">No key facts defined</p>
                   )}
