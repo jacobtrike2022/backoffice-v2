@@ -161,10 +161,17 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     if (initialTrackId && !selectedTrack && !hasLoadedInitialTrack) {
       console.log('📍 ContentLibrary: Loading initial track from URL:', initialTrackId);
       setHasLoadedInitialTrack(true); // Mark as loaded immediately to prevent re-runs
-      crud.getTrackById(initialTrackId).then(track => {
+      crud.getTrackByIdOrLatest(initialTrackId).then(({ track, isLatest, latestTrackId }) => {
         if (track) {
           console.log('📍 ContentLibrary: Initial track loaded:', track);
           setSelectedTrack(track);
+          
+          // If we redirected to a newer version, update the URL
+          if (!isLatest && latestTrackId !== initialTrackId) {
+            const newUrl = `/${track.type}/${latestTrackId}`;
+            console.log('🔄 Redirected to latest version, updating URL to:', newUrl);
+            window.history.pushState({ trackId: latestTrackId, trackType: track.type }, '', newUrl);
+          }
         }
       }).catch(error => {
         console.error('📍 ContentLibrary: Failed to load initial track:', error);
@@ -258,16 +265,20 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     
     // Check for unsaved changes before navigating
     const navigationFn = async () => {
-      // Fetch fresh track data instead of using cached list data
+      // Fetch fresh track data and redirect to latest version if needed
       try {
-        const freshTrack = await crud.getTrackById(track.id);
+        const { track: freshTrack, isLatest, latestTrackId } = await crud.getTrackByIdOrLatest(track.id);
         setSelectedTrack(freshTrack);
         console.log('Loaded fresh track data:', freshTrack);
         
         // Update URL without page reload
         const trackType = freshTrack.type;
-        const newUrl = `/${trackType}/${freshTrack.id}`;
-        window.history.pushState({ trackId: freshTrack.id, trackType }, '', newUrl);
+        const newUrl = `/${trackType}/${latestTrackId}`;
+        window.history.pushState({ trackId: latestTrackId, trackType }, '', newUrl);
+        
+        if (!isLatest) {
+          console.log('🔄 Redirected from old version to latest version:', latestTrackId);
+        }
       } catch (error) {
         console.error('Failed to load track:', error);
         // Fallback to cached data if fetch fails
@@ -296,12 +307,29 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const handleVersionClick = async (versionTrackId: string) => {
     console.log('🔍 Version clicked, loading version:', versionTrackId);
     try {
+      console.log('📍 Fetching track data for version:', versionTrackId);
       const versionTrack = await crud.getTrackById(versionTrackId);
+      
+      if (!versionTrack) {
+        console.error('❌ Version track not found:', versionTrackId);
+        toast.error('Version not found');
+        return;
+      }
+      
+      console.log('✅ Version track loaded:', versionTrack);
+      console.log('📊 Version details:', {
+        id: versionTrack.id,
+        version_number: versionTrack.version_number,
+        is_latest_version: versionTrack.is_latest_version,
+        title: versionTrack.title
+      });
+      
       setSelectedTrack(versionTrack);
       
       // Update URL without page reload
       const trackType = versionTrack.type;
       const newUrl = `/${trackType}/${versionTrackId}`;
+      console.log('🔗 Updating URL to:', newUrl);
       window.history.pushState({ trackId: versionTrackId, trackType }, '', newUrl);
       
       console.log('✅ Version loaded successfully');

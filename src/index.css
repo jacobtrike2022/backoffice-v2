@@ -1175,6 +1175,10 @@
     height: 100%;
   }
 
+  .h-0 {
+    height: calc(var(--spacing) * 0);
+  }
+
   .h-0\.5 {
     height: calc(var(--spacing) * .5);
   }
@@ -1401,6 +1405,10 @@
 
   .min-h-screen {
     min-height: 100vh;
+  }
+
+  .w-0 {
+    width: calc(var(--spacing) * 0);
   }
 
   .w-0\.5 {
@@ -2154,6 +2162,11 @@
     border-top-width: 1px;
   }
 
+  .border-t-\[4px\] {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 4px;
+  }
+
   .border-r {
     border-right-style: var(--tw-border-style);
     border-right-width: 1px;
@@ -2174,6 +2187,11 @@
     border-bottom-width: 2px;
   }
 
+  .border-b-\[4px\] {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 4px;
+  }
+
   .border-l {
     border-left-style: var(--tw-border-style);
     border-left-width: 1px;
@@ -2187,6 +2205,11 @@
   .border-l-4 {
     border-left-style: var(--tw-border-style);
     border-left-width: 4px;
+  }
+
+  .border-l-\[6px\] {
+    border-left-style: var(--tw-border-style);
+    border-left-width: 6px;
   }
 
   .border-dashed {
@@ -2361,6 +2384,16 @@
     }
   }
 
+  .border-primary\/30 {
+    border-color: var(--primary);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-primary\/30 {
+      border-color: color-mix(in oklab, var(--primary) 30%, transparent);
+    }
+  }
+
   .border-primary\/50 {
     border-color: var(--primary);
   }
@@ -2429,6 +2462,10 @@
     border-top-color: #0000;
   }
 
+  .border-b-transparent {
+    border-bottom-color: #0000;
+  }
+
   .border-l-blue-500 {
     border-left-color: var(--color-blue-500);
   }
@@ -2447,6 +2484,10 @@
 
   .border-l-transparent {
     border-left-color: #0000;
+  }
+
+  .border-l-white {
+    border-left-color: var(--color-white);
   }
 
   .border-l-yellow-500 {
@@ -6007,12 +6048,20 @@
     color: var(--color-white);
   }
 
+  .dark\:text-yellow-200:is(.dark *) {
+    color: var(--color-yellow-200);
+  }
+
   .dark\:text-yellow-300:is(.dark *) {
     color: var(--color-yellow-300);
   }
 
   .dark\:text-yellow-400:is(.dark *) {
     color: var(--color-yellow-400);
+  }
+
+  .dark\:text-yellow-500:is(.dark *) {
+    color: var(--color-yellow-500);
   }
 
   .dark\:ring-slate-700:is(.dark *) {

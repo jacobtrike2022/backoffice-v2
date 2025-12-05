@@ -434,9 +434,10 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
   try {
     // Dynamic import to avoid breaking the server if LLM module has issues
     const { generateKeyFacts } = await import("./llm.ts");
+    const FactService = await import("./FactService.ts");
     
     const body = await c.req.json();
-    const { title, content, description, transcript } = body;
+    const { title, content, description, transcript, trackType, trackId, companyId } = body;
     
     if (!title && !content && !transcript) {
       return c.json({ 
@@ -457,15 +458,611 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
     
     console.log(`Successfully generated ${result.enriched.length} key facts`);
     
+    // NEW: Save facts to database if trackType/trackId provided
+    const savedFactIds: string[] = [];
+    if (trackType && trackId) {
+      console.log(`Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`);
+      
+      for (const fact of result.enriched) {
+        try {
+          const savedFact = await FactService.createFact({
+            title: fact.title,
+            content: fact.fact,
+            type: fact.type,
+            steps: fact.steps,
+            context: {
+              specificity: fact.contexts?.[0] as any || 'universal',
+              tags: {},
+            },
+            extractedBy: 'ai-pass-2',
+            extractionConfidence: 0.85,
+            companyId: companyId,
+          });
+          
+          savedFactIds.push(savedFact.id);
+          
+          // Track usage
+          await FactService.trackFactUsage(savedFact.id, {
+            factId: savedFact.id,
+            type: trackType,
+            trackId: trackId,
+            addedAt: new Date().toISOString(),
+          });
+        } catch (factError: any) {
+          console.error(`Error saving fact "${fact.title}":`, factError.message);
+          // Continue with other facts
+        }
+      }
+      
+      console.log(`Saved ${savedFactIds.length} facts to database`);
+    }
+    
     return c.json({
       success: true,
       ...result,
+      factIds: savedFactIds, // Return the database IDs
     });
     
   } catch (error: any) {
     console.error('Generate key facts error:', error);
     return c.json({ 
       error: `Failed to generate key facts: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// AI: GENERATE KEY FACTS FOR STORY (PER-SLIDE)
+// =====================================================
+
+app.post("/make-server-2858cc8b/generate-story-key-facts", async (c) => {
+  try {
+    const { generateKeyFacts } = await import("./llm.ts");
+    const FactService = await import("./FactService.ts");
+    
+    const body = await c.req.json();
+    const { title, description, slides, trackId, companyId } = body;
+    
+    if (!slides || !Array.isArray(slides) || slides.length === 0) {
+      return c.json({ error: 'Slides array is required' }, 400);
+    }
+    
+    console.log(`📚 Generating key facts for story: ${title || 'Untitled'}`);
+    console.log(`📊 Processing ${slides.length} slides`);
+    
+    const allFacts: any[] = [];
+    let totalFactsGenerated = 0;
+    let displayOrder = 0;
+    
+    // Process each video slide separately
+    for (const slide of slides) {
+      if (slide.type !== 'video' || !slide.transcript || !slide.transcript.text) {
+        console.log(`⏭️  Skipping slide ${slide.name} (no transcript)`);
+        continue;
+      }
+      
+      console.log(`🎬 Processing slide: ${slide.name}`);
+      
+      // Generate facts for this slide
+      const result = await generateKeyFacts({
+        title: `${title} - ${slide.name}`,
+        transcript: slide.transcript.text,
+        description: description || '',
+      });
+      
+      if (result.enriched && result.enriched.length > 0) {
+        console.log(`✅ Generated ${result.enriched.length} facts for ${slide.name}`);
+        
+        // Enrich each fact with slide metadata and order
+        for (const fact of result.enriched) {
+          allFacts.push({
+            ...fact,
+            slideId: slide.id,
+            slideName: slide.name,
+            slideIndex: slide.order || 0,
+            display_order: displayOrder++,
+          });
+        }
+        
+        totalFactsGenerated += result.enriched.length;
+      }
+    }
+    
+    if (allFacts.length === 0) {
+      return c.json({ 
+        success: false,
+        error: 'No key facts could be generated from story transcripts' 
+      }, 400);
+    }
+    
+    console.log(`✨ Total facts generated: ${totalFactsGenerated}`);
+    
+    // Save facts to database if trackId provided
+    const savedFactIds: string[] = [];
+    if (trackId) {
+      console.log(`💾 Saving ${allFacts.length} facts to database for story:${trackId}`);
+      
+      for (const fact of allFacts) {
+        try {
+          const savedFact = await FactService.createFact({
+            title: fact.title,
+            content: fact.fact,
+            type: fact.type,
+            steps: fact.steps,
+            context: {
+              specificity: fact.contexts?.[0] as any || 'universal',
+              tags: {},
+            },
+            extractedBy: 'ai-pass-2',
+            extractionConfidence: 0.85,
+            companyId: companyId,
+          });
+          
+          savedFactIds.push(savedFact.id);
+          
+          // Track usage with slide metadata
+          await FactService.trackFactUsage(savedFact.id, {
+            factId: savedFact.id,
+            type: 'story',
+            trackId: trackId,
+            sourceMediaId: fact.slideId, // Associate with slide!
+            sourceMediaUrl: null,
+            displayOrder: fact.display_order, // Preserve order!
+            addedAt: new Date().toISOString(),
+          });
+          
+          console.log(`  ✓ Saved fact "${fact.title}" (slide: ${fact.slideName}, order: ${fact.display_order})`);
+        } catch (factError: any) {
+          console.error(`  ✗ Error saving fact "${fact.title}":`, factError.message);
+        }
+      }
+      
+      console.log(`✅ Saved ${savedFactIds.length}/${allFacts.length} facts to database`);
+    }
+    
+    return c.json({
+      success: true,
+      enriched: allFacts,
+      simple: allFacts.map(f => f.fact || f.content),
+      totalFacts: allFacts.length,
+      factIds: savedFactIds,
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Generate story key facts error:', error);
+    return c.json({ 
+      error: `Failed to generate story key facts: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// FACTS: GET FACTS FOR A TRACK
+// =====================================================
+
+app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
+  try {
+    const FactService = await import("./FactService.ts");
+    const trackId = c.req.param('trackId');
+    
+    if (!trackId) {
+      return c.json({ error: 'Track ID is required' }, 400);
+    }
+    
+    console.log(`📊 Fetching facts for track: ${trackId}`);
+    
+    // Look up the track type from the database
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('type')
+      .eq('id', trackId)
+      .single();
+    
+    if (trackError || !track) {
+      console.error('Error fetching track type:', trackError);
+      return c.json({ error: 'Track not found' }, 404);
+    }
+    
+    console.log(`📊 Track type: ${track.type}`);
+    
+    const facts = await FactService.getFactsForTrack(track.type, trackId);
+    
+    console.log(`✅ Found ${facts.length} facts for track ${trackId}`);
+    
+    return c.json({
+      success: true,
+      facts: facts,
+      count: facts.length
+    });
+    
+  } catch (error: any) {
+    console.error('Get facts for track error:', error);
+    return c.json({ 
+      error: `Failed to get facts: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// CACHED TRANSCRIPTION: Single media with caching
+// =====================================================
+
+app.post("/make-server-2858cc8b/transcribe-cached", async (c) => {
+  try {
+    const TranscriptService = await import("./TranscriptService.ts");
+    const body = await c.req.json();
+    const { mediaUrl, mediaType, trackId, forceRefresh } = body;
+    
+    if (!mediaUrl || !trackId) {
+      return c.json({ 
+        error: 'mediaUrl and trackId are required' 
+      }, 400);
+    }
+    
+    console.log(`🎬 Transcribing media (cached): ${mediaUrl.substring(0, 50)}...`);
+    console.log(`   Track ID: ${trackId}, Force refresh: ${forceRefresh || false}`);
+    
+    const result = await TranscriptService.getOrCreateTranscript(
+      mediaUrl,
+      mediaType || 'video',
+      trackId,
+      forceRefresh || false
+    );
+    
+    return c.json({
+      success: true,
+      transcript: result.transcript,
+      cached: result.cached,
+      message: result.message
+    });
+    
+  } catch (error: any) {
+    console.error('Cached transcription error:', error);
+    return c.json({ 
+      error: `Failed to transcribe: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// CACHED STORY TRANSCRIPTION: Batch with caching
+// =====================================================
+
+app.post("/make-server-2858cc8b/transcribe-story-cached", async (c) => {
+  try {
+    const TranscriptService = await import("./TranscriptService.ts");
+    const body = await c.req.json();
+    const { trackId, slides, forceRefresh } = body;
+    
+    if (!trackId || !slides) {
+      return c.json({ 
+        error: 'trackId and slides are required' 
+      }, 400);
+    }
+    
+    console.log(`📦 Batch transcribing story with ${slides.length} slides...`);
+    
+    // Filter for video slides only
+    const videoSlides = slides.filter((slide: any) => 
+      slide.type === 'video' && slide.url
+    );
+    
+    if (videoSlides.length === 0) {
+      return c.json({
+        success: true,
+        transcripts: [],
+        stats: { total: 0, cached: 0, newlyTranscribed: 0, failed: 0 },
+        message: 'No video slides found'
+      });
+    }
+    
+    // Batch transcribe with caching
+    const result = await TranscriptService.batchTranscribe(
+      videoSlides.map((slide: any) => ({
+        url: slide.url,
+        type: 'video',
+        id: slide.id,
+        name: slide.name
+      })),
+      trackId,
+      forceRefresh || false
+    );
+    
+    console.log(`✅ Batch transcription complete: ${result.stats.cached} cached, ${result.stats.newlyTranscribed} new`);
+    
+    return c.json({
+      success: true,
+      transcripts: result.transcripts,
+      stats: result.stats
+    });
+    
+  } catch (error: any) {
+    console.error('Cached story transcription error:', error);
+    return c.json({ 
+      error: `Failed to transcribe story: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// TRANSCRIPT RETRIEVAL: Get by ID or URL
+// =====================================================
+
+app.get("/make-server-2858cc8b/transcript/:id", async (c) => {
+  try {
+    const TranscriptService = await import("./TranscriptService.ts");
+    const transcriptId = c.req.param('id');
+    
+    const transcript = await TranscriptService.getTranscriptById(transcriptId);
+    
+    if (!transcript) {
+      return c.json({ error: 'Transcript not found' }, 404);
+    }
+    
+    return c.json({
+      success: true,
+      transcript
+    });
+    
+  } catch (error: any) {
+    console.error('Get transcript error:', error);
+    return c.json({ 
+      error: `Failed to get transcript: ${error.message}` 
+    }, 500);
+  }
+});
+
+app.get("/make-server-2858cc8b/transcript/by-url", async (c) => {
+  try {
+    const TranscriptService = await import("./TranscriptService.ts");
+    const mediaUrl = c.req.query('url');
+    
+    if (!mediaUrl) {
+      return c.json({ error: 'url query parameter is required' }, 400);
+    }
+    
+    const transcript = await TranscriptService.getTranscriptByUrl(mediaUrl);
+    
+    return c.json({
+      success: true,
+      transcript: transcript || null
+    });
+    
+  } catch (error: any) {
+    console.error('Get transcript by URL error:', error);
+    return c.json({ 
+      error: `Failed to get transcript: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// TRANSCRIPT STATS: Usage analytics
+// =====================================================
+
+app.get("/make-server-2858cc8b/transcript-stats", async (c) => {
+  try {
+    const TranscriptService = await import("./TranscriptService.ts");
+    const stats = await TranscriptService.getTranscriptStats();
+    
+    return c.json({
+      success: true,
+      stats
+    });
+    
+  } catch (error: any) {
+    console.error('Get transcript stats error:', error);
+    return c.json({ 
+      error: `Failed to get stats: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// STORY TRANSCRIPTION: Process multiple videos in a story (LEGACY - no caching)
+// =====================================================
+
+app.post("/make-server-2858cc8b/transcribe-story", async (c) => {
+  try {
+    const { transcribeVideo } = await import("./transcribe.tsx");
+    const body = await c.req.json();
+    const { storyData } = body;
+    
+    if (!storyData) {
+      return c.json({ error: 'storyData is required' }, 400);
+    }
+    
+    console.log('📽️ Processing story transcription (legacy endpoint)...');
+    
+    // Parse story_data to extract slides
+    let slides = [];
+    try {
+      slides = typeof storyData === 'string' ? JSON.parse(storyData) : storyData;
+    } catch (parseError: any) {
+      return c.json({ error: `Failed to parse story data: ${parseError.message}` }, 400);
+    }
+    
+    // Filter for video slides only
+    const videoSlides = slides.filter((slide: any) => slide.type === 'video' && slide.url);
+    
+    console.log(`Found ${videoSlides.length} video slides out of ${slides.length} total slides`);
+    
+    if (videoSlides.length === 0) {
+      return c.json({
+        success: true,
+        transcripts: [],
+        message: 'No video slides found in story'
+      });
+    }
+    
+    // Process each video slide
+    const transcripts = [];
+    
+    for (const slide of videoSlides) {
+      try {
+        console.log(`Transcribing video: ${slide.name || 'Unnamed'}`);
+        const transcriptData = await transcribeVideo(slide.url);
+        
+        transcripts.push({
+          slideName: slide.name || 'Unnamed Video',
+          slideId: slide.id,
+          slideOrder: slide.order,
+          transcript: transcriptData
+        });
+        
+        console.log(`✅ Transcribed: ${slide.name || 'Unnamed'}`);
+      } catch (error: any) {
+        console.error(`❌ Failed to transcribe ${slide.name || 'Unnamed'}:`, error.message);
+        // Continue with other videos even if one fails
+        transcripts.push({
+          slideName: slide.name || 'Unnamed Video',
+          slideId: slide.id,
+          slideOrder: slide.order,
+          error: error.message
+        });
+      }
+    }
+    
+    console.log(`✅ Story transcription complete. Processed ${transcripts.length} videos`);
+    
+    return c.json({
+      success: true,
+      transcripts: transcripts,
+      totalVideos: videoSlides.length,
+      successCount: transcripts.filter(t => !t.error).length,
+      errorCount: transcripts.filter(t => t.error).length
+    });
+    
+  } catch (error: any) {
+    console.error('Story transcription error:', error);
+    return c.json({ 
+      error: `Failed to transcribe story: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
+// STORY FACTS: Generate facts from story with media source tracking
+// =====================================================
+
+app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
+  try {
+    const { generateKeyFacts } = await import("./llm.ts");
+    const FactService = await import("./FactService.ts");
+    
+    const body = await c.req.json();
+    const { 
+      title, 
+      description, 
+      transcripts,  // Array of { slideId, slideName, slideOrder, slideUrl, slideType, transcript }
+      trackId, 
+      companyId 
+    } = body;
+    
+    if (!title && !transcripts?.length) {
+      return c.json({ 
+        error: 'Title and transcripts are required' 
+      }, 400);
+    }
+    
+    console.log(`🎯 Generating story facts for: ${title}`);
+    console.log(`   Transcripts provided: ${transcripts?.length || 0}`);
+    
+    // Combine all transcripts into one text
+    const combinedTranscript = transcripts
+      .map((t: any) => `[${t.slideName}]\n${t.transcript?.text || t.transcript || ''}`)
+      .join('\n\n');
+    
+    console.log(`   Combined transcript length: ${combinedTranscript.length} characters`);
+    
+    // Generate facts from combined content
+    const result = await generateKeyFacts({
+      title,
+      description,
+      transcript: combinedTranscript,
+    });
+    
+    console.log(`✅ Generated ${result.enriched.length} key facts`);
+    
+    // Save facts with media source tracking
+    const savedFactIds: string[] = [];
+    const factsWithMetadata: any[] = [];
+    
+    if (trackId && companyId) {
+      console.log(`💾 Saving facts with media source tracking...`);
+      
+      // For each fact, try to determine which slide it came from
+      // This is a simplified approach - in production you might want more sophisticated matching
+      for (let i = 0; i < result.enriched.length; i++) {
+        const fact = result.enriched[i];
+        
+        // Round-robin assignment of facts to slides (simple distribution)
+        const sourceSlide = transcripts[i % transcripts.length];
+        
+        try {
+          const savedFact = await FactService.createFact({
+            title: fact.title,
+            content: fact.fact,
+            type: fact.type,
+            steps: fact.steps,
+            context: {
+              specificity: fact.contexts?.[0] as any || 'universal',
+              tags: {},
+            },
+            extractedBy: 'ai-pass-2',
+            extractionConfidence: 0.85,
+            companyId: companyId,
+          });
+          
+          savedFactIds.push(savedFact.id);
+          
+          // Track usage with media source metadata
+          await FactService.trackFactUsage(savedFact.id, {
+            factId: savedFact.id,
+            type: 'story',
+            trackId: trackId,
+            addedAt: new Date().toISOString(),
+            // Media source tracking
+            sourceMediaId: sourceSlide.slideId,
+            sourceMediaUrl: sourceSlide.slideUrl,
+            sourceMediaType: sourceSlide.slideType || 'video',
+            displayOrder: sourceSlide.slideOrder,
+          });
+          
+          // Add metadata to fact for client
+          factsWithMetadata.push({
+            ...fact,
+            slideId: sourceSlide.slideId,
+            slideName: sourceSlide.slideName,
+            slideIndex: sourceSlide.slideOrder
+          });
+          
+        } catch (factError: any) {
+          console.error(`Error saving fact "${fact.title}":`, factError.message);
+          // Still add to client response even if save failed
+          factsWithMetadata.push({
+            ...fact,
+            slideId: sourceSlide.slideId,
+            slideName: sourceSlide.slideName,
+            slideIndex: sourceSlide.slideOrder
+          });
+        }
+      }
+      
+      console.log(`✅ Saved ${savedFactIds.length} facts with media source tracking`);
+    }
+    
+    return c.json({
+      success: true,
+      enriched: factsWithMetadata.length > 0 ? factsWithMetadata : result.enriched,
+      simple: result.simple,
+      factIds: savedFactIds,
+    });
+    
+  } catch (error: any) {
+    console.error('Generate story facts error:', error);
+    return c.json({ 
+      error: `Failed to generate story facts: ${error.message}` 
     }, 500);
   }
 });

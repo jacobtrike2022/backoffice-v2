@@ -1,5 +1,5 @@
 // Temporary file for the new PDF handler - to be integrated
-export const handleDownloadPDF_NEW = async (selectedTrack: any, processedContent: string, formatDate: (date: string) => string, toast: any) => {
+export const handleDownloadPDF_NEW = async (selectedTrack: any, selectedTrackFacts: any[], processedContent: string, formatDate: (date: string) => string, toast: any) => {
   if (!selectedTrack) return;
 
   try {
@@ -96,18 +96,19 @@ export const handleDownloadPDF_NEW = async (selectedTrack: any, processedContent
       yPosition += 20;
     }
 
-    // Learning Objectives
-    if (selectedTrack.learning_objectives && selectedTrack.learning_objectives.length > 0) {
+    // Key Facts
+    if (selectedTrackFacts && selectedTrackFacts.length > 0) {
       checkPageBreak(40);
       yPosition += 10;
       
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
-      doc.text('What You\'ll Learn', margin, yPosition);
+      doc.text('Key Facts', margin, yPosition);
       yPosition += 25;
       
-      selectedTrack.learning_objectives.forEach((obj: string) => {
+      selectedTrackFacts.forEach((factObj: any) => {
+        const obj = factObj.content || factObj.fact || factObj;
         checkPageBreak(30);
         
         doc.setFontSize(11);

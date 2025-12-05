@@ -45,42 +45,65 @@ export async function transcribeVideo(audioUrl: string) {
 
   console.log('Starting transcription for:', audioUrl);
 
-  // Download file from Supabase Storage first
+  // Check if this is a signed URL (has token parameter) - AssemblyAI can access these directly
+  const urlObj = new URL(audioUrl);
+  const hasToken = urlObj.searchParams.has('token');
+  
   let uploadUrl: string;
   
-  try {
-    // Extract bucket and path from the URL
-    // URL format: https://[project].supabase.co/storage/v1/object/sign/[bucket]/[path]?token=...
-    // or: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
-    const urlObj = new URL(audioUrl);
-    const pathParts = urlObj.pathname.split('/');
-    const bucketIndex = pathParts.findIndex(part => part === 'sign' || part === 'public') + 1;
-    const bucket = pathParts[bucketIndex];
-    const filePath = pathParts.slice(bucketIndex + 1).join('/');
+  if (hasToken) {
+    // Signed URL - AssemblyAI can access it directly
+    console.log('Using signed URL directly (has token)');
+    uploadUrl = audioUrl;
+  } else {
+    // Not a signed URL - need to download and re-upload to AssemblyAI
+    console.log('Downloading file to re-upload (no token)');
     
-    console.log('Downloading from Supabase Storage:', { bucket, filePath });
-    
-    // Download the file using service role
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from(bucket)
-      .download(filePath);
-    
-    if (downloadError || !fileData) {
-      throw new Error(`Failed to download file from storage: ${downloadError?.message || 'No data'}`);
+    try {
+      // Extract bucket and path from the URL
+      // URL format: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
+      const pathParts = urlObj.pathname.split('/');
+      const bucketIndex = pathParts.findIndex(part => part === 'sign' || part === 'public') + 1;
+      
+      if (bucketIndex === 0) {
+        throw new Error(`Invalid storage URL format: ${audioUrl}`);
+      }
+      
+      const bucket = pathParts[bucketIndex];
+      const filePath = pathParts.slice(bucketIndex + 1).join('/');
+      
+      console.log('Downloading from Supabase Storage:', { bucket, filePath });
+      
+      // Download the file using service role
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from(bucket)
+        .download(filePath);
+      
+      if (downloadError || !fileData) {
+        console.error('Storage download error details:', { 
+          error: downloadError, 
+          errorMessage: downloadError?.message,
+          errorStringified: JSON.stringify(downloadError),
+          bucket, 
+          filePath,
+          hasData: !!fileData 
+        });
+        throw new Error(`Failed to download file from storage. Bucket: ${bucket}, Path: ${filePath}, Error: ${JSON.stringify(downloadError) || 'No data returned'}`);
+      }
+      
+      console.log('File downloaded, size:', fileData.size);
+      
+      // Convert blob to buffer
+      const arrayBuffer = await fileData.arrayBuffer();
+      const fileBuffer = new Uint8Array(arrayBuffer);
+      
+      // Upload to AssemblyAI
+      uploadUrl = await uploadToAssemblyAI(fileBuffer);
+      
+    } catch (error: any) {
+      console.error('Error downloading file:', error);
+      throw new Error(`Failed to process file: ${error.message}`);
     }
-    
-    console.log('File downloaded, size:', fileData.size);
-    
-    // Convert blob to buffer
-    const arrayBuffer = await fileData.arrayBuffer();
-    const fileBuffer = new Uint8Array(arrayBuffer);
-    
-    // Upload to AssemblyAI
-    uploadUrl = await uploadToAssemblyAI(fileBuffer);
-    
-  } catch (error: any) {
-    console.error('Error downloading file:', error);
-    throw new Error(`Failed to process file: ${error.message}`);
   }
 
   // Step 1: Submit transcription request with the uploaded file

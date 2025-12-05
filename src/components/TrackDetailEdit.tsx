@@ -76,6 +76,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
   
+  // Facts loaded from database (for view mode)
+  const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
+  
+  // Original facts loaded from DB (for edit mode comparison)
+  const [originalFacts, setOriginalFacts] = useState<any[]>([]);
+  
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -195,21 +201,99 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   // Initialize form data when entering edit mode
   useEffect(() => {
     if (isEditMode) {
-      setEditFormData({
-        title: track.title || '',
-        description: track.description || '',
-        duration_minutes: track.duration_minutes || '',
-        transcript: track.transcript || '',
-        transcript_data: track.transcript_data || null, // Initialize from track
-        learning_objectives: track.learning_objectives || [],
-        tags: track.tags || [],
-        content_url: track.content_url || '',
-        thumbnail_url: track.thumbnail_url || '',
-        type: track.type || 'video',
-        show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
-      });
+      const loadTrackData = async () => {
+        // Fetch facts from database (new facts table)
+        let facts: any[] = [];
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            // Convert DB facts to frontend format
+            facts = (data.facts || []).map((f: any) => ({
+              title: f.title,
+              fact: f.content,
+              content: f.content,
+              type: f.type,
+              steps: f.steps || [],
+              contexts: [f.context?.specificity || 'universal'],
+              _dbId: f.id,
+              _extractedBy: f.extracted_by,
+            }));
+            console.log(`📊 Loaded ${facts.length} facts from database for track ${track.id}`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts from database:', error);
+        }
+        
+        // Store original facts for comparison
+        setOriginalFacts(facts);
+        
+        setEditFormData({
+          title: track.title || '',
+          description: track.description || '',
+          duration_minutes: track.duration_minutes || '',
+          transcript: track.transcript || '',
+          transcript_data: track.transcript_data || null,
+          learning_objectives: facts,
+          tags: track.tags || [],
+          content_url: track.content_url || '',
+          thumbnail_url: track.thumbnail_url || '',
+          type: track.type || 'video',
+          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+        });
+      };
+      
+      loadTrackData();
     }
   }, [isEditMode, track]);
+
+  // Load facts for view mode
+  useEffect(() => {
+    if (!isEditMode && track.id) {
+      const loadViewModeFacts = async () => {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            const facts = (data.facts || []).map((f: any) => ({
+              title: f.title,
+              fact: f.content,
+              content: f.content,
+              type: f.type,
+              steps: f.steps || [],
+              contexts: [f.context?.specificity || 'universal'],
+            }));
+            setViewModeFacts(facts);
+            console.log(`📊 Loaded ${facts.length} facts for view mode`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for view mode:', error);
+        }
+      };
+      
+      loadViewModeFacts();
+    }
+  }, [isEditMode, track.id]);
 
   // Debug: Log when editFormData changes
   useEffect(() => {
@@ -234,7 +318,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       durationChanged: editFormData.duration_minutes !== (track.duration_minutes || ''),
       urlChanged: editFormData.content_url !== (track.content_url || ''),
       thumbChanged: editFormData.thumbnail_url !== (track.thumbnail_url || ''),
-      objectivesChanged: !areArraysEqual(editFormData.learning_objectives, track.learning_objectives),
+      objectivesChanged: !areArraysEqual(editFormData.learning_objectives, originalFacts),
       tagsChanged: !areArraysEqual(editFormData.tags, track.tags),
       editFormData,
       trackData: { title: track.title, description: track.description, duration_minutes: track.duration_minutes, tags: track.tags }
@@ -251,7 +335,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       editFormData.duration_minutes !== (track.duration_minutes || '') ||
       editFormData.content_url !== (track.content_url || '') ||
       editFormData.thumbnail_url !== (track.thumbnail_url || '') ||
-      !areArraysEqual(editFormData.learning_objectives, track.learning_objectives) ||
+      !areArraysEqual(editFormData.learning_objectives, originalFacts) ||
       !areArraysEqual(editFormData.tags, track.tags)
     );
     
@@ -314,7 +398,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         description: editFormData.description || track.description,
         content_url: editFormData.content_url || track.content_url,
         duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
-        learning_objectives: editFormData.learning_objectives || track.learning_objectives || [],
+        // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
         type: editFormData.type,
@@ -333,7 +417,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         saveData.thumbnail_url !== (track.thumbnail_url || '') ||
         saveData.type !== track.type ||
         JSON.stringify(saveData.transcript_data) !== JSON.stringify(track.transcript_data || null) ||
-        !areArraysEqual(saveData.learning_objectives || [], track.learning_objectives || []);
+        !areArraysEqual(editFormData.learning_objectives, originalFacts);
 
       const tagsChanged = !areArraysEqual(saveData.tags, track.tags);
       
@@ -451,6 +535,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               title: editFormData.title || 'Untitled Video',
               transcript: transcriptText,
               description: editFormData.description || '',
+              trackType: 'video',
+              trackId: track.id,
+              companyId: track.company_id,
             }),
           }
         );
@@ -503,6 +590,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               title: editFormData.title || 'Untitled Video',
               transcript: transcriptText,
               description: editFormData.description || '',
+              trackType: 'video',
+              trackId: track.id,
+              companyId: track.company_id,
             }),
           }
         );
@@ -882,7 +972,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         description: editFormData.description || track.description,
         content_url: editFormData.content_url || track.content_url,
         duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
-        learning_objectives: editFormData.learning_objectives || track.learning_objectives || [],
+        // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
         type: editFormData.type,
@@ -1312,8 +1402,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {track.learning_objectives && track.learning_objectives.length > 0 ? (
-                    track.learning_objectives.map((objective: any, index: number) => {
+                  {viewModeFacts && viewModeFacts.length > 0 ? (
+                    viewModeFacts.map((objective: any, index: number) => {
                       // Parse if stored as JSON string
                       let parsed = objective;
                       if (typeof objective === 'string' && objective.startsWith('{')) {
@@ -1696,8 +1786,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           
           toast.success(`Version ${(track.version_number || 1) + 1} created with ${strategy} strategy!`);
           
-          console.log('🔄 Closing modal...');
+          console.log('🔄 Closing modal and resetting state...');
           setIsVersionModalOpen(false);
+          setPendingChanges(null); // CRITICAL: Clear pending changes
+          setIsSaving(false); // Reset saving state
+          
           console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           

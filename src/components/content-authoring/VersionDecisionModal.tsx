@@ -132,14 +132,18 @@ export function VersionDecisionModal({
       console.log('🎉 Version creation complete! Calling onVersionCreated callback...');
       // Call the callback - parent will handle modal closing and navigation
       onVersionCreated(newVersion.id, strategy);
+      
+      // Reset isSaving after successful callback
+      // The parent will handle modal closing and navigation
+      setIsSaving(false);
+      
       // Don't call onClose() here - let parent handle it after callback completes
     } catch (error: any) {
       console.error('❌ Error creating version:', error);
       console.error('Error stack:', error.stack);
       alert(`Failed to create version: ${error.message}`);
-      setIsSaving(false); // Only reset saving state on error
+      setIsSaving(false); // Reset saving state on error
     }
-    // Don't have finally block - let the success path keep isSaving true until navigation
   };
 
   return (

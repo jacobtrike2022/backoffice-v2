@@ -79,6 +79,12 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
   
+  // Facts loaded from database (for view mode)
+  const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
+  
+  // Original facts loaded from DB (for edit mode comparison)
+  const [originalFacts, setOriginalFacts] = useState<any[]>([]);
+  
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -162,28 +168,106 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   // Initialize form data when entering edit mode
   useEffect(() => {
     if (isEditMode) {
-      console.log('📝 ArticleDetailEdit - Initializing form data in edit mode');
-      console.log('📝 Track object:', track);
-      console.log('📝 Track transcript:', track.transcript);
-      console.log('📝 Track article_body:', track.article_body);
+      const loadArticleData = async () => {
+        console.log('📝 ArticleDetailEdit - Initializing form data in edit mode');
+        console.log('📝 Track object:', track);
+        console.log('📝 Track transcript:', track.transcript);
+        console.log('📝 Track article_body:', track.article_body);
+        
+        // Fetch facts from database (new facts table)
+        let facts: any[] = [];
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            // Convert DB facts to frontend format
+            facts = (data.facts || []).map((f: any) => ({
+              title: f.title,
+              fact: f.content,
+              content: f.content,
+              type: f.type,
+              steps: f.steps || [],
+              contexts: [f.context?.specificity || 'universal'],
+              _dbId: f.id,
+              _extractedBy: f.extracted_by,
+            }));
+            console.log(`📊 Loaded ${facts.length} facts from database for article ${track.id}`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts from database:', error);
+        }
+        
+        // Store original facts for comparison
+        setOriginalFacts(facts);
+        
+        setEditFormData({
+          title: track.title || '',
+          description: track.description || '',
+          duration_minutes: track.duration_minutes || '',
+          learning_objectives: facts,
+          tags: track.tags || [],
+          content_url: track.content_url || '',
+          thumbnail_url: track.thumbnail_url || '',
+          type: track.type || 'article',
+          article_body: track.transcript || '', // Article body is stored in transcript field
+          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+        });
+        
+        console.log('📝 Form data initialized with article_body:', track.transcript || '');
+        setIsFormDataLoaded(true); // Mark form data as loaded
+      };
       
-      setEditFormData({
-        title: track.title || '',
-        description: track.description || '',
-        duration_minutes: track.duration_minutes || '',
-        learning_objectives: track.learning_objectives || [],
-        tags: track.tags || [],
-        content_url: track.content_url || '',
-        thumbnail_url: track.thumbnail_url || '',
-        type: track.type || 'article',
-        article_body: track.transcript || '', // Article body is stored in transcript field
-        show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
-      });
-      
-      console.log('📝 Form data initialized with article_body:', track.transcript || '');
-      setIsFormDataLoaded(true); // Mark form data as loaded
+      loadArticleData();
     }
   }, [isEditMode, track]);
+
+  // Load facts for view mode
+  useEffect(() => {
+    if (!isEditMode && track.id) {
+      const loadViewModeFacts = async () => {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            const facts = (data.facts || []).map((f: any) => ({
+              title: f.title,
+              fact: f.content,
+              content: f.content,
+              type: f.type,
+              steps: f.steps || [],
+              contexts: [f.context?.specificity || 'universal'],
+            }));
+            setViewModeFacts(facts);
+            console.log(`📊 Loaded ${facts.length} facts for article view mode`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for view mode:', error);
+        }
+      };
+      
+      loadViewModeFacts();
+    }
+  }, [isEditMode, track.id]);
 
   const areArraysEqual = (a: any[] | undefined | null, b: any[] | undefined | null) => {
     const arr1 = a || [];
@@ -205,7 +289,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       editFormData.article_body !== (track.transcript || '') ||
       editFormData.content_url !== (track.content_url || '') ||
       editFormData.thumbnail_url !== (track.thumbnail_url || '') ||
-      !areArraysEqual(editFormData.learning_objectives, track.learning_objectives) ||
+      !areArraysEqual(editFormData.learning_objectives, originalFacts) ||
       !areArraysEqual(editFormData.tags, track.tags)
     );
   };
@@ -272,7 +356,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '', // Store article body as transcript
-        learning_objectives: editFormData.learning_objectives || [], // Include Key Facts in update
+        // learning_objectives removed - facts are now stored in the facts table
       };
 
       console.log('💾 Update data prepared:', updateData);
@@ -287,7 +371,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         updateData.thumbnail_url !== (track.thumbnail_url || '') ||
         updateData.type !== track.type ||
         updateData.transcript !== (track.transcript || '') ||
-        !areArraysEqual(updateData.learning_objectives || [], track.learning_objectives || []);
+        !areArraysEqual(editFormData.learning_objectives, originalFacts);
 
       const tagsChanged = !areArraysEqual(updateData.tags, track.tags);
       
@@ -347,7 +431,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       title: track.title || '',
       description: track.description || '',
       duration_minutes: track.duration_minutes || '',
-      learning_objectives: track.learning_objectives || [],
+      learning_objectives: originalFacts || [],
       tags: track.tags || [],
       content_url: track.content_url || '',
       thumbnail_url: track.thumbnail_url || '',
@@ -420,6 +504,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               title: editFormData.title || 'Untitled Article',
               content: plainText,
               description: editFormData.description || '',
+              trackType: 'article',
+              trackId: track?.id,
+              companyId: track?.company_id,
             }),
           }
         );
@@ -476,6 +563,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               title: editFormData.title || 'Untitled Article',
               content: plainText,
               description: editFormData.description || '',
+              trackType: 'article',
+              trackId: track?.id,
+              companyId: track?.company_id,
             }),
           }
         );
@@ -756,7 +846,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '',
-        learning_objectives: editFormData.learning_objectives || [], // Include Key Facts in update
+        // learning_objectives removed - facts are now stored in the facts table
       };
 
       await crud.updateTrack(updateData);
@@ -1089,7 +1179,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {(track.learning_objectives || []).map((objective: any, index: number) => {
+                  {(viewModeFacts || []).map((objective: any, index: number) => {
                     // Parse if stored as JSON string
                     let parsed = objective;
                     if (typeof objective === 'string' && objective.startsWith('{')) {
@@ -1127,7 +1217,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       </li>
                     );
                   })}
-                  {(!track.learning_objectives || track.learning_objectives.length === 0) && (
+                  {(!viewModeFacts || viewModeFacts.length === 0) && (
                     <p className="text-sm text-muted-foreground">No key facts defined</p>
                   )}
                 </ul>

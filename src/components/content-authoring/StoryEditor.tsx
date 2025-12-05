@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -12,6 +12,8 @@ import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
+import { StoryPreview } from './StoryPreview';
+import { StoryTranscript } from './StoryTranscript';
 import { 
   ArrowLeft, 
   Save, 
@@ -32,11 +34,15 @@ import {
   ChevronRight,
   PlayCircle,
   Loader2,
-  History
+  History,
+  Sparkles,
+  Zap,
+  CheckCircle2
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 interface Slide {
   id: string;
@@ -45,6 +51,13 @@ interface Slide {
   url: string;
   order: number;
   duration?: number; // Duration in seconds (for videos) or default for images
+  transcript?: {
+    text: string;
+    words?: any[];
+    utterances?: any[];
+    confidence?: number;
+    audio_duration?: number;
+  };
 }
 
 interface StoryEditorProps {
@@ -91,7 +104,8 @@ export function StoryEditor({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [slides, setSlides] = useState<Slide[]>([]);
-  const [objectives, setObjectives] = useState<string[]>(['']);
+  const [objectives, setObjectives] = useState<any[]>(['']);
+  const [originalObjectivesFromDB, setOriginalObjectivesFromDB] = useState<any[]>([]);
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [thumbnailUrl, setThumbnailUrl] = useState('');
@@ -118,10 +132,21 @@ export function StoryEditor({
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
+  
+  // AI Key Facts generation
+  const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
+  
+  // Track current slides to avoid state closure issues in handleSave
+  const slidesRef = useRef(slides);
 
   const currentTrackId = trackId || track?.id;
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
   const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
+  
+  // Keep slidesRef in sync with slides state
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
   
   // Calculate story duration
   const calculateStoryDuration = () => {
@@ -179,12 +204,76 @@ export function StoryEditor({
   // Load existing story
   useEffect(() => {
     if (track) {
+      console.log('📥 Loading story from track prop');
       setExistingTrack(track);
       loadStoryData(track);
     } else if (trackId) {
+      console.log('📥 Loading story from trackId');
       loadStory();
     }
   }, [trackId, track]);
+
+  // Load facts for view mode
+  useEffect(() => {
+    if (!isEditMode && (track?.id || trackId)) {
+      const loadViewModeFacts = async () => {
+        try {
+          const id = track?.id || trackId;
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            // Preserve full fact metadata for view mode grouping
+            const factsFromDB = (data.facts || []).map((f: any) => {
+              // If fact has usage metadata with media source, preserve it
+              if (f.usage && f.usage.length > 0) {
+                const usage = f.usage[0]; // First usage record
+                
+                // Try to find the slide by media URL or ID
+                let slideName = null;
+                let slideIndex = usage.display_order || 0;
+                
+                if (usage.source_media_id) {
+                  const slide = slides?.find((s: any) => s.id === usage.source_media_id);
+                  if (slide) {
+                    slideName = slide.name || `Slide ${slideIndex + 1}`;
+                  }
+                }
+                
+                // If we have media source info, return enriched fact
+                if (slideName || usage.source_media_id) {
+                  return {
+                    fact: f.content || f.title,
+                    title: f.title,
+                    type: f.type,
+                    slideId: usage.source_media_id,
+                    slideName: slideName || 'Unknown Slide',
+                    slideIndex: slideIndex
+                  };
+                }
+              }
+              // Fallback to simple text
+              return f.content || f.fact || f.title;
+            });
+            setObjectives(factsFromDB.length > 0 ? factsFromDB : ['']);
+            console.log(`📊 View mode: Loaded ${factsFromDB.length} facts from DB`, factsFromDB);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for story view mode:', error);
+        }
+      };
+      loadViewModeFacts();
+    }
+  }, [isEditMode, track?.id, trackId, slides]);
 
   const loadStory = async () => {
     if (!trackId) return;
@@ -202,7 +291,7 @@ export function StoryEditor({
     }
   };
 
-  const loadStoryData = (trackData: any) => {
+  const loadStoryData = async (trackData: any) => {
     setTitle(trackData.title || '');
     setDescription(trackData.description || '');
     setTags(trackData.tags || []);
@@ -211,12 +300,29 @@ export function StoryEditor({
     setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
+    console.log('📖 ========== LOADING STORY DATA ==========');
+    console.log('📖 Track ID:', trackData.id);
+    console.log('📖 Transcript field length:', trackData.transcript?.length || 0);
+    
     let parsedSlides: any[] = [];
     let parsedObjectives: string[] = [];
     if (trackData.transcript) {
       try {
         const storyData = JSON.parse(trackData.transcript);
+        console.log('📖 Parsed story data:', {
+          slideCount: storyData.slides?.length || 0,
+          objectiveCount: storyData.objectives?.length || 0
+        });
+        
         if (storyData.slides && Array.isArray(storyData.slides)) {
+          storyData.slides.forEach((slide, idx) => {
+            console.log(`📖 Slide ${idx + 1} (${slide.id}):`, {
+              name: slide.name,
+              hasTranscript: !!slide.transcript,
+              transcriptTextLength: slide.transcript?.text?.length || 0,
+              transcriptPreview: slide.transcript?.text?.substring(0, 100) + '...'
+            });
+          });
           setSlides(storyData.slides);
           parsedSlides = storyData.slides;
         }
@@ -226,6 +332,32 @@ export function StoryEditor({
         }
       } catch (e) {
         console.error('Error parsing story data:', e);
+      }
+    }
+    
+    // Load objectives from facts table for comparison
+    if (trackData.id) {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${trackData.id}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          const factsFromDB = (data.facts || []).map((f: any) => f.content || f.fact || f.title);
+          setOriginalObjectivesFromDB(factsFromDB);
+          console.log(`📊 Loaded ${factsFromDB.length} facts from DB for story comparison`);
+        }
+      } catch (error) {
+        console.warn('Could not fetch facts for story:', error);
+        setOriginalObjectivesFromDB([]);
       }
     }
     
@@ -554,9 +686,16 @@ export function StoryEditor({
 
     setIsSaving(true);
     try {
+      // Use ref to get the absolute latest slides (avoids state closure issues)
+      const currentSlides = slidesRef.current;
+      
       const storyData = {
-        slides,
-        objectives: objectives.filter(o => o.trim() !== '')
+        slides: currentSlides,
+        objectives: objectives.filter((o: any) => {
+          if (typeof o === 'string') return o.trim() !== '';
+          if (typeof o === 'object' && o?.fact) return o.fact.trim() !== '';
+          return false;
+        })
       };
 
       // Prepare tags including the system KB tag
@@ -575,7 +714,7 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(),
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        thumbnail_url: thumbnailUrl || (currentSlides.length > 0 ? currentSlides[0].url : '')
       };
 
       if (currentTrackId) {
@@ -606,6 +745,90 @@ export function StoryEditor({
     }
   };
 
+  // Handle transcripts generated from StoryTranscript component
+  const handleTranscriptsGenerated = async (transcripts: any[]) => {
+    console.log('📝 Transcripts generated, updating slides:', transcripts);
+    console.log('📝 Current slides before update:', slides.length, 'slides');
+    
+    // Update slides with transcript data
+    const updatedSlides = slides.map(slide => {
+      // Find matching transcript by slide ID
+      const matchingTranscript = transcripts.find(t => t.slideId === slide.id);
+      
+      if (matchingTranscript && matchingTranscript.transcript) {
+        console.log(`📝 Adding transcript to slide ${slide.id}`);
+        return {
+          ...slide,
+          transcript: matchingTranscript.transcript
+        };
+      }
+      
+      return slide;
+    });
+    
+    console.log('📝 Updated slides:', updatedSlides.length, 'slides');
+    console.log('📝 Slides with transcripts:', updatedSlides.filter(s => s.transcript).length);
+    
+    // Update state
+    setSlides(updatedSlides);
+    
+    // IMMEDIATELY persist to database (don't wait for manual save)
+    try {
+      console.log('💾 Immediately saving transcripts to database...');
+      console.log('💾 Track ID:', currentTrackId);
+      console.log('💾 Saving transcript with', updatedSlides.length, 'slides');
+      
+      // Story data needs to match the format used in handleSave
+      const storyData = {
+        slides: updatedSlides,
+        objectives: objectives.filter((o: any) => {
+          if (typeof o === 'string') return o.trim() !== '';
+          if (typeof o === 'object' && o?.fact) return o.fact.trim() !== '';
+          return false;
+        })
+      };
+      
+      const transcriptString = JSON.stringify(storyData);
+      console.log('💾 transcript length:', transcriptString.length, 'characters');
+      
+      await crud.updateTrack({
+        id: currentTrackId,
+        transcript: transcriptString
+      });
+      
+      toast.success('Transcripts generated and saved successfully!');
+      console.log('✅ Transcripts persisted to database');
+    } catch (error: any) {
+      console.error('❌ Failed to save transcripts:', error);
+      console.error('❌ Error details:', error.message, error.stack);
+      toast.error('Transcripts generated but failed to save. Please save the story manually.');
+    }
+  };
+
+  // Handle transcript edit - update slides state when user edits transcript
+  const handleTranscriptEdit = (slideId: string, newText: string) => {
+    console.log(`✏️ Transcript edited for slide ${slideId}`);
+    console.log(`✏️ New text length: ${newText.length} characters`);
+    
+    // Update the slides state with the edited transcript
+    const updatedSlides = slides.map(slide => {
+      if (slide.id === slideId) {
+        console.log(`✏️ Updating transcript for slide: ${slide.name}`);
+        return {
+          ...slide,
+          transcript: {
+            ...slide.transcript,
+            text: newText // Update the text field
+          }
+        };
+      }
+      return slide;
+    });
+    
+    setSlides(updatedSlides);
+    console.log(`✅ Slides state updated with edited transcript`);
+  };
+
   const handleSave = async () => {
     if (isSystemContent) {
       toast.error('Cannot edit Trike Library content');
@@ -616,10 +839,34 @@ export function StoryEditor({
 
     setIsSaving(true);
     try {
+      // Use ref to get the absolute latest slides (avoids state closure issues)
+      const currentSlides = slidesRef.current;
+      
+      // LOG WHAT WE'RE ABOUT TO SAVE
+      console.log('💾 ========== SAVING STORY ==========');
+      console.log('💾 Number of slides:', currentSlides.length);
+      currentSlides.forEach((slide, idx) => {
+        console.log(`💾 Slide ${idx + 1} (${slide.id}):`, {
+          name: slide.name,
+          hasTranscript: !!slide.transcript,
+          transcriptTextLength: slide.transcript?.text?.length || 0,
+          transcriptPreview: slide.transcript?.text?.substring(0, 100) + '...'
+        });
+      });
+
       const storyData = {
-        slides,
-        objectives: objectives.filter(o => o.trim() !== '')
+        slides: currentSlides,
+        objectives: objectives.filter((o: any) => {
+          if (typeof o === 'string') return o.trim() !== '';
+          if (typeof o === 'object' && o?.fact) return o.fact.trim() !== '';
+          return false;
+        })
       };
+
+      console.log('💾 Story data ready, stringifying...');
+      const transcriptString = JSON.stringify(storyData);
+      console.log('💾 Stringified transcript length:', transcriptString.length);
+      console.log('💾 First 200 chars:', transcriptString.substring(0, 200));
 
       // Prepare tags including the system KB tag
       const currentTags = new Set<string>(tags || []);
@@ -633,12 +880,14 @@ export function StoryEditor({
         title,
         description,
         type: 'story' as const,
-        transcript: JSON.stringify(storyData),
+        transcript: transcriptString,
         content_text: notes,
         duration_minutes: calculateStoryDuration(), // Use actual calculated duration
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        thumbnail_url: thumbnailUrl || (currentSlides.length > 0 ? currentSlides[0].url : '')
       };
+
+      console.log('💾 Track data prepared with transcript of length:', trackData.transcript.length);
 
       if (currentTrackId) {
         // Check for meaningful content changes that require versioning
@@ -649,7 +898,7 @@ export function StoryEditor({
           trackData.content_text !== (existingTrack.content_text || '') ||
           trackData.duration_minutes !== (existingTrack.duration_minutes || 0) ||
           trackData.thumbnail_url !== (existingTrack.thumbnail_url || '') ||
-          !areArraysEqual(storyData.objectives || [], existingTrack.learning_objectives || []);
+          !areArraysEqual(storyData.objectives || [], originalObjectivesFromDB || []);
 
         const tagsChanged = !areArraysEqual(trackData.tags, existingTrack.tags);
         
@@ -673,8 +922,29 @@ export function StoryEditor({
         }
         
         // If no assignments or not published OR only metadata changed, update normally
-        await crud.updateTrack({ id: currentTrackId, ...trackData });
+        const updatePayload = { id: currentTrackId, ...trackData };
+        console.log('💾 UPDATE PAYLOAD:', {
+          hasId: !!updatePayload.id,
+          hasTranscript: !!updatePayload.transcript,
+          transcriptLength: updatePayload.transcript?.length || 0,
+          transcriptFirst200: updatePayload.transcript?.substring(0, 200),
+          allKeys: Object.keys(updatePayload)
+        });
+        
+        await crud.updateTrack(updatePayload);
+        
+        console.log('✅ crud.updateTrack completed successfully');
+        
         toast.success(contentChanged ? 'Changes saved!' : 'Settings updated!');
+        
+        // Reload fresh data from database after save
+        console.log('📥 Fetching fresh track data from database...');
+        const freshTrack = await crud.getTrackById(currentTrackId);
+        console.log('📥 Fresh track received. Transcript length:', freshTrack.transcript?.length || 0);
+        console.log('📥 Fresh track transcript first 300 chars:', freshTrack.transcript?.substring(0, 300));
+        setExistingTrack(freshTrack);
+        loadStoryData(freshTrack);
+        console.log('✅ Fresh track data loaded, slides count:', slides.length);
         
         setIsEditMode(false);
         
@@ -752,6 +1022,247 @@ export function StoryEditor({
 
   const prevSlide = () => {
     setCurrentSlideIndex((prev) => (prev - 1 + slides.length) % slides.length);
+  };
+
+  // AI: Generate Key Facts from story video transcripts - ONE PER SLIDE
+  const handleGenerateKeyFacts = async () => {
+    // First, check if there are any video slides
+    const videoSlides = slides.filter(slide => slide.type === 'video' && slide.url);
+    
+    if (videoSlides.length === 0) {
+      toast.error('Please add at least one video slide with audio to generate key facts');
+      return;
+    }
+
+    // Confirmation dialog if facts already exist
+    const existingFactsCount = objectives.filter((o: any) => {
+      if (typeof o === 'string') return o.trim().length > 0;
+      if (typeof o === 'object' && o?.fact) return o.fact.trim().length > 0;
+      return false;
+    }).length;
+    
+    const hasExistingFacts = existingFactsCount > 0;
+    if (hasExistingFacts) {
+      const action = confirm(
+        `You currently have ${objectives.filter(o => o.trim()).length} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
+      );
+      
+      const shouldReplace = action;
+      
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        console.log('🎬 Step 1: Transcribing all story videos...');
+        
+        // Step 1: Transcribe all videos in the story
+        const transcribeResponse = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe-story`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              storyData: slides,
+            }),
+          }
+        );
+        
+        if (!transcribeResponse.ok) {
+          const error = await transcribeResponse.json();
+          throw new Error(error.error || 'Failed to transcribe story videos');
+        }
+        
+        const transcribeData = await transcribeResponse.json();
+        console.log('✅ Transcription complete:', transcribeData);
+        
+        if (transcribeData.successCount === 0) {
+          throw new Error('No videos could be transcribed');
+        }
+        
+        // Step 2: Combine all transcripts into one text
+        const combinedTranscript = transcribeData.transcripts
+          .filter((t: any) => !t.error && t.transcript)
+          .map((t: any) => {
+            const title = `[${t.slideName}]`;
+            const text = t.transcript.text || '';
+            return `${title}\n${text}`;
+          })
+          .join('\n\n');
+        
+        console.log('📝 Combined transcript length:', combinedTranscript.length);
+        
+        if (combinedTranscript.length < 100) {
+          toast.error('Transcripts are too short to generate meaningful key facts');
+          setIsGeneratingKeyFacts(false);
+          return;
+        }
+        
+        // Step 3: Generate key facts per-slide (with metadata!)
+        console.log('🤖 Step 2: Generating key facts from transcripts per-slide...');
+        
+        // Update slides with transcript data first
+        const slidesWithTranscripts = slides.map(slide => {
+          const transcript = transcribeData.transcripts.find((t: any) => t.slideId === slide.id);
+          if (transcript && !transcript.error) {
+            return { ...slide, transcript: transcript.transcript };
+          }
+          return slide;
+        });
+        
+        const factsResponse = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-story-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: title || 'Untitled Story',
+              description: description || '',
+              slides: slidesWithTranscripts,
+              trackId: currentTrackId,
+              companyId: existingTrack?.company_id,
+            }),
+          }
+        );
+        
+        if (!factsResponse.ok) {
+          const error = await factsResponse.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const factsData = await factsResponse.json();
+        const newFacts = factsData.enriched || factsData.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from the story transcripts');
+          return;
+        }
+        
+        const updatedFacts = shouldReplace 
+          ? newFacts
+          : [...objectives.filter((o: any) => {
+              if (typeof o === 'string') return o.trim();
+              if (typeof o === 'object' && o?.fact) return o.fact.trim();
+              return false;
+            }), ...newFacts];
+        
+        setObjectives(updatedFacts);
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    } else {
+      // No existing facts, just generate
+      setIsGeneratingKeyFacts(true);
+      
+      try {
+        console.log('🎬 Step 1: Transcribing all story videos...');
+        
+        // Step 1: Transcribe all videos
+        const transcribeResponse = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe-story`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              storyData: slides,
+            }),
+          }
+        );
+        
+        if (!transcribeResponse.ok) {
+          const error = await transcribeResponse.json();
+          throw new Error(error.error || 'Failed to transcribe story videos');
+        }
+        
+        const transcribeData = await transcribeResponse.json();
+        
+        if (transcribeData.successCount === 0) {
+          throw new Error('No videos could be transcribed');
+        }
+        
+        // Step 2: Combine transcripts
+        const combinedTranscript = transcribeData.transcripts
+          .filter((t: any) => !t.error && t.transcript)
+          .map((t: any) => {
+            const title = `[${t.slideName}]`;
+            const text = t.transcript.text || '';
+            return `${title}\n${text}`;
+          })
+          .join('\n\n');
+        
+        if (combinedTranscript.length < 100) {
+          toast.error('Transcripts are too short to generate meaningful key facts');
+          setIsGeneratingKeyFacts(false);
+          return;
+        }
+        
+        // Step 3: Generate key facts per-slide (with metadata!)
+        console.log('🤖 Step 2: Generating key facts from transcripts per-slide...');
+        
+        // Update slides with transcript data first
+        const slidesWithTranscripts = slides.map(slide => {
+          const transcript = transcribeData.transcripts.find((t: any) => t.slideId === slide.id);
+          if (transcript && !transcript.error) {
+            return { ...slide, transcript: transcript.transcript };
+          }
+          return slide;
+        });
+        
+        const factsResponse = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-story-key-facts`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: title || 'Untitled Story',
+              description: description || '',
+              slides: slidesWithTranscripts,
+              trackId: currentTrackId,
+              companyId: existingTrack?.company_id,
+            }),
+          }
+        );
+        
+        if (!factsResponse.ok) {
+          const error = await factsResponse.json();
+          throw new Error(error.error || 'Failed to generate key facts');
+        }
+        
+        const factsData = await factsResponse.json();
+        const newFacts = factsData.enriched || factsData.simple || [];
+        
+        if (newFacts.length === 0) {
+          toast.error('No key facts could be generated from the story transcripts');
+          return;
+        }
+        
+        setObjectives(newFacts);
+        
+        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        
+      } catch (error: any) {
+        console.error('❌ Error generating key facts:', error);
+        toast.error(error.message || 'Failed to generate key facts');
+      } finally {
+        setIsGeneratingKeyFacts(false);
+      }
+    }
   };
 
   if (isLoading) {
@@ -869,23 +1380,8 @@ export function StoryEditor({
               </CardHeader>
               <CardContent className="p-6">
                 <div className="flex justify-center">
-                  <div className="w-full max-w-sm space-y-4">
-                    {slides.map((slide, index) => (
-                      <div key={slide.id} className="relative">
-                        <div className="absolute top-2 left-2 z-10">
-                          <Badge variant="outline" className="bg-black/60 text-white border-white/20">
-                            {index + 1}. {slide.name}
-                          </Badge>
-                        </div>
-                        <div className="relative aspect-[9/16] rounded-lg overflow-hidden bg-black">
-                          {slide.type === 'image' ? (
-                            <img src={slide.url} alt={slide.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <video src={slide.url} className="w-full h-full object-cover" controls />
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                  <div className="w-full max-w-sm">
+                    <StoryPreview slides={slides} />
                   </div>
                 </div>
 
@@ -898,26 +1394,101 @@ export function StoryEditor({
               </CardContent>
             </Card>
 
-            {/* Key Facts */}
-            {objectives.filter(o => o.trim()).length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Key Facts</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-3">
-                    {objectives.filter(o => o.trim()).map((objective, index) => (
-                      <li key={index} className="flex items-start space-x-3">
-                        <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-[#F74A05] to-[#FF733C] flex items-center justify-center text-xs font-semibold text-white mt-0.5 shadow-sm">
-                          {index + 1}
-                        </div>
-                        <span className="text-muted-foreground leading-relaxed pt-1">{objective}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
+            {/* Video Transcripts */}
+            {currentTrackId && (
+              <StoryTranscript
+                storyData={slides}
+                trackId={currentTrackId}
+                projectId={projectId}
+                publicAnonKey={publicAnonKey}
+                onTranscriptsGenerated={handleTranscriptsGenerated}
+                isEditMode={false}
+              />
             )}
+
+            {/* Key Facts */}
+            {(() => {
+              const validObjectives = objectives.filter((o: any) => {
+                if (typeof o === 'string') return o.trim().length > 0;
+                if (typeof o === 'object' && o?.fact) return o.fact.trim().length > 0;
+                return false;
+              });
+              
+              if (validObjectives.length === 0) return null;
+              
+              // Group facts by slide
+              const factsBySlide: Record<string, { slideName: string; facts: any[] }> = {};
+              const ungroupedFacts: any[] = [];
+              
+              validObjectives.forEach((objective: any) => {
+                if (typeof objective === 'object' && objective?.slideId) {
+                  const slideId = objective.slideId;
+                  if (!factsBySlide[slideId]) {
+                    factsBySlide[slideId] = {
+                      slideName: objective.slideName || `Slide ${objective.slideIndex + 1}`,
+                      facts: []
+                    };
+                  }
+                  factsBySlide[slideId].facts.push(objective);
+                } else {
+                  ungroupedFacts.push(objective);
+                }
+              });
+              
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Key Facts</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* Grouped facts by slide */}
+                    {Object.entries(factsBySlide).map(([slideId, { slideName, facts }]) => (
+                      <div key={slideId} className="space-y-3">
+                        <h4 className="text-sm font-semibold text-foreground flex items-center gap-2 border-b pb-2">
+                          <VideoIcon className="h-4 w-4 text-[#F74A05]" />
+                          {slideName}
+                        </h4>
+                        <ul className="space-y-2 pl-2">
+                          {facts.map((fact, idx) => {
+                            const displayText = typeof fact === 'object' ? fact.fact : fact;
+                            return (
+                              <li key={idx} className="flex items-start space-x-3">
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-[#F74A05] to-[#FF733C] flex items-center justify-center text-xs font-semibold text-white mt-0.5 shadow-sm">
+                                  {idx + 1}
+                                </div>
+                                <span className="text-muted-foreground leading-relaxed pt-0.5 text-sm">{displayText}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                    
+                    {/* Ungrouped facts */}
+                    {ungroupedFacts.length > 0 && (
+                      <div className="space-y-3">
+                        {Object.keys(factsBySlide).length > 0 && (
+                          <h4 className="text-sm font-semibold text-foreground border-b pb-2">Other Facts</h4>
+                        )}
+                        <ul className="space-y-2 pl-2">
+                          {ungroupedFacts.map((fact, idx) => {
+                            const displayText = typeof fact === 'string' ? fact : fact.fact || '';
+                            return (
+                              <li key={idx} className="flex items-start space-x-3">
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-[#F74A05] to-[#FF733C] flex items-center justify-center text-xs font-semibold text-white mt-0.5 shadow-sm">
+                                  {idx + 1}
+                                </div>
+                                <span className="text-muted-foreground leading-relaxed pt-0.5 text-sm">{displayText}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
 
           {/* Sidebar */}
@@ -1337,41 +1908,188 @@ export function StoryEditor({
             </CardContent>
           </Card>
 
-          {/* Learning Objectives */}
+          {/* Video Transcripts - EDIT MODE */}
+          {currentTrackId && (
+            <StoryTranscript
+              storyData={slides}
+              trackId={currentTrackId}
+              projectId={projectId}
+              publicAnonKey={publicAnonKey}
+              onTranscriptsGenerated={handleTranscriptsGenerated}
+              onTranscriptEdit={handleTranscriptEdit}
+              isEditMode={true}
+            />
+          )}
+
+          {/* Key Facts */}
           <Card>
             <CardHeader>
-              <CardTitle>Key Facts</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {objectives.map((objective, index) => (
-                <div key={index} className="flex items-start space-x-2">
-                  <Input
-                    placeholder={`Objective ${index + 1}`}
-                    value={objective}
-                    onChange={(e) => updateObjective(index, e.target.value)}
-                    className="flex-1"
-                  />
-                  {objectives.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeObjective(index)}
-                      className="flex-shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5" />
+                  Key Facts
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  {/* AI Generate Button with Neon Orange Glow */}
+                  <button
+                    onClick={handleGenerateKeyFacts}
+                    disabled={isGeneratingKeyFacts || slides.filter(s => s.type === 'video').length === 0}
+                    className="group relative p-2 rounded-lg transition-all duration-300 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    title="Generate Key Facts with AI from video transcripts"
+                  >
+                    {/* Neon glow background - understated but noticeable */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-[#F74A05] to-[#FF6B35] rounded-lg opacity-20 blur-md group-hover:opacity-40 group-hover:blur-lg transition-all duration-300" />
+                    
+                    {/* Lightning bolt icon with gradient fill */}
+                    <Zap 
+                      className={`relative h-5 w-5 transition-all duration-300 ${
+                        isGeneratingKeyFacts 
+                          ? 'animate-pulse text-[#F74A05]' 
+                          : 'text-[#F74A05] group-hover:drop-shadow-[0_0_8px_rgba(247,74,5,0.6)]'
+                      }`}
+                      fill="currentColor"
+                    />
+                    
+                    {/* Loading state animation - radiating pulses */}
+                    {isGeneratingKeyFacts && (
+                      <>
+                        <div className="absolute inset-0 rounded-lg bg-[#F74A05] opacity-30 animate-ping" />
+                        <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[#F74A05] to-[#FF6B35] opacity-20 animate-pulse" />
+                      </>
+                    )}
+                  </button>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addObjective}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </Button>
                 </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addObjective}
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Objective
-              </Button>
+              </div>
+              {isGeneratingKeyFacts && (
+                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-2">
+                  <span className="inline-block h-1 w-1 rounded-full bg-[#F74A05] animate-pulse" />
+                  AI is analyzing your story videos and extracting key facts...
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(() => {
+                // Group facts by slide
+                const factsBySlide: Record<string, { slideName: string; facts: { index: number; value: any }[] }> = {};
+                const ungroupedFacts: { index: number; value: any }[] = [];
+                
+                objectives.forEach((objective, index) => {
+                  if (typeof objective === 'object' && objective?.slideId) {
+                    const slideId = objective.slideId;
+                    if (!factsBySlide[slideId]) {
+                      factsBySlide[slideId] = {
+                        slideName: objective.slideName || `Slide ${objective.slideIndex + 1}`,
+                        facts: []
+                      };
+                    }
+                    factsBySlide[slideId].facts.push({ index, value: objective });
+                  } else {
+                    ungroupedFacts.push({ index, value: objective });
+                  }
+                });
+                
+                return (
+                  <>
+                    {/* Grouped facts by slide */}
+                    {Object.entries(factsBySlide).map(([slideId, { slideName, facts }]) => (
+                      <div key={slideId} className="space-y-2">
+                        <h4 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                          <VideoIcon className="h-4 w-4" />
+                          {slideName}
+                        </h4>
+                        <div className="space-y-2 pl-6">
+                          {facts.map(({ index, value }) => {
+                            const displayValue = typeof value === 'object' ? value.fact : value;
+                            return (
+                              <div key={index} className="flex items-start space-x-2">
+                                <Input
+                                  placeholder={`Key fact...`}
+                                  value={displayValue || ''}
+                                  onChange={(e) => {
+                                    const updated = [...objectives];
+                                    if (typeof value === 'object') {
+                                      updated[index] = { ...value, fact: e.target.value };
+                                    } else {
+                                      updated[index] = e.target.value;
+                                    }
+                                    setObjectives(updated);
+                                  }}
+                                  className="flex-1"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setObjectives(objectives.filter((_, i) => i !== index));
+                                  }}
+                                  className="flex-shrink-0"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {/* Ungrouped facts (manually added or old format) */}
+                    {ungroupedFacts.length > 0 && (
+                      <div className="space-y-2">
+                        {Object.keys(factsBySlide).length > 0 && (
+                          <h4 className="text-sm font-semibold text-muted-foreground">Other Facts</h4>
+                        )}
+                        <div className={Object.keys(factsBySlide).length > 0 ? "space-y-2 pl-6" : "space-y-2"}>
+                          {ungroupedFacts.map(({ index, value }) => {
+                            // Handle both string and object formats
+                            const displayValue = typeof value === 'object' ? (value.fact || '') : (value || '');
+                            return (
+                              <div key={index} className="flex items-start space-x-2">
+                                <Input
+                                  placeholder={`Key fact...`}
+                                  value={displayValue}
+                                  onChange={(e) => {
+                                    const updated = [...objectives];
+                                    // Preserve object structure if it exists
+                                    if (typeof value === 'object') {
+                                      updated[index] = { ...value, fact: e.target.value };
+                                    } else {
+                                      updated[index] = e.target.value;
+                                    }
+                                    setObjectives(updated);
+                                  }}
+                                  className="flex-1"
+                                />
+                                {objectives.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setObjectives(objectives.filter((_, i) => i !== index));
+                                    }}
+                                    className="flex-shrink-0"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
 
@@ -1902,8 +2620,11 @@ export function StoryEditor({
           
           toast.success(`Version ${(existingTrack?.version_number || 1) + 1} created with ${strategy} strategy!`);
           
-          console.log('🔄 Closing modal...');
+          console.log('🔄 Closing modal and resetting state...');
           setIsVersionModalOpen(false);
+          setPendingChanges(null); // CRITICAL: Clear pending changes
+          setIsSaving(false); // Reset saving state
+          
           console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
           

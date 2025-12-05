@@ -445,6 +445,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile drawer
   
+  // Facts loaded from database
+  const [selectedTrackFacts, setSelectedTrackFacts] = useState<any[]>([]);
+  
   // Tag Management
   const [isTagManagerOpen, setIsTagManagerOpen] = useState(false);
 
@@ -504,6 +507,47 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       window.history.pushState({}, '', newUrl);
     }
   }, [selectedCategory, selectedTrack?.id]);
+
+  // Load facts from database when selectedTrack changes
+  useEffect(() => {
+    if (selectedTrack?.id) {
+      const loadFacts = async () => {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${selectedTrack.id}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            const facts = (data.facts || []).map((f: any) => ({
+              title: f.title,
+              fact: f.content,
+              content: f.content,
+              type: f.type,
+              steps: f.steps || [],
+              contexts: [f.context?.specificity || 'universal'],
+            }));
+            setSelectedTrackFacts(facts);
+            console.log(`📊 Loaded ${facts.length} facts for KB view`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for KB view:', error);
+          setSelectedTrackFacts([]);
+        }
+      };
+      
+      loadFacts();
+    } else {
+      setSelectedTrackFacts([]);
+    }
+  }, [selectedTrack?.id]);
 
   // Data Fetching (Tags)
   const [categories, setCategories] = useState<Tag[]>([]);
@@ -884,18 +928,19 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         yPosition += 20;
       }
 
-      // Learning Objectives
-      if (selectedTrack.learning_objectives && selectedTrack.learning_objectives.length > 0) {
+      // Learning Objectives (Key Facts)
+      if (selectedTrackFacts && selectedTrackFacts.length > 0) {
         checkPageBreak(40);
         yPosition += 10;
         
         doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(15, 23, 42);
-        doc.text('What You\'ll Learn', margin, yPosition);
+        doc.text('Key Facts', margin, yPosition);
         yPosition += 25;
         
-        selectedTrack.learning_objectives.forEach((obj: string) => {
+        selectedTrackFacts.forEach((factObj: any) => {
+          const obj = factObj.content || factObj.fact || factObj;
           checkPageBreak(30);
           
           doc.setFontSize(11);
@@ -1604,20 +1649,37 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     </p>
                   )}
 
-                  {/* Learning Objectives (if available) */}
-                  {selectedTrack.learning_objectives && selectedTrack.learning_objectives.length > 0 && (
+                  {/* Key Facts (if available) */}
+                  {selectedTrackFacts && selectedTrackFacts.length > 0 && (
                      <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl mb-8 not-prose border border-slate-200 dark:border-slate-700">
                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-4 flex items-center gap-2">
                          <Check className="h-4 w-4 text-green-500" />
-                         What You'll Learn
+                         Key Facts
                        </h3>
                        <ul className="grid sm:grid-cols-2 gap-3">
-                         {selectedTrack.learning_objectives.map((obj: string, i: number) => (
-                           <li key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-300 text-sm">
-                             <div className="h-1.5 w-1.5 rounded-full bg-green-500 mt-2 shrink-0" />
-                             <span>{obj}</span>
-                           </li>
-                         ))}
+                         {selectedTrackFacts.map((factObj: any, i: number) => {
+                           const displayText = factObj.content || factObj.fact || factObj;
+                           const isProcedure = factObj.type === 'Procedure' && factObj.steps;
+                           
+                           return (
+                             <li key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-300 text-sm">
+                               <div className="h-1.5 w-1.5 rounded-full bg-green-500 mt-2 shrink-0" />
+                               <div>
+                                 <span>{displayText}</span>
+                                 {isProcedure && (
+                                   <ul className="mt-2 ml-4 space-y-1 text-xs border-l-2 border-orange-200 pl-3">
+                                     {factObj.steps.map((step: string, stepIdx: number) => (
+                                       <li key={stepIdx} className="flex items-start gap-2">
+                                         <span className="text-orange-500 font-semibold">{stepIdx + 1}.</span>
+                                         <span>{step}</span>
+                                       </li>
+                                     ))}
+                                   </ul>
+                                 )}
+                               </div>
+                             </li>
+                           );
+                         })}
                        </ul>
                      </div>
                   )}

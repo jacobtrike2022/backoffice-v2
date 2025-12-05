@@ -75,6 +75,14 @@ export async function createTrack(input: CreateTrackInput) {
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
+  console.log('🔧 crud.updateTrack called with:', {
+    id,
+    hasTranscript: !!updateData.transcript,
+    transcriptLength: updateData.transcript?.length || 0,
+    transcriptFirst150Chars: updateData.transcript?.substring(0, 150),
+    updateDataKeys: Object.keys(updateData)
+  });
+
   const { data: track, error } = await supabase
     .from('tracks')
     .update(updateData)
@@ -82,7 +90,14 @@ export async function updateTrack(input: UpdateTrackInput) {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ Supabase updateTrack error:', error);
+    throw error;
+  }
+  
+  console.log('✅ Supabase returned updated track. Transcript length:', track.transcript?.length || 0);
+  console.log('✅ Transcript preview from DB:', track.transcript?.substring(0, 150));
+  
   return track;
 }
 
@@ -133,6 +148,43 @@ export async function getTrackById(trackId: string) {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Get track by ID, but redirect to latest version if this is an old version
+ * Returns: { track, isLatest, latestTrackId }
+ */
+export async function getTrackByIdOrLatest(trackId: string): Promise<{
+  track: any;
+  isLatest: boolean;
+  latestTrackId: string;
+}> {
+  const track = await getTrackById(trackId);
+  
+  // If this track is the latest version or has no parent (V1), return it
+  if (track.is_latest_version !== false) {
+    return { track, isLatest: true, latestTrackId: trackId };
+  }
+  
+  // This is an old version - find the latest version
+  const parentId = track.parent_track_id || trackId;
+  
+  // Get the latest version of this track family
+  const { data: latestTrack, error } = await supabase
+    .from('tracks')
+    .select('*')
+    .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+    .eq('is_latest_version', true)
+    .single();
+  
+  if (error || !latestTrack) {
+    // Fallback: if we can't find the latest, return the requested track
+    console.warn('Could not find latest version, returning requested track');
+    return { track, isLatest: false, latestTrackId: trackId };
+  }
+  
+  console.log(`🔄 Redirecting from version ${track.version_number} to latest version ${latestTrack.version_number}`);
+  return { track: latestTrack, isLatest: false, latestTrackId: latestTrack.id };
 }
 
 /**
@@ -595,6 +647,22 @@ export async function createTrackVersion(
   const currentVersion = originalTrack.version_number || 1;
   const nextVersion = currentVersion + 1;
 
+  console.log(`🔄 Creating version ${nextVersion} from version ${currentVersion} (parent: ${parentId})`);
+
+  // SAFETY CHECK: Prevent duplicate versions
+  // Check if the next version already exists
+  const { data: existingVersion } = await supabase
+    .from('videos')
+    .select('id, version_number')
+    .eq('parent_track_id', parentId)
+    .eq('version_number', nextVersion)
+    .maybeSingle();
+
+  if (existingVersion) {
+    console.warn(`⚠️ Version ${nextVersion} already exists (ID: ${existingVersion.id}). Returning existing version.`);
+    return existingVersion;
+  }
+
   // Create new version
   const newVersionData: CreateTrackInput = {
     ...originalTrack,
@@ -607,12 +675,14 @@ export async function createTrackVersion(
   };
 
   const newVersion = await createTrack(newVersionData);
+  console.log(`✅ Created version ${nextVersion} with ID: ${newVersion.id}`);
 
   // Mark old version as no longer latest
   await updateTrack({
     id: originalTrackId,
     is_latest_version: false
   });
+  console.log(`✅ Marked version ${currentVersion} (ID: ${originalTrackId}) as no longer latest`);
 
   return newVersion;
 }
