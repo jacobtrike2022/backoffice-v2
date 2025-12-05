@@ -18,8 +18,10 @@ import { Forms } from "./components/Forms";
 import { Settings } from "./components/Settings";
 import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
+import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
+import { checkServerHealth } from "./lib/serverHealth";
 
 type UserRole =
   | "admin"
@@ -101,6 +103,9 @@ export default function App() {
     showUnsavedChangesWarning,
     setShowUnsavedChangesWarning,
   ] = useState(false);
+  
+  // Diagnostics panel state
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   // Register unsaved changes check from child components
   const registerUnsavedChangesCheck = (
@@ -223,10 +228,29 @@ export default function App() {
       document.documentElement.classList.remove("dark");
     }
   }, [darkMode]);
+  
+  // Keyboard shortcut to open diagnostics (Ctrl+Shift+D or Cmd+Shift+D)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        setShowDiagnostics(prev => !prev);
+        toast.info(showDiagnostics ? 'Diagnostics closed' : 'Opening Supabase diagnostics...', {
+          duration: 2000,
+        });
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDiagnostics]);
 
   // Handle URL-based routing for direct article links
   useEffect(() => {
     const path = window.location.pathname;
+
+    // Check server health on app initialization
+    checkServerHealth();
 
     // Check for /article/{id}, /video/{id}, /checkpoint/{id}, /story/{id} patterns
     const articleMatch = path.match(/\/article\/([a-f0-9-]+)/);
@@ -662,6 +686,11 @@ export default function App() {
         onOpenChange={setShowUnsavedChangesWarning}
         onDiscard={handleDiscardChanges}
       />
+      
+      {/* Supabase Diagnostics Panel */}
+      {showDiagnostics && (
+        <SupabaseDiagnostics onClose={() => setShowDiagnostics(false)} />
+      )}
 
       {/* Enhanced Toast Notifications */}
       <Toaster

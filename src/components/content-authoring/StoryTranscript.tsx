@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
 import { MessageSquare, Loader2, AlertCircle, Video as VideoIcon } from 'lucide-react';
 
 interface Word {
@@ -42,11 +41,9 @@ interface StoryTranscriptProps {
   projectId: string;
   publicAnonKey: string;
   onTranscriptsGenerated?: (transcripts: VideoTranscript[]) => void; // Callback to save transcripts to slides
-  isEditMode?: boolean; // Whether we're in edit mode (show action buttons) or view mode (read-only)
-  onTranscriptEdit?: (slideId: string, newText: string) => void; // Callback when transcript is edited
 }
 
-export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, onTranscriptsGenerated, isEditMode, onTranscriptEdit }: StoryTranscriptProps) {
+export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, onTranscriptsGenerated }: StoryTranscriptProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcripts, setTranscripts] = useState<VideoTranscript[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -221,71 +218,53 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
                     </p>
                   </div>
                 ) : videoTranscript.transcript ? (
-                  isEditMode ? (
-                    /* EDIT MODE: Editable textarea */
-                    <Textarea
-                      value={videoTranscript.transcript.text || ''}
-                      onChange={(e) => {
-                        if (onTranscriptEdit) {
-                          onTranscriptEdit(videoTranscript.slideId, e.target.value);
-                        }
-                      }}
-                      rows={8}
-                      className="text-sm leading-relaxed font-mono"
-                      placeholder="Transcript text..."
-                    />
-                  ) : (
-                    /* VIEW MODE: Read-only display */
-                    <div className="space-y-3">
-                      {/* Speaker-based transcript */}
-                      {videoTranscript.transcript.utterances && videoTranscript.transcript.utterances.length > 0 ? (
-                        <div className="space-y-3">
-                          {videoTranscript.transcript.utterances.map((utterance, uttIndex) => (
-                            <div key={uttIndex} className="flex gap-3">
-                              <Badge 
-                                variant="outline" 
-                                className="flex-shrink-0 h-6 bg-primary/10 text-primary border-primary/30"
-                              >
-                                {utterance.speaker}
-                              </Badge>
-                              <p className="text-sm leading-relaxed flex-1">
-                                {utterance.text}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        /* Fallback to plain text */
-                        <p className="text-sm leading-relaxed text-muted-foreground">
-                          {videoTranscript.transcript.text}
-                        </p>
-                      )}
-                    </div>
-                  )
+                  <div className="space-y-3">
+                    {/* Speaker-based transcript */}
+                    {videoTranscript.transcript.utterances && videoTranscript.transcript.utterances.length > 0 ? (
+                      <div className="space-y-3">
+                        {videoTranscript.transcript.utterances.map((utterance, uttIndex) => (
+                          <div key={uttIndex} className="flex gap-3">
+                            <Badge 
+                              variant="outline" 
+                              className="flex-shrink-0 h-6 bg-primary/10 text-primary border-primary/30"
+                            >
+                              {utterance.speaker}
+                            </Badge>
+                            <p className="text-sm leading-relaxed flex-1">
+                              {utterance.text}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Fallback to plain text */
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {videoTranscript.transcript.text}
+                      </p>
+                    )}
+                  </div>
                 ) : null}
               </div>
             ))}
 
-            {/* Regenerate button - only show in EDIT mode */}
-            {isEditMode && (
-              <div className="pt-4 border-t">
-                <Button
-                  onClick={handleTranscribe}
-                  disabled={isTranscribing}
-                  variant="outline"
-                  size="sm"
-                >
-                  {isTranscribing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Regenerating...
-                    </>
-                  ) : (
-                    'Regenerate Transcripts'
-                  )}
-                </Button>
-              </div>
-            )}
+            {/* Regenerate button */}
+            <div className="pt-4 border-t">
+              <Button
+                onClick={handleTranscribe}
+                disabled={isTranscribing}
+                variant="outline"
+                size="sm"
+              >
+                {isTranscribing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Regenerating...
+                  </>
+                ) : (
+                  'Regenerate Transcripts'
+                )}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

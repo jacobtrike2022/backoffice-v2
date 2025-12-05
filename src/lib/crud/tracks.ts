@@ -2,8 +2,9 @@
 // TRACKS CRUD OPERATIONS
 // ============================================================================
 
-import { supabase, getCurrentUserOrgId, uploadFile, deleteFile } from '../supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { getHealthStatus } from '../serverHealth';
+import { supabase, getCurrentUserOrgId } from '../supabase';
 
 const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
@@ -75,14 +76,6 @@ export async function createTrack(input: CreateTrackInput) {
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
-  console.log('🔧 crud.updateTrack called with:', {
-    id,
-    hasTranscript: !!updateData.transcript,
-    transcriptLength: updateData.transcript?.length || 0,
-    transcriptFirst150Chars: updateData.transcript?.substring(0, 150),
-    updateDataKeys: Object.keys(updateData)
-  });
-
   const { data: track, error } = await supabase
     .from('tracks')
     .update(updateData)
@@ -90,14 +83,7 @@ export async function updateTrack(input: UpdateTrackInput) {
     .select()
     .single();
 
-  if (error) {
-    console.error('❌ Supabase updateTrack error:', error);
-    throw error;
-  }
-  
-  console.log('✅ Supabase returned updated track. Transcript length:', track.transcript?.length || 0);
-  console.log('✅ Transcript preview from DB:', track.transcript?.substring(0, 150));
-  
+  if (error) throw error;
   return track;
 }
 
@@ -611,9 +597,7 @@ export async function getTrackVersions(trackId: string) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      console.error('❌ getTrackVersions: Server error:', errorData);
-      // Return empty array instead of throwing - graceful degradation
-      return [];
+      throw new Error(errorData.error || 'Server error');
     }
 
     const data = await response.json();
@@ -621,9 +605,10 @@ export async function getTrackVersions(trackId: string) {
     console.log('✅ getTrackVersions: Returning versions:', data.versions || []);
     return data.versions || [];
   } catch (error: any) {
-    console.error('❌ getTrackVersions: Error fetching track versions:', error);
-    // Return empty array instead of throwing - graceful degradation
-    // This allows the UI to continue functioning even if version history fails
+    // Return empty array silently - server health check handles the warning
+    if (getHealthStatus()) {
+      console.error('Failed to fetch track versions despite server being healthy:', error.message);
+    }
     return [];
   }
 }

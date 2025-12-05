@@ -1,4 +1,5 @@
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { getHealthStatus } from '../serverHealth';
 
 const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
@@ -54,20 +55,28 @@ export async function uploadAttachment(trackId: string, file: File): Promise<Att
  * Get all attachments for a track
  */
 export async function getAttachments(trackId: string): Promise<Attachment[]> {
-  const response = await fetch(`${SERVER_URL}/attachments/${trackId}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${publicAnonKey}`,
-    },
-  });
+  try {
+    const response = await fetch(`${SERVER_URL}/attachments/${trackId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${publicAnonKey}`,
+      },
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to get attachments');
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get attachments');
+    }
+
+    const data = await response.json();
+    return data.attachments || [];
+  } catch (error) {
+    // Return empty array silently - server health check handles the warning
+    if (getHealthStatus()) {
+      console.error('Failed to fetch attachments despite server being healthy:', error);
+    }
+    return [];
   }
-
-  const data = await response.json();
-  return data.attachments || [];
 }
 
 /**

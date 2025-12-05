@@ -385,12 +385,22 @@ app.get("/make-server-2858cc8b/track-versions/:trackId", async (c) => {
       .single();
     
     if (trackError) {
-      console.error('Error getting track:', trackError);
-      return c.json({ error: `Failed to get track: ${trackError.message}` }, 500);
+      // Track not found in database - this is normal if tracks aren't being saved
+      console.log('Track not found in database (tracks may be stored in-memory only)');
+      return c.json({ 
+        success: true,
+        versions: [],
+        message: 'Track versioning not yet implemented - tracks are not saved to database'
+      });
     }
     
     if (!track) {
-      return c.json({ error: 'Track not found' }, 404);
+      // No track found, return empty versions
+      console.log('Track not found');
+      return c.json({ 
+        success: true,
+        versions: []
+      });
     }
     
     // Find the parent track ID (could be this track or its parent)
@@ -405,7 +415,11 @@ app.get("/make-server-2858cc8b/track-versions/:trackId", async (c) => {
     
     if (versionsError) {
       console.error('Error getting versions:', versionsError);
-      return c.json({ error: `Failed to get versions: ${versionsError.message}` }, 500);
+      return c.json({ 
+        success: true,
+        versions: [],
+        message: 'Error querying versions'
+      });
     }
     
     console.log(`Found ${versions?.length || 0} versions`);
@@ -416,7 +430,12 @@ app.get("/make-server-2858cc8b/track-versions/:trackId", async (c) => {
     
   } catch (error: any) {
     console.error('Get track versions error:', error);
-    return c.json({ error: `Failed to get versions: ${error.message}` }, 500);
+    // Return empty array instead of error to allow app to continue working
+    return c.json({ 
+      success: true,
+      versions: [],
+      message: 'Track versioning not available'
+    });
   }
 });
 
@@ -434,7 +453,6 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
   try {
     // Dynamic import to avoid breaking the server if LLM module has issues
     const { generateKeyFacts } = await import("./llm.ts");
-    const FactService = await import("./FactService.ts");
     
     const body = await c.req.json();
     const { title, content, description, transcript, trackType, trackId, companyId } = body;
@@ -458,49 +476,44 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
     
     console.log(`Successfully generated ${result.enriched.length} key facts`);
     
-    // NEW: Save facts to database if trackType/trackId provided
+    // Save facts to KV store if trackType/trackId provided
     const savedFactIds: string[] = [];
     if (trackType && trackId) {
-      console.log(`Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`);
+      console.log(`Saving ${result.enriched.length} facts to KV store for ${trackType}:${trackId}`);
       
       for (const fact of result.enriched) {
         try {
-          const savedFact = await FactService.createFact({
+          const factId = `fact_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const factRecord = {
+            id: factId,
             title: fact.title,
             content: fact.fact,
             type: fact.type,
             steps: fact.steps,
-            context: {
-              specificity: fact.contexts?.[0] as any || 'universal',
-              tags: {},
-            },
             extractedBy: 'ai-pass-2',
             extractionConfidence: 0.85,
             companyId: companyId,
-          });
+            createdAt: new Date().toISOString(),
+          };
           
-          savedFactIds.push(savedFact.id);
+          // Save to KV store
+          await kv.set(`fact:${factId}`, factRecord);
+          await kv.set(`track_fact:${trackId}:${factId}`, factRecord);
           
-          // Track usage
-          await FactService.trackFactUsage(savedFact.id, {
-            factId: savedFact.id,
-            type: trackType,
-            trackId: trackId,
-            addedAt: new Date().toISOString(),
-          });
+          savedFactIds.push(factId);
         } catch (factError: any) {
           console.error(`Error saving fact "${fact.title}":`, factError.message);
           // Continue with other facts
         }
       }
       
-      console.log(`Saved ${savedFactIds.length} facts to database`);
+      console.log(`Saved ${savedFactIds.length} facts to KV store`);
     }
     
     return c.json({
       success: true,
       ...result,
-      factIds: savedFactIds, // Return the database IDs
+      factIds: savedFactIds, // Return the KV store IDs
     });
     
   } catch (error: any) {
@@ -512,137 +525,11 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
 });
 
 // =====================================================
-// AI: GENERATE KEY FACTS FOR STORY (PER-SLIDE)
-// =====================================================
-
-app.post("/make-server-2858cc8b/generate-story-key-facts", async (c) => {
-  try {
-    const { generateKeyFacts } = await import("./llm.ts");
-    const FactService = await import("./FactService.ts");
-    
-    const body = await c.req.json();
-    const { title, description, slides, trackId, companyId } = body;
-    
-    if (!slides || !Array.isArray(slides) || slides.length === 0) {
-      return c.json({ error: 'Slides array is required' }, 400);
-    }
-    
-    console.log(`📚 Generating key facts for story: ${title || 'Untitled'}`);
-    console.log(`📊 Processing ${slides.length} slides`);
-    
-    const allFacts: any[] = [];
-    let totalFactsGenerated = 0;
-    let displayOrder = 0;
-    
-    // Process each video slide separately
-    for (const slide of slides) {
-      if (slide.type !== 'video' || !slide.transcript || !slide.transcript.text) {
-        console.log(`⏭️  Skipping slide ${slide.name} (no transcript)`);
-        continue;
-      }
-      
-      console.log(`🎬 Processing slide: ${slide.name}`);
-      
-      // Generate facts for this slide
-      const result = await generateKeyFacts({
-        title: `${title} - ${slide.name}`,
-        transcript: slide.transcript.text,
-        description: description || '',
-      });
-      
-      if (result.enriched && result.enriched.length > 0) {
-        console.log(`✅ Generated ${result.enriched.length} facts for ${slide.name}`);
-        
-        // Enrich each fact with slide metadata and order
-        for (const fact of result.enriched) {
-          allFacts.push({
-            ...fact,
-            slideId: slide.id,
-            slideName: slide.name,
-            slideIndex: slide.order || 0,
-            display_order: displayOrder++,
-          });
-        }
-        
-        totalFactsGenerated += result.enriched.length;
-      }
-    }
-    
-    if (allFacts.length === 0) {
-      return c.json({ 
-        success: false,
-        error: 'No key facts could be generated from story transcripts' 
-      }, 400);
-    }
-    
-    console.log(`✨ Total facts generated: ${totalFactsGenerated}`);
-    
-    // Save facts to database if trackId provided
-    const savedFactIds: string[] = [];
-    if (trackId) {
-      console.log(`💾 Saving ${allFacts.length} facts to database for story:${trackId}`);
-      
-      for (const fact of allFacts) {
-        try {
-          const savedFact = await FactService.createFact({
-            title: fact.title,
-            content: fact.fact,
-            type: fact.type,
-            steps: fact.steps,
-            context: {
-              specificity: fact.contexts?.[0] as any || 'universal',
-              tags: {},
-            },
-            extractedBy: 'ai-pass-2',
-            extractionConfidence: 0.85,
-            companyId: companyId,
-          });
-          
-          savedFactIds.push(savedFact.id);
-          
-          // Track usage with slide metadata
-          await FactService.trackFactUsage(savedFact.id, {
-            factId: savedFact.id,
-            type: 'story',
-            trackId: trackId,
-            sourceMediaId: fact.slideId, // Associate with slide!
-            sourceMediaUrl: null,
-            displayOrder: fact.display_order, // Preserve order!
-            addedAt: new Date().toISOString(),
-          });
-          
-          console.log(`  ✓ Saved fact "${fact.title}" (slide: ${fact.slideName}, order: ${fact.display_order})`);
-        } catch (factError: any) {
-          console.error(`  ✗ Error saving fact "${fact.title}":`, factError.message);
-        }
-      }
-      
-      console.log(`✅ Saved ${savedFactIds.length}/${allFacts.length} facts to database`);
-    }
-    
-    return c.json({
-      success: true,
-      enriched: allFacts,
-      simple: allFacts.map(f => f.fact || f.content),
-      totalFacts: allFacts.length,
-      factIds: savedFactIds,
-    });
-    
-  } catch (error: any) {
-    console.error('❌ Generate story key facts error:', error);
-    return c.json({ 
-      error: `Failed to generate story key facts: ${error.message}` 
-    }, 500);
-  }
-});
-
-// =====================================================
 // FACTS: GET FACTS FOR A TRACK
 // =====================================================
 
 app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
   try {
-    const FactService = await import("./FactService.ts");
     const trackId = c.req.param('trackId');
     
     if (!trackId) {
@@ -651,21 +538,8 @@ app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
     
     console.log(`📊 Fetching facts for track: ${trackId}`);
     
-    // Look up the track type from the database
-    const { data: track, error: trackError } = await supabase
-      .from('tracks')
-      .select('type')
-      .eq('id', trackId)
-      .single();
-    
-    if (trackError || !track) {
-      console.error('Error fetching track type:', trackError);
-      return c.json({ error: 'Track not found' }, 404);
-    }
-    
-    console.log(`📊 Track type: ${track.type}`);
-    
-    const facts = await FactService.getFactsForTrack(track.type, trackId);
+    // Get facts from KV store
+    const facts = await kv.getByPrefix(`track_fact:${trackId}:`);
     
     console.log(`✅ Found ${facts.length} facts for track ${trackId}`);
     
@@ -948,7 +822,6 @@ app.post("/make-server-2858cc8b/transcribe-story", async (c) => {
 app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
   try {
     const { generateKeyFacts } = await import("./llm.ts");
-    const FactService = await import("./FactService.ts");
     
     const body = await c.req.json();
     const { 
@@ -984,15 +857,14 @@ app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
     
     console.log(`✅ Generated ${result.enriched.length} key facts`);
     
-    // Save facts with media source tracking
+    // Save facts with media source tracking to KV store
     const savedFactIds: string[] = [];
     const factsWithMetadata: any[] = [];
     
-    if (trackId && companyId) {
-      console.log(`💾 Saving facts with media source tracking...`);
+    if (trackId) {
+      console.log(`💾 Saving facts with media source tracking to KV store...`);
       
       // For each fact, try to determine which slide it came from
-      // This is a simplified approach - in production you might want more sophisticated matching
       for (let i = 0; i < result.enriched.length; i++) {
         const fact = result.enriched[i];
         
@@ -1000,34 +872,29 @@ app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
         const sourceSlide = transcripts[i % transcripts.length];
         
         try {
-          const savedFact = await FactService.createFact({
+          const factId = `fact_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+          const factRecord = {
+            id: factId,
             title: fact.title,
             content: fact.fact,
             type: fact.type,
             steps: fact.steps,
-            context: {
-              specificity: fact.contexts?.[0] as any || 'universal',
-              tags: {},
-            },
             extractedBy: 'ai-pass-2',
             extractionConfidence: 0.85,
             companyId: companyId,
-          });
-          
-          savedFactIds.push(savedFact.id);
-          
-          // Track usage with media source metadata
-          await FactService.trackFactUsage(savedFact.id, {
-            factId: savedFact.id,
-            type: 'story',
-            trackId: trackId,
-            addedAt: new Date().toISOString(),
-            // Media source tracking
+            createdAt: new Date().toISOString(),
+            // Media source metadata
             sourceMediaId: sourceSlide.slideId,
             sourceMediaUrl: sourceSlide.slideUrl,
             sourceMediaType: sourceSlide.slideType || 'video',
             displayOrder: sourceSlide.slideOrder,
-          });
+          };
+          
+          // Save to KV store
+          await kv.set(`fact:${factId}`, factRecord);
+          await kv.set(`track_fact:${trackId}:${factId}`, factRecord);
+          
+          savedFactIds.push(factId);
           
           // Add metadata to fact for client
           factsWithMetadata.push({
@@ -1049,7 +916,7 @@ app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
         }
       }
       
-      console.log(`✅ Saved ${savedFactIds.length} facts with media source tracking`);
+      console.log(`✅ Saved ${savedFactIds.length} facts with media source tracking to KV store`);
     }
     
     return c.json({

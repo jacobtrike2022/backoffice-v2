@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
+import * as factsCrud from '../lib/crud/facts';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
@@ -177,32 +178,19 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         // Fetch facts from database (new facts table)
         let facts: any[] = [];
         try {
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
-            {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            // Convert DB facts to frontend format
-            facts = (data.facts || []).map((f: any) => ({
-              title: f.title,
-              fact: f.content,
-              content: f.content,
-              type: f.type,
-              steps: f.steps || [],
-              contexts: [f.context?.specificity || 'universal'],
-              _dbId: f.id,
-              _extractedBy: f.extracted_by,
-            }));
-            console.log(`📊 Loaded ${facts.length} facts from database for article ${track.id}`);
-          }
+          const dbFacts = await factsCrud.getFactsForTrack(track.id);
+          // Convert DB facts to frontend format
+          facts = dbFacts.map((f: any) => ({
+            title: f.title,
+            fact: f.content,
+            content: f.content,
+            type: f.type,
+            steps: f.steps || [],
+            contexts: [f.context?.specificity || 'universal'],
+            _dbId: f.id,
+            _extractedBy: f.extracted_by,
+          }));
+          console.log(`📊 Loaded ${facts.length} facts from database for article ${track.id}`);
         } catch (error) {
           console.warn('Could not fetch facts from database:', error);
         }
@@ -236,30 +224,17 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     if (!isEditMode && track.id) {
       const loadViewModeFacts = async () => {
         try {
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${track.id}`,
-            {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            const facts = (data.facts || []).map((f: any) => ({
-              title: f.title,
-              fact: f.content,
-              content: f.content,
-              type: f.type,
-              steps: f.steps || [],
-              contexts: [f.context?.specificity || 'universal'],
-            }));
-            setViewModeFacts(facts);
-            console.log(`📊 Loaded ${facts.length} facts for article view mode`);
-          }
+          const dbFacts = await factsCrud.getFactsForTrack(track.id);
+          const facts = dbFacts.map((f: any) => ({
+            title: f.title,
+            fact: f.content,
+            content: f.content,
+            type: f.type,
+            steps: f.steps || [],
+            contexts: [f.context?.specificity || 'universal'],
+          }));
+          setViewModeFacts(facts);
+          console.log(`📊 Loaded ${facts.length} facts for article view mode`);
         } catch (error) {
           console.warn('Could not fetch facts for view mode:', error);
         }

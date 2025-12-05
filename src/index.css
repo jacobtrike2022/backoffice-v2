@@ -3755,6 +3755,10 @@
     }
   }
 
+  .text-yellow-500 {
+    color: var(--color-yellow-500);
+  }
+
   .text-yellow-600 {
     color: var(--color-yellow-600);
   }
@@ -4340,6 +4344,12 @@
   }
 
   @media (hover: hover) {
+    .hover\:bg-blue-600:hover {
+      background-color: var(--color-blue-600);
+    }
+  }
+
+  @media (hover: hover) {
     .hover\:bg-destructive:hover {
       background-color: var(--destructive);
     }
@@ -4372,6 +4382,12 @@
   @media (hover: hover) {
     .hover\:bg-gray-50:hover {
       background-color: var(--color-gray-50);
+    }
+  }
+
+  @media (hover: hover) {
+    .hover\:bg-gray-100:hover {
+      background-color: var(--color-gray-100);
     }
   }
 
@@ -4698,6 +4714,12 @@
   @media (hover: hover) {
     .hover\:text-foreground:hover {
       color: var(--foreground);
+    }
+  }
+
+  @media (hover: hover) {
+    .hover\:text-gray-900:hover {
+      color: var(--color-gray-900);
     }
   }
 

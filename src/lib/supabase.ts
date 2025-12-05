@@ -4,6 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { APP_CONFIG } from './config';
 
 // Supabase configuration
 const supabaseUrl = `https://${projectId}.supabase.co`;
@@ -11,21 +12,42 @@ const supabaseAnonKey = publicAnonKey;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
 /**
  * Get current authenticated user's organization ID
+ * 
+ * CURRENT: Returns fixed organization ID for single-tenant prototype
+ * FUTURE: When implementing multi-tenancy, set APP_CONFIG.ENABLE_MULTI_TENANCY = true
+ * 
+ * Multi-tenant implementation options:
+ * 1. Store org_id in user metadata during signup
+ * 2. Query users table for organization_id via auth_user_id
+ * 3. Use JWT claims to embed org_id in auth token
  */
 export async function getCurrentUserOrgId(): Promise<string | null> {
+  // Check if multi-tenancy is enabled
+  if (!APP_CONFIG.ENABLE_MULTI_TENANCY) {
+    // SINGLE-TENANT MODE: All users belong to the same organization
+    return APP_CONFIG.DEFAULT_ORG_ID;
+  }
+  
+  // MULTI-TENANT MODE: Get organization from authenticated user
   const { data: { user } } = await supabase.auth.getUser();
+  
   if (!user) {
-    // DEVELOPMENT: Return demo org ID when not authenticated
-    // TODO: Remove this in production and require proper auth
-    return '10000000-0000-0000-0000-000000000001';
+    // No authenticated user
+    if (APP_CONFIG.DEMO_MODE) {
+      // Demo mode: return default org
+      return APP_CONFIG.DEFAULT_ORG_ID;
+    }
+    // Production: require authentication
+    return null;
   }
 
+  // Option 1: Get from user metadata (set during signup)
+  const orgIdFromMetadata = user.user_metadata?.organization_id;
+  if (orgIdFromMetadata) return orgIdFromMetadata;
+
+  // Option 2: Query users table for organization_id
   const { data } = await supabase
     .from('users')
     .select('organization_id')
@@ -40,27 +62,36 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
  */
 export async function getCurrentUserProfile() {
   const { data: { user } } = await supabase.auth.getUser();
+  
   if (!user) {
-    // DEVELOPMENT: Return demo admin user when not authenticated
-    // TODO: Remove this in production and require proper auth
-    console.log('No authenticated user, fetching demo admin user...');
-    const { data, error } = await supabase
-      .from('users')
-      .select(`
-        *,
-        role:roles(*),
-        store:stores!users_store_id_fkey(*, district:districts(*))
-      `)
-      .eq('id', '50000000-0000-0000-0000-000000000001') // Sarah Admin
-      .single();
+    // Check if demo mode is enabled
+    if (APP_CONFIG.DEMO_MODE) {
+      // DEMO MODE: Return demo admin user when not authenticated
+      console.log('No authenticated user, fetching demo admin user...');
+      const { data, error } = await supabase
+        .from('users')
+        .select(`
+          *,
+          role:roles(*),
+          store:stores!users_store_id_fkey(*, district:districts(*))
+        `)
+        .eq('id', APP_CONFIG.DEMO_USER_ID) // Sarah Admin
+        .single();
+      
+      if (error) {
+        console.error('Error fetching demo user profile:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+        return null;
+      }
+      console.log('Demo user loaded successfully:', data);
+      return data;
+    }
     
-    if (error) {
-      console.error('Error fetching demo user profile:', error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
+    // Production mode: require authentication
+    if (APP_CONFIG.REQUIRE_AUTH) {
+      console.warn('Authentication required but no user found');
       return null;
     }
-    console.log('Demo user loaded successfully:', data);
-    return data;
   }
 
   const { data, error } = await supabase

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
+import * as factsCrud from '../../lib/crud/facts';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
@@ -135,18 +136,10 @@ export function StoryEditor({
   
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
-  
-  // Track current slides to avoid state closure issues in handleSave
-  const slidesRef = useRef(slides);
 
   const currentTrackId = trackId || track?.id;
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
   const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
-  
-  // Keep slidesRef in sync with slides state
-  useEffect(() => {
-    slidesRef.current = slides;
-  }, [slides]);
   
   // Calculate story duration
   const calculateStoryDuration = () => {
@@ -204,11 +197,9 @@ export function StoryEditor({
   // Load existing story
   useEffect(() => {
     if (track) {
-      console.log('📥 Loading story from track prop');
       setExistingTrack(track);
       loadStoryData(track);
     } else if (trackId) {
-      console.log('📥 Loading story from trackId');
       loadStory();
     }
   }, [trackId, track]);
@@ -219,61 +210,49 @@ export function StoryEditor({
       const loadViewModeFacts = async () => {
         try {
           const id = track?.id || trackId;
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${id}`,
-            {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
+          const dbFacts = await factsCrud.getFactsForTrack(id);
           
-          if (response.ok) {
-            const data = await response.json();
-            // Preserve full fact metadata for view mode grouping
-            const factsFromDB = (data.facts || []).map((f: any) => {
-              // If fact has usage metadata with media source, preserve it
-              if (f.usage && f.usage.length > 0) {
-                const usage = f.usage[0]; // First usage record
-                
-                // Try to find the slide by media URL or ID
-                let slideName = null;
-                let slideIndex = usage.display_order || 0;
-                
-                if (usage.source_media_id) {
-                  const slide = slides?.find((s: any) => s.id === usage.source_media_id);
-                  if (slide) {
-                    slideName = slide.name || `Slide ${slideIndex + 1}`;
-                  }
-                }
-                
-                // If we have media source info, return enriched fact
-                if (slideName || usage.source_media_id) {
-                  return {
-                    fact: f.content || f.title,
-                    title: f.title,
-                    type: f.type,
-                    slideId: usage.source_media_id,
-                    slideName: slideName || 'Unknown Slide',
-                    slideIndex: slideIndex
-                  };
+          // Preserve full fact metadata for view mode grouping
+          const factsFromDB = dbFacts.map((f: any) => {
+            // If fact has usage metadata with media source, preserve it
+            if (f.usage && f.usage.length > 0) {
+              const usage = f.usage[0]; // First usage record
+              
+              // Try to find the slide by media URL or ID
+              let slideName = null;
+              let slideIndex = usage.display_order || 0;
+              
+              if (usage.source_media_id) {
+                const slide = existingTrack?.story_data?.find((s: any) => s.id === usage.source_media_id);
+                if (slide) {
+                  slideName = slide.name || `Slide ${slideIndex + 1}`;
                 }
               }
-              // Fallback to simple text
-              return f.content || f.fact || f.title;
-            });
-            setObjectives(factsFromDB.length > 0 ? factsFromDB : ['']);
-            console.log(`📊 View mode: Loaded ${factsFromDB.length} facts from DB`, factsFromDB);
-          }
+              
+              // If we have media source info, return enriched fact
+              if (slideName || usage.source_media_id) {
+                return {
+                  fact: f.content || f.title,
+                  title: f.title,
+                  type: f.type,
+                  slideId: usage.source_media_id,
+                  slideName: slideName || 'Unknown Slide',
+                  slideIndex: slideIndex
+                };
+              }
+            }
+            // Fallback to simple text
+            return f.content || f.fact || f.title;
+          });
+          setObjectives(factsFromDB.length > 0 ? factsFromDB : ['']);
+          console.log(`📊 View mode: Loaded ${factsFromDB.length} facts from DB`, factsFromDB);
         } catch (error) {
           console.warn('Could not fetch facts for story view mode:', error);
         }
       };
       loadViewModeFacts();
     }
-  }, [isEditMode, track?.id, trackId, slides]);
+  }, [isEditMode, track?.id, trackId]);
 
   const loadStory = async () => {
     if (!trackId) return;
@@ -300,29 +279,12 @@ export function StoryEditor({
     setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
-    console.log('📖 ========== LOADING STORY DATA ==========');
-    console.log('📖 Track ID:', trackData.id);
-    console.log('📖 Transcript field length:', trackData.transcript?.length || 0);
-    
     let parsedSlides: any[] = [];
     let parsedObjectives: string[] = [];
     if (trackData.transcript) {
       try {
         const storyData = JSON.parse(trackData.transcript);
-        console.log('📖 Parsed story data:', {
-          slideCount: storyData.slides?.length || 0,
-          objectiveCount: storyData.objectives?.length || 0
-        });
-        
         if (storyData.slides && Array.isArray(storyData.slides)) {
-          storyData.slides.forEach((slide, idx) => {
-            console.log(`📖 Slide ${idx + 1} (${slide.id}):`, {
-              name: slide.name,
-              hasTranscript: !!slide.transcript,
-              transcriptTextLength: slide.transcript?.text?.length || 0,
-              transcriptPreview: slide.transcript?.text?.substring(0, 100) + '...'
-            });
-          });
           setSlides(storyData.slides);
           parsedSlides = storyData.slides;
         }
@@ -338,23 +300,10 @@ export function StoryEditor({
     // Load objectives from facts table for comparison
     if (trackData.id) {
       try {
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${trackData.id}`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
-          const factsFromDB = (data.facts || []).map((f: any) => f.content || f.fact || f.title);
-          setOriginalObjectivesFromDB(factsFromDB);
-          console.log(`📊 Loaded ${factsFromDB.length} facts from DB for story comparison`);
-        }
+        const dbFacts = await factsCrud.getFactsForTrack(trackData.id);
+        const factsFromDB = dbFacts.map((f: any) => f.content || f.fact || f.title);
+        setOriginalObjectivesFromDB(factsFromDB);
+        console.log(`📊 Loaded ${factsFromDB.length} facts from DB for story comparison`);
       } catch (error) {
         console.warn('Could not fetch facts for story:', error);
         setOriginalObjectivesFromDB([]);
@@ -686,11 +635,8 @@ export function StoryEditor({
 
     setIsSaving(true);
     try {
-      // Use ref to get the absolute latest slides (avoids state closure issues)
-      const currentSlides = slidesRef.current;
-      
       const storyData = {
-        slides: currentSlides,
+        slides,
         objectives: objectives.filter((o: any) => {
           if (typeof o === 'string') return o.trim() !== '';
           if (typeof o === 'object' && o?.fact) return o.fact.trim() !== '';
@@ -714,7 +660,7 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(),
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (currentSlides.length > 0 ? currentSlides[0].url : '')
+        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
       };
 
       if (currentTrackId) {
@@ -805,30 +751,6 @@ export function StoryEditor({
     }
   };
 
-  // Handle transcript edit - update slides state when user edits transcript
-  const handleTranscriptEdit = (slideId: string, newText: string) => {
-    console.log(`✏️ Transcript edited for slide ${slideId}`);
-    console.log(`✏️ New text length: ${newText.length} characters`);
-    
-    // Update the slides state with the edited transcript
-    const updatedSlides = slides.map(slide => {
-      if (slide.id === slideId) {
-        console.log(`✏️ Updating transcript for slide: ${slide.name}`);
-        return {
-          ...slide,
-          transcript: {
-            ...slide.transcript,
-            text: newText // Update the text field
-          }
-        };
-      }
-      return slide;
-    });
-    
-    setSlides(updatedSlides);
-    console.log(`✅ Slides state updated with edited transcript`);
-  };
-
   const handleSave = async () => {
     if (isSystemContent) {
       toast.error('Cannot edit Trike Library content');
@@ -839,34 +761,14 @@ export function StoryEditor({
 
     setIsSaving(true);
     try {
-      // Use ref to get the absolute latest slides (avoids state closure issues)
-      const currentSlides = slidesRef.current;
-      
-      // LOG WHAT WE'RE ABOUT TO SAVE
-      console.log('💾 ========== SAVING STORY ==========');
-      console.log('💾 Number of slides:', currentSlides.length);
-      currentSlides.forEach((slide, idx) => {
-        console.log(`💾 Slide ${idx + 1} (${slide.id}):`, {
-          name: slide.name,
-          hasTranscript: !!slide.transcript,
-          transcriptTextLength: slide.transcript?.text?.length || 0,
-          transcriptPreview: slide.transcript?.text?.substring(0, 100) + '...'
-        });
-      });
-
       const storyData = {
-        slides: currentSlides,
+        slides,
         objectives: objectives.filter((o: any) => {
           if (typeof o === 'string') return o.trim() !== '';
           if (typeof o === 'object' && o?.fact) return o.fact.trim() !== '';
           return false;
         })
       };
-
-      console.log('💾 Story data ready, stringifying...');
-      const transcriptString = JSON.stringify(storyData);
-      console.log('💾 Stringified transcript length:', transcriptString.length);
-      console.log('💾 First 200 chars:', transcriptString.substring(0, 200));
 
       // Prepare tags including the system KB tag
       const currentTags = new Set<string>(tags || []);
@@ -880,14 +782,12 @@ export function StoryEditor({
         title,
         description,
         type: 'story' as const,
-        transcript: transcriptString,
+        transcript: JSON.stringify(storyData),
         content_text: notes,
         duration_minutes: calculateStoryDuration(), // Use actual calculated duration
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (currentSlides.length > 0 ? currentSlides[0].url : '')
+        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
       };
-
-      console.log('💾 Track data prepared with transcript of length:', trackData.transcript.length);
 
       if (currentTrackId) {
         // Check for meaningful content changes that require versioning
@@ -922,29 +822,8 @@ export function StoryEditor({
         }
         
         // If no assignments or not published OR only metadata changed, update normally
-        const updatePayload = { id: currentTrackId, ...trackData };
-        console.log('💾 UPDATE PAYLOAD:', {
-          hasId: !!updatePayload.id,
-          hasTranscript: !!updatePayload.transcript,
-          transcriptLength: updatePayload.transcript?.length || 0,
-          transcriptFirst200: updatePayload.transcript?.substring(0, 200),
-          allKeys: Object.keys(updatePayload)
-        });
-        
-        await crud.updateTrack(updatePayload);
-        
-        console.log('✅ crud.updateTrack completed successfully');
-        
+        await crud.updateTrack({ id: currentTrackId, ...trackData });
         toast.success(contentChanged ? 'Changes saved!' : 'Settings updated!');
-        
-        // Reload fresh data from database after save
-        console.log('📥 Fetching fresh track data from database...');
-        const freshTrack = await crud.getTrackById(currentTrackId);
-        console.log('📥 Fresh track received. Transcript length:', freshTrack.transcript?.length || 0);
-        console.log('📥 Fresh track transcript first 300 chars:', freshTrack.transcript?.substring(0, 300));
-        setExistingTrack(freshTrack);
-        loadStoryData(freshTrack);
-        console.log('✅ Fresh track data loaded, slides count:', slides.length);
         
         setIsEditMode(false);
         
@@ -1099,20 +978,11 @@ export function StoryEditor({
           return;
         }
         
-        // Step 3: Generate key facts per-slide (with metadata!)
-        console.log('🤖 Step 2: Generating key facts from transcripts per-slide...');
-        
-        // Update slides with transcript data first
-        const slidesWithTranscripts = slides.map(slide => {
-          const transcript = transcribeData.transcripts.find((t: any) => t.slideId === slide.id);
-          if (transcript && !transcript.error) {
-            return { ...slide, transcript: transcript.transcript };
-          }
-          return slide;
-        });
+        // Step 3: Generate key facts from combined transcript
+        console.log('🤖 Step 2: Generating key facts from transcripts...');
         
         const factsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-story-key-facts`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -1121,8 +991,9 @@ export function StoryEditor({
             },
             body: JSON.stringify({
               title: title || 'Untitled Story',
+              transcript: combinedTranscript,
               description: description || '',
-              slides: slidesWithTranscripts,
+              trackType: 'story',
               trackId: currentTrackId,
               companyId: existingTrack?.company_id,
             }),
@@ -1209,20 +1080,11 @@ export function StoryEditor({
           return;
         }
         
-        // Step 3: Generate key facts per-slide (with metadata!)
-        console.log('🤖 Step 2: Generating key facts from transcripts per-slide...');
-        
-        // Update slides with transcript data first
-        const slidesWithTranscripts = slides.map(slide => {
-          const transcript = transcribeData.transcripts.find((t: any) => t.slideId === slide.id);
-          if (transcript && !transcript.error) {
-            return { ...slide, transcript: transcript.transcript };
-          }
-          return slide;
-        });
+        // Step 3: Generate key facts
+        console.log('🤖 Step 2: Generating key facts from transcripts...');
         
         const factsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-story-key-facts`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -1231,8 +1093,9 @@ export function StoryEditor({
             },
             body: JSON.stringify({
               title: title || 'Untitled Story',
+              transcript: combinedTranscript,
               description: description || '',
-              slides: slidesWithTranscripts,
+              trackType: 'story',
               trackId: currentTrackId,
               companyId: existingTrack?.company_id,
             }),
@@ -1394,18 +1257,6 @@ export function StoryEditor({
               </CardContent>
             </Card>
 
-            {/* Video Transcripts */}
-            {currentTrackId && (
-              <StoryTranscript
-                storyData={slides}
-                trackId={currentTrackId}
-                projectId={projectId}
-                publicAnonKey={publicAnonKey}
-                onTranscriptsGenerated={handleTranscriptsGenerated}
-                isEditMode={false}
-              />
-            )}
-
             {/* Key Facts */}
             {(() => {
               const validObjectives = objectives.filter((o: any) => {
@@ -1489,6 +1340,17 @@ export function StoryEditor({
                 </Card>
               );
             })()}
+
+            {/* Video Transcripts */}
+            {currentTrackId && (
+              <StoryTranscript
+                storyData={existingTrack?.story_data || slides}
+                trackId={currentTrackId}
+                projectId={projectId}
+                publicAnonKey={publicAnonKey}
+                onTranscriptsGenerated={handleTranscriptsGenerated}
+              />
+            )}
           </div>
 
           {/* Sidebar */}
@@ -1907,19 +1769,6 @@ export function StoryEditor({
               />
             </CardContent>
           </Card>
-
-          {/* Video Transcripts - EDIT MODE */}
-          {currentTrackId && (
-            <StoryTranscript
-              storyData={slides}
-              trackId={currentTrackId}
-              projectId={projectId}
-              publicAnonKey={publicAnonKey}
-              onTranscriptsGenerated={handleTranscriptsGenerated}
-              onTranscriptEdit={handleTranscriptEdit}
-              isEditMode={true}
-            />
-          )}
 
           {/* Key Facts */}
           <Card>

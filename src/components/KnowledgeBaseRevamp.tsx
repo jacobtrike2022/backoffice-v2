@@ -40,6 +40,7 @@ import {
 } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
+import * as factsCrud from '../lib/crud/facts';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import type { Tag } from '../lib/crud/tags';
 import { Button } from './ui/button';
@@ -513,30 +514,17 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     if (selectedTrack?.id) {
       const loadFacts = async () => {
         try {
-          const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/facts/track/${selectedTrack.id}`,
-            {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            const facts = (data.facts || []).map((f: any) => ({
-              title: f.title,
-              fact: f.content,
-              content: f.content,
-              type: f.type,
-              steps: f.steps || [],
-              contexts: [f.context?.specificity || 'universal'],
-            }));
-            setSelectedTrackFacts(facts);
-            console.log(`📊 Loaded ${facts.length} facts for KB view`);
-          }
+          const dbFacts = await factsCrud.getFactsForTrack(selectedTrack.id);
+          const facts = dbFacts.map((f: any) => ({
+            title: f.title,
+            fact: f.content,
+            content: f.content,
+            type: f.type,
+            steps: f.steps || [],
+            contexts: [f.context?.specificity || 'universal'],
+          }));
+          setSelectedTrackFacts(facts);
+          console.log(`📊 Loaded ${facts.length} facts for KB view`);
         } catch (error) {
           console.warn('Could not fetch facts for KB view:', error);
           setSelectedTrackFacts([]);
