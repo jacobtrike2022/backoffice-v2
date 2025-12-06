@@ -18,6 +18,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Alert, AlertDescription } from '../ui/alert';
+import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 interface Track {
   id: string;
@@ -39,7 +40,8 @@ interface Organization {
   name: string;
   kb_privacy_mode: 'public' | 'password' | 'employee_login';
   kb_shared_password?: string;
-  kb_logo_url?: string;
+  kb_logo_dark?: string;
+  kb_logo_light?: string;
 }
 
 export function KBPublicView() {
@@ -93,7 +95,7 @@ export function KBPublicView() {
       // Fetch organization settings
       const { data: orgData, error: orgError } = await supabase
         .from('organizations')
-        .select('id, name, kb_privacy_mode, kb_shared_password, kb_logo_url')
+        .select('id, name, kb_privacy_mode, kb_shared_password, kb_logo_dark, kb_logo_light')
         .eq('id', trackData.organization_id)
         .single();
 
@@ -284,17 +286,21 @@ export function KBPublicView() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header with org branding */}
-      {organization?.kb_logo_url && (
-        <div className="bg-white border-b">
-          <div className="max-w-4xl mx-auto px-4 py-4">
+      <div className="bg-white border-b">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <picture>
+            <source 
+              srcSet={organization?.kb_logo_dark || trikeLogoDark}
+              media="(prefers-color-scheme: dark)"
+            />
             <img 
-              src={organization.kb_logo_url} 
-              alt={organization.name}
+              src={organization?.kb_logo_light || trikeLogoDark} 
+              alt={organization?.name || 'Trike'}
               className="h-12 object-contain"
             />
-          </div>
+          </picture>
         </div>
-      )}
+      </div>
 
       {/* Article content */}
       <div className="max-w-4xl mx-auto px-4 py-8">

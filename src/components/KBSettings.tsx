@@ -79,7 +79,22 @@ export function KBSettings() {
         .eq('id', orgId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Error loading KB settings (columns may not exist yet):', error);
+        // Set defaults even if columns don't exist
+        const defaultSettings = {
+          kb_privacy_mode: 'public' as PrivacyMode,
+          kb_shared_password: '',
+          kb_logo_dark: trikeLogoDark,
+          kb_logo_light: trikeLogoDark
+        };
+        setSettings(defaultSettings);
+        setOriginalSettings(defaultSettings);
+        setLogoDarkPreview(trikeLogoDark);
+        setLogoLightPreview(trikeLogoDark);
+        setLoading(false);
+        return;
+      }
 
       const loadedSettings = {
         kb_privacy_mode: (data?.kb_privacy_mode || 'public') as PrivacyMode,
@@ -94,7 +109,17 @@ export function KBSettings() {
       setLogoLightPreview(loadedSettings.kb_logo_light);
     } catch (error) {
       console.error('Error loading KB settings:', error);
-      setMessage({ type: 'error', text: 'Failed to load settings' });
+      // Don't show error message, just use defaults
+      const defaultSettings = {
+        kb_privacy_mode: 'public' as PrivacyMode,
+        kb_shared_password: '',
+        kb_logo_dark: trikeLogoDark,
+        kb_logo_light: trikeLogoDark
+      };
+      setSettings(defaultSettings);
+      setOriginalSettings(defaultSettings);
+      setLogoDarkPreview(trikeLogoDark);
+      setLogoLightPreview(trikeLogoDark);
     } finally {
       setLoading(false);
     }
