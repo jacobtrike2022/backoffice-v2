@@ -17,10 +17,12 @@ const supabase = createClient(
 
 const BUCKET_NAME = 'make-2858cc8b-track-media';
 const ATTACHMENTS_BUCKET_NAME = 'make-2858cc8b-attachments';
+const PUBLIC_ASSETS_BUCKET_NAME = 'public-assets';
 
 // Track bucket initialization status to avoid repeated checks
 let mediaBucketInitialized = false;
 let attachmentsBucketInitialized = false;
+let publicAssetsBucketInitialized = false;
 
 // Initialize storage bucket for track media
 async function ensureMediaBucket() {
@@ -94,6 +96,42 @@ async function ensureAttachmentsBucket() {
   }
 }
 
+// Initialize storage bucket for public assets
+async function ensurePublicAssetsBucket() {
+  if (publicAssetsBucketInitialized) return true;
+  
+  try {
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    const bucketExists = buckets?.some(bucket => bucket.name === PUBLIC_ASSETS_BUCKET_NAME);
+    
+    if (!bucketExists) {
+      console.log('Creating public assets bucket:', PUBLIC_ASSETS_BUCKET_NAME);
+      const { error: createError } = await supabase.storage.createBucket(PUBLIC_ASSETS_BUCKET_NAME, {
+        public: true,
+        fileSizeLimit: 52428800, // 50MB max
+      });
+      
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error('Error creating public assets bucket:', createError);
+        return false;
+      }
+    }
+    
+    publicAssetsBucketInitialized = true;
+    console.log('Public assets bucket ready');
+    return true;
+  } catch (error: any) {
+    console.error('ensurePublicAssetsBucket error:', error);
+    return false;
+  }
+}
+
 // Initialize bucket on startup
 ensureMediaBucket()
   .then(() => console.log('Bucket initialization complete'))
@@ -102,6 +140,10 @@ ensureMediaBucket()
 ensureAttachmentsBucket()
   .then(() => console.log('Attachments bucket initialization complete'))
   .catch((err) => console.error('Attachments bucket initialization failed:', err));
+
+ensurePublicAssetsBucket()
+  .then(() => console.log('Public assets bucket initialization complete'))
+  .catch((err) => console.error('Public assets bucket initialization failed:', err));
 
 // Enable logger
 app.use('*', logger(console.log));
@@ -463,9 +505,9 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
       }, 400);
     }
     
-    console.log('Generating key facts for:', title || 'Untitled');
-    console.log('Content length:', content?.length || 0);
-    console.log('Transcript length:', transcript?.length || 0);
+    console.log('🤖 Generating key facts for:', title || 'Untitled');
+    console.log('   Content length:', content?.length || 0);
+    console.log('   Transcript length:', transcript?.length || 0);
     
     const result = await generateKeyFacts({
       title,
@@ -474,50 +516,72 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
       transcript,
     });
     
-    console.log(`Successfully generated ${result.enriched.length} key facts`);
+    console.log(`✅ Successfully generated ${result.enriched.length} key facts`);
     
-    // Save facts to KV store if trackType/trackId provided
+    // Save facts to database if trackType/trackId provided
     const savedFactIds: string[] = [];
     if (trackType && trackId) {
-      console.log(`Saving ${result.enriched.length} facts to KV store for ${trackType}:${trackId}`);
+      console.log(`💾 Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`);
       
       for (const fact of result.enriched) {
         try {
-          const factId = `fact_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          const factRecord = {
-            id: factId,
-            title: fact.title,
-            content: fact.fact,
-            type: fact.type,
-            steps: fact.steps,
-            extractedBy: 'ai-pass-2',
-            extractionConfidence: 0.85,
-            companyId: companyId,
-            createdAt: new Date().toISOString(),
-          };
+          // Insert into facts table
+          const { data: insertedFact, error: insertError } = await supabase
+            .from('facts')
+            .insert({
+              title: fact.title,
+              content: fact.fact,
+              type: fact.type,
+              steps: fact.steps || [],
+              context: {
+                specificity: 'universal',
+                tags: {}
+              },
+              extracted_by: 'ai-pass-2',
+              extraction_confidence: 0.85,
+              company_id: companyId || null,
+            })
+            .select()
+            .single();
           
-          // Save to KV store
-          await kv.set(`fact:${factId}`, factRecord);
-          await kv.set(`track_fact:${trackId}:${factId}`, factRecord);
+          if (insertError) {
+            console.error(`❌ Error inserting fact "${fact.title}":`, insertError.message);
+            continue;
+          }
           
-          savedFactIds.push(factId);
+          // Create fact_usage relationship
+          const { error: usageError } = await supabase
+            .from('fact_usage')
+            .insert({
+              fact_id: insertedFact.id,
+              track_type: trackType,
+              track_id: trackId,
+            });
+          
+          if (usageError) {
+            console.error(`❌ Error creating fact_usage for "${fact.title}":`, usageError.message);
+            // Continue - the fact is saved, just not linked
+          }
+          
+          savedFactIds.push(insertedFact.id);
+          console.log(`   ✓ Saved fact: "${fact.title}" (${insertedFact.id})`);
         } catch (factError: any) {
-          console.error(`Error saving fact "${fact.title}":`, factError.message);
+          console.error(`❌ Exception saving fact "${fact.title}":`, factError.message);
           // Continue with other facts
         }
       }
       
-      console.log(`Saved ${savedFactIds.length} facts to KV store`);
+      console.log(`✅ Saved ${savedFactIds.length}/${result.enriched.length} facts to database`);
     }
     
     return c.json({
       success: true,
       ...result,
-      factIds: savedFactIds, // Return the KV store IDs
+      factIds: savedFactIds, // Return the database UUIDs
     });
     
   } catch (error: any) {
-    console.error('Generate key facts error:', error);
+    console.error('❌ Generate key facts error:', error);
     return c.json({ 
       error: `Failed to generate key facts: ${error.message}` 
     }, 500);
@@ -538,8 +602,51 @@ app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
     
     console.log(`📊 Fetching facts for track: ${trackId}`);
     
-    // Get facts from KV store
-    const facts = await kv.getByPrefix(`track_fact:${trackId}:`);
+    // Get facts from database via fact_usage join
+    const { data: factUsage, error: usageError } = await supabase
+      .from('fact_usage')
+      .select(`
+        fact_id,
+        track_type,
+        track_id,
+        added_at,
+        facts (
+          id,
+          title,
+          content,
+          type,
+          steps,
+          context,
+          extracted_by,
+          extraction_confidence,
+          company_id,
+          created_at,
+          updated_at
+        )
+      `)
+      .eq('track_id', trackId);
+    
+    if (usageError) {
+      console.error('❌ Error fetching facts:', usageError);
+      return c.json({ 
+        error: `Failed to get facts: ${usageError.message}` 
+      }, 500);
+    }
+    
+    // Transform to expected format
+    const facts = (factUsage || []).map((usage: any) => ({
+      id: usage.facts.id,
+      title: usage.facts.title,
+      content: usage.facts.content,
+      type: usage.facts.type,
+      steps: usage.facts.steps,
+      context: usage.facts.context,
+      extractedBy: usage.facts.extracted_by,
+      extractionConfidence: usage.facts.extraction_confidence,
+      companyId: usage.facts.company_id,
+      createdAt: usage.facts.created_at,
+      updatedAt: usage.facts.updated_at,
+    }));
     
     console.log(`✅ Found ${facts.length} facts for track ${trackId}`);
     
@@ -550,7 +657,7 @@ app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
     });
     
   } catch (error: any) {
-    console.error('Get facts for track error:', error);
+    console.error('❌ Get facts for track error:', error);
     return c.json({ 
       error: `Failed to get facts: ${error.message}` 
     }, 500);
@@ -558,378 +665,119 @@ app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
 });
 
 // =====================================================
-// CACHED TRANSCRIPTION: Single media with caching
+// FACTS: DELETE A FACT FROM A TRACK
 // =====================================================
 
-app.post("/make-server-2858cc8b/transcribe-cached", async (c) => {
+app.delete("/make-server-2858cc8b/facts/:factId/track/:trackId", async (c) => {
   try {
-    const TranscriptService = await import("./TranscriptService.ts");
-    const body = await c.req.json();
-    const { mediaUrl, mediaType, trackId, forceRefresh } = body;
+    const factId = c.req.param('factId');
+    const trackId = c.req.param('trackId');
     
-    if (!mediaUrl || !trackId) {
+    if (!factId || !trackId) {
+      return c.json({ error: 'Fact ID and Track ID are required' }, 400);
+    }
+    
+    console.log(`🗑️  Removing fact ${factId} from track ${trackId}`);
+    
+    // Delete from fact_usage (breaks the relationship)
+    const { error: deleteError } = await supabase
+      .from('fact_usage')
+      .delete()
+      .eq('fact_id', factId)
+      .eq('track_id', trackId);
+    
+    if (deleteError) {
+      console.error('❌ Error deleting fact_usage:', deleteError);
       return c.json({ 
-        error: 'mediaUrl and trackId are required' 
-      }, 400);
+        error: `Failed to delete fact: ${deleteError.message}` 
+      }, 500);
     }
     
-    console.log(`🎬 Transcribing media (cached): ${mediaUrl.substring(0, 50)}...`);
-    console.log(`   Track ID: ${trackId}, Force refresh: ${forceRefresh || false}`);
+    // Check if this fact is used by any other tracks
+    const { data: remainingUsage, error: checkError } = await supabase
+      .from('fact_usage')
+      .select('id')
+      .eq('fact_id', factId);
     
-    const result = await TranscriptService.getOrCreateTranscript(
-      mediaUrl,
-      mediaType || 'video',
-      trackId,
-      forceRefresh || false
-    );
+    if (checkError) {
+      console.warn('⚠️  Could not check for remaining usage:', checkError.message);
+    }
+    
+    // If no other tracks use this fact, optionally delete the fact itself
+    // (For now, we keep orphaned facts for potential reuse)
+    const isOrphaned = !remainingUsage || remainingUsage.length === 0;
+    
+    console.log(`✅ Fact removed from track. Orphaned: ${isOrphaned}`);
     
     return c.json({
       success: true,
-      transcript: result.transcript,
-      cached: result.cached,
-      message: result.message
+      message: 'Fact removed from track',
+      orphaned: isOrphaned
     });
     
   } catch (error: any) {
-    console.error('Cached transcription error:', error);
+    console.error('❌ Delete fact error:', error);
     return c.json({ 
-      error: `Failed to transcribe: ${error.message}` 
+      error: `Failed to delete fact: ${error.message}` 
     }, 500);
   }
 });
 
 // =====================================================
-// CACHED STORY TRANSCRIPTION: Batch with caching
+// FACTS: UPDATE A FACT
 // =====================================================
 
-app.post("/make-server-2858cc8b/transcribe-story-cached", async (c) => {
+app.put("/make-server-2858cc8b/facts/:factId", async (c) => {
   try {
-    const TranscriptService = await import("./TranscriptService.ts");
+    const factId = c.req.param('factId');
     const body = await c.req.json();
-    const { trackId, slides, forceRefresh } = body;
+    const { title, content, type, steps } = body;
     
-    if (!trackId || !slides) {
+    if (!factId) {
+      return c.json({ error: 'Fact ID is required' }, 400);
+    }
+    
+    if (!title && !content && !type && !steps) {
+      return c.json({ error: 'At least one field to update is required' }, 400);
+    }
+    
+    console.log(`📝 Updating fact ${factId}`);
+    
+    // Build update object (only include provided fields)
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+    
+    if (title !== undefined) updateData.title = title;
+    if (content !== undefined) updateData.content = content;
+    if (type !== undefined) updateData.type = type;
+    if (steps !== undefined) updateData.steps = steps;
+    
+    const { data: updatedFact, error: updateError } = await supabase
+      .from('facts')
+      .update(updateData)
+      .eq('id', factId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error('❌ Error updating fact:', updateError);
       return c.json({ 
-        error: 'trackId and slides are required' 
-      }, 400);
+        error: `Failed to update fact: ${updateError.message}` 
+      }, 500);
     }
     
-    console.log(`📦 Batch transcribing story with ${slides.length} slides...`);
-    
-    // Filter for video slides only
-    const videoSlides = slides.filter((slide: any) => 
-      slide.type === 'video' && slide.url
-    );
-    
-    if (videoSlides.length === 0) {
-      return c.json({
-        success: true,
-        transcripts: [],
-        stats: { total: 0, cached: 0, newlyTranscribed: 0, failed: 0 },
-        message: 'No video slides found'
-      });
-    }
-    
-    // Batch transcribe with caching
-    const result = await TranscriptService.batchTranscribe(
-      videoSlides.map((slide: any) => ({
-        url: slide.url,
-        type: 'video',
-        id: slide.id,
-        name: slide.name
-      })),
-      trackId,
-      forceRefresh || false
-    );
-    
-    console.log(`✅ Batch transcription complete: ${result.stats.cached} cached, ${result.stats.newlyTranscribed} new`);
+    console.log(`✅ Fact updated successfully`);
     
     return c.json({
       success: true,
-      transcripts: result.transcripts,
-      stats: result.stats
+      fact: updatedFact
     });
     
   } catch (error: any) {
-    console.error('Cached story transcription error:', error);
+    console.error('❌ Update fact error:', error);
     return c.json({ 
-      error: `Failed to transcribe story: ${error.message}` 
-    }, 500);
-  }
-});
-
-// =====================================================
-// TRANSCRIPT RETRIEVAL: Get by ID or URL
-// =====================================================
-
-app.get("/make-server-2858cc8b/transcript/:id", async (c) => {
-  try {
-    const TranscriptService = await import("./TranscriptService.ts");
-    const transcriptId = c.req.param('id');
-    
-    const transcript = await TranscriptService.getTranscriptById(transcriptId);
-    
-    if (!transcript) {
-      return c.json({ error: 'Transcript not found' }, 404);
-    }
-    
-    return c.json({
-      success: true,
-      transcript
-    });
-    
-  } catch (error: any) {
-    console.error('Get transcript error:', error);
-    return c.json({ 
-      error: `Failed to get transcript: ${error.message}` 
-    }, 500);
-  }
-});
-
-app.get("/make-server-2858cc8b/transcript/by-url", async (c) => {
-  try {
-    const TranscriptService = await import("./TranscriptService.ts");
-    const mediaUrl = c.req.query('url');
-    
-    if (!mediaUrl) {
-      return c.json({ error: 'url query parameter is required' }, 400);
-    }
-    
-    const transcript = await TranscriptService.getTranscriptByUrl(mediaUrl);
-    
-    return c.json({
-      success: true,
-      transcript: transcript || null
-    });
-    
-  } catch (error: any) {
-    console.error('Get transcript by URL error:', error);
-    return c.json({ 
-      error: `Failed to get transcript: ${error.message}` 
-    }, 500);
-  }
-});
-
-// =====================================================
-// TRANSCRIPT STATS: Usage analytics
-// =====================================================
-
-app.get("/make-server-2858cc8b/transcript-stats", async (c) => {
-  try {
-    const TranscriptService = await import("./TranscriptService.ts");
-    const stats = await TranscriptService.getTranscriptStats();
-    
-    return c.json({
-      success: true,
-      stats
-    });
-    
-  } catch (error: any) {
-    console.error('Get transcript stats error:', error);
-    return c.json({ 
-      error: `Failed to get stats: ${error.message}` 
-    }, 500);
-  }
-});
-
-// =====================================================
-// STORY TRANSCRIPTION: Process multiple videos in a story (LEGACY - no caching)
-// =====================================================
-
-app.post("/make-server-2858cc8b/transcribe-story", async (c) => {
-  try {
-    const { transcribeVideo } = await import("./transcribe.tsx");
-    const body = await c.req.json();
-    const { storyData } = body;
-    
-    if (!storyData) {
-      return c.json({ error: 'storyData is required' }, 400);
-    }
-    
-    console.log('📽️ Processing story transcription (legacy endpoint)...');
-    
-    // Parse story_data to extract slides
-    let slides = [];
-    try {
-      slides = typeof storyData === 'string' ? JSON.parse(storyData) : storyData;
-    } catch (parseError: any) {
-      return c.json({ error: `Failed to parse story data: ${parseError.message}` }, 400);
-    }
-    
-    // Filter for video slides only
-    const videoSlides = slides.filter((slide: any) => slide.type === 'video' && slide.url);
-    
-    console.log(`Found ${videoSlides.length} video slides out of ${slides.length} total slides`);
-    
-    if (videoSlides.length === 0) {
-      return c.json({
-        success: true,
-        transcripts: [],
-        message: 'No video slides found in story'
-      });
-    }
-    
-    // Process each video slide
-    const transcripts = [];
-    
-    for (const slide of videoSlides) {
-      try {
-        console.log(`Transcribing video: ${slide.name || 'Unnamed'}`);
-        const transcriptData = await transcribeVideo(slide.url);
-        
-        transcripts.push({
-          slideName: slide.name || 'Unnamed Video',
-          slideId: slide.id,
-          slideOrder: slide.order,
-          transcript: transcriptData
-        });
-        
-        console.log(`✅ Transcribed: ${slide.name || 'Unnamed'}`);
-      } catch (error: any) {
-        console.error(`❌ Failed to transcribe ${slide.name || 'Unnamed'}:`, error.message);
-        // Continue with other videos even if one fails
-        transcripts.push({
-          slideName: slide.name || 'Unnamed Video',
-          slideId: slide.id,
-          slideOrder: slide.order,
-          error: error.message
-        });
-      }
-    }
-    
-    console.log(`✅ Story transcription complete. Processed ${transcripts.length} videos`);
-    
-    return c.json({
-      success: true,
-      transcripts: transcripts,
-      totalVideos: videoSlides.length,
-      successCount: transcripts.filter(t => !t.error).length,
-      errorCount: transcripts.filter(t => t.error).length
-    });
-    
-  } catch (error: any) {
-    console.error('Story transcription error:', error);
-    return c.json({ 
-      error: `Failed to transcribe story: ${error.message}` 
-    }, 500);
-  }
-});
-
-// =====================================================
-// STORY FACTS: Generate facts from story with media source tracking
-// =====================================================
-
-app.post("/make-server-2858cc8b/generate-story-facts", async (c) => {
-  try {
-    const { generateKeyFacts } = await import("./llm.ts");
-    
-    const body = await c.req.json();
-    const { 
-      title, 
-      description, 
-      transcripts,  // Array of { slideId, slideName, slideOrder, slideUrl, slideType, transcript }
-      trackId, 
-      companyId 
-    } = body;
-    
-    if (!title && !transcripts?.length) {
-      return c.json({ 
-        error: 'Title and transcripts are required' 
-      }, 400);
-    }
-    
-    console.log(`🎯 Generating story facts for: ${title}`);
-    console.log(`   Transcripts provided: ${transcripts?.length || 0}`);
-    
-    // Combine all transcripts into one text
-    const combinedTranscript = transcripts
-      .map((t: any) => `[${t.slideName}]\n${t.transcript?.text || t.transcript || ''}`)
-      .join('\n\n');
-    
-    console.log(`   Combined transcript length: ${combinedTranscript.length} characters`);
-    
-    // Generate facts from combined content
-    const result = await generateKeyFacts({
-      title,
-      description,
-      transcript: combinedTranscript,
-    });
-    
-    console.log(`✅ Generated ${result.enriched.length} key facts`);
-    
-    // Save facts with media source tracking to KV store
-    const savedFactIds: string[] = [];
-    const factsWithMetadata: any[] = [];
-    
-    if (trackId) {
-      console.log(`💾 Saving facts with media source tracking to KV store...`);
-      
-      // For each fact, try to determine which slide it came from
-      for (let i = 0; i < result.enriched.length; i++) {
-        const fact = result.enriched[i];
-        
-        // Round-robin assignment of facts to slides (simple distribution)
-        const sourceSlide = transcripts[i % transcripts.length];
-        
-        try {
-          const factId = `fact_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-          const factRecord = {
-            id: factId,
-            title: fact.title,
-            content: fact.fact,
-            type: fact.type,
-            steps: fact.steps,
-            extractedBy: 'ai-pass-2',
-            extractionConfidence: 0.85,
-            companyId: companyId,
-            createdAt: new Date().toISOString(),
-            // Media source metadata
-            sourceMediaId: sourceSlide.slideId,
-            sourceMediaUrl: sourceSlide.slideUrl,
-            sourceMediaType: sourceSlide.slideType || 'video',
-            displayOrder: sourceSlide.slideOrder,
-          };
-          
-          // Save to KV store
-          await kv.set(`fact:${factId}`, factRecord);
-          await kv.set(`track_fact:${trackId}:${factId}`, factRecord);
-          
-          savedFactIds.push(factId);
-          
-          // Add metadata to fact for client
-          factsWithMetadata.push({
-            ...fact,
-            slideId: sourceSlide.slideId,
-            slideName: sourceSlide.slideName,
-            slideIndex: sourceSlide.slideOrder
-          });
-          
-        } catch (factError: any) {
-          console.error(`Error saving fact "${fact.title}":`, factError.message);
-          // Still add to client response even if save failed
-          factsWithMetadata.push({
-            ...fact,
-            slideId: sourceSlide.slideId,
-            slideName: sourceSlide.slideName,
-            slideIndex: sourceSlide.slideOrder
-          });
-        }
-      }
-      
-      console.log(`✅ Saved ${savedFactIds.length} facts with media source tracking to KV store`);
-    }
-    
-    return c.json({
-      success: true,
-      enriched: factsWithMetadata.length > 0 ? factsWithMetadata : result.enriched,
-      simple: result.simple,
-      factIds: savedFactIds,
-    });
-    
-  } catch (error: any) {
-    console.error('Generate story facts error:', error);
-    return c.json({ 
-      error: `Failed to generate story facts: ${error.message}` 
+      error: `Failed to update fact: ${error.message}` 
     }, 500);
   }
 });

@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Plus, Eye, Tag, Users, Settings } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
 import { Card, CardContent } from './ui/card';
+import { KBSettings } from './KBSettings';
 
 type OrganizationTab = 'tags' | 'roles' | 'settings';
 
@@ -96,13 +97,7 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
         )}
         
         {activeTab === 'settings' && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Settings className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-medium mb-2">Organization Settings</h3>
-              <p className="text-sm text-muted-foreground">Coming soon</p>
-            </CardContent>
-          </Card>
+          <KBSettings />
         )}
       </div>
     </div>

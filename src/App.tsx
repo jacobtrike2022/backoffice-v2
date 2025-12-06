@@ -19,6 +19,7 @@ import { Settings } from "./components/Settings";
 import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
+import { PublicKBViewer } from "./components/PublicKBViewer";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
@@ -47,6 +48,33 @@ type AppView =
   | "settings";
 
 export default function App() {
+  // Check if this is a public KB viewer request (before any other state)
+  // Try both query params AND hash for maximum compatibility
+  const urlParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.substring(1));
+  const slug = urlParams.get("slug") || hashParams.get("slug");
+  const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
+  
+  console.log('🔍🔍🔍 App.tsx routing check:', {
+    href: window.location.href,
+    search: window.location.search,
+    hash: window.location.hash,
+    pathname: window.location.pathname,
+    hasSlugQuery: urlParams.has("slug"),
+    hasSlugHash: hashParams.has("slug"),
+    slug: slug,
+    isPublicKBView,
+    timestamp: Date.now()
+  });
+  
+  // If public KB view, render only that component
+  if (isPublicKBView) {
+    console.log('✅✅✅ Rendering PublicKBViewer for slug:', slug);
+    return <PublicKBViewer />;
+  }
+  
+  console.log('❌ NOT rendering PublicKBViewer, showing dashboard');
+
   const [currentRole, setCurrentRole] = useState<UserRole>(
     () => {
       // Check localStorage on mount
@@ -99,205 +127,131 @@ export default function App() {
     useState<(() => boolean) | null>(null);
   const [pendingNavigationView, setPendingNavigationView] =
     useState<AppView | null>(null);
-  const [
-    showUnsavedChangesWarning,
-    setShowUnsavedChangesWarning,
-  ] = useState(false);
-  
-  // Diagnostics panel state
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // Register unsaved changes check from child components
-  const registerUnsavedChangesCheck = (
-    checkFn: (() => boolean) | null,
-  ) => {
-    console.log(
-      "📝 App: Registering unsaved changes check:",
-      !!checkFn,
+  // Persist role changes to localStorage
+  useEffect(() => {
+    localStorage.setItem("trike_current_role", currentRole);
+  }, [currentRole]);
+
+  // Persist super admin auth state
+  useEffect(() => {
+    localStorage.setItem(
+      "trike_super_admin_auth",
+      isSuperAdminAuthenticated ? "true" : "false",
     );
-    setHasUnsavedChangesRef(() => checkFn);
-  };
+  }, [isSuperAdminAuthenticated]);
 
-  // Check for unsaved changes before navigation
-  const checkUnsavedBeforeNavigate = (
-    targetView: AppView,
-  ): boolean => {
-    console.log(
-      "🔍 App: Checking for unsaved changes before navigating to:",
-      targetView,
-    );
-
-    if (hasUnsavedChangesRef && hasUnsavedChangesRef()) {
-      console.log(
-        "⚠️ App: Unsaved changes detected, blocking navigation",
-      );
-      setPendingNavigationView(targetView);
-      setShowUnsavedChangesWarning(true);
-      return false; // Navigation blocked
-    }
-
-    console.log(
-      "✅ App: No unsaved changes, allowing navigation",
-    );
-    return true; // Navigation allowed
-  };
-
-  // Handle discard from navigation warning
-  const handleDiscardChanges = () => {
-    console.log(
-      "🗑️ App: Discarding changes and navigating to:",
-      pendingNavigationView,
-    );
-    setShowUnsavedChangesWarning(false);
-    if (pendingNavigationView) {
-      setCurrentView(pendingNavigationView);
-      setPendingNavigationView(null);
-    }
-    setHasUnsavedChangesRef(() => null);
-  };
-
-  // Handle cancel from navigation warning
-  const handleCancelNavigation = () => {
-    console.log("❌ App: Navigation cancelled");
-    setShowUnsavedChangesWarning(false);
-    setPendingNavigationView(null);
-  };
-
-  // Navigation helper - use this instead of window.location.href to avoid hard reloads
-  const navigateToPlaylist = (playlistId: string) => {
-    console.log(
-      "📍 Navigation: Going to playlist:",
-      playlistId,
-    );
-    // Save current view before navigating
-    setPreviousView(currentView);
-    setSelectedPlaylistId(playlistId);
-    setCurrentView("assignments");
-    // Update URL without reload
-    window.history.pushState({}, "", `/playlist/${playlistId}`);
-  };
-
-  const navigateToTrack = (
-    trackId: string,
-    trackType: "article" | "video" | "checkpoint" | "story",
-  ) => {
-    console.log(
-      `📍 Navigation: Going to ${trackType}:`,
-      trackId,
-    );
-
-    // Load the track
-    import("./lib/crud").then((crud) => {
-      crud
-        .getTracks({ ids: [trackId], includeAllVersions: true })
-        .then((tracks) => {
-          if (tracks && tracks.length > 0) {
-            setEditingArticle(tracks[0]);
-
-            // Route to appropriate view
-            if (
-              trackType === "article" ||
-              trackType === "video"
-            ) {
-              setCurrentView("content");
-              setInitialTrackId(trackId);
-            } else if (
-              trackType === "checkpoint" ||
-              trackType === "story"
-            ) {
-              setCurrentView("authoring");
-              setInitialTrackId(trackId);
-            }
-
-            // Update URL without reload
-            window.history.pushState(
-              {},
-              "",
-              `/${trackType}/${trackId}`,
-            );
-          }
-        });
-    });
-  };
-
-  // Apply dark mode class to document
+  // Apply dark mode to document
   useEffect(() => {
     if (darkMode) {
-      document.documentElement.classList.add("dark");
+      document.documentElement.classList.add('dark');
     } else {
-      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
-  
-  // Keyboard shortcut to open diagnostics (Ctrl+Shift+D or Cmd+Shift+D)
+
+  // Server health check on mount
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
-        e.preventDefault();
-        setShowDiagnostics(prev => !prev);
-        toast.info(showDiagnostics ? 'Diagnostics closed' : 'Opening Supabase diagnostics...', {
-          duration: 2000,
-        });
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showDiagnostics]);
+    checkServerHealth()
+      .then((healthy) => {
+        if (!healthy) {
+          console.warn("Server health check failed");
+          toast.error(
+            "Server connection issues detected. Some features may not work properly.",
+          );
+        }
+      })
+      .catch((err) => {
+        console.error("Server health check error:", err);
+      });
+  }, []);
 
-  // Handle URL-based routing for direct article links
+  // URL parsing for direct deep links (e.g. /?track=abc&type=article)
   useEffect(() => {
-    const path = window.location.pathname;
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackId = urlParams.get("track");
+    const trackType = urlParams.get("type") as
+      | "article"
+      | "video"
+      | "checkpoint"
+      | "story"
+      | null;
 
-    // Check server health on app initialization
-    checkServerHealth();
-
-    // Check for /article/{id}, /video/{id}, /checkpoint/{id}, /story/{id} patterns
-    const articleMatch = path.match(/\/article\/([a-f0-9-]+)/);
-    const videoMatch = path.match(/\/video\/([a-f0-9-]+)/);
-    const checkpointMatch = path.match(
-      /\/checkpoint\/([a-f0-9-]+)/,
-    );
-    const storyMatch = path.match(/\/story\/([a-f0-9-]+)/);
-    const playlistMatch = path.match(
-      /\/playlist\/([a-f0-9-]+)/,
-    );
-
-    const trackMatch =
-      articleMatch ||
-      videoMatch ||
-      checkpointMatch ||
-      storyMatch;
-
-    if (playlistMatch) {
-      const playlistId = playlistMatch[1];
+    if (trackId && trackType) {
       console.log(
-        "📍 URL routing: Detected playlist URL, loading playlist:",
-        playlistId,
+        `📍 URL params detected: trackId=${trackId}, type=${trackType}`,
       );
 
-      // Navigate to playlist detail view
-      setSelectedPlaylistId(playlistId);
-      setCurrentView("assignments");
+      // Dynamically import crud to avoid circular dependencies
+      import("./lib/crud").then((crud) => {
+        crud
+          .getTracks({
+            ids: [trackId],
+            includeAllVersions: true,
+          })
+          .then((tracks) => {
+            if (tracks && tracks.length > 0) {
+              setEditingArticle(tracks[0]);
 
-      return; // Exit early so we don't process track routing
+              // Route to appropriate view
+              if (
+                trackType === "article" ||
+                trackType === "video"
+              ) {
+                setCurrentView("content");
+                setInitialTrackId(trackId);
+              } else if (
+                trackType === "checkpoint" ||
+                trackType === "story"
+              ) {
+                setCurrentView("authoring");
+                setInitialTrackId(trackId);
+              }
+
+              // Clear URL params after routing
+              window.history.replaceState(
+                {},
+                "",
+                window.location.pathname,
+              );
+            }
+          });
+      });
     }
 
-    if (trackMatch) {
-      const trackId = trackMatch[1];
-      const trackType = articleMatch
-        ? "article"
-        : videoMatch
-          ? "video"
-          : checkpointMatch
-            ? "checkpoint"
-            : "story";
+    // Check for create-article mode
+    const mode = urlParams.get("mode");
+    if (mode === "create-article") {
+      console.log("📍 Create article mode detected");
+      setInitialMode("create-article");
+      setCurrentView("content");
+
+      // Clear URL params
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname,
+      );
+    }
+  }, []);
+
+  // Additional URL routing for tracks created from playlists
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackId = urlParams.get("track");
+    const trackType = urlParams.get("type") as
+      | "article"
+      | "video"
+      | "checkpoint"
+      | "story"
+      | null;
+    const playlistId = urlParams.get("playlist");
+
+    if (trackId && trackType && playlistId) {
       console.log(
-        `📍 URL routing: Detected ${trackType} URL, loading track:`,
-        trackId,
+        `📍 Playlist-sourced track detected: trackId=${trackId}, type=${trackType}, playlistId=${playlistId}`,
       );
 
-      // Load the track and switch to appropriate view
       import("./lib/crud").then((crud) => {
         crud
           .getTracks({
@@ -325,388 +279,269 @@ export default function App() {
                 setCurrentView("authoring");
                 setInitialTrackId(trackId);
               }
-            } else {
-              console.error(
-                `📍 URL routing: ${trackType} not found`,
+
+              // Store the playlist ID for back navigation
+              setSelectedPlaylistId(playlistId);
+
+              // Clear URL params after routing
+              window.history.replaceState(
+                {},
+                "",
+                window.location.pathname,
               );
-              toast.error(
-                `${trackType.charAt(0).toUpperCase() + trackType.slice(1)} not found`,
-              );
-              // Clear the URL and go back to dashboard
-              window.history.replaceState({}, "", "/");
-              setCurrentView("dashboard");
             }
           })
-          .catch((error) => {
-            console.error(
-              `📍 URL routing: Error loading ${trackType}:`,
-              error,
-            );
-            toast.error(`Failed to load ${trackType}`);
-            window.history.replaceState({}, "", "/");
-            setCurrentView("dashboard");
+          .catch((err) => {
+            console.error("Error loading track from URL:", err);
           });
       });
     }
-  }, []); // Run only once on mount
+  }, []);
 
-  const handleRoleChange = (role: UserRole) => {
-    const roleLabels = {
-      admin: "Administrator",
-      "district-manager": "District Manager",
-      "store-manager": "Store Manager",
-      "trike-super-admin": "Trike Super Admin",
-    };
+  const requestNavigate = (view: AppView) => {
+    // Check if there are unsaved changes
+    if (hasUnsavedChangesRef && hasUnsavedChangesRef()) {
+      setPendingNavigationView(view);
+      return;
+    }
 
-    if (role === "trike-super-admin") {
-      setPendingRole(role);
+    // No unsaved changes, navigate immediately
+    handleNavigate(view);
+  };
+
+  const handleNavigate = (view: AppView) => {
+    // Clear editing context when navigating away from content/authoring
+    if (
+      currentView === "content" ||
+      currentView === "authoring"
+    ) {
+      setEditingArticle(null);
+      setInitialTrackId(undefined);
+      setInitialMode(null);
+    }
+
+    // Store previous view for back navigation
+    setPreviousView(currentView);
+    setCurrentView(view);
+  };
+
+  const handleRoleChange = (newRole: UserRole) => {
+    if (
+      newRole === "trike-super-admin" &&
+      !isSuperAdminAuthenticated
+    ) {
+      setPendingRole(newRole);
       setShowPasswordPrompt(true);
     } else {
-      setCurrentRole(role);
-      localStorage.setItem("trike_current_role", role);
-
-      // Show success toast with role change
-      toast.success(`Switched to ${roleLabels[role]} view`, {
-        description:
-          "Dashboard content has been updated to match your role permissions.",
-        duration: 3000,
-      });
+      setCurrentRole(newRole);
     }
   };
 
-  const handleDarkModeToggle = () => {
-    setDarkMode((prev) => {
-      const newMode = !prev;
-      toast.success(
-        `Switched to ${newMode ? "dark" : "light"} mode`,
-        {
-          duration: 2000,
-        },
-      );
-      return newMode;
-    });
-  };
+  const handleSuperAdminAuth = (success: boolean) => {
+    setShowPasswordPrompt(false);
 
-  const handleOpenAssignmentWizard = () => {
-    if (currentView === "assignments") {
-      // If we're on playlists page, navigate to playlist wizard
-      setCurrentView("playlist-wizard");
-      toast.info("Opening playlist wizard...", {
-        duration: 2000,
-      });
+    if (success) {
+      setIsSuperAdminAuthenticated(true);
+      if (pendingRole) {
+        setCurrentRole(pendingRole);
+        setPendingRole(null);
+      }
+      toast.success("Super Admin access granted");
     } else {
-      // Otherwise, open the old assignment wizard popup
-      setShowAssignmentWizard(true);
-      toast.info("Opening content assignment wizard...", {
-        duration: 2000,
-      });
+      setPendingRole(null);
+      toast.error("Invalid super admin password");
     }
   };
 
-  const handleCloseAssignmentWizard = () => {
-    setShowAssignmentWizard(false);
-  };
+  const handleEditTrack = (track: any) => {
+    setEditingArticle(track);
+    setInitialTrackId(track.id);
 
-  const handleViewReports = () => {
-    setCurrentView("reports");
-    toast.success("Opening Custom Reports...", {
-      description:
-        "Loading interactive table-based reporting tools.",
-      duration: 2000,
-    });
-  };
-
-  const handleViewAnalytics = () => {
-    setCurrentView("analytics");
-    toast.success("Opening Advanced Analytics...", {
-      description:
-        "Loading comprehensive analytics and insights.",
-      duration: 2000,
-    });
-  };
-
-  const handleNavigateToPlaylists = () => {
-    setCurrentView("assignments");
-    setSelectedPlaylistId(undefined); // Clear selection when going to list view
-    toast.info("Opening Playlists...", {
-      duration: 2000,
-    });
-  };
-
-  const handleNavigateToPlaylist = (playlistId: string) => {
-    navigateToPlaylist(playlistId);
-  };
-
-  const handleEditPlaylist = (playlistId: string) => {
-    setEditingPlaylistId(playlistId);
-    setCurrentView("playlist-wizard");
-    toast.info("Opening playlist editor...", {
-      duration: 2000,
-    });
-  };
-
-  const handleNavigateToUnits = (storeId?: string) => {
-    setCurrentView("units");
-    toast.info("Opening Units Management...", {
-      duration: 2000,
-    });
-    // TODO: If storeId is provided (e.g., '5'), navigate to that specific store's detail view
-    setSelectedStoreId(storeId);
-  };
-
-  const handleBackToDashboard = () => {
-    // If we're in playlist wizard, go back to playlists
-    if (currentView === "playlist-wizard") {
-      setCurrentView("assignments");
-      toast.info("Returning to Playlists", {
-        duration: 1500,
-      });
-    } else {
-      setCurrentView("dashboard");
-      toast.info("Returning to Dashboard", {
-        duration: 1500,
-      });
+    // Route to appropriate view based on track type
+    if (track.type === "article" || track.type === "video") {
+      setPreviousView(currentView);
+      setCurrentView("content");
+    } else if (
+      track.type === "checkpoint" ||
+      track.type === "story"
+    ) {
+      setPreviousView(currentView);
+      setCurrentView("authoring");
     }
   };
 
-  const handleEditArticle = (article: any) => {
-    setEditingArticle(article);
-    setCurrentView("authoring");
-    toast.info("Opening article editor...", {
-      duration: 2000,
-    });
-  };
+  const handleBackFromContentAuthoring = () => {
+    // Return to previous view or default to dashboard
+    const targetView = previousView || "dashboard";
 
-  const handleCreateArticle = () => {
-    setInitialMode("create-article");
+    // Clear editing state
     setEditingArticle(null);
     setInitialTrackId(undefined);
-    setCurrentView("authoring");
-    toast.info("Starting new article...", { duration: 2000 });
+    setInitialMode(null);
+    setPreviousView(null);
+
+    setCurrentView(targetView);
   };
 
-  const handleClearEditingArticle = () => {
-    setEditingArticle(null);
-  };
-
-  const handleSuperAdminPasswordSubmit = (password: string) => {
-    // Password check: sandbox2
-    if (password === "sandbox2") {
-      localStorage.setItem("trike_super_admin_auth", "true");
-      localStorage.setItem(
-        "trike_current_role",
-        pendingRole as UserRole,
-      );
-      setIsSuperAdminAuthenticated(true);
-      setCurrentRole(pendingRole as UserRole);
-      toast.success("Super Admin authenticated successfully!", {
-        duration: 3000,
-      });
-    } else {
-      toast.error("Incorrect password. Please try again.", {
-        duration: 3000,
-      });
+  const renderContent = () => {
+    switch (currentView) {
+      case "dashboard":
+        return (
+          <Dashboard
+            role={currentRole}
+            onNavigate={requestNavigate}
+            onEditTrack={handleEditTrack}
+          />
+        );
+      case "reports":
+        return <Reports role={currentRole} />;
+      case "analytics":
+        return <Analytics role={currentRole} />;
+      case "compliance":
+        return (
+          <ComplianceDashboard
+            role={currentRole}
+            onNavigateToAudit={() =>
+              requestNavigate("compliance-audit")
+            }
+          />
+        );
+      case "compliance-audit":
+        return <ComplianceAudit role={currentRole} />;
+      case "content":
+        return (
+          <ContentLibrary
+            role={currentRole}
+            onNavigate={requestNavigate}
+            editingArticle={editingArticle}
+            onClearEditingArticle={() => setEditingArticle(null)}
+            initialTrackId={initialTrackId}
+            onBackClick={handleBackFromContentAuthoring}
+            previousView={previousView}
+            initialMode={initialMode}
+            onRegisterUnsavedChangesCheck={(checkFn) =>
+              setHasUnsavedChangesRef(() => checkFn)
+            }
+          />
+        );
+      case "assignments":
+        return (
+          <Playlists
+            role={currentRole}
+            onNavigate={requestNavigate}
+            selectedPlaylistId={selectedPlaylistId}
+            onClearSelection={() => setSelectedPlaylistId(undefined)}
+            onEditTrack={handleEditTrack}
+          />
+        );
+      case "assignment":
+        return (
+          <Playlists
+            role={currentRole}
+            onNavigate={requestNavigate}
+            selectedStoreId={selectedStoreId}
+            onClearStoreSelection={() =>
+              setSelectedStoreId(undefined)
+            }
+          />
+        );
+      case "playlist-wizard":
+        return (
+          <PlaylistWizard
+            role={currentRole}
+            editingPlaylistId={editingPlaylistId}
+            onClose={() => {
+              setEditingPlaylistId(undefined);
+              requestNavigate("assignments");
+            }}
+          />
+        );
+      case "people":
+        return <People role={currentRole} />;
+      case "units":
+        return (
+          <Units
+            role={currentRole}
+            selectedStoreId={selectedStoreId}
+            onStoreSelect={(storeId) => {
+              setSelectedStoreId(storeId);
+              requestNavigate("assignment");
+            }}
+          />
+        );
+      case "organization":
+        return <Organization role={currentRole} />;
+      case "authoring":
+        return (
+          <ContentAuthoring
+            role={currentRole}
+            editingArticle={editingArticle}
+            onClearEditingArticle={() => setEditingArticle(null)}
+            initialTrackId={initialTrackId}
+            onBackClick={handleBackFromContentAuthoring}
+            previousView={previousView}
+            onRegisterUnsavedChangesCheck={(checkFn) =>
+              setHasUnsavedChangesRef(() => checkFn)
+            }
+          />
+        );
+      case "forms":
+        return <Forms role={currentRole} />;
+      case "knowledge-base":
+        return (
+          <KnowledgeBaseRevamp
+            currentRole={currentRole}
+            onEditTrack={handleEditTrack}
+          />
+        );
+      case "settings":
+        return <Settings role={currentRole} />;
+      default:
+        return (
+          <Dashboard
+            role={currentRole}
+            onNavigate={requestNavigate}
+            onEditTrack={handleEditTrack}
+          />
+        );
     }
-    setShowPasswordPrompt(false);
-    setPendingRole(null);
-  };
-
-  const handlePasswordDialogCancel = () => {
-    setShowPasswordPrompt(false);
-    setPendingRole(null);
-    toast.info("Super Admin login cancelled", {
-      duration: 2000,
-    });
   };
 
   return (
-    <div className="min-h-screen">
+    <>
       <DashboardLayout
+        currentView={currentView}
+        onNavigate={requestNavigate}
         currentRole={currentRole}
         onRoleChange={handleRoleChange}
         darkMode={darkMode}
-        onDarkModeToggle={handleDarkModeToggle}
-        currentView={currentView}
-        onNavigate={(view) => {
-          // Check for unsaved changes before navigation
-          if (!checkUnsavedBeforeNavigate(view as AppView)) {
-            return; // Navigation blocked, dialog will be shown
-          }
-
-          // No unsaved changes, proceed with navigation
-          setCurrentView(view);
-          // Reset track selection when navigating to content library
-          if (view === "content") {
-            setInitialTrackId(undefined);
-          }
-          // Reset track selection when navigating to authoring
-          if (view === "authoring") {
-            setInitialTrackId(undefined);
-            setInitialMode(null);
-          }
-        }}
+        onDarkModeToggle={() => setDarkMode(!darkMode)}
+        isSuperAdminAuthenticated={isSuperAdminAuthenticated}
       >
-        {currentView === "dashboard" ? (
-          <Dashboard
-            currentRole={currentRole}
-            onOpenAssignmentWizard={handleOpenAssignmentWizard}
-            onViewReports={handleViewReports}
-            onNavigateToPlaylists={handleNavigateToPlaylists}
-            onNavigateToUnits={handleNavigateToUnits}
-            onNavigateToStore={handleNavigateToUnits}
-            onNavigateToPlaylist={handleNavigateToPlaylist}
-          />
-        ) : currentView === "reports" ? (
-          <Reports
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-          />
-        ) : currentView === "analytics" ? (
-          <Analytics
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-          />
-        ) : currentView === "compliance" ? (
-          <ComplianceDashboard
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-            onNavigate={setCurrentView}
-          />
-        ) : currentView === "compliance-audit" ? (
-          <ComplianceAudit currentRole={currentRole} />
-        ) : currentView === "content" ? (
-          <ContentLibrary
-            currentRole={currentRole}
-            isSuperAdminAuthenticated={
-              isSuperAdminAuthenticated
-            }
-            initialTrackId={initialTrackId}
-            onNavigateToPlaylist={navigateToPlaylist}
-            onBackToLibrary={() => {
-              // Reset initialTrackId to ensure library view is shown
-              setInitialTrackId(undefined);
-            }}
-            registerUnsavedChangesCheck={
-              registerUnsavedChangesCheck
-            }
-          />
-        ) : currentView === "assignments" ? (
-          <Playlists
-            currentRole={currentRole}
-            onOpenPlaylistWizard={handleOpenAssignmentWizard}
-            onEditPlaylist={handleEditPlaylist}
-            selectedPlaylistId={selectedPlaylistId}
-            previousView={previousView}
-            onBackToPreviousView={() => {
-              if (previousView) {
-                console.log(
-                  "📍 Navigation: Going back to previous view:",
-                  previousView,
-                );
-                setCurrentView(previousView);
-                setPreviousView(null);
-                setSelectedPlaylistId(undefined);
-              } else {
-                // Default to playlist list view
-                setSelectedPlaylistId(undefined);
-              }
-            }}
-          />
-        ) : currentView === "playlist-wizard" ? (
-          <PlaylistWizard
-            isFullPage={true}
-            onClose={() => {
-              setEditingPlaylistId(undefined);
-              handleBackToDashboard();
-            }}
-            mode={editingPlaylistId ? "edit" : "create"}
-            existingPlaylistId={editingPlaylistId}
-          />
-        ) : currentView === "people" ? (
-          <People
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-          />
-        ) : currentView === "units" ? (
-          <Units
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-            initialStoreId={selectedStoreId}
-          />
-        ) : currentView === "organization" ? (
-          <Organization
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-          />
-        ) : currentView === "authoring" ? (
-          <ContentAuthoring
-            onNavigateToLibrary={() =>
-              setCurrentView("content")
-            }
-            currentRole={currentRole}
-            initialTrackId={initialTrackId}
-            initialMode={initialMode}
-            onNavigateToPlaylist={navigateToPlaylist}
-          />
-        ) : currentView === "forms" ? (
-          <Forms currentRole={currentRole} />
-        ) : currentView === "knowledge-base" ? (
-          <KnowledgeBaseRevamp
-            currentRole={currentRole}
-            onTrackClick={(trackId) =>
-              navigateToTrack(trackId, "article")
-            }
-            onCreateArticle={handleCreateArticle}
-          />
-        ) : currentView === "settings" ? (
-          <Settings
-            currentRole={currentRole}
-            onBackToDashboard={handleBackToDashboard}
-          />
-        ) : null}
+        {renderContent()}
       </DashboardLayout>
 
-      {/* Content Assignment Wizard */}
-      <ContentAssignmentWizard
-        isOpen={showAssignmentWizard}
-        onClose={handleCloseAssignmentWizard}
-      />
-
-      {/* Super Admin Password Dialog */}
-      <SuperAdminPasswordDialog
-        isOpen={showPasswordPrompt}
-        onClose={() => setShowPasswordPrompt(false)}
-        onSubmit={handleSuperAdminPasswordSubmit}
-        onCancel={handlePasswordDialogCancel}
-      />
-
-      {/* Unsaved Changes Dialog */}
-      <UnsavedChangesDialog
-        open={showUnsavedChangesWarning}
-        onOpenChange={setShowUnsavedChangesWarning}
-        onDiscard={handleDiscardChanges}
-      />
-      
-      {/* Supabase Diagnostics Panel */}
-      {showDiagnostics && (
-        <SupabaseDiagnostics onClose={() => setShowDiagnostics(false)} />
+      {showPasswordPrompt && (
+        <SuperAdminPasswordDialog
+          onClose={() => setShowPasswordPrompt(false)}
+          onAuthenticate={handleSuperAdminAuth}
+        />
       )}
 
-      {/* Enhanced Toast Notifications */}
-      <Toaster
-        position="top-right"
-        expand={false}
-        richColors
-        toastOptions={{
-          style: {
-            background: "var(--color-card)",
-            color: "var(--color-card-foreground)",
-            border: "1px solid var(--color-border)",
-          },
-          className: "font-medium",
-          duration: 4000,
+      <UnsavedChangesDialog
+        isOpen={pendingNavigationView !== null}
+        onDiscard={() => {
+          if (pendingNavigationView) {
+            // Clear unsaved changes state
+            setHasUnsavedChangesRef(null);
+            handleNavigate(pendingNavigationView);
+            setPendingNavigationView(null);
+          }
         }}
+        onCancel={() => setPendingNavigationView(null)}
       />
-    </div>
+
+      <Toaster />
+    </>
   );
 }

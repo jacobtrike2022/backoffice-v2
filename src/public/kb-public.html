@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowledge Base Article</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      line-height: 1.6;
+      color: #1e293b;
+      background: #f8fafc;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 1rem;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #F64A05;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error-card, .password-card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      text-align: center;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    .error-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1rem;
+      color: #ef4444;
+    }
+
+    .logo-header {
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 1rem;
+    }
+
+    .logo-header img {
+      height: 48px;
+      object-fit: contain;
+    }
+
+    .article {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+      margin-top: 2rem;
+    }
+
+    .article-thumbnail {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      background: #f1f5f9;
+    }
+
+    .article-content {
+      padding: 2rem;
+    }
+
+    .article-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: #64748b;
+      margin-bottom: 1.5rem;
+    }
+
+    .article-title {
+      font-size: 2.5rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+      line-height: 1.2;
+    }
+
+    .article-description {
+      font-size: 1.125rem;
+      color: #64748b;
+      margin-bottom: 2rem;
+    }
+
+    video {
+      width: 100%;
+      border-radius: 8px;
+      background: #000;
+    }
+
+    .article-body {
+      line-height: 1.8;
+      font-size: 1.0625rem;
+    }
+
+    .article-body img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin: 1.5rem 0;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 2rem;
+      color: #94a3b8;
+      font-size: 0.875rem;
+    }
+
+    .password-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .password-input-wrapper {
+      position: relative;
+    }
+
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+
+    .password-toggle {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #64748b;
+    }
+
+    button {
+      padding: 0.75rem 1.5rem;
+      background: #F64A05;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #d93d04;
+    }
+
+    .error-alert {
+      background: #fee2e2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+    }
+
+    /* Mobile-first optimizations for QR code scanning */
+    @media (max-width: 768px) {
+      .container {
+        padding: 0.75rem;
+      }
+
+      .logo-header {
+        padding: 0.75rem;
+      }
+
+      .logo-header img {
+        height: 40px;
+      }
+
+      .article {
+        margin-top: 1rem;
+      }
+
+      .article-content {
+        padding: 1.25rem;
+      }
+
+      .article-title {
+        font-size: 1.75rem;
+      }
+
+      .article-description {
+        font-size: 1rem;
+      }
+
+      .article-body {
+        font-size: 1rem;
+      }
+
+      .error-card, .password-card {
+        padding: 1.5rem;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .article-title {
+        font-size: 1.5rem;
+      }
+
+      .article-content {
+        padding: 1rem;
+      }
+
+      .container {
+        padding: 0.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="loading">
+      <div class="spinner"></div>
+      <p>Loading article...</p>
+    </div>
+  </div>
+
+  <script type="module">
+    // Get slug from URL query parameter (e.g., /kb-public.html?slug=article-name-abc123)
+    const urlParams = new URLSearchParams(window.location.search);
+    const slug = urlParams.get('slug') || window.location.pathname.split('/kb/')[1] || window.location.pathname.split('/').pop();
+
+    // Supabase config - Configured automatically
+    const SUPABASE_URL = 'https://kgzhlvxzdlexsrozbbxs.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
+
+    const app = document.getElementById('app');
+
+    async function loadArticle() {
+      try {
+        console.log('Loading article with slug:', slug);
+        
+        if (!slug) {
+          showError('Invalid article link - no slug found');
+          return;
+        }
+
+        // Fetch track and organization data from server endpoint
+        const url = `${SUPABASE_URL}/functions/v1/make-server-2858cc8b/kb/public/${slug}`;
+        console.log('Fetching from:', url);
+        
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+          }
+        });
+
+        console.log('Response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Response error:', errorText);
+          
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            errorData = { error: errorText };
+          }
+          
+          if (response.status === 404 || errorData.error === 'not_found') {
+            showError('not_found');
+          } else {
+            showError(`Failed to load article: ${errorData.error || response.statusText}`);
+          }
+          return;
+        }
+
+        const { track, org } = await response.json();
+        console.log('Loaded track:', track);
+        console.log('Loaded org:', org);
+
+        if (!track) {
+          showError('not_found');
+          return;
+        }
+
+        // Check privacy settings
+        if (org && org.kb_privacy_mode === 'password') {
+          showPasswordPrompt(track, org);
+        } else if (org && org.kb_privacy_mode === 'employee_login') {
+          window.location.href = `/login?returnUrl=/kb/${slug}`;
+        } else {
+          showArticle(track, org);
+        }
+
+        // Track page view
+        trackPageView(track.id);
+
+      } catch (error) {
+        console.error('Error loading article:', error);
+        showError(`Failed to load article: ${error.message}`);
+      }
+    }
+
+    function showPasswordPrompt(track, org) {
+      app.innerHTML = `
+        <div class="container">
+          <div class="password-card">
+            <svg class="error-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <h2 style="margin-bottom: 1rem;">Password Required</h2>
+            <p style="color: #64748b; margin-bottom: 1.5rem;">
+              This reference material is password protected. Please enter the password to continue.
+            </p>
+            <form id="password-form" class="password-form">
+              <div class="password-input-wrapper">
+                <input type="password" id="password-input" placeholder="Enter password" required>
+                <button type="button" class="password-toggle" onclick="togglePassword()">
+                  👁️
+                </button>
+              </div>
+              <div id="password-error" style="display: none;"></div>
+              <button type="submit">Submit</button>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('password-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const password = document.getElementById('password-input').value;
+        
+        if (password === org.kb_shared_password) {
+          showArticle(track, org);
+        } else {
+          const errorDiv = document.getElementById('password-error');
+          errorDiv.className = 'error-alert';
+          errorDiv.textContent = 'Incorrect password';
+          errorDiv.style.display = 'block';
+        }
+      });
+    }
+
+    window.togglePassword = function() {
+      const input = document.getElementById('password-input');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    };
+
+    function showArticle(track, org) {
+      const logoHeader = org?.kb_logo_url ? `
+        <div class="logo-header">
+          <div class="container">
+            <img src="${org.kb_logo_url}" alt="${org.name}">
+          </div>
+        </div>
+      ` : '';
+
+      const thumbnail = track.thumbnail_url ? `
+        <img src="${track.thumbnail_url}" alt="${track.title}" class="article-thumbnail">
+      ` : '';
+
+      const video = track.type === 'video' && track.content_url ? `
+        <video src="${track.content_url}" controls playsinline>
+          Your browser does not support video playback.
+        </video>
+      ` : '';
+
+      const articleBody = track.type === 'article' && track.article_body ? `
+        <div class="article-body">${track.article_body}</div>
+      ` : '';
+
+      app.innerHTML = `
+        ${logoHeader}
+        <div class="container">
+          <article class="article">
+            ${thumbnail}
+            <div class="article-content">
+              <div class="article-meta">
+                <span>${track.type ? track.type.charAt(0).toUpperCase() + track.type.slice(1) : 'Article'}</span>
+                <span>•</span>
+                <span>Last updated ${new Date(track.updated_at).toLocaleDateString()}</span>
+              </div>
+              
+              <h1 class="article-title">${track.title}</h1>
+              
+              ${track.description ? `<p class="article-description">${track.description}</p>` : ''}
+              
+              ${video}
+              ${articleBody}
+            </div>
+          </article>
+          
+          <div class="footer">
+            <p>Powered by Trike</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function showError(type) {
+      const message = type === 'not_found' 
+        ? 'This reference material is no longer available. Please contact your manager for the most up-to-date information.'
+        : type;
+
+      app.innerHTML = `
+        <div class="container">
+          <div class="error-card">
+            <svg class="error-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h2 style="margin-bottom: 1rem;">Reference Not Available</h2>
+            <p style="color: #64748b; margin-bottom: 1.5rem;">
+              ${message}
+            </p>
+            <button onclick="window.close()">Close</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function trackPageView(trackId) {
+      try {
+        await fetch(
+          `${SUPABASE_URL}/functions/v1/make-server-2858cc8b/kb/page-view`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              trackId: trackId,
+              referrer: document.referrer.includes('qr') ? 'qr_scan' : 'direct_link',
+              userAgent: navigator.userAgent
+            })
+          }
+        );
+      } catch (err) {
+        // Silent fail
+        console.warn('Failed to track page view:', err);
+      }
+    }
+
+    // Load article on page load
+    loadArticle();
+  </script>
+</body>
+</html>

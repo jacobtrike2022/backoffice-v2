@@ -96,3 +96,67 @@ export async function generateKeyFacts(params: {
     throw error;
   }
 }
+
+/**
+ * Delete a fact from a track
+ */
+export async function deleteFactFromTrack(factId: string, trackId: string): Promise<void> {
+  try {
+    const response = await fetch(
+      `${SERVER_URL}/facts/${factId}/track/${trackId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete fact');
+    }
+  } catch (error) {
+    console.error('Failed to delete fact:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update a fact
+ */
+export async function updateFact(
+  factId: string,
+  updates: {
+    title?: string;
+    content?: string;
+    type?: string;
+    steps?: string[];
+  }
+): Promise<KeyFact> {
+  try {
+    const response = await fetch(
+      `${SERVER_URL}/facts/${factId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update fact');
+    }
+
+    const data = await response.json();
+    return data.fact;
+  } catch (error) {
+    console.error('Failed to update fact:', error);
+    throw error;
+  }
+}

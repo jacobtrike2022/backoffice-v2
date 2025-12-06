@@ -432,7 +432,23 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     });
   };
 
-  const handleRemoveLearningObjective = (index: number) => {
+  const handleRemoveLearningObjective = async (index: number) => {
+    const factToRemove = (editFormData.learning_objectives || [])[index];
+    
+    // If fact has a database ID, delete from database
+    if (factToRemove?._dbId) {
+      try {
+        console.log(`🗑️ Deleting fact ${factToRemove._dbId} from database...`);
+        await factsCrud.deleteFactFromTrack(factToRemove._dbId, track.id);
+        toast.success('Key fact removed');
+      } catch (error: any) {
+        console.error('Failed to delete fact:', error);
+        toast.error('Failed to remove fact from database');
+        return; // Don't remove from UI if database delete failed
+      }
+    }
+    
+    // Remove from UI state
     const newObjectives = (editFormData.learning_objectives || []).filter((_: any, i: number) => i !== index);
     setEditFormData({
       ...editFormData,
@@ -460,6 +476,25 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       setIsGeneratingKeyFacts(true);
       
       try {
+        // If replacing, delete all existing facts from database first
+        if (shouldReplace && editFormData.learning_objectives) {
+          console.log('🗑️ Deleting existing facts before replacing...');
+          
+          for (const existingFact of editFormData.learning_objectives) {
+            if (existingFact._dbId) {
+              try {
+                await factsCrud.deleteFactFromTrack(existingFact._dbId, track.id);
+                console.log(`   ✓ Deleted fact: ${existingFact._dbId}`);
+              } catch (error) {
+                console.error('Error deleting fact:', error);
+                // Continue with others
+              }
+            }
+          }
+          
+          console.log('✅ Old facts deleted, generating new ones...');
+        }
+        
         // Strip HTML from article body to get clean text
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = editFormData.article_body;
@@ -500,9 +535,15 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: data.factIds?.[index], // Add the database UUID
+        }));
+        
         const updatedFacts = shouldReplace 
-          ? newFacts
-          : [...editFormData.learning_objectives, ...newFacts];
+          ? newFactsWithIds
+          : [...editFormData.learning_objectives, ...newFactsWithIds];
         
         setEditFormData({
           ...editFormData,
@@ -559,9 +600,15 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: data.factIds?.[index], // Add the database UUID
+        }));
+        
         setEditFormData({
           ...editFormData,
-          learning_objectives: newFacts,
+          learning_objectives: newFactsWithIds,
         });
         
         toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);

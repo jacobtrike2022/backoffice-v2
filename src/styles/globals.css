@@ -665,3 +665,24 @@ html {
 .article-content em {
   font-style: italic;
 }
+
+/* ============================================================================
+   TEMPORARY FIX: Hide orphaned Figma Make asset images
+   
+   These images were accidentally uploaded to Figma Make's asset system and
+   are being injected into the published site outside the React app container.
+   
+   TODO: Remove this rule once the images are deleted from Figma Make's asset library
+   ============================================================================ */
+div.css-99qiqe,
+div.css-xgszvb,
+div.css-yttfzn,
+div.css-3izh4e,
+div.css-2csp8n {
+  display: none !important;
+}
+
+/* Generic fallback: Hide any divs with Figma-specific classes containing orphaned images */
+div[class^="css-"]:has(> img[src*="/_assets/v11/"]) {
+  display: none !important;
+}

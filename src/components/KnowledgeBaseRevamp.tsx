@@ -66,6 +66,7 @@ import {
 } from "./ui/dialog";
 import { cn } from './ui/utils';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { QRCodeToggle } from './kb/QRCodeToggle';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -459,6 +460,20 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
   
   // Attachments
   const [attachments, setAttachments] = useState<any[]>([]);
+
+  // Function to refetch the currently selected track
+  const refetchSelectedTrack = async () => {
+    if (selectedTrack?.id) {
+      try {
+        const tracks = await crud.getTracks({ ids: [selectedTrack.id], includeAllVersions: true });
+        if (tracks && tracks.length > 0) {
+          setSelectedTrack(tracks[0]);
+        }
+      } catch (err) {
+        console.error('Failed to refetch track:', err);
+      }
+    }
+  };
 
   // URL Deep Linking & State Sync
   useEffect(() => {
@@ -1491,6 +1506,17 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     >
                       <Download className="h-4 w-4" />
                     </Button>
+                    
+                    {/* QR Code Toggle - Only for admins */}
+                    {(currentRole === 'trike-super-admin' || currentRole === 'admin') && (
+                      <QRCodeToggle 
+                        track={selectedTrack} 
+                        onUpdate={() => {
+                          // Refetch the track to get updated QR data
+                          refetchSelectedTrack();
+                        }}
+                      />
+                    )}
                   </div>
                </div>
 
