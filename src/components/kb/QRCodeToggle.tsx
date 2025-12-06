@@ -111,19 +111,21 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
           }
         }
 
-        // Update database
+        // Update database - MUST set show_in_knowledge_base for public endpoint to work
         const { error } = await supabase
           .from('tracks')
           .update({
             kb_qr_enabled: true,
-            kb_slug: slug
+            kb_slug: slug,
+            show_in_knowledge_base: true,  // ← FIX: Required by /kb/public/:slug endpoint
+            status: 'published'             // ← FIX: Also required by endpoint
           })
           .eq('id', track.id);
 
         if (error) throw error;
 
         setQrEnabled(true);
-        toast.success('QR code enabled! Add a location reference below.');
+        toast.success('QR code enabled! Track is now visible in Knowledge Base.');
         
         // Trigger re-render
         onUpdate?.();

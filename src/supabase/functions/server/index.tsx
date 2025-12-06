@@ -488,6 +488,57 @@ app.route("/make-server-2858cc8b/tags", tagsApp);
 app.route("/make-server-2858cc8b/kb", kbApp);
 
 // =====================================================
+// ORGANIZATION: UPDATE KB SETTINGS
+// =====================================================
+
+app.put("/make-server-2858cc8b/organization/kb-settings", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { organizationId, kb_privacy_mode, kb_shared_password, kb_logo_url } = body;
+    
+    if (!organizationId) {
+      return c.json({ error: 'Organization ID is required' }, 400);
+    }
+    
+    console.log(`🔧 Updating KB settings for organization: ${organizationId}`);
+    
+    // Build update object (only include provided fields)
+    const updateData: any = {};
+    
+    if (kb_privacy_mode !== undefined) updateData.kb_privacy_mode = kb_privacy_mode;
+    if (kb_shared_password !== undefined) updateData.kb_shared_password = kb_shared_password;
+    if (kb_logo_url !== undefined) updateData.kb_logo_url = kb_logo_url;
+    
+    const { data: updatedOrg, error: updateError } = await supabase
+      .from('organizations')
+      .update(updateData)
+      .eq('id', organizationId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error('❌ Error updating organization KB settings:', updateError);
+      return c.json({ 
+        error: `Failed to update settings: ${updateError.message}` 
+      }, 500);
+    }
+    
+    console.log(`✅ KB settings updated successfully`);
+    
+    return c.json({
+      success: true,
+      organization: updatedOrg
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Update KB settings error:', error);
+    return c.json({ 
+      error: `Failed to update settings: ${error.message}` 
+    }, 500);
+  }
+});
+
+// =====================================================
 // AI: GENERATE KEY FACTS
 // =====================================================
 
@@ -521,9 +572,10 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
     // Save facts to database if trackType/trackId provided
     const savedFactIds: string[] = [];
     if (trackType && trackId) {
-      console.log(`💾 Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`);
+      console.log(`💾 Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`)
       
-      for (const fact of result.enriched) {
+      for (let i = 0; i < result.enriched.length; i++) {
+        const fact = result.enriched[i];
         try {
           // Insert into facts table
           const { data: insertedFact, error: insertError } = await supabase
@@ -545,28 +597,29 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
             .single();
           
           if (insertError) {
-            console.error(`❌ Error inserting fact "${fact.title}":`, insertError.message);
+            console.error(`❌ Error inserting fact \"${fact.title}\":`, insertError.message);
             continue;
           }
           
-          // Create fact_usage relationship
+          // Create fact_usage relationship with display_order to preserve extraction order
           const { error: usageError } = await supabase
             .from('fact_usage')
             .insert({
               fact_id: insertedFact.id,
               track_type: trackType,
               track_id: trackId,
+              display_order: i, // Preserve order from AI extraction (0-indexed)
             });
           
           if (usageError) {
-            console.error(`❌ Error creating fact_usage for "${fact.title}":`, usageError.message);
+            console.error(`❌ Error creating fact_usage for \"${fact.title}\":`, usageError.message);
             // Continue - the fact is saved, just not linked
           }
           
           savedFactIds.push(insertedFact.id);
-          console.log(`   ✓ Saved fact: "${fact.title}" (${insertedFact.id})`);
+          console.log(`   ✓ Saved fact: \"${fact.title}\" (${insertedFact.id}) [order: ${i}]`);
         } catch (factError: any) {
-          console.error(`❌ Exception saving fact "${fact.title}":`, factError.message);
+          console.error(`❌ Exception saving fact \"${fact.title}\":`, factError.message);
           // Continue with other facts
         }
       }

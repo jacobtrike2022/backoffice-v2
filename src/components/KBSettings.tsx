@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
@@ -112,26 +113,37 @@ export function KBSettings() {
         logoUrl = urlData.publicUrl;
       }
 
-      // Save settings
-      const { error } = await supabase
-        .from('organizations')
-        .update({
+      // Save settings via backend endpoint (bypasses RLS)
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || publicAnonKey;
+      
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/organization/kb-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          organizationId: orgId,
           kb_privacy_mode: settings.kb_privacy_mode,
           kb_shared_password: settings.kb_shared_password,
           kb_logo_url: logoUrl
         })
-        .eq('id', orgId);
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        throw new Error(errorData.error || 'Failed to save settings');
+      }
 
       setMessage({ type: 'success', text: 'Settings saved successfully!' });
       setOriginalSettings({ ...settings, kb_logo_url: logoUrl });
       setSettings({ ...settings, kb_logo_url: logoUrl });
       setLogoFile(null);
       setLogoPreview(logoUrl);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving settings:', error);
-      setMessage({ type: 'error', text: 'Failed to save settings' });
+      setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
     } finally {
       setSaving(false);
     }

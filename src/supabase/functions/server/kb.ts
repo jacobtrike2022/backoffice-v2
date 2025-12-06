@@ -36,19 +36,176 @@ kbApp.get('/public/:slug', async (c) => {
     }
 
     // Fetch organization settings
+    // Try to get KB columns, but gracefully handle if they don't exist yet
     const { data: org, error: orgError } = await supabase
       .from('organizations')
-      .select('id, name, kb_privacy_mode, kb_shared_password, kb_logo_url')
+      .select('*')
       .eq('id', track.organization_id)
       .single();
 
+    console.log('🏢 Organization query:', { 
+      organization_id: track.organization_id, 
+      org, 
+      orgError 
+    });
+
     if (orgError) {
-      console.error('Error fetching organization:', orgError);
-      // Continue without org data
+      console.error('❌ Error fetching organization:', orgError);
+      // Don't fail hard - continue with defaults
     }
 
-    console.log('✅ Returning track:', track.id);
-    return c.json({ track, org });
+    if (!org) {
+      console.error('❌ Organization not found for ID:', track.organization_id);
+      return c.json({ 
+        error: 'organization_not_found',
+        message: 'Knowledge Base configuration not found'
+      }, 404);
+    }
+
+    // Extract KB settings with defaults if columns don't exist
+    const privacyMode = org.kb_privacy_mode || 'public';
+    const sharedPassword = org.kb_shared_password || null;
+    const logoUrl = org.kb_logo_url || null;
+    const logoDark = org.kb_logo_dark || null;
+    const logoLight = org.kb_logo_light || null;
+
+    console.log('🔒 Privacy settings:', {
+      privacyMode,
+      hasPassword: !!sharedPassword,
+      hasLogo: !!logoUrl || !!logoDark || !!logoLight
+    });
+
+    // ⚠️ PRIVACY MODE CHECK - Must happen BEFORE returning data
+    // This determines if the user can access this content
+    if (privacyMode === 'password') {
+      // Password protection - frontend will show password prompt
+      // Frontend must validate password before showing content
+      console.log('🔒 Password-protected KB - frontend will handle validation');
+    } else if (privacyMode === 'employee_login') {
+      // Employee login required - return 401 to trigger login flow
+      console.log('🔒 Employee login required');
+      return c.json({ 
+        error: 'login_required',
+        message: 'Employee login required to access this content',
+        org: {
+          name: org.name,
+          privacy_mode: privacyMode
+        }
+      }, 401);
+    } else {
+      // Public mode - no restrictions
+      console.log('🌍 Public KB - no restrictions');
+    }
+
+    // Fetch Key Facts (via fact_usage junction table)
+    const { data: factsData, error: factsError } = await supabase
+      .from('fact_usage')
+      .select(`
+        fact_id,
+        display_order,
+        facts:fact_id (
+          id,
+          title,
+          content
+        )
+      `)
+      .eq('track_id', track.id)
+      .eq('track_type', track.type)
+      .order('display_order', { ascending: true });
+
+    // Transform to flat array of facts
+    const facts = factsData?.map(fu => ({
+      id: fu.facts?.id || fu.fact_id,
+      title: fu.facts?.title || '',
+      content: fu.facts?.content || '',
+      display_order: fu.display_order || 0
+    })).filter(f => f.title) || [];
+
+    if (factsError) {
+      console.error('Error fetching facts:', factsError);
+    }
+
+    // Fetch Tags (via track_tags junction table)
+    const { data: trackTags, error: tagsError } = await supabase
+      .from('track_tags')
+      .select(`
+        tag_id,
+        tags:tag_id (
+          id,
+          name,
+          type,
+          color
+        )
+      `)
+      .eq('track_id', track.id);
+
+    const tags = trackTags?.map(tt => tt.tags).filter(Boolean) || [];
+
+    if (tagsError) {
+      console.error('Error fetching tags:', tagsError);
+    }
+
+    // Fetch Attachments
+    const { data: attachments, error: attachmentsError } = await supabase
+      .from('kb_attachments')
+      .select('id, filename, file_url, file_type, file_size, created_at')
+      .eq('article_id', track.id)
+      .order('created_at', { ascending: true });
+
+    if (attachmentsError) {
+      console.error('Error fetching attachments:', attachmentsError);
+    }
+
+    // Fetch Related Tracks (same tags, exclude current track, limit 5)
+    let related: any[] = [];
+    if (tags.length > 0) {
+      const tagIds = tags.map((t: any) => t.id);
+      
+      // Get tracks that share tags with current track
+      const { data: relatedTracks, error: relatedError } = await supabase
+        .from('track_tags')
+        .select(`
+          track_id,
+          tracks:track_id (
+            id,
+            title,
+            kb_slug,
+            type,
+            duration_minutes
+          )
+        `)
+        .in('tag_id', tagIds)
+        .neq('track_id', track.id);
+
+      if (!relatedError && relatedTracks) {
+        // Deduplicate and take first 5
+        const uniqueTracks = new Map();
+        relatedTracks.forEach(rt => {
+          if (rt.tracks?.kb_slug && rt.tracks?.show_in_knowledge_base) {
+            uniqueTracks.set(rt.tracks.id, rt.tracks);
+          }
+        });
+        related = Array.from(uniqueTracks.values()).slice(0, 5);
+      } else if (relatedError) {
+        console.error('Error fetching related tracks:', relatedError);
+      }
+    }
+
+    console.log('✅ Returning track with enhanced data:', {
+      trackId: track.id,
+      factsCount: facts?.length || 0,
+      tagsCount: tags?.length || 0,
+      relatedCount: related?.length || 0
+    });
+
+    return c.json({ 
+      track, 
+      org,
+      facts: facts || [],
+      tags: tags || [],
+      attachments: attachments || [],
+      related: related || []
+    });
   } catch (error: any) {
     console.error('❌ Error in /kb/public/:slug:', error);
     return c.json({ error: error.message || 'Internal server error' }, 500);

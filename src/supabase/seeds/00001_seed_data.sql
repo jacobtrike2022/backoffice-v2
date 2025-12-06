@@ -8,8 +8,8 @@
 -- =====================================================
 -- 1. ORGANIZATIONS
 -- =====================================================
-INSERT INTO organizations (id, name, subdomain, settings, created_at, updated_at) VALUES
-('10000000-0000-0000-0000-000000000001', 'Demo Company', 'demo', '{"theme": "light"}', NOW(), NOW());
+INSERT INTO organizations (id, name, subdomain, settings, kb_privacy_mode, kb_shared_password, kb_logo_url, created_at, updated_at) VALUES
+('10000000-0000-0000-0000-000000000001', 'Demo Company', 'demo', '{"theme": "light"}', 'public', NULL, NULL, NOW(), NOW());
 
 -- =====================================================
 -- 2. DISTRICTS (manager_id will be set later)
