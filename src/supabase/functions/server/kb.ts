@@ -19,43 +19,32 @@ kbApp.get('/public/:slug', async (c) => {
       return c.json({ error: 'Slug is required' }, 400);
     }
 
-    // Fetch all tracks from KV store
-    const allTracksData = await kv.getByPrefix('track:');
-    console.log('📦 Found total tracks in KV:', allTracksData.length);
-    
-    // Log all tracks with their kb_slug for debugging
-    allTracksData.forEach((item: any, idx: number) => {
-      const track = item.value;
-      console.log(`Track ${idx}:`, {
-        id: track?.id,
-        title: track?.title,
-        kb_slug: track?.kb_slug,
-        show_in_kb: track?.show_in_knowledge_base,
-        status: track?.status
-      });
-    });
-    
-    // Find track with matching kb_slug that is published and shown in KB
-    const matchingTrack = allTracksData.find((item: any) => {
-      const track = item.value;
-      return track?.kb_slug === slug && 
-             track?.show_in_knowledge_base === true && 
-             track?.status === 'published';
-    });
+    // Fetch track by kb_slug from Supabase
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('*')
+      .eq('kb_slug', slug)
+      .eq('show_in_knowledge_base', true)
+      .eq('status', 'published')
+      .single();
 
-    console.log('🎯 Matching track found:', matchingTrack ? 'YES' : 'NO');
+    console.log('🎯 Track query result:', { track, error: trackError });
 
-    if (!matchingTrack) {
+    if (trackError || !track) {
+      console.log('❌ Track not found for slug:', slug);
       return c.json({ error: 'not_found' }, 404);
     }
 
-    const track = matchingTrack.value;
+    // Fetch organization settings
+    const { data: org, error: orgError } = await supabase
+      .from('organizations')
+      .select('id, name, kb_privacy_mode, kb_shared_password, kb_logo_url')
+      .eq('id', track.organization_id)
+      .single();
 
-    // Try to fetch organization data if organization_id exists
-    let org = null;
-    if (track.organization_id) {
-      const orgKey = `organization:${track.organization_id}`;
-      org = await kv.get(orgKey);
+    if (orgError) {
+      console.error('Error fetching organization:', orgError);
+      // Continue without org data
     }
 
     console.log('✅ Returning track:', track.id);

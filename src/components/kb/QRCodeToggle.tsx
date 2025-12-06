@@ -14,6 +14,7 @@ import { Input } from '../ui/input';
 import { Separator } from '../ui/separator';
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../../lib/supabase';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import {
   generateKBSlug,
   generateKBPublicUrl,
