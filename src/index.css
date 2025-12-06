@@ -2715,6 +2715,10 @@
     background-color: var(--color-gray-400);
   }
 
+  .bg-gray-900 {
+    background-color: var(--color-gray-900);
+  }
+
   .bg-green-50 {
     background-color: var(--color-green-50);
   }

@@ -494,13 +494,14 @@ app.route("/make-server-2858cc8b/kb", kbApp);
 app.put("/make-server-2858cc8b/organization/kb-settings", async (c) => {
   try {
     const body = await c.req.json();
-    const { organizationId, kb_privacy_mode, kb_shared_password, kb_logo_url } = body;
+    const { organizationId, kb_privacy_mode, kb_shared_password, kb_logo_url, kb_logo_dark, kb_logo_light } = body;
     
     if (!organizationId) {
       return c.json({ error: 'Organization ID is required' }, 400);
     }
     
     console.log(`🔧 Updating KB settings for organization: ${organizationId}`);
+    console.log('   Payload:', { kb_privacy_mode, kb_logo_dark, kb_logo_light });
     
     // Build update object (only include provided fields)
     const updateData: any = {};
@@ -508,6 +509,8 @@ app.put("/make-server-2858cc8b/organization/kb-settings", async (c) => {
     if (kb_privacy_mode !== undefined) updateData.kb_privacy_mode = kb_privacy_mode;
     if (kb_shared_password !== undefined) updateData.kb_shared_password = kb_shared_password;
     if (kb_logo_url !== undefined) updateData.kb_logo_url = kb_logo_url;
+    if (kb_logo_dark !== undefined) updateData.kb_logo_dark = kb_logo_dark;
+    if (kb_logo_light !== undefined) updateData.kb_logo_light = kb_logo_light;
     
     const { data: updatedOrg, error: updateError } = await supabase
       .from('organizations')
@@ -698,7 +701,7 @@ app.get("/make-server-2858cc8b/facts/track/:trackId", async (c) => {
       extractionConfidence: usage.facts.extraction_confidence,
       companyId: usage.facts.company_id,
       createdAt: usage.facts.created_at,
-      updatedAt: usage.facts.updated_at,
+      updatedAt: usage.facts.updated_at
     }));
     
     console.log(`✅ Found ${facts.length} facts for track ${trackId}`);

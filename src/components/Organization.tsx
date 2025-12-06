@@ -19,7 +19,7 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
   const tabs = [
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
     { id: 'roles' as OrganizationTab, label: 'Roles', icon: Users },
-    { id: 'settings' as OrganizationTab, label: 'Settings', icon: Settings },
+    { id: 'settings' as OrganizationTab, label: 'KB Settings', icon: Settings },
   ];
 
   const handleViewAll = () => {

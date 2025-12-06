@@ -15,30 +15,37 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
+import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 type PrivacyMode = 'public' | 'password' | 'employee_login';
 
 interface OrgSettings {
   kb_privacy_mode: PrivacyMode;
   kb_shared_password: string;
-  kb_logo_url: string;
+  kb_logo_dark: string;
+  kb_logo_light: string;
 }
 
 export function KBSettings() {
   const [settings, setSettings] = useState<OrgSettings>({
     kb_privacy_mode: 'public',
     kb_shared_password: '',
-    kb_logo_url: ''
+    kb_logo_dark: trikeLogoDark, // Default to Trike logo
+    kb_logo_light: trikeLogoDark  // Default to Trike logo
   });
   const [originalSettings, setOriginalSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string>('');
+  const [logoDarkFile, setLogoDarkFile] = useState<File | null>(null);
+  const [logoLightFile, setLogoLightFile] = useState<File | null>(null);
+  const [logoDarkPreview, setLogoDarkPreview] = useState<string>(trikeLogoDark);
+  const [logoLightPreview, setLogoLightPreview] = useState<string>(trikeLogoDark);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -46,12 +53,20 @@ export function KBSettings() {
   }, []);
 
   useEffect(() => {
-    if (logoFile) {
-      const url = URL.createObjectURL(logoFile);
-      setLogoPreview(url);
+    if (logoDarkFile) {
+      const url = URL.createObjectURL(logoDarkFile);
+      setLogoDarkPreview(url);
       return () => URL.revokeObjectURL(url);
     }
-  }, [logoFile]);
+  }, [logoDarkFile]);
+
+  useEffect(() => {
+    if (logoLightFile) {
+      const url = URL.createObjectURL(logoLightFile);
+      setLogoLightPreview(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [logoLightFile]);
 
   async function loadSettings() {
     try {
@@ -60,7 +75,7 @@ export function KBSettings() {
 
       const { data, error } = await supabase
         .from('organizations')
-        .select('kb_privacy_mode, kb_shared_password, kb_logo_url')
+        .select('kb_privacy_mode, kb_shared_password, kb_logo_dark, kb_logo_light')
         .eq('id', orgId)
         .single();
 
@@ -69,12 +84,14 @@ export function KBSettings() {
       const loadedSettings = {
         kb_privacy_mode: (data?.kb_privacy_mode || 'public') as PrivacyMode,
         kb_shared_password: data?.kb_shared_password || '',
-        kb_logo_url: data?.kb_logo_url || ''
+        kb_logo_dark: data?.kb_logo_dark || trikeLogoDark,
+        kb_logo_light: data?.kb_logo_light || trikeLogoDark
       };
 
       setSettings(loadedSettings);
       setOriginalSettings(loadedSettings);
-      setLogoPreview(loadedSettings.kb_logo_url);
+      setLogoDarkPreview(loadedSettings.kb_logo_dark);
+      setLogoLightPreview(loadedSettings.kb_logo_light);
     } catch (error) {
       console.error('Error loading KB settings:', error);
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -89,34 +106,69 @@ export function KBSettings() {
       setMessage(null);
       const orgId = await getCurrentUserOrgId();
 
-      let logoUrl = settings.kb_logo_url;
+      let logoDarkUrl = settings.kb_logo_dark;
+      let logoLightUrl = settings.kb_logo_light;
 
-      // Upload logo if file selected
-      if (logoFile) {
-        const fileExt = logoFile.name.split('.').pop();
-        const fileName = `kb-logo-${orgId}-${Date.now()}.${fileExt}`;
+      // Upload dark logo if file selected
+      if (logoDarkFile) {
+        const fileExt = logoDarkFile.name.split('.').pop();
+        const fileName = `kb-logo-dark-${orgId}-${Date.now()}.${fileExt}`;
         const filePath = `org-logos/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('public-assets')
-          .upload(filePath, logoFile, {
+          .upload(filePath, logoDarkFile, {
             cacheControl: '3600',
             upsert: true
           });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Upload error for dark logo:', uploadError);
+          throw new Error(`Failed to upload dark logo: ${uploadError.message}`);
+        }
 
         const { data: urlData } = supabase.storage
           .from('public-assets')
           .getPublicUrl(filePath);
 
-        logoUrl = urlData.publicUrl;
+        logoDarkUrl = urlData.publicUrl;
+      }
+
+      // Upload light logo if file selected
+      if (logoLightFile) {
+        const fileExt = logoLightFile.name.split('.').pop();
+        const fileName = `kb-logo-light-${orgId}-${Date.now()}.${fileExt}`;
+        const filePath = `org-logos/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('public-assets')
+          .upload(filePath, logoLightFile, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error('Upload error for light logo:', uploadError);
+          throw new Error(`Failed to upload light logo: ${uploadError.message}`);
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('public-assets')
+          .getPublicUrl(filePath);
+
+        logoLightUrl = urlData.publicUrl;
       }
 
       // Save settings via backend endpoint (bypasses RLS)
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
       
+      console.log('💾 Saving KB settings:', {
+        kb_privacy_mode: settings.kb_privacy_mode,
+        kb_logo_dark: logoDarkUrl,
+        kb_logo_light: logoLightUrl
+      });
+
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/organization/kb-settings`, {
         method: 'PUT',
         headers: {
@@ -127,20 +179,40 @@ export function KBSettings() {
           organizationId: orgId,
           kb_privacy_mode: settings.kb_privacy_mode,
           kb_shared_password: settings.kb_shared_password,
-          kb_logo_url: logoUrl
+          kb_logo_dark: logoDarkUrl,
+          kb_logo_light: logoLightUrl
         })
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(errorData.error || 'Failed to save settings');
+        const errorText = await response.text();
+        console.error('Backend response error:', errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          errorData = { error: errorText };
+        }
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
 
+      const result = await response.json();
+      console.log('✅ KB settings saved successfully:', result);
+
       setMessage({ type: 'success', text: 'Settings saved successfully!' });
-      setOriginalSettings({ ...settings, kb_logo_url: logoUrl });
-      setSettings({ ...settings, kb_logo_url: logoUrl });
-      setLogoFile(null);
-      setLogoPreview(logoUrl);
+      
+      const newSettings = { 
+        ...settings, 
+        kb_logo_dark: logoDarkUrl,
+        kb_logo_light: logoLightUrl
+      };
+      
+      setOriginalSettings(newSettings);
+      setSettings(newSettings);
+      setLogoDarkFile(null);
+      setLogoLightFile(null);
+      setLogoDarkPreview(logoDarkUrl);
+      setLogoLightPreview(logoLightUrl);
     } catch (error: any) {
       console.error('Error saving settings:', error);
       setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
@@ -149,20 +221,33 @@ export function KBSettings() {
     }
   }
 
-  function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleLogoDarkUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      setLogoFile(file);
+      setLogoDarkFile(file);
     }
   }
 
-  function removeLogo() {
-    setLogoFile(null);
-    setLogoPreview('');
-    setSettings({ ...settings, kb_logo_url: '' });
+  function handleLogoLightUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setLogoLightFile(file);
+    }
   }
 
-  const hasChanges = JSON.stringify(settings) !== JSON.stringify(originalSettings) || logoFile !== null;
+  function removeLogoDark() {
+    setLogoDarkFile(null);
+    setLogoDarkPreview(trikeLogoDark);
+    setSettings({ ...settings, kb_logo_dark: trikeLogoDark });
+  }
+
+  function removeLogoLight() {
+    setLogoLightFile(null);
+    setLogoLightPreview(trikeLogoDark);
+    setSettings({ ...settings, kb_logo_light: trikeLogoDark });
+  }
+
+  const hasChanges = JSON.stringify(settings) !== JSON.stringify(originalSettings) || logoDarkFile !== null || logoLightFile !== null;
 
   if (loading) {
     return (
@@ -309,52 +394,103 @@ export function KBSettings() {
         </CardContent>
       </Card>
 
-      {/* Logo Upload */}
+      {/* Logo Upload - Dark Mode */}
       <Card>
         <CardHeader>
-          <CardTitle>Knowledge Base Logo</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Moon className="w-5 h-5" />
+            Dark Mode Logo
+          </CardTitle>
           <CardDescription>
-            Display your organization logo on public KB article pages
+            Logo shown when viewers have dark mode enabled
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {logoPreview ? (
-            <div className="relative inline-block">
+          <div className="relative inline-block">
+            <div className="border rounded-lg p-4 bg-gray-900">
               <img
-                src={logoPreview}
-                alt="KB Logo Preview"
-                className="h-16 object-contain border rounded-lg p-2 bg-white"
+                src={logoDarkPreview}
+                alt="KB Logo Dark Mode Preview"
+                className="h-16 object-contain"
               />
+            </div>
+            {logoDarkPreview !== trikeLogoDark && (
               <button
-                onClick={removeLogo}
+                onClick={removeLogoDark}
                 className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
               >
                 <X className="w-3 h-3" />
               </button>
-            </div>
-          ) : (
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
-              <ImageIcon className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground mb-3">No logo uploaded</p>
-            </div>
-          )}
+            )}
+          </div>
 
           <div>
-            <Label htmlFor="logo-upload" className="cursor-pointer">
+            <Label htmlFor="logo-dark-upload" className="cursor-pointer">
               <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
                 <Upload className="w-4 h-4" />
-                <span className="text-sm">{logoPreview ? 'Change Logo' : 'Upload Logo'}</span>
+                <span className="text-sm">Upload Dark Logo</span>
               </div>
             </Label>
             <Input
-              id="logo-upload"
+              id="logo-dark-upload"
               type="file"
               accept="image/*"
-              onChange={handleLogoUpload}
+              onChange={handleLogoDarkUpload}
               className="hidden"
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Recommended: PNG or SVG with transparent background, max 2MB
+              Recommended: White or light-colored logo on transparent background
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Logo Upload - Light Mode */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sun className="w-5 h-5" />
+            Light Mode Logo
+          </CardTitle>
+          <CardDescription>
+            Logo shown when viewers have light mode enabled
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="relative inline-block">
+            <div className="border rounded-lg p-4 bg-white">
+              <img
+                src={logoLightPreview}
+                alt="KB Logo Light Mode Preview"
+                className="h-16 object-contain"
+              />
+            </div>
+            {logoLightPreview !== trikeLogoDark && (
+              <button
+                onClick={removeLogoLight}
+                className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="logo-light-upload" className="cursor-pointer">
+              <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
+                <Upload className="w-4 h-4" />
+                <span className="text-sm">Upload Light Logo</span>
+              </div>
+            </Label>
+            <Input
+              id="logo-light-upload"
+              type="file"
+              accept="image/*"
+              onChange={handleLogoLightUpload}
+              className="hidden"
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Recommended: Dark-colored logo on transparent background
             </p>
           </div>
         </CardContent>
