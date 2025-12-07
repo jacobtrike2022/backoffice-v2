@@ -35,8 +35,8 @@ export function KBSettings() {
   const [settings, setSettings] = useState<OrgSettings>({
     kb_privacy_mode: 'public',
     kb_shared_password: '',
-    kb_logo_dark: trikeLogoDark, // Default to simple text logo
-    kb_logo_light: trikeLogoDark  // Default to simple text logo
+    kb_logo_dark: trikeLogoDark,
+    kb_logo_light: trikeLogoDark
   });
   const [originalSettings, setOriginalSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,27 +52,71 @@ export function KBSettings() {
     loadSettings();
   }, []);
 
+  // Update dark logo preview when settings change from database
+  useEffect(() => {
+    console.log('🔍 DARK LOGO DEBUG:', {
+      logoDarkFile,
+      'settings.kb_logo_dark': settings.kb_logo_dark,
+      'trikeLogoDark': trikeLogoDark,
+      'typeof settings.kb_logo_dark': typeof settings.kb_logo_dark,
+      'settings.kb_logo_dark?.trim().length': settings.kb_logo_dark?.trim?.().length,
+      'darkLogoPreview will be set to': !logoDarkFile ? (settings.kb_logo_dark && 
+                             typeof settings.kb_logo_dark === 'string' && 
+                             settings.kb_logo_dark.trim().length > 0 ? settings.kb_logo_dark : trikeLogoDark) : 'blob URL'
+    });
+    
+    if (!logoDarkFile) {
+      const hasValidDarkLogo = settings.kb_logo_dark && 
+                               typeof settings.kb_logo_dark === 'string' && 
+                               settings.kb_logo_dark.trim().length > 0;
+      
+      const newPreview = hasValidDarkLogo ? settings.kb_logo_dark : trikeLogoDark;
+      console.log('✅ Setting darkLogoPreview to:', newPreview);
+      setLogoDarkPreview(newPreview);
+    }
+  }, [settings.kb_logo_dark, logoDarkFile]);
+
+  // Update light logo preview when settings change from database
+  useEffect(() => {
+    console.log('🔍 LIGHT LOGO DEBUG:', {
+      logoLightFile,
+      'settings.kb_logo_light': settings.kb_logo_light,
+      'trikeLogoDark (fallback)': trikeLogoDark,
+      'typeof settings.kb_logo_light': typeof settings.kb_logo_light,
+      'settings.kb_logo_light?.trim().length': settings.kb_logo_light?.trim?.().length,
+      'lightLogoPreview will be set to': !logoLightFile ? (settings.kb_logo_light && 
+                                typeof settings.kb_logo_light === 'string' && 
+                                settings.kb_logo_light.trim().length > 0 ? settings.kb_logo_light : trikeLogoDark) : 'blob URL'
+    });
+    
+    if (!logoLightFile) {
+      const hasValidLightLogo = settings.kb_logo_light && 
+                                typeof settings.kb_logo_light === 'string' && 
+                                settings.kb_logo_light.trim().length > 0;
+      
+      const newPreview = hasValidLightLogo ? settings.kb_logo_light : trikeLogoDark;
+      console.log('✅ Setting lightLogoPreview to:', newPreview);
+      setLogoLightPreview(newPreview);
+    }
+  }, [settings.kb_logo_light, logoLightFile]);
+
+  // Update dark logo preview when file is selected
   useEffect(() => {
     if (logoDarkFile) {
       const url = URL.createObjectURL(logoDarkFile);
       setLogoDarkPreview(url);
       return () => URL.revokeObjectURL(url);
-    } else {
-      // No file selected, use the saved setting
-      setLogoDarkPreview(settings.kb_logo_dark);
     }
-  }, [logoDarkFile, settings.kb_logo_dark]);
+  }, [logoDarkFile]);
 
+  // Update light logo preview when file is selected
   useEffect(() => {
     if (logoLightFile) {
       const url = URL.createObjectURL(logoLightFile);
       setLogoLightPreview(url);
       return () => URL.revokeObjectURL(url);
-    } else {
-      // No file selected, use the saved setting
-      setLogoLightPreview(settings.kb_logo_light);
     }
-  }, [logoLightFile, settings.kb_logo_light]);
+  }, [logoLightFile]);
 
   async function loadSettings() {
     try {
@@ -499,6 +543,14 @@ export function KBSettings() {
                 src={logoDarkPreview}
                 alt="KB Logo Dark Mode Preview"
                 className="h-16 object-contain"
+                onError={(e) => {
+                  console.error('🚨 DARK LOGO FAILED TO LOAD:', {
+                    src: e.currentTarget.src,
+                    logoDarkPreview,
+                    trikeLogoDark,
+                    'settings.kb_logo_dark': settings.kb_logo_dark
+                  });
+                }}
               />
             </div>
             {logoDarkPreview !== trikeLogoDark && (
