@@ -35,6 +35,12 @@ kbApp.get('/public/:slug', async (c) => {
       return c.json({ error: 'not_found' }, 404);
     }
 
+    console.log('🔍 Track tags column data:', {
+      'track.tags': track.tags,
+      'type': typeof track.tags,
+      'isArray': Array.isArray(track.tags)
+    });
+
     // Fetch organization settings
     // Try to get KB columns, but gracefully handle if they don't exist yet
     const { data: org, error: orgError } = await supabase
@@ -126,6 +132,7 @@ kbApp.get('/public/:slug', async (c) => {
     }
 
     // Fetch Tags (via track_tags junction table)
+    console.log('🔍 Fetching tags for track_id:', track.id);
     const { data: trackTags, error: tagsError } = await supabase
       .from('track_tags')
       .select(`
@@ -139,10 +146,24 @@ kbApp.get('/public/:slug', async (c) => {
       `)
       .eq('track_id', track.id);
 
-    const tags = trackTags?.map(tt => tt.tags).filter(Boolean) || [];
+    console.log('📋 Raw trackTags query result:', {
+      trackTags,
+      tagsError,
+      trackTagsCount: trackTags?.length || 0
+    });
+
+    const tags = trackTags?.map(tt => {
+      console.log('🏷️ Processing trackTag:', tt);
+      return tt.tags;
+    }).filter(Boolean) || [];
+
+    console.log('✅ Final tags array:', {
+      tags,
+      tagsCount: tags.length
+    });
 
     if (tagsError) {
-      console.error('Error fetching tags:', tagsError);
+      console.error('❌ Error fetching tags:', tagsError);
     }
 
     // Fetch Attachments
