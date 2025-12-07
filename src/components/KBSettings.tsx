@@ -35,8 +35,8 @@ export function KBSettings() {
   const [settings, setSettings] = useState<OrgSettings>({
     kb_privacy_mode: 'public',
     kb_shared_password: '',
-    kb_logo_dark: trikeLogoDark, // Default to Trike logo
-    kb_logo_light: trikeLogoDark  // Default to Trike logo
+    kb_logo_dark: trikeLogoDark, // Default to simple text logo
+    kb_logo_light: trikeLogoDark  // Default to simple text logo
   });
   const [originalSettings, setOriginalSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,16 +57,22 @@ export function KBSettings() {
       const url = URL.createObjectURL(logoDarkFile);
       setLogoDarkPreview(url);
       return () => URL.revokeObjectURL(url);
+    } else {
+      // No file selected, use the saved setting
+      setLogoDarkPreview(settings.kb_logo_dark);
     }
-  }, [logoDarkFile]);
+  }, [logoDarkFile, settings.kb_logo_dark]);
 
   useEffect(() => {
     if (logoLightFile) {
       const url = URL.createObjectURL(logoLightFile);
       setLogoLightPreview(url);
       return () => URL.revokeObjectURL(url);
+    } else {
+      // No file selected, use the saved setting
+      setLogoLightPreview(settings.kb_logo_light);
     }
-  }, [logoLightFile]);
+  }, [logoLightFile, settings.kb_logo_light]);
 
   async function loadSettings() {
     try {
@@ -126,106 +132,141 @@ export function KBSettings() {
   }
 
   async function handleSave() {
+    console.log('🚀 Starting save operation...');
+    
     try {
       setSaving(true);
       setMessage(null);
+      
+      console.log('📋 Getting org ID...');
       const orgId = await getCurrentUserOrgId();
+      console.log('✅ Org ID:', orgId);
 
       let logoDarkUrl = settings.kb_logo_dark;
       let logoLightUrl = settings.kb_logo_light;
 
       // Upload dark logo if file selected
       if (logoDarkFile) {
-        const fileExt = logoDarkFile.name.split('.').pop();
-        const fileName = `kb-logo-dark-${orgId}-${Date.now()}.${fileExt}`;
-        const filePath = `org-logos/${fileName}`;
+        try {
+          console.log('📤 Uploading dark logo...');
+          const formData = new FormData();
+          formData.append('file', logoDarkFile);
+          formData.append('orgId', orgId);
+          formData.append('logoType', 'dark');
 
-        const { error: uploadError } = await supabase.storage
-          .from('public-assets')
-          .upload(filePath, logoDarkFile, {
-            cacheControl: '3600',
-            upsert: true
-          });
+          const uploadResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-kb-logo`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+              },
+              body: formData,
+            }
+          );
 
-        if (uploadError) {
-          console.error('Upload error for dark logo:', uploadError);
-          throw new Error(`Failed to upload dark logo: ${uploadError.message}`);
+          console.log('📥 Dark logo upload response status:', uploadResponse.status);
+
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            console.error('❌ Dark logo upload failed:', errorData);
+            throw new Error(`Failed to upload dark logo: ${errorData.error}`);
+          }
+
+          const uploadData = await uploadResponse.json();
+          logoDarkUrl = uploadData.url;
+          console.log('✅ Dark logo uploaded:', logoDarkUrl);
+        } catch (error: any) {
+          console.error('💥 Exception during dark logo upload:', error);
+          throw error;
         }
-
-        const { data: urlData } = supabase.storage
-          .from('public-assets')
-          .getPublicUrl(filePath);
-
-        logoDarkUrl = urlData.publicUrl;
       }
 
       // Upload light logo if file selected
       if (logoLightFile) {
-        const fileExt = logoLightFile.name.split('.').pop();
-        const fileName = `kb-logo-light-${orgId}-${Date.now()}.${fileExt}`;
-        const filePath = `org-logos/${fileName}`;
+        try {
+          console.log('📤 Uploading light logo...');
+          const formData = new FormData();
+          formData.append('file', logoLightFile);
+          formData.append('orgId', orgId);
+          formData.append('logoType', 'light');
 
-        const { error: uploadError } = await supabase.storage
-          .from('public-assets')
-          .upload(filePath, logoLightFile, {
-            cacheControl: '3600',
-            upsert: true
-          });
+          const uploadResponse = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-kb-logo`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+              },
+              body: formData,
+            }
+          );
 
-        if (uploadError) {
-          console.error('Upload error for light logo:', uploadError);
-          throw new Error(`Failed to upload light logo: ${uploadError.message}`);
+          console.log('📥 Light logo upload response status:', uploadResponse.status);
+
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            console.error('❌ Light logo upload failed:', errorData);
+            throw new Error(`Failed to upload light logo: ${errorData.error}`);
+          }
+
+          const uploadData = await uploadResponse.json();
+          logoLightUrl = uploadData.url;
+          console.log('✅ Light logo uploaded:', logoLightUrl);
+        } catch (error: any) {
+          console.error('💥 Exception during light logo upload:', error);
+          throw error;
         }
-
-        const { data: urlData } = supabase.storage
-          .from('public-assets')
-          .getPublicUrl(filePath);
-
-        logoLightUrl = urlData.publicUrl;
       }
 
       // Save settings via backend endpoint (bypasses RLS)
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || publicAnonKey;
-      
-      console.log('💾 Saving KB settings:', {
-        kb_privacy_mode: settings.kb_privacy_mode,
-        kb_logo_dark: logoDarkUrl,
-        kb_logo_light: logoLightUrl
-      });
+      try {
+        console.log('💾 Saving KB settings to database...');
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || publicAnonKey;
 
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/organization/kb-settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
+        const payload = {
           organizationId: orgId,
           kb_privacy_mode: settings.kb_privacy_mode,
           kb_shared_password: settings.kb_shared_password,
           kb_logo_dark: logoDarkUrl,
           kb_logo_light: logoLightUrl
-        })
-      });
+        };
+        
+        console.log('📤 Sending payload:', payload);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Backend response error:', errorText);
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch (e) {
-          errorData = { error: errorText };
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/organization/kb-settings`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        console.log('📥 KB settings response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Backend response error:', errorText);
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            errorData = { error: errorText };
+          }
+          throw new Error(errorData.error || `Server error: ${response.status}`);
         }
-        throw new Error(errorData.error || `Server error: ${response.status}`);
+
+        const result = await response.json();
+        console.log('✅ KB settings saved successfully:', result);
+      } catch (error: any) {
+        console.error('💥 Exception during settings save:', error);
+        throw error;
       }
 
-      const result = await response.json();
-      console.log('✅ KB settings saved successfully:', result);
-
-      setMessage({ type: 'success', text: 'Settings saved successfully!' });
-      
+      // Update state with new values
+      console.log('🔄 Updating local state...');
       const newSettings = { 
         ...settings, 
         kb_logo_dark: logoDarkUrl,
@@ -238,12 +279,33 @@ export function KBSettings() {
       setLogoLightFile(null);
       setLogoDarkPreview(logoDarkUrl);
       setLogoLightPreview(logoLightUrl);
-    } catch (error: any) {
-      console.error('Error saving settings:', error);
-      setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
-    } finally {
+      console.log('✅ Local state updated');
+      
+      // Reset saving state FIRST before showing message
+      console.log('🏁 Resetting saving state to false...');
       setSaving(false);
+      console.log('✅ Saving state reset');
+      
+      // Use setTimeout to ensure state update completes before showing message
+      setTimeout(() => {
+        console.log('📢 Setting success message...');
+        setMessage({ type: 'success', text: '✅ Settings saved successfully!' });
+        console.log('✅ Success message set');
+        
+        // Auto-hide success message after 3 seconds
+        setTimeout(() => {
+          console.log('⏰ Auto-hiding success message...');
+          setMessage(null);
+        }, 3000);
+      }, 0);
+      
+    } catch (error: any) {
+      console.error('❌❌❌ Error in handleSave:', error);
+      console.error('Error stack:', error.stack);
+      setSaving(false);
+      setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
     }
+    // Remove the finally block since we're handling setSaving in try/catch
   }
 
   function handleLogoDarkUpload(e: React.ChangeEvent<HTMLInputElement>) {

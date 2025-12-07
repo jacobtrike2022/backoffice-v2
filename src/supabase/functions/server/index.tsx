@@ -232,6 +232,80 @@ app.post("/make-server-2858cc8b/upload-media", async (c) => {
 // Transcribe audio file endpoint
 app.post("/make-server-2858cc8b/transcribe", handleTranscribeRequest);
 
+// Upload KB logo endpoint (bypasses RLS using service role key)
+app.post("/make-server-2858cc8b/upload-kb-logo", async (c) => {
+  try {
+    await ensurePublicAssetsBucket();
+    
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    const orgId = formData.get('orgId') as string;
+    const logoType = formData.get('logoType') as string; // 'dark' or 'light'
+    
+    if (!file) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+    
+    if (!orgId) {
+      return c.json({ error: 'Organization ID is required' }, 400);
+    }
+    
+    if (!logoType || !['dark', 'light'].includes(logoType)) {
+      return c.json({ error: 'Invalid logo type. Must be "dark" or "light"' }, 400);
+    }
+    
+    // Check file size (max 5MB for logos)
+    if (file.size > 5242880) {
+      return c.json({ error: 'File too large. Maximum size is 5MB.' }, 400);
+    }
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      return c.json({ error: 'Invalid file type. Only images are allowed.' }, 400);
+    }
+    
+    // Generate unique filename
+    const fileExt = file.name.split('.').pop();
+    const fileName = `kb-logo-${logoType}-${orgId}-${Date.now()}.${fileExt}`;
+    const filePath = `org-logos/${fileName}`;
+    
+    console.log(`📤 Uploading ${logoType} logo for org ${orgId}:`, filePath);
+    
+    // Convert file to ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    // Upload to Supabase Storage using service role key (bypasses RLS)
+    const { error: uploadError } = await supabase.storage
+      .from(PUBLIC_ASSETS_BUCKET_NAME)
+      .upload(filePath, uint8Array, {
+        contentType: file.type,
+        upsert: true,
+        cacheControl: '3600'
+      });
+    
+    if (uploadError) {
+      console.error('❌ Upload error:', uploadError);
+      return c.json({ error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(PUBLIC_ASSETS_BUCKET_NAME)
+      .getPublicUrl(filePath);
+    
+    console.log('✅ Logo uploaded successfully:', urlData.publicUrl);
+    
+    return c.json({ 
+      success: true,
+      url: urlData.publicUrl 
+    });
+  } catch (error: any) {
+    console.error('❌ Logo upload error:', error);
+    return c.json({ error: `Upload failed: ${error.message}` }, 500);
+  }
+});
+
 // Upload attachment endpoint
 app.post("/make-server-2858cc8b/upload-attachment", async (c) => {
   try {
