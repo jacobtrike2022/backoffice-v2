@@ -67,6 +67,7 @@ import {
 import { cn } from './ui/utils';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { QRCodeToggle } from './kb/QRCodeToggle';
+import { TTSPlayer } from './content/TTSPlayer';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -1663,49 +1664,63 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     </p>
                   )}
 
-                  {/* Key Facts (if available) */}
-                  {selectedTrackFacts && selectedTrackFacts.length > 0 && (
-                     <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl mb-8 not-prose border border-slate-200 dark:border-slate-700">
-                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-4 flex items-center gap-2">
-                         <Check className="h-4 w-4 text-green-500" />
-                         Key Facts
-                       </h3>
-                       <ul className="grid sm:grid-cols-2 gap-3">
-                         {selectedTrackFacts.map((factObj: any, i: number) => {
-                           const displayText = factObj.content || factObj.fact || factObj;
-                           const isProcedure = factObj.type === 'Procedure' && factObj.steps;
-                           
-                           return (
-                             <li key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-300 text-sm">
-                               <div className="h-1.5 w-1.5 rounded-full bg-green-500 mt-2 shrink-0" />
-                               <div>
-                                 <span>{displayText}</span>
-                                 {isProcedure && (
-                                   <ul className="mt-2 ml-4 space-y-1 text-xs border-l-2 border-orange-200 pl-3">
-                                     {factObj.steps.map((step: string, stepIdx: number) => (
-                                       <li key={stepIdx} className="flex items-start gap-2">
-                                         <span className="text-orange-500 font-semibold">{stepIdx + 1}.</span>
-                                         <span>{step}</span>
-                                       </li>
-                                     ))}
-                                   </ul>
-                                 )}
-                               </div>
-                             </li>
-                           );
-                         })}
-                       </ul>
-                     </div>
+                  {/* TTS Player for Articles */}
+                  {selectedTrack.type === 'article' && (
+                    <TTSPlayer 
+                      trackId={selectedTrack.id}
+                      initialAudioUrl={undefined}
+                      initialVoice="alloy"
+                      showVoiceSelector={false}
+                    />
                   )}
 
                   {/* Main Body Content - Only show if there's actual content */}
                   {processedContent && processedContent.trim() && (
                     <div className="space-y-6 text-slate-800 dark:text-slate-200 leading-7">
                       <div 
-                        className="article-content prose prose-slate dark:prose-invert max-w-none"
+                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold"
                         dangerouslySetInnerHTML={{ __html: processedContent }} 
                       />
                     </div>
+                  )}
+
+                  {/* Key Facts (if available) - Moved to bottom */}
+                  {selectedTrackFacts && selectedTrackFacts.length > 0 && (
+                     <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-slate-800 dark:to-slate-900 p-8 rounded-2xl mt-12 not-prose border border-orange-200 dark:border-slate-700 shadow-sm">
+                       <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-6 flex items-center gap-3">
+                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold shadow-md">
+                           ✓
+                         </div>
+                         Key Facts
+                       </h3>
+                       <div className="grid sm:grid-cols-2 gap-4">
+                         {selectedTrackFacts.map((factObj: any, i: number) => {
+                           const displayText = factObj.content || factObj.fact || factObj;
+                           const isProcedure = factObj.type === 'Procedure' && factObj.steps;
+                           
+                           return (
+                             <div key={i} className="flex items-start gap-3 text-slate-700 dark:text-slate-300">
+                               <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold shadow-md">
+                                 {i + 1}
+                               </div>
+                               <div className="flex-1 pt-0.5">
+                                 <span className="text-sm leading-relaxed">{displayText}</span>
+                                 {isProcedure && (
+                                   <ul className="mt-3 ml-2 space-y-2 text-xs border-l-2 border-orange-300 dark:border-orange-700 pl-4">
+                                     {factObj.steps.map((step: string, stepIdx: number) => (
+                                       <li key={stepIdx} className="flex items-start gap-2">
+                                         <span className="text-orange-600 dark:text-orange-400 font-bold">{stepIdx + 1}.</span>
+                                         <span className="text-slate-600 dark:text-slate-400">{step}</span>
+                                       </li>
+                                     ))}
+                                   </ul>
+                                 )}
+                               </div>
+                             </div>
+                           );
+                         })}
+                       </div>
+                     </div>
                   )}
 
                   {/* Resources Section - Attachments */}

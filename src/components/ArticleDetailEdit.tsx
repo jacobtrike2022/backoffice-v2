@@ -87,6 +87,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   // Original facts loaded from DB (for edit mode comparison)
   const [originalFacts, setOriginalFacts] = useState<any[]>([]);
   
+  // TTS refresh key - increment this to force TTS player to refresh
+  const [ttsRefreshKey, setTtsRefreshKey] = useState(0);
+  
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -387,6 +390,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       console.log('Track saved, result:', result);
       toast.success(contentChanged ? 'Article updated successfully!' : 'Settings updated!');
       setIsEditMode(false);
+      
+      // Force TTS player to refresh if content changed
+      if (contentChanged && track.transcript) {
+        console.log('🔊 Content changed, forcing TTS refresh...');
+        setTtsRefreshKey(prev => prev + 1);
+      }
+      
       // Call onUpdate to refresh the parent component's data
       console.log('Calling onUpdate to refresh track data...');
       await onUpdate();
@@ -1082,6 +1092,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               {track.transcript && (
                 <div className="mb-6">
                   <TTSPlayer
+                    key={`${track.id}-${ttsRefreshKey}`}
                     trackId={track.id}
                     initialAudioUrl={undefined}
                     initialVoice={'alloy'}
@@ -1696,6 +1707,10 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           setIsVersionModalOpen(false);
           console.log('🔄 Exiting edit mode...');
           setIsEditMode(false);
+          
+          // Force TTS refresh since new version has new content
+          console.log('🔊 Forcing TTS refresh for new version...');
+          setTtsRefreshKey(prev => prev + 1);
           
           console.log('⏳ Waiting 300ms before refreshing data...');
           // Small delay to let modal close gracefully

@@ -7,6 +7,7 @@ import { handleTranscribeRequest } from "./transcribe.tsx";
 import tagsApp from "./tags.ts";
 import kbApp from "./kb.ts";
 import ttsApp from "./tts.ts";
+import checkpointAIApp from "./checkpoint-ai.ts";
 
 const app = new Hono();
 
@@ -564,6 +565,9 @@ app.route("/make-server-2858cc8b/kb", kbApp);
 
 // Mount ttsApp
 app.route("/make-server-2858cc8b/tts", ttsApp);
+
+// Mount checkpointAIApp
+app.route("/make-server-2858cc8b/checkpoint-ai", checkpointAIApp);
 
 // =====================================================
 // ORGANIZATION: UPDATE KB SETTINGS

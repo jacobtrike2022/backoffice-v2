@@ -30,10 +30,12 @@ import {
   Tag as TagIcon,
   Lock,
   History,
-  ChevronLeft
+  ChevronLeft,
+  Zap
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
+import { AIGenerateCheckpointModal } from './AIGenerateCheckpointModal';
 
 interface Answer {
   id: string;
@@ -95,6 +97,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   // Unsaved changes dialog
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  
+  // AI Generation modal
+  const [showAIModal, setShowAIModal] = useState(false);
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
@@ -259,6 +264,26 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
     };
   }, [isEditMode, registerUnsavedChangesCheck]);
+
+  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number }) => {
+    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+    
+    // Add to existing questions
+    setQuestions([...questions, ...generatedQuestions]);
+    
+    // Scroll to first new question after a brief delay
+    setTimeout(() => {
+      const firstNewIndex = questions.length;
+      const firstNewQuestion = document.querySelector(`[data-question-index="${firstNewIndex}"]`);
+      if (firstNewQuestion) {
+        firstNewQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    
+    toast.success(`Added ${generatedQuestions.length} AI-generated questions!`, {
+      description: 'Review and edit as needed before saving.'
+    });
+  };
 
   const addQuestion = () => {
     const newQuestion: Question = {
@@ -1072,6 +1097,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           </h1>
         </div>
         <div className="flex items-center space-x-2">
+          {/* AI Generate Button */}
+          <Button 
+            onClick={() => setShowAIModal(true)}
+            className="bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700 shadow-lg hover:shadow-orange-500/20"
+            title="AI-Assisted Question Generator"
+          >
+            <Zap className="h-4 w-4 mr-2" />
+            AI Generate
+          </Button>
+          
           {currentTrackId && (
             <>
               <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
@@ -1164,7 +1199,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           {/* Questions */}
           <div className="space-y-4">
             {questions.map((question, qIndex) => (
-              <Card key={question.id} className="border-2 border-primary/10">
+              <Card key={question.id} className="border-2 border-primary/10" data-question-index={qIndex}>
                 <CardHeader className="bg-accent/30">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
@@ -1567,6 +1602,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         passingScore={passingScore}
         timeLimit={timeLimit}
         title={title}
+      />
+      
+      {/* AI Generate Modal */}
+      <AIGenerateCheckpointModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        onGenerate={handleAIGenerate}
       />
     </div>
   );

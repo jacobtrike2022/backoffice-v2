@@ -35,61 +35,42 @@ export function TTSPlayer({
   const [error, setError] = useState<string | null>(null);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
-  const [analyserData, setAnalyserData] = useState<number[]>([]);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const speedButtonRef = useRef<HTMLButtonElement>(null);
   const voiceButtonRef = useRef<HTMLButtonElement>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   // Generate TTS if no audio URL exists
   useEffect(() => {
-    if (!audioUrl) {
-      checkTTSStatus();
-    }
-  }, []);
+    // Reset state when trackId changes
+    setAudioUrl(initialAudioUrl || null);
+    setVoice(initialVoice);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setError(null);
+    
+    // Always call generate - it will use cached audio if content hasn't changed
+    generateTTS(initialVoice);
+  }, [trackId]); // Re-run when trackId changes
 
-  // Setup audio visualizer when audio is loaded
+  // Close menus when clicking outside
   useEffect(() => {
-    if (audioUrl && audioRef.current && !audioContextRef.current) {
-      setupAudioVisualizer();
-    }
-  }, [audioUrl]);
-
-  async function checkTTSStatus() {
-    try {
-      // Check if TTS audio already exists
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/tts/status/${trackId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to check TTS status');
+    function handleClickOutside(event: MouseEvent) {
+      if (showSpeedMenu && speedButtonRef.current && 
+          !speedButtonRef.current.contains(event.target as Node) &&
+          !(event.target as HTMLElement).closest('.speed-menu')) {
+        setShowSpeedMenu(false);
       }
-
-      const data = await response.json();
-      
-      if (data.available && data.audioUrl) {
-        // Audio already exists, use it
-        setAudioUrl(data.audioUrl);
-        setVoice(data.voice || initialVoice);
-      } else {
-        // No audio exists, generate it
-        generateTTS(voice);
+      if (showVoiceMenu && voiceButtonRef.current && 
+          !voiceButtonRef.current.contains(event.target as Node) &&
+          !(event.target as HTMLElement).closest('.voice-menu')) {
+        setShowVoiceMenu(false);
       }
-    } catch (err: any) {
-      console.error('Error checking TTS status:', err);
-      // If check fails, try generating anyway
-      generateTTS(voice);
     }
-  }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSpeedMenu, showVoiceMenu]);
 
   async function generateTTS(selectedVoice: string) {
     setIsGenerating(true);
@@ -141,94 +122,12 @@ export function TTSPlayer({
     if (audioRef.current && !isGenerating) {
       if (isPlaying) {
         audioRef.current.pause();
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-        }
       } else {
         audioRef.current.play();
-        // Start visualization if audio context is ready
-        if (analyserRef.current) {
-          visualize();
-        }
       }
       setIsPlaying(!isPlaying);
     }
   }
-
-  // Setup audio visualizer
-  function setupAudioVisualizer() {
-    if (!audioRef.current || audioContextRef.current) return;
-
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 32; // Small size for vertical bars
-      analyser.smoothingTimeConstant = 0.8;
-
-      const source = audioContext.createMediaElementSource(audioRef.current);
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
-      sourceNodeRef.current = source;
-
-      visualize();
-    } catch (err) {
-      console.error('Error setting up audio visualizer:', err);
-    }
-  }
-
-  function visualize() {
-    if (!analyserRef.current) return;
-
-    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-    
-    const draw = () => {
-      if (!isPlaying) return;
-      
-      analyserRef.current!.getByteFrequencyData(dataArray);
-      
-      // Take middle 8 bars for visualization
-      const bars = Array.from(dataArray.slice(4, 12));
-      setAnalyserData(bars);
-      
-      animationFrameRef.current = requestAnimationFrame(draw);
-    };
-
-    draw();
-  }
-
-  // Cleanup audio context on unmount
-  useEffect(() => {
-    return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-
-  // Close menus when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (showSpeedMenu && speedButtonRef.current && 
-          !speedButtonRef.current.contains(event.target as Node) &&
-          !(event.target as HTMLElement).closest('.speed-menu')) {
-        setShowSpeedMenu(false);
-      }
-      if (showVoiceMenu && voiceButtonRef.current && 
-          !voiceButtonRef.current.contains(event.target as Node) &&
-          !(event.target as HTMLElement).closest('.voice-menu')) {
-        setShowVoiceMenu(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showSpeedMenu, showVoiceMenu]);
 
   function handleTimeUpdate() {
     if (audioRef.current) {
@@ -260,23 +159,11 @@ export function TTSPlayer({
   function handleVoiceChange(newVoice: string) {
     if (newVoice === voice) return;
     
-    // Clean up existing audio context
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-      analyserRef.current = null;
-      sourceNodeRef.current = null;
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    
     // Regenerate audio with new voice
     setVoice(newVoice);
     setAudioUrl(null); // Clear current audio
     setIsPlaying(false);
     setCurrentTime(0);
-    setAnalyserData([]);
     generateTTS(newVoice);
   }
 
@@ -309,6 +196,7 @@ export function TTSPlayer({
       <audio
         ref={audioRef}
         src={audioUrl || undefined}
+        crossOrigin="anonymous"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => setIsPlaying(false)}
@@ -329,26 +217,6 @@ export function TTSPlayer({
             <Pause className="w-5 h-5 text-white" />
           ) : (
             <Play className="w-5 h-5 text-white ml-0.5" />
-          )}
-          
-          {/* Audio Visualizer Overlay */}
-          {isPlaying && analyserData.length > 0 && (
-            <div className="absolute inset-0 flex items-center justify-center gap-[2px] pointer-events-none">
-              {analyserData.map((value, i) => {
-                const height = Math.max(4, (value / 255) * 24);
-                return (
-                  <div
-                    key={i}
-                    className="w-[2px] rounded-full transition-all duration-75"
-                    style={{
-                      height: `${height}px`,
-                      background: 'linear-gradient(to top, rgba(255, 107, 53, 0.6), rgba(255, 180, 53, 0.6))',
-                      opacity: 0.7
-                    }}
-                  />
-                );
-              })}
-            </div>
           )}
         </button>
 
@@ -460,7 +328,7 @@ export function TTSPlayer({
           border-radius: 50%;
           background: #FF6B35;
           cursor: pointer;
-          border: 2px solid white;
+          border: 2px solid #4a4a4a;
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         }
 
@@ -470,7 +338,7 @@ export function TTSPlayer({
           border-radius: 50%;
           background: #FF6B35;
           cursor: pointer;
-          border: 2px solid white;
+          border: 2px solid #4a4a4a;
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         }
 

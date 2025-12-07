@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -108,13 +108,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [showNavigationWarning, setShowNavigationWarning] = useState(false);
 
   // Register unsaved changes check from child editors
-  const registerUnsavedChangesCheckLocal = (checkFn: (() => boolean) | null) => {
+  const registerUnsavedChangesCheckLocal = useCallback((checkFn: (() => boolean) | null) => {
     console.log('📝 ContentLibrary: Registering unsaved changes check:', !!checkFn);
     setHasUnsavedChangesRef(() => checkFn);
     if (registerUnsavedChangesCheck) {
       registerUnsavedChangesCheck(checkFn);
     }
-  };
+  }, [registerUnsavedChangesCheck]);
 
   // Check for unsaved changes before navigation
   const checkUnsavedBeforeNavigate = (navigationFn: () => void): boolean => {
