@@ -288,17 +288,11 @@ export function KBPublicView() {
       {/* Header with org branding */}
       <div className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 py-4">
-          <picture>
-            <source 
-              srcSet={organization?.kb_logo_dark || trikeLogoDark}
-              media="(prefers-color-scheme: dark)"
-            />
-            <img 
-              src={organization?.kb_logo_light || trikeLogoDark} 
-              alt={organization?.name || 'Trike'}
-              className="h-12 object-contain"
-            />
-          </picture>
+          <img 
+            src={organization?.kb_logo_light || trikeLogoDark} 
+            alt={organization?.name || 'Trike'}
+            className="h-12 object-contain"
+          />
         </div>
       </div>
 

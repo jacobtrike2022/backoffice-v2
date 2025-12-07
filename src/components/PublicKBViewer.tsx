@@ -24,6 +24,7 @@ import {
   Target,
   BookOpen
 } from 'lucide-react';
+import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 interface Fact {
   id: string;
@@ -448,17 +449,19 @@ export function PublicKBViewer() {
           <div className="flex items-center justify-between h-[52px]">
             {/* Logo */}
             <div className="flex-shrink-0">
-              {org?.kb_logo_url ? (
-                <img
-                  src={org.kb_logo_url}
-                  alt={org.name}
-                  className="h-8 object-contain"
-                />
-              ) : (
-                <span className="text-sm font-medium bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] text-transparent bg-clip-text">
-                  Trike
-                </span>
-              )}
+              <img
+                src={darkMode ? (org?.kb_logo_dark || trikeLogoDark) : (org?.kb_logo_light || trikeLogoDark)}
+                alt={org?.name || 'Trike'}
+                className="h-8 object-contain"
+                onError={(e) => {
+                  console.error('❌ Logo failed to load:', e.currentTarget.src);
+                  console.log('🔍 trikeLogoDark value:', trikeLogoDark);
+                  console.log('🔍 org data:', org);
+                }}
+                onLoad={() => {
+                  console.log('✅ Logo loaded successfully');
+                }}
+              />
             </div>
 
             {/* Action Buttons */}
