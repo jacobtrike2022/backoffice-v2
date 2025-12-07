@@ -152,14 +152,26 @@ kbApp.get('/public/:slug', async (c) => {
       trackTagsCount: trackTags?.length || 0
     });
 
-    const tags = trackTags?.map(tt => {
+    let tags = trackTags?.map(tt => {
       console.log('🏷️ Processing trackTag:', tt);
       return tt.tags;
     }).filter(Boolean) || [];
 
+    // FALLBACK: If junction table is empty, use legacy track.tags column
+    if (tags.length === 0 && track.tags && Array.isArray(track.tags)) {
+      console.log('⚠️ Using fallback: Legacy track.tags column has data, junction table is empty');
+      tags = track.tags.map((tagName: string) => ({
+        id: tagName, // Use tag name as ID for legacy tags
+        name: tagName,
+        type: tagName.startsWith('system:') ? 'system' : 'custom',
+        color: tagName.startsWith('system:') ? '#6B7280' : '#3B82F6'
+      }));
+    }
+
     console.log('✅ Final tags array:', {
       tags,
-      tagsCount: tags.length
+      tagsCount: tags.length,
+      source: trackTags?.length > 0 ? 'junction_table' : 'legacy_column'
     });
 
     if (tagsError) {
@@ -180,35 +192,45 @@ kbApp.get('/public/:slug', async (c) => {
     // Fetch Related Tracks (same tags, exclude current track, limit 5)
     let related: any[] = [];
     if (tags.length > 0) {
-      const tagIds = tags.map((t: any) => t.id);
+      // Only query related tracks if tags came from junction table (have valid UUIDs)
+      const hasValidTagIds = trackTags && trackTags.length > 0;
       
-      // Get tracks that share tags with current track
-      const { data: relatedTracks, error: relatedError } = await supabase
-        .from('track_tags')
-        .select(`
-          track_id,
-          tracks:track_id (
-            id,
-            title,
-            kb_slug,
-            type,
-            duration_minutes
-          )
-        `)
-        .in('tag_id', tagIds)
-        .neq('track_id', track.id);
+      if (hasValidTagIds) {
+        const tagIds = tags.map((t: any) => t.id);
+        
+        console.log('🔍 Fetching related tracks with tag IDs:', tagIds);
+        
+        // Get tracks that share tags with current track
+        const { data: relatedTracks, error: relatedError } = await supabase
+          .from('track_tags')
+          .select(`
+            track_id,
+            tracks:track_id (
+              id,
+              title,
+              kb_slug,
+              type,
+              duration_minutes,
+              show_in_knowledge_base
+            )
+          `)
+          .in('tag_id', tagIds)
+          .neq('track_id', track.id);
 
-      if (!relatedError && relatedTracks) {
-        // Deduplicate and take first 5
-        const uniqueTracks = new Map();
-        relatedTracks.forEach(rt => {
-          if (rt.tracks?.kb_slug && rt.tracks?.show_in_knowledge_base) {
-            uniqueTracks.set(rt.tracks.id, rt.tracks);
-          }
-        });
-        related = Array.from(uniqueTracks.values()).slice(0, 5);
-      } else if (relatedError) {
-        console.error('Error fetching related tracks:', relatedError);
+        if (!relatedError && relatedTracks) {
+          // Deduplicate and take first 5
+          const uniqueTracks = new Map();
+          relatedTracks.forEach(rt => {
+            if (rt.tracks && rt.tracks.kb_slug && rt.tracks.show_in_knowledge_base) {
+              uniqueTracks.set(rt.tracks.id, rt.tracks);
+            }
+          });
+          related = Array.from(uniqueTracks.values()).slice(0, 5);
+        } else if (relatedError) {
+          console.error('Error fetching related tracks:', relatedError);
+        }
+      } else {
+        console.log('⚠️ Skipping related tracks query - using legacy tags without valid UUIDs');
       }
     }
 

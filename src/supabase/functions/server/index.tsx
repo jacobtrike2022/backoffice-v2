@@ -6,6 +6,7 @@ import * as kv from "./kv_store.tsx";
 import { handleTranscribeRequest } from "./transcribe.tsx";
 import tagsApp from "./tags.ts";
 import kbApp from "./kb.ts";
+import ttsApp from "./tts.ts";
 
 const app = new Hono();
 
@@ -560,6 +561,9 @@ app.route("/make-server-2858cc8b/tags", tagsApp);
 
 // Mount kbApp
 app.route("/make-server-2858cc8b/kb", kbApp);
+
+// Mount ttsApp
+app.route("/make-server-2858cc8b/tts", ttsApp);
 
 // =====================================================
 // ORGANIZATION: UPDATE KB SETTINGS

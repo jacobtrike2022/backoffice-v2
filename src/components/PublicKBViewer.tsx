@@ -25,6 +25,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import { TTSPlayer } from './content/TTSPlayer';
 
 interface Fact {
   id: string;
@@ -564,6 +565,18 @@ export function PublicKBViewer() {
               </div>
             )}
           </div>
+
+          {/* Text-to-Speech Player (article type only) */}
+          {track.type === 'article' && (track.article_body || track.transcript) && (
+            <div className="px-6 sm:px-8 pt-4">
+              <TTSPlayer
+                trackId={track.id}
+                initialAudioUrl={(track as any).tts_audio_url}
+                initialVoice={(track as any).tts_voice}
+                showVoiceSelector={false}
+              />
+            </div>
+          )}
 
           {/* Video Player (video type only) */}
           {track.type === 'video' && track.content_url && (

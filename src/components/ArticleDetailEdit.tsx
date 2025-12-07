@@ -14,6 +14,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
+import { TTSPlayer } from './content/TTSPlayer';
 import {
   Calendar,
   Clock,
@@ -1076,16 +1077,30 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               </Card>
             )
           ) : (
-            <Card>
-              <CardContent className="p-8">
-                {/* Debug: Log what we're trying to render */}
-                {console.log('ArticleDetailEdit - Rendering article body from track.transcript:', track.transcript)}
-                <div 
-                  className="article-content"
-                  dangerouslySetInnerHTML={{ __html: track.transcript || '<p class="text-muted-foreground">No content available</p>' }}
-                />
-              </CardContent>
-            </Card>
+            <>
+              {/* Text-to-Speech Player (View Mode Only) */}
+              {track.transcript && (
+                <div className="mb-6">
+                  <TTSPlayer
+                    trackId={track.id}
+                    initialAudioUrl={(track as any).tts_audio_url}
+                    initialVoice={(track as any).tts_voice || 'alloy'}
+                    showVoiceSelector={true}
+                  />
+                </div>
+              )}
+              
+              <Card>
+                <CardContent className="p-8">
+                  {/* Debug: Log what we're trying to render */}
+                  {console.log('ArticleDetailEdit - Rendering article body from track.transcript:', track.transcript)}
+                  <div 
+                    className="article-content"
+                    dangerouslySetInnerHTML={{ __html: track.transcript || '<p class="text-muted-foreground">No content available</p>' }}
+                  />
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {/* Learning Objectives */}
