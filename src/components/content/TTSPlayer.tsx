@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Volume2 } from 'lucide-react';
+import { Play, Pause, FastForward, Radio, Loader2, Mic2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 const VOICES = [
@@ -33,14 +33,63 @@ export function TTSPlayer({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+  const [analyserData, setAnalyserData] = useState<number[]>([]);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const speedButtonRef = useRef<HTMLButtonElement>(null);
+  const voiceButtonRef = useRef<HTMLButtonElement>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   // Generate TTS if no audio URL exists
   useEffect(() => {
     if (!audioUrl) {
-      generateTTS(voice);
+      checkTTSStatus();
     }
   }, []);
+
+  // Setup audio visualizer when audio is loaded
+  useEffect(() => {
+    if (audioUrl && audioRef.current && !audioContextRef.current) {
+      setupAudioVisualizer();
+    }
+  }, [audioUrl]);
+
+  async function checkTTSStatus() {
+    try {
+      // Check if TTS audio already exists
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/tts/status/${trackId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to check TTS status');
+      }
+
+      const data = await response.json();
+      
+      if (data.available && data.audioUrl) {
+        // Audio already exists, use it
+        setAudioUrl(data.audioUrl);
+        setVoice(data.voice || initialVoice);
+      } else {
+        // No audio exists, generate it
+        generateTTS(voice);
+      }
+    } catch (err: any) {
+      console.error('Error checking TTS status:', err);
+      // If check fails, try generating anyway
+      generateTTS(voice);
+    }
+  }
 
   async function generateTTS(selectedVoice: string) {
     setIsGenerating(true);
@@ -89,15 +138,97 @@ export function TTSPlayer({
   }
 
   function togglePlay() {
-    if (audioRef.current) {
+    if (audioRef.current && !isGenerating) {
       if (isPlaying) {
         audioRef.current.pause();
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
       } else {
         audioRef.current.play();
+        // Start visualization if audio context is ready
+        if (analyserRef.current) {
+          visualize();
+        }
       }
       setIsPlaying(!isPlaying);
     }
   }
+
+  // Setup audio visualizer
+  function setupAudioVisualizer() {
+    if (!audioRef.current || audioContextRef.current) return;
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 32; // Small size for vertical bars
+      analyser.smoothingTimeConstant = 0.8;
+
+      const source = audioContext.createMediaElementSource(audioRef.current);
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+      sourceNodeRef.current = source;
+
+      visualize();
+    } catch (err) {
+      console.error('Error setting up audio visualizer:', err);
+    }
+  }
+
+  function visualize() {
+    if (!analyserRef.current) return;
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    
+    const draw = () => {
+      if (!isPlaying) return;
+      
+      analyserRef.current!.getByteFrequencyData(dataArray);
+      
+      // Take middle 8 bars for visualization
+      const bars = Array.from(dataArray.slice(4, 12));
+      setAnalyserData(bars);
+      
+      animationFrameRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+  }
+
+  // Cleanup audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (showSpeedMenu && speedButtonRef.current && 
+          !speedButtonRef.current.contains(event.target as Node) &&
+          !(event.target as HTMLElement).closest('.speed-menu')) {
+        setShowSpeedMenu(false);
+      }
+      if (showVoiceMenu && voiceButtonRef.current && 
+          !voiceButtonRef.current.contains(event.target as Node) &&
+          !(event.target as HTMLElement).closest('.voice-menu')) {
+        setShowVoiceMenu(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSpeedMenu, showVoiceMenu]);
 
   function handleTimeUpdate() {
     if (audioRef.current) {
@@ -129,11 +260,23 @@ export function TTSPlayer({
   function handleVoiceChange(newVoice: string) {
     if (newVoice === voice) return;
     
+    // Clean up existing audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+      analyserRef.current = null;
+      sourceNodeRef.current = null;
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
     // Regenerate audio with new voice
     setVoice(newVoice);
     setAudioUrl(null); // Clear current audio
     setIsPlaying(false);
     setCurrentTime(0);
+    setAnalyserData([]);
     generateTTS(newVoice);
   }
 
@@ -148,7 +291,7 @@ export function TTSPlayer({
     return (
       <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4 mb-6">
         <div className="flex items-center gap-3 text-red-400">
-          <Volume2 className="w-5 h-5" />
+          <Mic2 className="w-5 h-5" />
           <div>
             <div className="font-medium">Audio generation failed</div>
             <div className="text-sm text-red-400/70">{error}</div>
@@ -158,27 +301,14 @@ export function TTSPlayer({
     );
   }
 
-  if (isGenerating) {
-    return (
-      <div className="bg-gray-800/50 rounded-lg p-4 mb-6 border border-gray-700">
-        <div className="flex items-center gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-orange-500 border-t-transparent" />
-          <div>
-            <span className="text-sm text-gray-300">Generating audio narration...</span>
-            <div className="text-xs text-gray-500 mt-0.5">Using OpenAI TTS with {VOICES.find(v => v.id === voice)?.label}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!audioUrl) return null;
+  // Show inactive player during generation
+  const isInactive = isGenerating || !audioUrl;
 
   return (
-    <div className="bg-gradient-to-r from-gray-800/70 to-gray-800/50 rounded-lg p-4 mb-6 border border-gray-700/50">
+    <div className="bg-transparent rounded-lg p-4 mb-6">
       <audio
         ref={audioRef}
-        src={audioUrl}
+        src={audioUrl || undefined}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => setIsPlaying(false)}
@@ -186,21 +316,44 @@ export function TTSPlayer({
       />
 
       <div className="flex items-center gap-4">
-        {/* Play/Pause Button */}
+        {/* Play/Pause Button with Loading Spinner */}
         <button
           onClick={togglePlay}
-          className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg hover:shadow-orange-500/20 flex-shrink-0"
+          disabled={isInactive}
+          className="relative w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg hover:shadow-orange-500/20 flex-shrink-0 disabled:cursor-not-allowed"
           aria-label={isPlaying ? 'Pause' : 'Play'}
         >
-          {isPlaying ? (
+          {isGenerating ? (
+            <Loader2 className="w-5 h-5 text-white animate-spin" />
+          ) : isPlaying ? (
             <Pause className="w-5 h-5 text-white" />
           ) : (
             <Play className="w-5 h-5 text-white ml-0.5" />
           )}
+          
+          {/* Audio Visualizer Overlay */}
+          {isPlaying && analyserData.length > 0 && (
+            <div className="absolute inset-0 flex items-center justify-center gap-[2px] pointer-events-none">
+              {analyserData.map((value, i) => {
+                const height = Math.max(4, (value / 255) * 24);
+                return (
+                  <div
+                    key={i}
+                    className="w-[2px] rounded-full transition-all duration-75"
+                    style={{
+                      height: `${height}px`,
+                      background: 'linear-gradient(to top, rgba(255, 107, 53, 0.6), rgba(255, 180, 53, 0.6))',
+                      opacity: 0.7
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
         </button>
 
         {/* Progress Bar Container */}
-        <div className="flex-1 min-w-0">
+        <div className={`flex-1 min-w-0 transition-opacity ${isInactive ? 'opacity-30' : ''}`}>
           {/* Slider */}
           <input
             type="range"
@@ -208,47 +361,93 @@ export function TTSPlayer({
             max={duration || 0}
             value={currentTime}
             onChange={handleSeek}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer tts-progress-bar"
+            disabled={isInactive}
+            className="w-full h-2 bg-gray-300 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer tts-progress-bar disabled:cursor-not-allowed"
             style={{
-              background: `linear-gradient(to right, #FF6B35 0%, #FF6B35 ${(currentTime / duration) * 100}%, #374151 ${(currentTime / duration) * 100}%, #374151 100%)`
+              background: `linear-gradient(to right, #FF6B35 0%, #FF6B35 ${(currentTime / duration) * 100}%, rgb(209 213 219) ${(currentTime / duration) * 100}%, rgb(209 213 219) 100%)`
             }}
             aria-label="Audio progress"
           />
           {/* Time Display */}
-          <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+          <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1.5">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
 
         {/* Controls (Speed + Voice) */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className={`flex items-center gap-2 flex-shrink-0 transition-opacity ${isInactive ? 'opacity-30' : ''}`}>
           {/* Playback Speed */}
-          <select
-            value={playbackRate}
-            onChange={(e) => changePlaybackRate(parseFloat(e.target.value))}
-            className="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 hover:bg-gray-600 transition-colors min-w-[70px]"
-            aria-label="Playback speed"
-          >
-            <option value="0.75">0.75×</option>
-            <option value="1">1×</option>
-            <option value="1.25">1.25×</option>
-            <option value="1.5">1.5×</option>
-            <option value="2">2×</option>
-          </select>
+          <div className="relative">
+            <button
+              ref={speedButtonRef}
+              onClick={() => !isInactive && setShowSpeedMenu(!showSpeedMenu)}
+              disabled={isInactive}
+              className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center disabled:cursor-not-allowed"
+              aria-label="Playback speed"
+            >
+              <FastForward className="w-4 h-4" />
+            </button>
+
+            {showSpeedMenu && (
+              <div className="speed-menu absolute bottom-full right-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden z-10 min-w-[120px]">
+                {[0.75, 1, 1.25, 1.5, 2].map(rate => (
+                  <button
+                    key={rate}
+                    onClick={() => {
+                      changePlaybackRate(rate);
+                      setShowSpeedMenu(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm transition-colors ${
+                      playbackRate === rate 
+                        ? 'bg-orange-500 text-white' 
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {rate}× speed
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Voice Selector (Admin Only) */}
           {showVoiceSelector && (
-            <select
-              value={voice}
-              onChange={(e) => handleVoiceChange(e.target.value)}
-              className="bg-gray-700 text-white text-sm rounded px-3 py-1.5 border border-gray-600 hover:bg-gray-600 transition-colors min-w-[140px]"
-              aria-label="Voice selection"
-            >
-              {VOICES.map(v => (
-                <option key={v.id} value={v.id}>{v.label}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <button
+                ref={voiceButtonRef}
+                onClick={() => !isInactive && setShowVoiceMenu(!showVoiceMenu)}
+                disabled={isInactive}
+                className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center disabled:cursor-not-allowed"
+                aria-label="Voice selection"
+              >
+                <Radio className="w-4 h-4" />
+              </button>
+
+              {showVoiceMenu && (
+                <div className="voice-menu absolute bottom-full right-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden z-10 min-w-[200px]">
+                  {VOICES.map(v => (
+                    <button
+                      key={v.id}
+                      onClick={() => {
+                        handleVoiceChange(v.id);
+                        setShowVoiceMenu(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left transition-colors ${
+                        voice === v.id 
+                          ? 'bg-orange-500 text-white' 
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <div className="text-sm font-medium">{v.label}</div>
+                      <div className={`text-xs ${voice === v.id ? 'text-orange-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                        {v.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -273,6 +472,36 @@ export function TTSPlayer({
           cursor: pointer;
           border: 2px solid white;
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        .tts-progress-bar:disabled::-webkit-slider-thumb {
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+
+        .tts-progress-bar:disabled::-moz-range-thumb {
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+
+        @media (prefers-color-scheme: light) {
+          .tts-progress-bar {
+            background: linear-gradient(to right, #FF6B35 0%, #FF6B35 var(--progress, 0%), rgb(209 213 219) var(--progress, 0%), rgb(209 213 219) 100%) !important;
+          }
+        }
+
+        @media (prefers-color-scheme: dark) {
+          .tts-progress-bar {
+            background: linear-gradient(to right, #FF6B35 0%, #FF6B35 var(--progress, 0%), rgb(55 65 81) var(--progress, 0%), rgb(55 65 81) 100%) !important;
+          }
+          
+          .tts-progress-bar::-webkit-slider-thumb {
+            border-color: rgb(31 41 55);
+          }
+          
+          .tts-progress-bar::-moz-range-thumb {
+            border-color: rgb(31 41 55);
+          }
         }
 
         @media (max-width: 640px) {

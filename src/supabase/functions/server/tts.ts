@@ -1,5 +1,6 @@
 import { Hono } from 'npm:hono';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import * as kv from './kv_store.tsx';
 
 const ttsApp = new Hono();
 
@@ -140,16 +141,21 @@ ttsApp.post('/generate', async (c) => {
     // Calculate content hash
     const contentHash = await calculateHash(textContent);
 
+    // Get existing TTS metadata from KV store
+    const ttsMetadataKey = `tts:${trackId}`;
+    const existingMetadata = await kv.get(ttsMetadataKey);
+
     // Check if regeneration needed
     if (!forceRegenerate && 
-        track.tts_content_hash === contentHash && 
-        track.tts_voice === voice && 
-        track.tts_audio_url) {
+        existingMetadata &&
+        existingMetadata.contentHash === contentHash && 
+        existingMetadata.voice === voice && 
+        existingMetadata.audioUrl) {
       console.log('✅ Using existing TTS audio (content unchanged)');
       return c.json({ 
-        audioUrl: track.tts_audio_url,
-        voice: track.tts_voice,
-        generatedAt: track.tts_generated_at,
+        audioUrl: existingMetadata.audioUrl,
+        voice: existingMetadata.voice,
+        generatedAt: existingMetadata.generatedAt,
         cached: true
       });
     }
@@ -209,21 +215,14 @@ ttsApp.post('/generate', async (c) => {
 
     console.log('✅ Audio uploaded to storage:', publicUrl);
 
-    // Update track record
-    const { error: updateError } = await supabase
-      .from('tracks')
-      .update({
-        tts_audio_url: publicUrl,
-        tts_voice: voice,
-        tts_generated_at: new Date().toISOString(),
-        tts_content_hash: contentHash
-      })
-      .eq('id', trackId);
-
-    if (updateError) {
-      console.error('Error updating track:', updateError);
-      // Don't fail - audio is already generated
-    }
+    // Store TTS metadata in KV store
+    const newMetadata = {
+      contentHash: contentHash,
+      voice: voice,
+      audioUrl: publicUrl,
+      generatedAt: new Date().toISOString()
+    };
+    await kv.set(ttsMetadataKey, newMetadata);
 
     return c.json({
       audioUrl: publicUrl,
@@ -243,9 +242,10 @@ ttsApp.get('/status/:trackId', async (c) => {
   try {
     const trackId = c.req.param('trackId');
 
+    // Check track type
     const { data: track, error } = await supabase
       .from('tracks')
-      .select('tts_audio_url, tts_voice, tts_generated_at, tts_content_hash, type')
+      .select('type')
       .eq('id', trackId)
       .single();
 
@@ -257,11 +257,15 @@ ttsApp.get('/status/:trackId', async (c) => {
       return c.json({ available: false, reason: 'Not an article' });
     }
 
+    // Get TTS metadata from KV store
+    const ttsMetadataKey = `tts:${trackId}`;
+    const metadata = await kv.get(ttsMetadataKey);
+
     return c.json({
-      available: !!track.tts_audio_url,
-      audioUrl: track.tts_audio_url,
-      voice: track.tts_voice,
-      generatedAt: track.tts_generated_at
+      available: !!metadata?.audioUrl,
+      audioUrl: metadata?.audioUrl,
+      voice: metadata?.voice,
+      generatedAt: metadata?.generatedAt
     });
 
   } catch (error: any) {

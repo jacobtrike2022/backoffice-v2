@@ -1083,8 +1083,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 <div className="mb-6">
                   <TTSPlayer
                     trackId={track.id}
-                    initialAudioUrl={(track as any).tts_audio_url}
-                    initialVoice={(track as any).tts_voice || 'alloy'}
+                    initialAudioUrl={undefined}
+                    initialVoice={'alloy'}
                     showVoiceSelector={true}
                   />
                 </div>
