@@ -71,8 +71,6 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
 
       if (error) throw error;
       
-      console.log('📊 Loaded tracks:', data?.length);
-      
       // Filter to only show video/story tracks that have transcripts
       const filteredTracks = (data || []).filter((track: any) => {
         if (track.type === 'article') return true; // Always show articles
@@ -80,37 +78,32 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
         return track.transcript && track.transcript.trim().length > 0;
       });
       
-      console.log('📊 Filtered tracks:', filteredTracks.length);
-      
       // Fetch relationship counts for all tracks
       if (filteredTracks.length > 0) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           const accessToken = session?.access_token;
           
-          console.log('🔑 Access token available:', !!accessToken);
-          
           if (accessToken) {
-            const batchUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/track-relationships/batch`;
-            console.log('🌐 Fetching relationships from:', batchUrl);
-            console.log('🎯 Track IDs:', filteredTracks.map((t: any) => t.id));
-            
-            const response = await fetch(batchUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}`
-              },
-              body: JSON.stringify({ 
-                trackIds: filteredTracks.map((t: any) => t.id) 
-              })
-            });
-
-            console.log('📡 Relationship response status:', response.status);
+            const response = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/track-relationships/batch`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({ 
+                  trackIds: filteredTracks.map((t: any) => t.id) 
+                })
+              }
+            );
 
             if (response.ok) {
               const { relationships } = await response.json();
-              console.log('✅ Relationships data:', relationships);
+              
+              console.log('🔗 Raw relationships response:', relationships);
+              console.log('🔗 Sample relationship:', Object.keys(relationships).length > 0 ? relationships[Object.keys(relationships)[0]] : 'none');
               
               // Merge relationship data with tracks
               const tracksWithRelationships = filteredTracks.map((track: any) => ({
@@ -119,25 +112,19 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                 relatedTracks: relationships[track.id]?.derivedTracks || []
               }));
               
-              console.log('🔗 Tracks with relationships:', tracksWithRelationships.map(t => ({
-                title: t.title,
-                count: t.relationshipCount,
-                related: t.relatedTracks?.length
-              })));
+              console.log('🔗 Tracks with counts:', tracksWithRelationships.filter(t => t.relationshipCount > 0).map(t => ({ title: t.title, count: t.relationshipCount })));
               
               setTracks(tracksWithRelationships);
             } else {
-              const errorText = await response.text();
-              console.error('❌ Failed to fetch relationships:', response.status, errorText);
               // If relationship fetch fails, still show tracks without counts
+              console.warn('Failed to fetch relationships');
               setTracks(filteredTracks.map((t: any) => ({ ...t, relationshipCount: 0, relatedTracks: [] })));
             }
           } else {
-            console.warn('⚠️ No access token, showing tracks without counts');
             setTracks(filteredTracks.map((t: any) => ({ ...t, relationshipCount: 0, relatedTracks: [] })));
           }
         } catch (relError) {
-          console.error('❌ Error fetching relationships:', relError);
+          console.error('Error fetching relationships:', relError);
           // Still show tracks without relationship counts
           setTracks(filteredTracks.map((t: any) => ({ ...t, relationshipCount: 0, relatedTracks: [] })));
         }

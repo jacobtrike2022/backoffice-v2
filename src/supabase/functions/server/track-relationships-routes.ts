@@ -17,6 +17,14 @@ const supabase = createClient(
 async function getOrgIdFromToken(accessToken: string | null): Promise<string | null> {
   if (!accessToken) return null;
   
+  // Check if this is the public anon key (demo mode)
+  const publicAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  if (accessToken === publicAnonKey) {
+    // Demo mode: return default org ID
+    console.log('🔓 Demo mode detected, using default org ID');
+    return '10000000-0000-0000-0000-000000000001';
+  }
+  
   const { data: { user }, error } = await supabase.auth.getUser(accessToken);
   if (error || !user) return null;
   

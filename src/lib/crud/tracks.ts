@@ -77,6 +77,10 @@ export async function createTrack(input: CreateTrackInput) {
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
+  // Check if we have an authenticated session
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log('🔑 Update track - has session:', !!session);
+
   // Update the track
   const { data: track, error } = await supabase
     .from('tracks')
@@ -85,7 +89,16 @@ export async function updateTrack(input: UpdateTrackInput) {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('❌ Track update error:', error);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error details:', error.details);
+    console.error('❌ Error hint:', error.hint);
+    console.error('❌ Track ID:', id);
+    console.error('❌ Update data:', updateData);
+    throw error;
+  }
   
   // Auto-regenerate facts if content changed
   if (updateData.transcript && track.type === 'article') {

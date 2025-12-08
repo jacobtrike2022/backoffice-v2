@@ -306,10 +306,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   useEffect(() => {
     if (registerUnsavedChangesCheck) {
       if (isEditMode) {
-        console.log('📝 CheckpointEditor: Registering hasUnsavedChanges function');
         registerUnsavedChangesCheck(hasUnsavedChanges);
       } else {
-        console.log('📝 CheckpointEditor: Unregistering hasUnsavedChanges function');
         registerUnsavedChangesCheck(null);
       }
     }
@@ -320,7 +318,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         registerUnsavedChangesCheck(null);
       }
     };
-  }, [isEditMode, registerUnsavedChangesCheck]);
+  }, [isEditMode, registerUnsavedChangesCheck, hasUnsavedChanges]);
 
   // Auto-save draft 3 seconds after any change (debounced)
   useEffect(() => {
@@ -393,16 +391,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     }, 100);
     
     toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
-      description: sourceInfo.metadata 
-        ? 'Auto-saving as draft...' 
-        : 'Auto-saving as draft...'
+      description: 'Questions will auto-save in 3 seconds...'
     });
-    
-    // IMMEDIATELY save as draft after AI generation
-    setTimeout(() => {
-      console.log('💾 Auto-saving AI-generated checkpoint immediately...');
-      handleSaveDraft(true); // Silent save
-    }, 500); // Small delay to let state updates settle
   };
 
   const addQuestion = () => {
@@ -730,6 +720,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         if (backFn) {
           backFn();
         }
+        
+        // Safety timeout: re-enable button after 2 seconds if navigation didn't happen
+        setTimeout(() => {
+          setIsSaving(false);
+        }, 2000);
       }
     } catch (error: any) {
       console.error('Error saving checkpoint:', error);

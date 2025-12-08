@@ -41,7 +41,8 @@ export interface RelationshipStats {
 async function getAccessToken(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
-    throw new Error('Not authenticated');
+    // In demo mode, use the public anon key instead
+    return publicAnonKey;
   }
   return session.access_token;
 }
