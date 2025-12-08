@@ -62,6 +62,7 @@ import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
+import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -276,6 +277,75 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     } catch (error: any) {
       console.error('Failed to archive:', error);
       toast.error(`Failed to archive: ${error.message}`);
+    }
+  };
+
+  const handleMoveToPublished = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    try {
+      await crud.updateTrack({ id: track.id, status: 'published' });
+      toast.success(`"${track.title}" moved to published`);
+      await refetch();
+    } catch (error: any) {
+      console.error('Failed to move to published:', error);
+      toast.error(`Failed to move to published: ${error.message}`);
+    }
+  };
+
+  const handleDeletePermanently = async (track: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    try {
+      // Check for playlist assignments or activity
+      // TODO: Implement activity checking when analytics are available
+      const hasActivity = false; // Placeholder for actual activity check
+      
+      if (hasActivity) {
+        toast.error(
+          `Cannot delete "${track.title}" because it has associated activity. Tracks with user engagement must be kept for data integrity.`,
+          { duration: 6000 }
+        );
+        return;
+      }
+      
+      // Check for derived tracks
+      const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
+      
+      if (stats.derivedCount > 0) {
+        const derivedTracks = await trackRelCrud.getDerivedTracks(track.id, 'source');
+        const derivedTitles = derivedTracks
+          .map(rel => `• ${rel.derived_track?.title || 'Untitled'} (${rel.derived_track?.type})`)
+          .join('\n');
+        
+        toast.error(
+          `Cannot delete "${track.title}" because it is used as source material for ${stats.derivedCount} other track(s):\n\n${derivedTitles}`,
+          { duration: 8000 }
+        );
+        return;
+      }
+      
+      // Show confirmation dialog
+      const confirmed = window.confirm(
+        `⚠️ PERMANENT DELETE\n\nAre you sure you want to permanently delete "${track.title}"?\n\nThis action CANNOT be undone. The ${track.type} and all its data will be permanently removed from the database.\n\nType "DELETE" to confirm.`
+      );
+      
+      if (!confirmed) {
+        return;
+      }
+      
+      // Additional confirmation for system content
+      if (track.is_system_content && !isSuperAdminAuthenticated) {
+        toast.error('Only Super Admins can delete system content');
+        return;
+      }
+      
+      await crud.deleteTrack(track.id);
+      toast.success(`"${track.title}" permanently deleted`);
+      await refetch();
+    } catch (error: any) {
+      console.error('Failed to delete track:', error);
+      toast.error(`Failed to delete: ${error.message}`);
     }
   };
 
@@ -693,19 +763,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               <CardContent className="p-0">
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-muted overflow-hidden">
-                  {track.thumbnail_url ? (
-                    <img
-                      src={track.thumbnail_url}
-                      alt={track.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50">
-                      <div className="text-primary opacity-20">
-                        {getTypeIcon(track.type)}
-                      </div>
-                    </div>
-                  )}
+                  <img
+                    src={track.thumbnail_url || defaultThumbnail}
+                    alt={track.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
                   <div className="absolute top-2 right-2">
                     <Badge className={getTypeBadgeColor(track.type)}>
                       {getTypeIcon(track.type)}
@@ -750,28 +812,69 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             <Copy className="h-4 w-4 mr-2" />
                             Duplicate
                           </Button>
-                          <Button
-                            variant="ghost"
-                            className="justify-start h-9"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleMoveToDrafts(track);
-                            }}
-                          >
-                            <FileText className="h-4 w-4 mr-2" />
-                            Move to Drafts
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            className="justify-start h-9"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleArchiveTrack(track);
-                            }}
-                          >
-                            <Archive className="h-4 w-4 mr-2" />
-                            Archive
-                          </Button>
+                          {statusFilter === 'archived' ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                className="justify-start h-9"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveToDrafts(track);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                Move to Drafts
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                className="justify-start h-9"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveToPublished(track);
+                                }}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                Move to Published
+                              </Button>
+                              <Separator className="my-1" />
+                              <Button
+                                variant="ghost"
+                                className="justify-start h-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePermanently(track);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Permanently
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                className="justify-start h-9"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveToDrafts(track);
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                Move to Drafts
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                className="justify-start h-9"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleArchiveTrack(track);
+                                }}
+                              >
+                                <Archive className="h-4 w-4 mr-2" />
+                                Archive
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </PopoverContent>
                     </Popover>
@@ -935,17 +1038,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 <div className="flex gap-4">
                   {/* Thumbnail */}
                   <div className="w-48 h-28 flex-shrink-0 bg-muted rounded overflow-hidden">
-                    {track.thumbnail_url ? (
-                      <img
-                        src={track.thumbnail_url}
-                        alt={track.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50">
-                        {getTypeIcon(track.type)}
-                      </div>
-                    )}
+                    <img
+                      src={track.thumbnail_url || defaultThumbnail}
+                      alt={track.title}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
 
                   {/* Info */}

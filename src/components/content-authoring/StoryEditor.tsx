@@ -224,7 +224,18 @@ export function StoryEditor({
               let slideIndex = usage.display_order || 0;
               
               if (usage.source_media_id) {
-                const slide = existingTrack?.story_data?.find((s: any) => s.id === usage.source_media_id);
+                // Parse story data from transcript
+                let storySlides: any[] = [];
+                if (existingTrack?.transcript) {
+                  try {
+                    const storyData = JSON.parse(existingTrack.transcript);
+                    storySlides = storyData.slides || [];
+                  } catch (e) {
+                    console.warn('Could not parse story transcript');
+                  }
+                }
+                
+                const slide = storySlides.find((s: any) => s.id === usage.source_media_id);
                 if (slide) {
                   slideName = slide.name || `Slide ${slideIndex + 1}`;
                 }
@@ -735,12 +746,13 @@ export function StoryEditor({
         })
       };
       
-      const transcriptString = JSON.stringify(storyData);
-      console.log('💾 transcript length:', transcriptString.length, 'characters');
+      const storyDataString = JSON.stringify(storyData);
+      console.log('💾 transcript length:', storyDataString.length, 'characters');
       
+      // For stories, save to transcript field (stories store their data in transcript)
       await crud.updateTrack({
         id: currentTrackId,
-        transcript: transcriptString
+        transcript: storyDataString
       });
       
       toast.success('Transcripts generated and saved successfully!');
@@ -1345,7 +1357,7 @@ export function StoryEditor({
             {/* Video Transcripts */}
             {currentTrackId && (
               <StoryTranscript
-                storyData={existingTrack?.story_data || slides}
+                storyData={slides}
                 trackId={currentTrackId}
                 projectId={projectId}
                 publicAnonKey={publicAnonKey}

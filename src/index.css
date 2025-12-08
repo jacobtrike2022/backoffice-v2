@@ -4849,6 +4849,12 @@
   }
 
   @media (hover: hover) {
+    .hover\:bg-red-50:hover {
+      background-color: var(--color-red-50);
+    }
+  }
+
+  @media (hover: hover) {
     .hover\:bg-red-500\/20:hover {
       background-color: color-mix(in srgb, oklch(.637 .237 25.331) 20%, transparent);
     }

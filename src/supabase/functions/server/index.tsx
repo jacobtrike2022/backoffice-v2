@@ -235,6 +235,77 @@ app.post("/make-server-2858cc8b/upload-media", async (c) => {
 // Transcribe audio file endpoint
 app.post("/make-server-2858cc8b/transcribe", handleTranscribeRequest);
 
+// Transcribe story (multiple videos) endpoint
+app.post("/make-server-2858cc8b/transcribe-story", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { storyData } = body;
+
+    if (!storyData) {
+      return c.json({ error: 'storyData is required' }, 400);
+    }
+
+    console.log('Story transcription request received');
+
+    // Parse storyData if it's a string
+    let slides;
+    try {
+      slides = typeof storyData === 'string' ? JSON.parse(storyData) : storyData;
+    } catch (parseError) {
+      console.error('Failed to parse storyData:', parseError);
+      return c.json({ error: 'Invalid storyData format' }, 400);
+    }
+
+    if (!Array.isArray(slides)) {
+      return c.json({ error: 'storyData must be an array of slides' }, 400);
+    }
+
+    // Filter only video slides
+    const videoSlides = slides.filter((slide: any) => slide.type === 'video' && slide.url);
+
+    console.log(`Processing ${videoSlides.length} video slides...`);
+
+    const transcripts = [];
+    let errorCount = 0;
+
+    // Transcribe each video
+    for (const slide of videoSlides) {
+      try {
+        console.log(`Transcribing video for slide: ${slide.name || slide.id}`);
+        const { transcribeVideo } = await import('./transcribe.tsx');
+        const transcriptData = await transcribeVideo(slide.url);
+        
+        transcripts.push({
+          slideName: slide.name || 'Untitled',
+          slideId: slide.id,
+          slideOrder: slide.order || 0,
+          transcript: transcriptData,
+        });
+      } catch (error: any) {
+        console.error(`Error transcribing slide ${slide.name || slide.id}:`, error);
+        errorCount++;
+        transcripts.push({
+          slideName: slide.name || 'Untitled',
+          slideId: slide.id,
+          slideOrder: slide.order || 0,
+          error: error.message,
+        });
+      }
+    }
+
+    return c.json({
+      success: true,
+      transcripts,
+      errorCount,
+    });
+  } catch (error: any) {
+    console.error('Story transcription error:', error);
+    return c.json({ 
+      error: `Story transcription failed: ${error.message}` 
+    }, 500);
+  }
+});
+
 // Upload KB logo endpoint (bypasses RLS using service role key)
 app.post("/make-server-2858cc8b/upload-kb-logo", async (c) => {
   try {
