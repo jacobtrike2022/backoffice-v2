@@ -155,8 +155,28 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       });
     } else if (trackId) {
       loadCheckpoint();
+    } else if (isNewContent) {
+      // For NEW checkpoints, set initial state to empty defaults
+      setInitialState({
+        title: '',
+        description: '',
+        tags: [],
+        thumbnailUrl: '',
+        questions: [
+          {
+            id: '1',
+            question: '',
+            answers: [
+              { id: 'a1', text: '', isCorrect: false },
+              { id: 'a2', text: '', isCorrect: false }
+            ]
+          }
+        ],
+        passingScore: '70',
+        timeLimit: '',
+      });
     }
-  }, [trackId, track]);
+  }, [trackId, track, isNewContent]);
 
   const loadCheckpoint = async () => {
     if (!trackId) return;
@@ -214,14 +234,43 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = () => {
-    if (!initialState || !isEditMode) return false;
+    console.log('🔍 hasUnsavedChanges called - isEditMode:', isEditMode, 'initialState:', !!initialState);
+    
+    if (!isEditMode) {
+      console.log('❌ Not in edit mode, returning false');
+      return false;
+    }
+    
+    // If no initial state, check if there's ANY content worth saving
+    if (!initialState) {
+      console.log('⚠️ No initial state, checking for ANY content');
+      // For new checkpoints, check if user has added ANY meaningful content
+      const hasContent = 
+        title.trim() !== '' ||
+        description.trim() !== '' ||
+        tags.length > 0 ||
+        thumbnailUrl !== '' ||
+        questions.some(q => q.question?.trim() || q.answers.some(a => a.text?.trim()));
+      
+      console.log('📊 Content check:', { 
+        hasTitle: title.trim() !== '', 
+        hasDescription: description.trim() !== '',
+        hasTags: tags.length > 0,
+        hasThumbnail: thumbnailUrl !== '',
+        hasQuestions: questions.some(q => q.question?.trim() || q.answers.some(a => a.text?.trim())),
+        questionCount: questions.length,
+        result: hasContent
+      });
+      
+      return hasContent;
+    }
     
     const arraysEqual = (a: any[], b: any[]) => {
       if (a.length !== b.length) return false;
       return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
     };
     
-    return (
+    const hasChanges = (
       title !== initialState.title ||
       description !== initialState.description ||
       !arraysEqual(tags, initialState.tags) ||
@@ -230,6 +279,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       timeLimit !== initialState.timeLimit ||
       JSON.stringify(questions) !== JSON.stringify(initialState.questions)
     );
+    
+    console.log('✅ Has changes:', hasChanges);
+    return hasChanges;
   };
 
   // Warn user before leaving with unsaved changes
@@ -265,23 +317,70 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     };
   }, [isEditMode, registerUnsavedChangesCheck]);
 
-  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number }) => {
+  // Auto-save draft every 2 minutes if there are unsaved changes
+  useEffect(() => {
+    if (!isEditMode || !hasUnsavedChanges() || isSystemContent) {
+      console.log('⏸️ Auto-save skipped:', { isEditMode, hasChanges: hasUnsavedChanges(), isSystemContent });
+      return;
+    }
+    
+    console.log('⏰ Auto-save timer started (2 minutes)');
+    const autoSaveTimer = setTimeout(() => {
+      console.log('💾 Auto-saving checkpoint draft...');
+      handleSaveDraft(true); // Pass silent=true to avoid toast spam
+    }, 120000); // 2 minutes
+    
+    return () => {
+      console.log('🛑 Auto-save timer cleared');
+      clearTimeout(autoSaveTimer);
+    };
+  }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
+
+  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
     console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
     
-    // Add to existing questions
-    setQuestions([...questions, ...generatedQuestions]);
+    // Check if there are existing questions with content
+    const hasExistingQuestions = questions.some(q => q.question?.trim());
     
-    // Scroll to first new question after a brief delay
+    if (hasExistingQuestions) {
+      const shouldReplace = window.confirm(
+        `You have ${questions.length} existing question(s). Replace all with ${generatedQuestions.length} AI-generated questions?`
+      );
+      
+      if (shouldReplace) {
+        setQuestions(generatedQuestions);
+      } else {
+        // Append to existing
+        setQuestions([...questions, ...generatedQuestions]);
+      }
+    } else {
+      // No existing questions, just replace
+      setQuestions(generatedQuestions);
+    }
+    
+    // Auto-populate title and description if metadata provided
+    if (sourceInfo.metadata) {
+      // Only auto-populate if current values are empty
+      if (!title.trim()) {
+        setTitle(sourceInfo.metadata.suggestedTitle);
+      }
+      if (!description.trim()) {
+        setDescription(sourceInfo.metadata.suggestedDescription);
+      }
+    }
+    
+    // Scroll to first question after a brief delay
     setTimeout(() => {
-      const firstNewIndex = questions.length;
-      const firstNewQuestion = document.querySelector(`[data-question-index="${firstNewIndex}"]`);
-      if (firstNewQuestion) {
-        firstNewQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const firstQuestion = document.querySelector('[data-question-index="0"]');
+      if (firstQuestion) {
+        firstQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 100);
     
-    toast.success(`Added ${generatedQuestions.length} AI-generated questions!`, {
-      description: 'Review and edit as needed before saving.'
+    toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
+      description: sourceInfo.metadata 
+        ? 'Title and description auto-populated. Review and edit as needed before saving.' 
+        : 'Review and edit as needed before saving.'
     });
   };
 
@@ -491,9 +590,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   };
 
   // Handle save draft without navigation
-  const handleSaveDraft = async () => {
+  const handleSaveDraft = async (silent = false) => {
     if (isSystemContent) {
-      toast.error('Cannot edit Trike Library content');
+      if (!silent) toast.error('Cannot edit Trike Library content');
       return;
     }
 
@@ -546,7 +645,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         }
 
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        toast.success('Changes saved!');
+        if (!silent) toast.success('Changes saved!');
         
         // Update initial state to reflect saved state
         setInitialState({
@@ -568,7 +667,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         }
       } else {
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
-        toast.success('Checkpoint created as draft!');
+        if (!silent) toast.success('Checkpoint created as draft!');
         
         // Update initial state to reflect saved state
         setInitialState({

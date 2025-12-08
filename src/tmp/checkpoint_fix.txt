@@ -1,0 +1,73 @@
+CHECKPOINT EDITOR FIX - Line 268
+
+REPLACE THIS FUNCTION (lines 268-286):
+
+  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number }) => {
+    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+    
+    // Add to existing questions
+    setQuestions([...questions, ...generatedQuestions]);
+    
+    // Scroll to first new question after a brief delay
+    setTimeout(() => {
+      const firstNewIndex = questions.length;
+      const firstNewQuestion = document.querySelector(`[data-question-index=\"${firstNewIndex}\"]`);
+      if (firstNewQuestion) {
+        firstNewQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    
+    toast.success(`Added ${generatedQuestions.length} AI-generated questions!`, {
+      description: 'Review and edit as needed before saving.'
+    });
+  };
+
+WITH THIS:
+
+  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
+    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+    
+    // Check if there are existing questions with content
+    const hasExistingQuestions = questions.some(q => q.question?.trim());
+    
+    if (hasExistingQuestions) {
+      const shouldReplace = window.confirm(
+        `You have ${questions.length} existing question(s). Replace all with ${generatedQuestions.length} AI-generated questions?`
+      );
+      
+      if (shouldReplace) {
+        setQuestions(generatedQuestions);
+      } else {
+        // Append to existing
+        setQuestions([...questions, ...generatedQuestions]);
+      }
+    } else {
+      // No existing questions, just replace
+      setQuestions(generatedQuestions);
+    }
+    
+    // Auto-populate title and description if metadata provided
+    if (sourceInfo.metadata) {
+      // Only auto-populate if current values are empty
+      if (!title.trim()) {
+        setTitle(sourceInfo.metadata.suggestedTitle);
+      }
+      if (!description.trim()) {
+        setDescription(sourceInfo.metadata.suggestedDescription);
+      }
+    }
+    
+    // Scroll to first question after a brief delay
+    setTimeout(() => {
+      const firstQuestion = document.querySelector('[data-question-index="0"]');
+      if (firstQuestion) {
+        firstQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    
+    toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
+      description: sourceInfo.metadata 
+        ? 'Title and description auto-populated. Review and edit as needed before saving.' 
+        : 'Review and edit as needed before saving.'
+    });
+  };

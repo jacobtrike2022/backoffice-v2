@@ -47,9 +47,9 @@ function validateQuestions(questions: any[], expectedCount: number): ValidationR
   
   // For 1-2 questions, skip distribution checks (not enough data)
   if (questions.length >= 3) {
-    // Check correct answer distribution for multiple choice
+    // Check correct answer distribution for multiple choice - only flag if REALLY bad
     const mcQuestions = questions.filter(q => q.type === 'multiple_choice');
-    if (mcQuestions.length > 0) {
+    if (mcQuestions.length >= 5) { // Only check if we have at least 5 MC questions
       const correctPositions = mcQuestions.map(q => 
         q.answers.findIndex((a: any) => a.is_correct)
       );
@@ -61,8 +61,9 @@ function validateQuestions(questions: any[], expectedCount: number): ValidationR
       
       const maxPosition = Math.max(...Object.values(positionCounts));
       
-      // No more than 50% of answers in same position
-      if (maxPosition > mcQuestions.length * 0.5) {
+      // Only flag if more than 80% of answers are in the same position (very suspicious)
+      // This prevents obvious patterns like all "A" but allows natural clustering
+      if (maxPosition > mcQuestions.length * 0.8) {
         errors.push('Correct answers are not distributed evenly across positions');
       }
     }
@@ -143,24 +144,39 @@ checkpointAIApp.post('/ai-generate', async (c) => {
       }, 400);
     }
     
-    // 3. Fetch key facts (NO source_type filter - it doesn't exist!)
+    // 3. Fetch key facts via fact_usage junction table
     console.log('🔍 Attempting to fetch facts for trackId:', trackId);
     
-    const { data: facts, error: factsError } = await supabase
-      .from('facts')
-      .select('*')
-      .eq('source_id', trackId)
-      .order('created_at', { ascending: true }); // Order by creation time to preserve article flow
+    const { data: factUsage, error: factsError } = await supabase
+      .from('fact_usage')
+      .select(`
+        display_order,
+        facts (
+          id,
+          title,
+          content,
+          type,
+          steps,
+          context
+        )
+      `)
+      .eq('track_type', 'article')
+      .eq('track_id', trackId)
+      .order('display_order', { ascending: true }); // Order by display_order to preserve article flow
+    
+    // Extract facts from the joined data
+    const facts = factUsage?.map(fu => fu.facts).filter(Boolean) || [];
     
     console.log('📊 Facts query result:', {
       trackId,
+      factUsageCount: factUsage?.length || 0,
       factsFound: facts?.length || 0,
       hasError: !!factsError,
       error: factsError,
       sampleFact: facts?.[0] ? {
         id: facts[0].id,
         title: facts[0].title,
-        source_id: facts[0].source_id
+        content: facts[0].content?.substring(0, 50) + '...'
       } : null
     });
     
@@ -341,7 +357,11 @@ Generate ${questionCount} questions that test understanding of the most importan
       sourceTrackId: trackId,
       sourceTrackTitle: track.title,
       factCount: facts.length,
-      questionCount: formattedQuestions.length
+      questionCount: formattedQuestions.length,
+      metadata: {
+        suggestedTitle: `${track.title} - Checkpoint`,
+        suggestedDescription: `Assessment questions generated from "${track.title}" to verify understanding of key concepts.`
+      }
     });
     
   } catch (error: any) {

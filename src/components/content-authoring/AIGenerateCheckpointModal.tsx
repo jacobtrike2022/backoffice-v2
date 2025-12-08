@@ -15,7 +15,7 @@ import { getSupabaseClient } from '../../utils/supabase/client';
 interface AIGenerateCheckpointModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGenerate: (questions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number }) => void;
+  onGenerate: (questions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => void;
 }
 
 export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGenerateCheckpointModalProps) {
@@ -98,7 +98,8 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
       onGenerate(data.questions, {
         trackId: data.sourceTrackId,
         trackTitle: data.sourceTrackTitle,
-        factCount: data.factCount
+        factCount: data.factCount,
+        metadata: data.metadata
       });
       
       onClose();

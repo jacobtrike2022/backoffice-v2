@@ -88,6 +88,11 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set(['article', 'video', 'story', 'checkpoint']));
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
+  
+  // Track unsaved changes
+  const [hasUnsavedChangesCheckFn, setHasUnsavedChangesCheckFn] = useState<(() => boolean) | null>(null);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingNavAction, setPendingNavAction] = useState<(() => void) | null>(null);
 
   const isSuperAdmin = currentRole === 'Trike Super Admin';
 
@@ -138,19 +143,60 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
   };
 
   const handleCreateNew = (type: ContentType) => {
-    setSelectedType(type);
-    setEditingTrack(null);
+    if (hasUnsavedChangesCheckFn && hasUnsavedChangesCheckFn()) {
+      console.log('⚠️ Unsaved changes detected when creating new content');
+      setPendingNavAction(() => () => {
+        setSelectedType(type);
+        setEditingTrack(null);
+        setHasUnsavedChangesCheckFn(null);
+      });
+      setShowUnsavedDialog(true);
+    } else {
+      setSelectedType(type);
+      setEditingTrack(null);
+    }
   };
 
-  const handleClose = () => {
+  const handleCloseWithCheck = () => {
+    console.log('🚪 handleCloseWithCheck called, checking for unsaved changes...');
+    
+    if (hasUnsavedChangesCheckFn && hasUnsavedChangesCheckFn()) {
+      console.log('⚠️ Unsaved changes detected, showing dialog');
+      setPendingNavAction(() => () => {
+        console.log('✅ User chose to discard changes');
+        handleCloseImmediate();
+      });
+      setShowUnsavedDialog(true);
+    } else {
+      console.log('✅ No unsaved changes, closing immediately');
+      handleCloseImmediate();
+    }
+  };
+
+  const handleCloseImmediate = () => {
     setSelectedType(null);
     setEditingTrack(null);
+    setHasUnsavedChangesCheckFn(null);
+    setShowUnsavedDialog(false);
+    setPendingNavAction(null);
     loadDraftTracks(); // Reload drafts when closing editor
   };
 
+  const handleClose = handleCloseWithCheck; // Use the check version by default
+
   const handleEditTrack = (track: any) => {
-    setEditingTrack(track);
-    setSelectedType(track.type);
+    if (hasUnsavedChangesCheckFn && hasUnsavedChangesCheckFn()) {
+      console.log('⚠️ Unsaved changes detected when switching tracks');
+      setPendingNavAction(() => () => {
+        setEditingTrack(track);
+        setSelectedType(track.type);
+        setHasUnsavedChangesCheckFn(null);
+      });
+      setShowUnsavedDialog(true);
+    } else {
+      setEditingTrack(track);
+      setSelectedType(track.type);
+    }
   };
 
   const handlePublishTrack = async (trackId: string) => {
@@ -258,6 +304,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           isNewContent={false}
           currentRole={currentRole}
           onNavigateToPlaylist={onNavigateToPlaylist}
+          registerUnsavedChangesCheck={(fn) => setHasUnsavedChangesCheckFn(() => fn)}
         />
       );
     }
@@ -297,6 +344,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
             onClose={handleClose}
             isNewContent={true}
             currentRole={currentRole}
+            registerUnsavedChangesCheck={(fn) => setHasUnsavedChangesCheckFn(() => fn)}
           />
         );
       default:
@@ -498,6 +546,41 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           </CardContent>
         </Card>
       </div>
+
+      {/* Unsaved Changes Dialog */}
+      {showUnsavedDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background border border-border rounded-lg shadow-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-foreground mb-2">Unsaved Changes</h3>
+            <p className="text-muted-foreground mb-6">
+              You have unsaved changes. What would you like to do?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowUnsavedDialog(false);
+                  setPendingNavAction(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (pendingNavAction) {
+                    pendingNavAction();
+                  }
+                  setShowUnsavedDialog(false);
+                  setPendingNavAction(null);
+                }}
+              >
+                Discard Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
