@@ -43,6 +43,7 @@ import {
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
+import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
@@ -400,6 +401,31 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         updateData.type !== track.type ||
         updateData.transcript !== (track.transcript || '') ||
         !areArraysEqual(editFormData.learning_objectives, originalFacts);
+
+      // Check for derived checkpoints if content changed
+      if (contentChanged) {
+        try {
+          const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
+          if (stats.hasDerivedCheckpoints) {
+            const derivedCheckpoints = stats.derived
+              .filter((rel: any) => rel.derived_track?.type === 'checkpoint')
+              .map((rel: any) => `• ${rel.derived_track?.title || 'Untitled'}`)
+              .join('\n');
+            
+            const confirmed = window.confirm(
+              `⚠️ This ${track.type} has ${stats.derived.filter((r: any) => r.derived_track?.type === 'checkpoint').length} checkpoint(s) that were generated from this content:\n\n${derivedCheckpoints}\n\nYour changes may make the checkpoint questions outdated or incorrect.\n\nConsider regenerating the checkpoint(s) after saving.\n\nContinue with saving?`
+            );
+            
+            if (!confirmed) {
+              setIsSaving(false);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error checking for derived checkpoints:', error);
+          // Continue with save even if relationship check fails
+        }
+      }
 
       const tagsChanged = !areArraysEqual(updateData.tags, track.tags);
       
@@ -930,6 +956,42 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         transcript: editFormData.article_body || '',
         // learning_objectives removed - facts are now stored in the facts table
       };
+
+      // Check for meaningful content changes
+      const contentChanged = 
+        updateData.title !== track.title ||
+        updateData.description !== track.description ||
+        updateData.duration_minutes !== (track.duration_minutes || 0) ||
+        updateData.content_url !== (track.content_url || '') ||
+        updateData.thumbnail_url !== (track.thumbnail_url || '') ||
+        updateData.type !== track.type ||
+        updateData.transcript !== (track.transcript || '');
+
+      // Check for derived checkpoints if content changed
+      if (contentChanged) {
+        try {
+          const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
+          if (stats.hasDerivedCheckpoints) {
+            const derivedCheckpoints = stats.derived
+              .filter((rel: any) => rel.derived_track?.type === 'checkpoint')
+              .map((rel: any) => `• ${rel.derived_track?.title || 'Untitled'}`)
+              .join('\n');
+            
+            const confirmed = window.confirm(
+              `⚠️ This ${track.type} has ${stats.derived.filter((r: any) => r.derived_track?.type === 'checkpoint').length} checkpoint(s) that were generated from this content:\n\n${derivedCheckpoints}\n\nYour changes may make the checkpoint questions outdated or incorrect.\n\nConsider regenerating the checkpoint(s) after saving.\n\nContinue with saving?`
+            );
+            
+            if (!confirmed) {
+              setShowUnsavedDialog(false);
+              setIsSaving(false);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error checking for derived checkpoints:', error);
+          // Continue with save even if relationship check fails
+        }
+      }
 
       await crud.updateTrack(updateData);
       toast.success('Article updated successfully!');

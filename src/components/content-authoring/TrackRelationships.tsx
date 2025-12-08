@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Link2, ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import type { TrackRelationship } from '../../lib/crud/trackRelationships';
 
@@ -45,10 +45,10 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
 
   const getTrackTypeBadge = (type: string) => {
     const colors: Record<string, string> = {
-      article: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-      video: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
-      story: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
-      checkpoint: 'bg-green-500/10 text-green-600 border-green-500/20',
+      article: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400',
+      video: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400',
+      story: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400',
+      checkpoint: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400',
     };
 
     return (
@@ -60,9 +60,9 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
 
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
-      published: 'bg-green-500/10 text-green-600 border-green-500/20',
-      draft: 'bg-gray-500/10 text-gray-600 border-gray-500/20',
-      archived: 'bg-red-500/10 text-red-600 border-red-500/20',
+      published: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400',
+      draft: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-900/30 dark:text-gray-400',
+      archived: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400',
     };
 
     return (
@@ -76,40 +76,36 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
     <div className="space-y-4">
       {/* Source Track (Parent) */}
       {sourceTrack?.source_track && (
-        <Card className="border-blue-200 bg-blue-50/30">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <ArrowLeft className="size-4 text-blue-600" />
-              <CardTitle className="text-sm font-bold">Sourced From</CardTitle>
-            </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Sourced From
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-start gap-3">
+            <div 
+              className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
+              onClick={() => onNavigateToTrack && onNavigateToTrack(sourceTrack.source_track!.id)}
+            >
               {sourceTrack.source_track.thumbnail_url && (
                 <img
                   src={sourceTrack.source_track.thumbnail_url}
                   alt=""
-                  className="size-16 rounded object-cover"
+                  className="size-16 rounded object-cover shrink-0"
                 />
               )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <h4 className="truncate">{sourceTrack.source_track.title}</h4>
-                    <div className="flex items-center gap-2 mt-1">
+                    <h4 className="truncate font-medium">{sourceTrack.source_track.title}</h4>
+                    <div className="flex items-center gap-2 mt-2">
                       {getTrackTypeBadge(sourceTrack.source_track.type)}
                       {getStatusBadge(sourceTrack.source_track.status)}
                     </div>
                   </div>
                   {onNavigateToTrack && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onNavigateToTrack(sourceTrack.source_track!.id)}
-                      className="shrink-0"
-                    >
-                      <ExternalLink className="size-4" />
-                    </Button>
+                    <ExternalLink className="size-4 text-muted-foreground shrink-0" />
                   )}
                 </div>
               </div>
@@ -120,46 +116,38 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
 
       {/* Derived Tracks (Children) */}
       {derivedTracks.length > 0 && (
-        <Card className="border-green-200 bg-green-50/30">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <ArrowRight className="size-4 text-green-600" />
-              <CardTitle className="text-sm font-bold">
-                Used as Source For ({derivedTracks.length})
-              </CardTitle>
-            </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center">
+              <ArrowRight className="h-4 w-4 mr-2" />
+              Used as Source For ({derivedTracks.length})
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {derivedTracks.map((rel) => (
               <div
                 key={rel.id}
-                className="flex items-start gap-3 p-2 rounded border border-green-200/50 bg-white"
+                className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
+                onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
                 {rel.derived_track?.thumbnail_url && (
                   <img
                     src={rel.derived_track.thumbnail_url}
                     alt=""
-                    className="size-12 rounded object-cover"
+                    className="size-12 rounded object-cover shrink-0"
                   />
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-sm truncate">{rel.derived_track?.title}</h4>
-                      <div className="flex items-center gap-2 mt-1">
+                      <h4 className="text-sm truncate font-medium">{rel.derived_track?.title}</h4>
+                      <div className="flex items-center gap-2 mt-2">
                         {rel.derived_track && getTrackTypeBadge(rel.derived_track.type)}
                         {rel.derived_track && getStatusBadge(rel.derived_track.status)}
                       </div>
                     </div>
                     {onNavigateToTrack && rel.derived_track && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onNavigateToTrack(rel.derived_track!.id)}
-                        className="shrink-0"
-                      >
-                        <ExternalLink className="size-4" />
-                      </Button>
+                      <ExternalLink className="size-4 text-muted-foreground shrink-0" />
                     )}
                   </div>
                 </div>
