@@ -317,23 +317,19 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     };
   }, [isEditMode, registerUnsavedChangesCheck]);
 
-  // Auto-save draft every 2 minutes if there are unsaved changes
+  // Auto-save draft 3 seconds after any change (debounced)
   useEffect(() => {
-    if (!isEditMode || !hasUnsavedChanges() || isSystemContent) {
-      console.log('⏸️ Auto-save skipped:', { isEditMode, hasChanges: hasUnsavedChanges(), isSystemContent });
+    if (!isEditMode || !hasUnsavedChanges() || isSystemContent || !trackId) {
       return;
     }
     
-    console.log('⏰ Auto-save timer started (2 minutes)');
+    console.log('⏰ Auto-save will trigger in 3 seconds...');
     const autoSaveTimer = setTimeout(() => {
-      console.log('💾 Auto-saving checkpoint draft...');
+      console.log('💾 Auto-saving checkpoint draft after changes...');
       handleSaveDraft(true); // Pass silent=true to avoid toast spam
-    }, 120000); // 2 minutes
+    }, 3000); // 3 seconds after last change
     
-    return () => {
-      console.log('🛑 Auto-save timer cleared');
-      clearTimeout(autoSaveTimer);
-    };
+    return () => clearTimeout(autoSaveTimer);
   }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
 
   const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
@@ -379,9 +375,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     
     toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
       description: sourceInfo.metadata 
-        ? 'Title and description auto-populated. Review and edit as needed before saving.' 
-        : 'Review and edit as needed before saving.'
+        ? 'Auto-saving as draft...' 
+        : 'Auto-saving as draft...'
     });
+    
+    // IMMEDIATELY save as draft after AI generation
+    setTimeout(() => {
+      console.log('💾 Auto-saving AI-generated checkpoint immediately...');
+      handleSaveDraft(true); // Silent save
+    }, 500); // Small delay to let state updates settle
   };
 
   const addQuestion = () => {

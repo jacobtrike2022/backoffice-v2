@@ -34,6 +34,7 @@ interface InteractiveTranscriptProps {
   isTranscribing?: boolean; // Is transcription in progress?
   isEditMode?: boolean; // Are we in edit mode?
   onTranscriptEdit?: (editedText: string) => void; // Callback when transcript is edited
+  contentUrl?: string; // Content URL to check if it's YouTube/Vimeo
 }
 
 export function InteractiveTranscript({ 
@@ -44,7 +45,8 @@ export function InteractiveTranscript({
   onTranscribe, 
   isTranscribing,
   isEditMode = false,
-  onTranscriptEdit
+  onTranscriptEdit,
+  contentUrl
 }: InteractiveTranscriptProps) {
   const [hoveredWord, setHoveredWord] = useState<number | null>(null);
   const [editedText, setEditedText] = useState<string>('');
@@ -176,6 +178,12 @@ export function InteractiveTranscript({
     onSeek(timeInSeconds);
   };
 
+  // Helper to check if URL is YouTube or Vimeo
+  const isYouTubeOrVimeoUrl = (url: string | undefined): boolean => {
+    if (!url) return false;
+    return url.includes('youtube.com') || url.includes('youtu.be') || url.includes('vimeo.com');
+  };
+
   // If no transcript yet, show empty state with transcribe button (if eligible)
   if (!transcript || (!transcript.text && !transcript.words && !transcript.utterances)) {
     return (
@@ -217,6 +225,11 @@ export function InteractiveTranscript({
               <div>
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
                 <p>No transcript available.</p>
+                {isYouTubeOrVimeoUrl(contentUrl) && (
+                  <p className="text-xs mt-2">
+                    Auto-transcription is not available for YouTube/Vimeo URLs. Upload the video file directly to enable transcription, or add a transcript manually in edit mode.
+                  </p>
+                )}
               </div>
             )}
           </div>

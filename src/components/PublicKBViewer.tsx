@@ -193,11 +193,23 @@ export function PublicKBViewer() {
       setRelated(data.related || []);
 
       // Check privacy settings
+      console.log('🔒🔒🔒 Privacy Mode Check:', {
+        'org exists': !!data.org,
+        'kb_privacy_mode': data.org?.kb_privacy_mode,
+        'has password': !!data.org?.kb_shared_password,
+        'password value (first 3 chars)': data.org?.kb_shared_password?.substring(0, 3),
+        'will show prompt': data.org?.kb_privacy_mode === 'password'
+      });
+
       if (data.org && data.org.kb_privacy_mode === 'password') {
+        console.log('🔒 Setting showPasswordPrompt to TRUE');
         setShowPasswordPrompt(true);
       } else if (data.org && data.org.kb_privacy_mode === 'employee_login') {
+        console.log('🔒 Redirecting to employee login');
         window.location.href = `/login?returnUrl=/kb/${slug}`;
         return;
+      } else {
+        console.log('✅ Public mode - no password required');
       }
 
       // Track page view
@@ -636,41 +648,6 @@ export function PublicKBViewer() {
             </div>
           )}
 
-          {/* Key Facts Section */}
-          {facts.length > 0 && (
-            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Target className="w-5 h-5 text-[#FF6B35]" />
-                Key Facts
-              </h2>
-              <ol className="space-y-3 list-decimal list-inside">
-                {visibleFacts.map((fact) => (
-                  <li key={fact.id} className="text-gray-700 dark:text-gray-300 leading-relaxed">
-                    <span className="font-semibold">{fact.title}:</span> {fact.content}
-                  </li>
-                ))}
-              </ol>
-              {hasMoreFacts && (
-                <button
-                  onClick={() => setExpandedFacts(!expandedFacts)}
-                  className="mt-4 text-[#FF6B35] font-medium flex items-center gap-2 hover:underline min-h-[44px]"
-                >
-                  {expandedFacts ? (
-                    <>
-                      <ChevronUp className="w-4 h-4" />
-                      Show less
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="w-4 h-4" />
-                      Show all {facts.length} facts
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Interactive Transcript (video and story types only, NOT article) */}
           {track.transcript && track.type !== 'article' && (
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
@@ -728,6 +705,41 @@ export function PublicKBViewer() {
                       : track.transcript}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Key Facts Section */}
+          {facts.length > 0 && (
+            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-[#FF6B35]" />
+                Key Facts
+              </h2>
+              <ol className="space-y-3 list-decimal list-inside">
+                {visibleFacts.map((fact) => (
+                  <li key={fact.id} className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                    <span className="font-semibold">{fact.title}:</span> {fact.content}
+                  </li>
+                ))}
+              </ol>
+              {hasMoreFacts && (
+                <button
+                  onClick={() => setExpandedFacts(!expandedFacts)}
+                  className="mt-4 text-[#FF6B35] font-medium flex items-center gap-2 hover:underline min-h-[44px]"
+                >
+                  {expandedFacts ? (
+                    <>
+                      <ChevronUp className="w-4 h-4" />
+                      Show less
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4" />
+                      Show all {facts.length} facts
+                    </>
+                  )}
+                </button>
               )}
             </div>
           )}

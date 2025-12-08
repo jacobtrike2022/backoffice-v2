@@ -61,9 +61,9 @@ function validateQuestions(questions: any[], expectedCount: number): ValidationR
       
       const maxPosition = Math.max(...Object.values(positionCounts));
       
-      // Only flag if more than 80% of answers are in the same position (very suspicious)
-      // This prevents obvious patterns like all "A" but allows natural clustering
-      if (maxPosition > mcQuestions.length * 0.8) {
+      // Only flag if more than 90% of answers are in the same position (extremely suspicious)
+      // This is more lenient than before - we want natural variation, not forced perfect distribution
+      if (maxPosition > mcQuestions.length * 0.9) {
         errors.push('Correct answers are not distributed evenly across positions');
       }
     }
@@ -216,7 +216,7 @@ RULES:
 4. Questions should follow the order facts appear in the article
 5. Focus on practical application, not trivia or memorization
 6. Difficulty: Medium (not too easy, not obscure)
-7. Multiple choice correct answers should be distributed randomly across A/B/C/D (avoid patterns)
+7. **CRITICAL**: For multiple choice, distribute correct answers randomly across positions A/B/C/D. Avoid patterns like all A's or all C's. Vary the position of the correct answer naturally.
 8. Distractors must be plausible but clearly incorrect
 9. Never use "all of the above" or "none of the above"
 10. True/false questions should not be obvious

@@ -45,6 +45,14 @@ export async function transcribeVideo(audioUrl: string) {
 
   console.log('Starting transcription for:', audioUrl);
 
+  // Check if this is a YouTube URL
+  const isYouTubeUrl = audioUrl.includes('youtube.com') || audioUrl.includes('youtu.be');
+  
+  if (isYouTubeUrl) {
+    console.log('YouTube URL detected - AssemblyAI does not support direct YouTube transcription');
+    throw new Error('YouTube URL transcription is not supported. Please upload the video file directly or provide a direct audio/video file URL.');
+  }
+
   // Check if this is a signed URL (has token parameter) - AssemblyAI can access these directly
   const urlObj = new URL(audioUrl);
   const hasToken = urlObj.searchParams.has('token');

@@ -227,15 +227,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         setOriginalFacts(facts);
         
         setEditFormData({
-          title: track.title || '',
-          description: track.description || '',
-          duration_minutes: track.duration_minutes || '',
-          transcript: track.transcript || '',
+          title: String(track.title || ''),
+          description: String(track.description || ''),
+          duration_minutes: String(track.duration_minutes || ''),
+          transcript: String(track.transcript || ''),
           transcript_data: track.transcript_data || null,
           learning_objectives: facts,
           tags: track.tags || [],
-          content_url: track.content_url || '',
-          thumbnail_url: track.thumbnail_url || '',
+          content_url: String(track.content_url || ''),
+          thumbnail_url: String(track.thumbnail_url || ''),
           type: track.type || 'video',
           show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
         });
@@ -1239,11 +1239,17 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               transcript={track.transcript_data}
               currentTime={currentTime}
               onSeek={handleSeek}
-              canTranscribe={!!track.content_url && !track.transcript_data}
+              canTranscribe={
+                !!track.content_url && 
+                !track.transcript_data && 
+                !isYouTubeUrl(track.content_url) && 
+                !isVimeoUrl(track.content_url)
+              }
               onTranscribe={handleTranscribe}
               isTranscribing={isTranscribing}
               isEditMode={isEditMode}
               onTranscriptEdit={handleTranscriptEdit}
+              contentUrl={track.content_url}
             />
           )}
 
@@ -1685,7 +1691,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     placeholder="https://example.com/video.mp4"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Supports YouTube, Vimeo, and direct file URLs
+                    Supports YouTube, Vimeo, and direct file URLs. Note: Auto-transcription only works with uploaded files or direct media URLs, not YouTube/Vimeo links.
                   </p>
                 </div>
 

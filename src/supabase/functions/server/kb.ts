@@ -81,6 +81,18 @@ kbApp.get('/public/:slug', async (c) => {
       hasLogo: !!logoUrl || !!logoDark || !!logoLight
     });
 
+    console.log('🔒🔒🔒 BACKEND Privacy Mode Debug:', {
+      'org.kb_privacy_mode (raw)': org.kb_privacy_mode,
+      'privacyMode (processed)': privacyMode,
+      'org.kb_shared_password exists': !!org.kb_shared_password,
+      'sharedPassword exists': !!sharedPassword,
+      'password first 3 chars': sharedPassword?.substring(0, 3) || 'null',
+      'Will return to frontend': {
+        kb_privacy_mode: privacyMode,
+        kb_shared_password: sharedPassword
+      }
+    });
+
     // ⚠️ PRIVACY MODE CHECK - Must happen BEFORE returning data
     // This determines if the user can access this content
     if (privacyMode === 'password') {
