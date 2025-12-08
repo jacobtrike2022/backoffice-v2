@@ -123,8 +123,9 @@ checkpointAIApp.post('/ai-generate', async (c) => {
       return c.json({ error: 'Track not found' }, 404);
     }
     
-    if (track.type !== 'article') {
-      return c.json({ error: 'Only articles are supported for AI generation' }, 400);
+    // Support article, video, and story tracks
+    if (!['article', 'video', 'story'].includes(track.type)) {
+      return c.json({ error: 'Only articles, videos, and stories are supported for AI generation' }, 400);
     }
     
     // 2. Check minimum content (lowered threshold)
@@ -147,6 +148,7 @@ checkpointAIApp.post('/ai-generate', async (c) => {
     // 3. Fetch key facts via fact_usage junction table
     console.log('🔍 Attempting to fetch facts for trackId:', trackId);
     
+    // Use track.type directly - fact_usage stores 'article', 'video', or 'story'
     const { data: factUsage, error: factsError } = await supabase
       .from('fact_usage')
       .select(`
@@ -160,9 +162,9 @@ checkpointAIApp.post('/ai-generate', async (c) => {
           context
         )
       `)
-      .eq('track_type', 'article')
+      .eq('track_type', track.type)
       .eq('track_id', trackId)
-      .order('display_order', { ascending: true }); // Order by display_order to preserve article flow
+      .order('display_order', { ascending: true }); // Order by display_order to preserve content flow
     
     // Extract facts from the joined data
     const facts = factUsage?.map(fu => fu.facts).filter(Boolean) || [];
@@ -356,6 +358,7 @@ Generate ${questionCount} questions that test understanding of the most importan
       questions: formattedQuestions,
       sourceTrackId: trackId,
       sourceTrackTitle: track.title,
+      thumbnailUrl: track.thumbnail_url || undefined,
       factCount: facts.length,
       questionCount: formattedQuestions.length,
       metadata: {

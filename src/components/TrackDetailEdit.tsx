@@ -10,6 +10,7 @@ import { Label } from './ui/label';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
+import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import {
@@ -1256,7 +1257,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {/* Description */}
           <Card>
             <CardHeader>
-              <CardTitle>Description</CardTitle>
+              <CardTitle className="font-bold">Description</CardTitle>
             </CardHeader>
             <CardContent>
               {isEditMode ? (
@@ -1278,7 +1279,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Tags</CardTitle>
+                <CardTitle className="font-bold">Tags</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
@@ -1332,7 +1333,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Key Facts</CardTitle>
+                <CardTitle className="font-bold">Key Facts</CardTitle>
                 {isEditMode && (
                   <div className="flex items-center gap-2">
                     {/* AI Generate Button with Neon Orange Glow */}
@@ -1767,6 +1768,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           <AssociatedPlaylists 
             trackId={track.id}
             onPlaylistClick={onNavigateToPlaylist}
+          />
+          
+          {/* Track Relationships */}
+          <TrackRelationships
+            trackId={track.id}
+            trackType={track.type}
+            onNavigateToTrack={onVersionClick}
           />
           
           {/* Version History */}

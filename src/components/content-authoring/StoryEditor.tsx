@@ -10,6 +10,7 @@ import { Switch } from '../ui/switch';
 import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
+import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { StoryPreview } from './StoryPreview';
@@ -1496,6 +1497,15 @@ export function StoryEditor({
               />
             )}
             
+            {/* Track Relationships */}
+            {currentTrackId && (
+              <TrackRelationships
+                trackId={currentTrackId}
+                trackType="story"
+                onNavigateToTrack={onVersionClick}
+              />
+            )}
+            
             {/* Version History */}
             {currentTrackId && (
               <VersionHistory
@@ -2415,6 +2425,23 @@ export function StoryEditor({
             </CardContent>
           </Card>
           
+          {/* Associated Playlists */}
+          {currentTrackId && (
+            <AssociatedPlaylists 
+              trackId={currentTrackId}
+              onPlaylistClick={onNavigateToPlaylist}
+            />
+          )}
+          
+          {/* Track Relationships */}
+          {currentTrackId && (
+            <TrackRelationships
+              trackId={currentTrackId}
+              trackType="story"
+              onNavigateToTrack={onVersionClick}
+            />
+          )}
+          
           {/* Version History */}
           {currentTrackId && (
             <VersionHistory
@@ -2429,14 +2456,6 @@ export function StoryEditor({
                   window.location.href = `/story/${versionTrackId}`;
                 }
               }}
-            />
-          )}
-          
-          {/* Associated Playlists */}
-          {currentTrackId && (
-            <AssociatedPlaylists 
-              trackId={currentTrackId}
-              onPlaylistClick={onNavigateToPlaylist}
             />
           )}
         </div>

@@ -12,6 +12,7 @@ import { AttachmentPreviewDialog } from './AttachmentPreviewDialog';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
+import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { TTSPlayer } from './content/TTSPlayer';
@@ -1696,6 +1697,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           <AssociatedPlaylists 
             trackId={track.id}
             onPlaylistClick={onNavigateToPlaylist}
+          />
+          
+          {/* Track Relationships */}
+          <TrackRelationships
+            trackId={track.id}
+            trackType={track.type}
+            onNavigateToTrack={onVersionClick}
           />
           
           {/* Version History */}

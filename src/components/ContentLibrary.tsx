@@ -60,6 +60,7 @@ import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { useTracks } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
+import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
 
 interface ContentLibraryProps {
@@ -251,6 +252,24 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     e?.stopPropagation();
     
     try {
+      // Check for derived tracks before archiving
+      const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
+      
+      if (stats.derivedCount > 0) {
+        const derivedTracks = await trackRelCrud.getDerivedTracks(track.id, 'source');
+        const derivedTitles = derivedTracks
+          .map(rel => `• ${rel.derived_track?.title || 'Untitled'} (${rel.derived_track?.type})`)
+          .join('\n');
+        
+        const confirmed = window.confirm(
+          `⚠️ This ${track.type} is used as source material for ${stats.derivedCount} other track(s):\n\n${derivedTitles}\n\nArchiving "${track.title}" will not delete the derived tracks, but they will lose their source reference.\n\nContinue with archiving?`
+        );
+        
+        if (!confirmed) {
+          return; // User cancelled
+        }
+      }
+      
       await crud.archiveTrack(track.id);
       toast.success(`"${track.title}" archived`);
       await refetch();

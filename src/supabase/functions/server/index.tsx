@@ -8,6 +8,7 @@ import tagsApp from "./tags.ts";
 import kbApp from "./kb.ts";
 import ttsApp from "./tts.ts";
 import checkpointAIApp from "./checkpoint-ai.ts";
+import trackRelationshipsApp from "./track-relationships-routes.ts";
 
 const app = new Hono();
 
@@ -568,6 +569,9 @@ app.route("/make-server-2858cc8b/tts", ttsApp);
 
 // Mount checkpointAIApp
 app.route("/make-server-2858cc8b/checkpoint-ai", checkpointAIApp);
+
+// Mount trackRelationshipsApp
+app.route("/make-server-2858cc8b/track-relationships", trackRelationshipsApp);
 
 // =====================================================
 // ORGANIZATION: UPDATE KB SETTINGS

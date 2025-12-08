@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
+import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { CheckpointPreviewModal } from './CheckpointPreviewModal';
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
+import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import { AIGenerateCheckpointModal } from './AIGenerateCheckpointModal';
 
 interface Answer {
@@ -100,6 +102,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   
   // AI Generation modal
   const [showAIModal, setShowAIModal] = useState(false);
+  
+  // Track source relationship (for AI-generated checkpoints)
+  const [sourceTrackId, setSourceTrackId] = useState<string | null>(null);
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
@@ -332,8 +337,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     return () => clearTimeout(autoSaveTimer);
   }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
 
-  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
+  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; thumbnailUrl?: string; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
     console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+    
+    // Store the source track ID for relationship tracking
+    setSourceTrackId(sourceInfo.trackId);
+    console.log('📎 Source track ID stored for relationship:', sourceInfo.trackId);
     
     // Check if there are existing questions with content
     const hasExistingQuestions = questions.some(q => q.question?.trim());
@@ -363,6 +372,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       if (!description.trim()) {
         setDescription(sourceInfo.metadata.suggestedDescription);
       }
+    }
+    
+    // Auto-copy thumbnail from source track if available and current checkpoint has no thumbnail
+    if (sourceInfo.thumbnailUrl && !thumbnailUrl) {
+      console.log('📸 Copying thumbnail from source track:', sourceInfo.thumbnailUrl);
+      setThumbnailUrl(sourceInfo.thumbnailUrl);
+      toast.success('Thumbnail copied from source content', {
+        description: 'The checkpoint will use the same thumbnail as the source.',
+        duration: 3000
+      });
     }
     
     // Scroll to first question after a brief delay
@@ -510,12 +529,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       return;
     }
 
+    // Set saving state BEFORE validation to prevent double-clicks
+    setIsSaving(true);
+
     if (!validateCheckpoint()) {
       setShowUnsavedDialog(false);
+      setIsSaving(false);
       return;
     }
 
-    setIsSaving(true);
     try {
       const checkpointData = {
         questions,
@@ -598,11 +620,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       return;
     }
 
+    // Set saving state BEFORE validation to prevent double-clicks
+    setIsSaving(true);
+
     if (!validateCheckpoint()) {
+      setIsSaving(false);
       return;
     }
 
-    setIsSaving(true);
+    let willNavigateAway = false;
+
     try {
       const checkpointData = {
         questions,
@@ -668,8 +695,23 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           await onUpdate();
         }
       } else {
+        // Creating new checkpoint - we'll navigate away, so keep button disabled
+        willNavigateAway = true;
+        
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
         if (!silent) toast.success('Checkpoint created as draft!');
+        
+        // Create track relationship if this checkpoint was AI-generated from a source
+        if (sourceTrackId) {
+          try {
+            console.log('📎 Creating track relationship: source=' + sourceTrackId + ', derived=' + newTrack.id);
+            await trackRelCrud.createTrackRelationship(sourceTrackId, newTrack.id, 'source');
+            console.log('✅ Track relationship created successfully');
+          } catch (relError: any) {
+            console.error('❌ Failed to create track relationship:', relError);
+            // Don't block the save - relationship is nice-to-have
+          }
+        }
         
         // Update initial state to reflect saved state
         setInitialState({
@@ -683,6 +725,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         });
         
         // For new content creation, close the editor and return to library
+        // Keep button disabled during navigation
         const backFn = onBack || onClose;
         if (backFn) {
           backFn();
@@ -692,7 +735,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       console.error('Error saving checkpoint:', error);
       toast.error('Failed to save checkpoint');
     } finally {
-      setIsSaving(false);
+      // Only re-enable button if we're NOT navigating away
+      if (!willNavigateAway) {
+        setIsSaving(false);
+      }
+      // If navigating away, keep button disabled to prevent double-clicks
     }
   };
 
@@ -1149,6 +1196,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               <AssociatedPlaylists 
                 trackId={currentTrackId}
                 onPlaylistClick={onNavigateToPlaylist}
+              />
+            )}
+            
+            {/* Track Relationships */}
+            {currentTrackId && (
+              <TrackRelationships
+                trackId={currentTrackId}
+                trackType="checkpoint"
+                onNavigateToTrack={onVersionClick}
               />
             )}
             
@@ -1617,6 +1673,23 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             </CardContent>
           </Card>
           
+          {/* Associated Playlists */}
+          {currentTrackId && (
+            <AssociatedPlaylists
+              trackId={currentTrackId}
+              onPlaylistClick={onNavigateToPlaylist}
+            />
+          )}
+          
+          {/* Track Relationships */}
+          {currentTrackId && (
+            <TrackRelationships
+              trackId={currentTrackId}
+              trackType="checkpoint"
+              onNavigateToTrack={onVersionClick}
+            />
+          )}
+          
           {/* Version History */}
           {currentTrackId && (
             <VersionHistory
@@ -1631,14 +1704,6 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                   window.location.href = `/checkpoint/${versionTrackId}`;
                 }
               }}
-            />
-          )}
-          
-          {/* Associated Playlists */}
-          {currentTrackId && (
-            <AssociatedPlaylists 
-              trackId={currentTrackId}
-              onPlaylistClick={onNavigateToPlaylist}
             />
           )}
         </div>

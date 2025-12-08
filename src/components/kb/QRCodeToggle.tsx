@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { QrCode, Download, Plus, MapPin } from 'lucide-react';
+import { QrCode, Download, Plus, MapPin, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Switch } from '../ui/switch';
@@ -343,6 +343,22 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
                   <Download className="h-4 w-4 mr-1" />
                   Download SVG
                 </Button>
+              </div>
+
+              {/* Preview Link - Opens in new window */}
+              <div className="text-center">
+                <a
+                  href={generateKBPublicUrl(track.kb_slug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Preview as employee/viewer
+                </a>
+                <p className="text-xs text-muted-foreground mt-1">
+                  See how this article appears when scanned
+                </p>
               </div>
 
               {/* Download Stats */}

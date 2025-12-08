@@ -23,6 +23,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import * as crud from '../../lib/crud/tracks';
+import * as trackRelCrud from '../../lib/crud/trackRelationships';
 
 interface VersionDecisionModalProps {
   isOpen: boolean;
@@ -59,6 +60,7 @@ export function VersionDecisionModal({
   });
   const [inProgressCount, setInProgressCount] = useState(0);
   const [notStartedCount, setNotStartedCount] = useState(0);
+  const [derivedTracks, setDerivedTracks] = useState<any[]>([]);
 
   const nextVersion = currentVersion + 1;
 
@@ -71,13 +73,15 @@ export function VersionDecisionModal({
   const loadAssignmentData = async () => {
     setIsLoading(true);
     try {
-      const [playlistsData, statsData] = await Promise.all([
+      const [playlistsData, statsData, derivedTracksData] = await Promise.all([
         crud.getPlaylistsForTrack(trackId),
-        crud.getTrackAssignmentStats(trackId)
+        crud.getTrackAssignmentStats(trackId),
+        trackRelCrud.getDerivedTracks(trackId)
       ]);
       
       setPlaylists(playlistsData);
       setStats(statsData);
+      setDerivedTracks(derivedTracksData);
       
       // Calculate in-progress (started but not completed)
       const inProgress = statsData.pendingCount; // Pending = started but not done
@@ -213,6 +217,35 @@ export function VersionDecisionModal({
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Derived Tracks Warning */}
+          {!isLoading && derivedTracks.length > 0 && (
+            <Card className="border-2 border-orange-200 bg-orange-50/30 dark:bg-orange-900/10 dark:border-orange-800">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-start space-x-2">
+                  <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1 text-orange-900 dark:text-orange-200">
+                      This track is used as source material
+                    </h4>
+                    <p className="text-sm text-orange-800 dark:text-orange-300 mb-2">
+                      {derivedTracks.length} {derivedTracks.length === 1 ? 'track was' : 'tracks were'} created from this track:
+                    </p>
+                    <ul className="text-sm space-y-1 ml-4">
+                      {derivedTracks.map(rel => (
+                        <li key={rel.id} className="text-orange-800 dark:text-orange-300">
+                          • {rel.derived_track?.title || 'Untitled'} ({rel.derived_track?.type})
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-2">
+                      Versioning will not update these derived tracks. They will continue to reference V{currentVersion}.
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}

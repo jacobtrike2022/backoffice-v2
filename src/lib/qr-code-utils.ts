@@ -290,10 +290,27 @@ export function getTitleFromSlug(slug: string): string {
 /**
  * Generate public KB viewer URL from slug
  * Format: /kb-public?slug={slug}
+ * 
+ * ⚠️ IMPORTANT: For QR codes to work, ensure your deployment does NOT have
+ * a site-level password enabled. Site passwords are separate from KB privacy
+ * settings and will block all access before the React app even loads.
+ * 
+ * If you need both:
+ * - Main app with site password for internal users
+ * - Public KB viewer for QR codes
+ * 
+ * Deploy two separate instances:
+ * 1. Main app: password-protected deployment
+ * 2. KB viewer: public deployment (update baseUrl below)
  */
 export function generateKBPublicUrl(slug: string): string {
   // Use the main app domain with query parameter routing
   // The React app will detect the slug param and render PublicKBViewer
   const baseUrl = 'https://sticky-web-65379292.figma.site';
+  
+  // TODO: If you need to use a separate public deployment for QR codes,
+  // update this baseUrl to your public deployment domain
+  // Example: const baseUrl = 'https://kb-public.yourcompany.com';
+  
   return `${baseUrl}?slug=${slug}`;
 }

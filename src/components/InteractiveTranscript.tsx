@@ -186,14 +186,36 @@ export function InteractiveTranscript({
 
   // If no transcript yet, show empty state with transcribe button (if eligible)
   if (!transcript || (!transcript.text && !transcript.words && !transcript.utterances)) {
+    // EDIT MODE: Allow manual transcript entry even when no transcript exists
+    if (isEditMode) {
+      return (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="font-bold">Add Transcript Manually</CardTitle>
+              <Badge variant="secondary" className="text-xs">
+                Edit mode
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              value={editedText}
+              onChange={handleTextChange}
+              className="w-full h-96 p-4 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Type or paste transcript text here..."
+            />
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // VIEW MODE: Show empty state with transcribe button (if eligible)
     return (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Transcript
-            </CardTitle>
+            <CardTitle className="font-bold">Transcript</CardTitle>
             {canTranscribe && onTranscribe && (
               <Button
                 size="sm"
@@ -275,10 +297,7 @@ export function InteractiveTranscript({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Interactive Transcript
-            </CardTitle>
+            <CardTitle className="font-bold">Transcript</CardTitle>
             <Badge variant="outline" className="text-xs">
               Click words to jump
             </Badge>
@@ -383,10 +402,7 @@ export function InteractiveTranscript({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Interactive Transcript
-            </CardTitle>
+            <CardTitle className="font-bold">Transcript</CardTitle>
             <Badge variant="outline" className="text-xs">
               Click words to jump
             </Badge>
@@ -427,17 +443,35 @@ export function InteractiveTranscript({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5" />
-          Transcript
+        <CardTitle className="font-bold">
+          {isEditMode ? 'Edit Transcript' : 'Transcript'}
         </CardTitle>
+        {isEditMode && (
+          <Badge variant="secondary" className="text-xs">
+            Edit mode
+          </Badge>
+        )}
       </CardHeader>
       <CardContent>
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <p className="leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {transcript?.text || 'No transcript available'}
-          </p>
-        </div>
+        {isEditMode ? (
+          <>
+            <textarea
+              value={editedText}
+              onChange={handleTextChange}
+              className="w-full h-96 p-4 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Edit transcript text here..."
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Edit the transcript text as needed.
+            </p>
+          </>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <p className="leading-relaxed text-muted-foreground whitespace-pre-wrap">
+              {transcript?.text || 'No transcript available'}
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
