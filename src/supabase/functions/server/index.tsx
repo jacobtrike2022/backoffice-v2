@@ -635,6 +635,8 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
     const body = await c.req.json();
     const { title, content, description, transcript, trackType, trackId, companyId } = body;
     
+    console.log('🔍 DEBUG trackType received:', trackType, 'type:', typeof trackType);
+    
     if (!title && !content && !transcript) {
       return c.json({ 
         error: 'At least one of title, content, or transcript is required' 
@@ -720,6 +722,8 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
           }
           
           // Create fact_usage relationship with display_order to preserve extraction order
+          console.log(`🔍 DEBUG inserting fact_usage: trackType="${trackType}", track_id="${trackId}", fact_id="${insertedFact.id}"`);
+          
           const { error: usageError } = await supabase
             .from('fact_usage')
             .insert({
@@ -731,6 +735,7 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
           
           if (usageError) {
             console.error(`❌ Error creating fact_usage for \"${fact.title}\":`, usageError.message);
+            console.error(`🔍 Full error:`, JSON.stringify(usageError, null, 2));
             // Continue - the fact is saved, just not linked
           }
           

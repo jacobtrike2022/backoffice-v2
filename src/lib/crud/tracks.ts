@@ -88,12 +88,12 @@ export async function updateTrack(input: UpdateTrackInput) {
   if (error) throw error;
   
   // Auto-regenerate facts if content changed
-  if (updateData.description && track.type === 'article') {
+  if (updateData.transcript && track.type === 'article') {
     console.log('🔍 Checking if facts need regeneration...');
     
     // Dynamic import to avoid circular dependencies
     import('../../utils/hash').then(async ({ sha256, stripMarkdown }) => {
-      const plainText = stripMarkdown(updateData.description || '');
+      const plainText = stripMarkdown(updateData.transcript || '');
       const newContentHash = await sha256(plainText);
       
       // Check word count (minimum 150 words)
@@ -123,9 +123,9 @@ export async function updateTrack(input: UpdateTrackInput) {
         },
         body: JSON.stringify({ 
           trackId: id,
-          trackType: 'track',
+          trackType: track.type,
           title: track.title || '',
-          description: updateData.description || '',
+          description: updateData.transcript || '',
           content: plainText
         })
       })
