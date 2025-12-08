@@ -87,8 +87,70 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   if (error) throw error;
   
-  // Note: Auto-regeneration is disabled because facts_content_hash column doesn't exist
-  // Users can manually regenerate facts using the ⚡ Zap button in edit mode
+  // Auto-regenerate facts if content changed
+  if (updateData.description && track.type === 'article') {
+    console.log('🔍 Checking if facts need regeneration...');
+    
+    // Dynamic import to avoid circular dependencies
+    import('../../utils/hash').then(async ({ sha256, stripMarkdown }) => {
+      const plainText = stripMarkdown(updateData.description || '');
+      const newContentHash = await sha256(plainText);
+      
+      // Check word count (minimum 150 words)
+      const wordCount = plainText.split(/\s+/).filter(w => w.length > 0).length;
+      if (wordCount < 150) {
+        console.log(`⚠️ Article too short (${wordCount} words), skipping facts regeneration`);
+        return;
+      }
+      
+      // Check if content actually changed (compare to stored hash if it exists)
+      const storedHash = track.facts_content_hash || null;
+      if (storedHash && storedHash === newContentHash) {
+        console.log('✓ Content unchanged, skipping facts regeneration');
+        return;
+      }
+      
+      console.log('🔄 Content changed, regenerating facts...');
+      
+      // Call the facts extraction endpoint
+      const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
+      
+      fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ 
+          trackId: id,
+          trackType: 'track',
+          title: track.title || '',
+          description: updateData.description || '',
+          content: plainText
+        })
+      })
+      .then(async (res) => {
+        if (res.ok) {
+          const result = await res.json();
+          console.log(`✅ Facts regenerated: ${result.enriched?.length || 0} facts extracted`);
+          
+          // Try to update the hash (gracefully handle missing column)
+          try {
+            await supabase.from('tracks').update({
+              facts_content_hash: newContentHash,
+              facts_generated_at: new Date().toISOString()
+            }).eq('id', id);
+          } catch (hashError) {
+            console.log('⚠️ Could not update hash (column may not exist)');
+          }
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          console.error('❌ Failed to regenerate facts:', errorData.error || res.statusText);
+        }
+      })
+      .catch(err => console.error('❌ Failed to regenerate facts:', err.message));
+    }).catch(err => console.error('❌ Failed to import hash utilities:', err));
+  }
   
   return track;
 }
