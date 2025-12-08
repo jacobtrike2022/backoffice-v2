@@ -100,7 +100,7 @@ export async function getDerivedTracks(
     query = query.eq('relationship_type', relationshipType);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+  const { data, error } = await query;
 
   if (error) {
     console.error('❌ Error fetching derived tracks:', error);
@@ -141,9 +141,13 @@ export async function getSourceTrack(
     query = query.eq('relationship_type', relationshipType);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await query.single();
 
   if (error) {
+    if (error.code === 'PGRST116') {
+      // No rows returned
+      return null;
+    }
     console.error('❌ Error fetching source track:', error);
     throw error;
   }
@@ -161,8 +165,8 @@ export async function deleteTrackRelationship(
   const { error } = await supabase
     .from('track_relationships')
     .delete()
-    .eq('organization_id', orgId)
-    .eq('id', relationshipId);
+    .eq('id', relationshipId)
+    .eq('organization_id', orgId);
 
   if (error) {
     console.error('❌ Error deleting track relationship:', error);
@@ -179,19 +183,16 @@ export async function deleteTrackRelationships(
   orgId: string,
   trackId: string
 ): Promise<void> {
-  // Delete where this track is the source
-  await supabase
+  const { error } = await supabase
     .from('track_relationships')
     .delete()
     .eq('organization_id', orgId)
-    .eq('source_track_id', trackId);
+    .or(`source_track_id.eq.${trackId},derived_track_id.eq.${trackId}`);
 
-  // Delete where this track is derived
-  await supabase
-    .from('track_relationships')
-    .delete()
-    .eq('organization_id', orgId)
-    .eq('derived_track_id', trackId);
+  if (error) {
+    console.error('❌ Error deleting track relationships:', error);
+    throw error;
+  }
 
   console.log('✅ All relationships deleted for track:', trackId);
 }
@@ -206,20 +207,35 @@ export async function getTrackRelationshipStats(
   derivedCount: number;
   sourceCount: number;
   hasDerivedCheckpoints: boolean;
+  derived: TrackRelationship[];
 }> {
-  // Count derived tracks (children)
-  const { count: derivedCount, error: derivedError } = await supabase
+  // Get derived tracks (where this is the source)
+  const { data: derivedData, error: derivedError } = await supabase
     .from('track_relationships')
-    .select('*', { count: 'exact', head: true })
+    .select(`
+      id,
+      source_track_id,
+      derived_track_id,
+      relationship_type,
+      created_at,
+      derived_track:tracks!derived_track_id(
+        id,
+        title,
+        type,
+        thumbnail_url,
+        status
+      )
+    `)
     .eq('organization_id', orgId)
-    .eq('source_track_id', trackId);
+    .eq('source_track_id', trackId)
+    .eq('relationship_type', 'source');
 
   if (derivedError) {
-    console.error('❌ Error counting derived tracks:', derivedError);
+    console.error('❌ Error fetching derived track stats:', derivedError);
     throw derivedError;
   }
 
-  // Count source tracks (parents)
+  // Get source tracks (where this is derived)
   const { count: sourceCount, error: sourceError } = await supabase
     .from('track_relationships')
     .select('*', { count: 'exact', head: true })
@@ -227,31 +243,20 @@ export async function getTrackRelationshipStats(
     .eq('derived_track_id', trackId);
 
   if (sourceError) {
-    console.error('❌ Error counting source tracks:', sourceError);
+    console.error('❌ Error fetching source track stats:', sourceError);
     throw sourceError;
   }
 
-  // Check if any derived tracks are checkpoints
-  const { data: checkpointData, error: checkpointError } = await supabase
-    .from('track_relationships')
-    .select('derived_track:tracks!derived_track_id(type)')
-    .eq('organization_id', orgId)
-    .eq('source_track_id', trackId)
-    .eq('relationship_type', 'source')
-    .limit(1);
-
-  if (checkpointError) {
-    console.error('❌ Error checking for derived checkpoints:', checkpointError);
-  }
-
-  const hasDerivedCheckpoints = checkpointData?.some(
+  const derived = derivedData || [];
+  const hasDerivedCheckpoints = derived.some(
     (rel: any) => rel.derived_track?.type === 'checkpoint'
-  ) || false;
+  );
 
   return {
-    derivedCount: derivedCount || 0,
+    derivedCount: derived.length,
     sourceCount: sourceCount || 0,
-    hasDerivedCheckpoints
+    hasDerivedCheckpoints,
+    derived
   };
 }
 
@@ -270,8 +275,7 @@ export async function getBatchTrackRelationships(
     relationship_type: string;
   }>;
 }>> {
-  // Get all derived relationships for these tracks
-  const { data: relationships, error } = await supabase
+  const { data, error } = await supabase
     .from('track_relationships')
     .select(`
       source_track_id,
@@ -283,17 +287,15 @@ export async function getBatchTrackRelationships(
       )
     `)
     .eq('organization_id', orgId)
-    .in('source_track_id', trackIds)
-    .order('created_at', { ascending: false });
+    .in('source_track_id', trackIds);
 
   if (error) {
-    console.error('❌ Error fetching batch relationships:', error);
+    console.error('❌ Error fetching batch track relationships:', error);
     throw error;
   }
 
-  // Group by source track
+  // Initialize result for all requested tracks
   const result: Record<string, any> = {};
-  
   for (const trackId of trackIds) {
     result[trackId] = {
       derivedCount: 0,
@@ -301,21 +303,17 @@ export async function getBatchTrackRelationships(
     };
   }
 
-  for (const rel of relationships || []) {
-    if (!result[rel.source_track_id]) {
-      result[rel.source_track_id] = {
-        derivedCount: 0,
-        derivedTracks: []
-      };
+  // Group by source track
+  for (const rel of data || []) {
+    if (rel.derived_track) {
+      result[rel.source_track_id].derivedCount++;
+      result[rel.source_track_id].derivedTracks.push({
+        id: rel.derived_track.id,
+        title: rel.derived_track.title,
+        type: rel.derived_track.type,
+        relationship_type: rel.relationship_type
+      });
     }
-    
-    result[rel.source_track_id].derivedCount++;
-    result[rel.source_track_id].derivedTracks.push({
-      id: rel.derived_track.id,
-      title: rel.derived_track.title,
-      type: rel.derived_track.type,
-      relationship_type: rel.relationship_type
-    });
   }
 
   return result;
