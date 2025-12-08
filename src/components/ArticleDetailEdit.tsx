@@ -248,6 +248,54 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     }
   }, [isEditMode, track.id]);
 
+  // Listen for facts regeneration completion (auto-refresh after AI generation)
+  useEffect(() => {
+    if (!isEditMode) return;
+    
+    const handleFactsRegenerated = async (event: CustomEvent) => {
+      if (event.detail.trackId === track.id) {
+        console.log('🔄 Facts regenerated event received, reloading facts...');
+        
+        // Reload facts from database
+        try {
+          const dbFacts = await factsCrud.getFactsForTrack(track.id);
+          const facts = dbFacts.map((f: any) => ({
+            title: f.title,
+            fact: f.content,
+            content: f.content,
+            type: f.type,
+            steps: f.steps || [],
+            contexts: [f.context?.specificity || 'universal'],
+            _dbId: f.id,
+            _extractedBy: f.extracted_by,
+          }));
+          
+          console.log(`✅ Reloaded ${facts.length} facts after regeneration`);
+          
+          // Update the edit form with new facts
+          setEditFormData(prev => ({
+            ...prev,
+            learning_objectives: facts
+          }));
+          
+          // Update original facts to prevent unsaved changes warning
+          setOriginalFacts(facts);
+          
+          toast.success(`✨ Key Facts updated: ${facts.length} facts loaded`);
+        } catch (error) {
+          console.error('Failed to reload facts:', error);
+          toast.error('Failed to reload updated facts');
+        }
+      }
+    };
+    
+    window.addEventListener('factsRegenerated', handleFactsRegenerated as EventListener);
+    
+    return () => {
+      window.removeEventListener('factsRegenerated', handleFactsRegenerated as EventListener);
+    };
+  }, [isEditMode, track.id]);
+
   const areArraysEqual = (a: any[] | undefined | null, b: any[] | undefined | null) => {
     const arr1 = a || [];
     const arr2 = b || [];

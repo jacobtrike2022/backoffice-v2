@@ -134,14 +134,22 @@ export async function updateTrack(input: UpdateTrackInput) {
           const result = await res.json();
           console.log(`✅ Facts regenerated: ${result.enriched?.length || 0} facts extracted`);
           
-          // Try to update the hash (gracefully handle missing column)
-          try {
-            await supabase.from('tracks').update({
-              facts_content_hash: newContentHash,
-              facts_generated_at: new Date().toISOString()
-            }).eq('id', id);
-          } catch (hashError) {
-            console.log('⚠️ Could not update hash (column may not exist)');
+          // Update hash in database
+          const { error: hashError } = await supabase.from('tracks').update({
+            facts_content_hash: newContentHash,
+            facts_generated_at: new Date().toISOString()
+          }).eq('id', id);
+          
+          if (hashError) {
+            console.error('⚠️ Failed to update facts hash:', hashError.message);
+          }
+          
+          // 🆕 CRITICAL: Trigger UI refresh by dispatching custom event
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('factsRegenerated', { 
+              detail: { trackId: id, factCount: result.enriched?.length || 0 }
+            }));
+            console.log('📡 Dispatched factsRegenerated event');
           }
         } else {
           const errorData = await res.json().catch(() => ({}));
