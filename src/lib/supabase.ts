@@ -2,15 +2,11 @@
 // SUPABASE CLIENT & CORE UTILITIES
 // ============================================================================
 
-import { createClient } from '@supabase/supabase-js';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { getSupabaseClient } from '../utils/supabase/client';
 import { APP_CONFIG } from './config';
 
-// Supabase configuration
-const supabaseUrl = `https://${projectId}.supabase.co`;
-const supabaseAnonKey = publicAnonKey;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Use singleton Supabase client to avoid multiple GoTrueClient instances
+export const supabase = getSupabaseClient();
 
 /**
  * Get current authenticated user's organization ID

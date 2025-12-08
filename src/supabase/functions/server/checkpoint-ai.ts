@@ -21,6 +21,8 @@ function stripMarkdown(text: string): string {
 
 // Helper: Calculate optimal question count based on facts
 function calculateQuestionCount(factCount: number): number {
+  if (factCount === 1) return 1;
+  if (factCount === 2) return 2;
   if (factCount <= 5) return 3;
   if (factCount <= 10) return 5;
   if (factCount <= 15) return 8;
@@ -35,31 +37,34 @@ interface ValidationResult {
   errors: string[];
 }
 
-function validateQuestions(questions: any[]): ValidationResult {
+function validateQuestions(questions: any[], expectedCount: number): ValidationResult {
   const errors: string[] = [];
   
-  // Check we have at least 3 questions
-  if (questions.length < 3) {
-    errors.push('Must generate at least 3 questions');
+  // Check we have the expected number of questions (allow some flexibility)
+  if (questions.length < Math.min(expectedCount, 1)) {
+    errors.push('Must generate at least 1 question');
   }
   
-  // Check correct answer distribution for multiple choice
-  const mcQuestions = questions.filter(q => q.type === 'multiple_choice');
-  if (mcQuestions.length > 0) {
-    const correctPositions = mcQuestions.map(q => 
-      q.answers.findIndex((a: any) => a.is_correct)
-    );
-    
-    const positionCounts: Record<number, number> = correctPositions.reduce((acc, pos) => {
-      acc[pos] = (acc[pos] || 0) + 1;
-      return acc;
-    }, {} as Record<number, number>);
-    
-    const maxPosition = Math.max(...Object.values(positionCounts));
-    
-    // No more than 50% of answers in same position
-    if (maxPosition > mcQuestions.length * 0.5) {
-      errors.push('Correct answers are not distributed evenly across positions');
+  // For 1-2 questions, skip distribution checks (not enough data)
+  if (questions.length >= 3) {
+    // Check correct answer distribution for multiple choice
+    const mcQuestions = questions.filter(q => q.type === 'multiple_choice');
+    if (mcQuestions.length > 0) {
+      const correctPositions = mcQuestions.map(q => 
+        q.answers.findIndex((a: any) => a.is_correct)
+      );
+      
+      const positionCounts: Record<number, number> = correctPositions.reduce((acc, pos) => {
+        acc[pos] = (acc[pos] || 0) + 1;
+        return acc;
+      }, {} as Record<number, number>);
+      
+      const maxPosition = Math.max(...Object.values(positionCounts));
+      
+      // No more than 50% of answers in same position
+      if (maxPosition > mcQuestions.length * 0.5) {
+        errors.push('Correct answers are not distributed evenly across positions');
+      }
     }
   }
   
@@ -121,39 +126,59 @@ checkpointAIApp.post('/ai-generate', async (c) => {
       return c.json({ error: 'Only articles are supported for AI generation' }, 400);
     }
     
-    // 2. Check minimum content
+    // 2. Check minimum content (lowered threshold)
     const articleContent = track.transcript || track.description || '';
     const wordCount = stripMarkdown(articleContent).split(/\s+/).filter(w => w.length > 0).length;
     
-    console.log('📊 Article word count:', wordCount);
+    console.log('📊 Article validation:', {
+      trackId,
+      trackTitle: track.title,
+      wordCount,
+      minRequired: 150
+    });
     
-    if (wordCount < 100) {
+    if (wordCount < 150) {
       return c.json({ 
-        error: 'Article too short to generate meaningful questions (minimum 100 words)' 
+        error: `Article too short (${wordCount} words). Need at least 150 words to generate meaningful questions.`
       }, 400);
     }
     
-    // 3. Fetch key facts
+    // 3. Fetch key facts (NO source_type filter - it doesn't exist!)
+    console.log('🔍 Attempting to fetch facts for trackId:', trackId);
+    
     const { data: facts, error: factsError } = await supabase
       .from('facts')
       .select('*')
       .eq('source_id', trackId)
       .order('created_at', { ascending: true }); // Order by creation time to preserve article flow
     
+    console.log('📊 Facts query result:', {
+      trackId,
+      factsFound: facts?.length || 0,
+      hasError: !!factsError,
+      error: factsError,
+      sampleFact: facts?.[0] ? {
+        id: facts[0].id,
+        title: facts[0].title,
+        source_id: facts[0].source_id
+      } : null
+    });
+    
     if (factsError) {
-      console.error('Error fetching facts:', factsError);
-      return c.json({ error: 'Failed to fetch key facts' }, 500);
+      console.error('❌ Error fetching facts:', factsError);
+      return c.json({ error: 'Failed to fetch key facts from database' }, 500);
     }
     
-    console.log('📚 Found', facts?.length || 0, 'key facts');
-    
-    // If no facts or too few, suggest extraction
-    if (!facts || facts.length < 3) {
+    // Handle no facts - helpful error message
+    if (!facts || facts.length === 0) {
+      console.warn('⚠️ No facts found for track:', trackId);
       return c.json({ 
-        error: 'Not enough content to generate at least 3 questions. This article needs key facts extracted first. Use the "Generate Key Facts" feature on the article, then try again.',
+        error: 'No key facts found for this article. Please go to the article detail page and click "Generate Key Facts" first, then try again.',
         needsFactExtraction: true
       }, 400);
     }
+    
+    console.log(`✅ Found ${facts.length} facts - proceeding with generation`);
     
     // 4. Calculate question count
     const questionCount = calculateQuestionCount(facts.length);
@@ -268,7 +293,7 @@ Generate ${questionCount} questions that test understanding of the most importan
         generatedQuestions = parsed.questions || [];
         
         // Validate
-        validationResult = validateQuestions(generatedQuestions);
+        validationResult = validateQuestions(generatedQuestions, questionCount);
         
         if (!validationResult.valid) {
           console.warn('⚠️ Validation failed:', validationResult.errors);

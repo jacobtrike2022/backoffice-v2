@@ -2,9 +2,9 @@
 // AUTHENTICATION & ORGANIZATION HELPERS
 // ============================================================================
 
-import { createClient } from '../utils/supabase/client';
+import { getSupabaseClient } from '../utils/supabase/client';
 
-const supabase = createClient();
+const supabase = getSupabaseClient();
 
 /**
  * Get the current user's organization ID

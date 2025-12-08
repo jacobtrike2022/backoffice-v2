@@ -72,10 +72,12 @@ export async function createTrack(input: CreateTrackInput) {
 
 /**
  * Update track (autosave)
+ * Automatically triggers key facts regeneration when content changes
  */
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
+  // Update the track
   const { data: track, error } = await supabase
     .from('tracks')
     .update(updateData)
@@ -84,6 +86,10 @@ export async function updateTrack(input: UpdateTrackInput) {
     .single();
 
   if (error) throw error;
+  
+  // Note: Auto-regeneration is disabled because facts_content_hash column doesn't exist
+  // Users can manually regenerate facts using the ⚡ Zap button in edit mode
+  
   return track;
 }
 

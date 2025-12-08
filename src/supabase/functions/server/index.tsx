@@ -659,6 +659,38 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
     if (trackType && trackId) {
       console.log(`💾 Saving ${result.enriched.length} facts to database for ${trackType}:${trackId}`)
       
+      // 1. Delete old facts for this track (preserve fact reuse across tracks)
+      const { data: oldUsages } = await supabase
+        .from('fact_usage')
+        .select('fact_id')
+        .eq('track_id', trackId);
+      
+      if (oldUsages && oldUsages.length > 0) {
+        const oldFactIds = oldUsages.map(u => u.fact_id);
+        console.log(`🗑️ Removing ${oldUsages.length} old fact associations`);
+        
+        // Delete fact_usage entries
+        await supabase
+          .from('fact_usage')
+          .delete()
+          .eq('track_id', trackId);
+        
+        // Delete orphaned facts (not used by any other track)
+        for (const factId of oldFactIds) {
+          const { data: stillUsed } = await supabase
+            .from('fact_usage')
+            .select('id')
+            .eq('fact_id', factId)
+            .limit(1);
+          
+          if (!stillUsed || stillUsed.length === 0) {
+            console.log(`   🗑️ Deleting orphaned fact: ${factId}`);
+            await supabase.from('facts').delete().eq('id', factId);
+          }
+        }
+      }
+      
+      // 2. Insert new facts
       for (let i = 0; i < result.enriched.length; i++) {
         const fact = result.enriched[i];
         try {
@@ -677,6 +709,7 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
               extracted_by: 'ai-pass-2',
               extraction_confidence: 0.85,
               company_id: companyId || null,
+              // Removed source_id - it has a foreign key constraint
             })
             .select()
             .single();
@@ -710,6 +743,19 @@ app.post("/make-server-2858cc8b/generate-key-facts", async (c) => {
       }
       
       console.log(`✅ Saved ${savedFactIds.length}/${result.enriched.length} facts to database`);
+      
+      // 3. Update track metadata (without hash columns that don't exist)
+      // Track when facts were last generated
+      const { error: updateError } = await supabase
+        .from('tracks')
+        .update({
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', trackId);
+      
+      if (updateError) {
+        console.log('⚠️ Could not update track timestamp (non-critical):', updateError.message);
+      }
     }
     
     return c.json({
