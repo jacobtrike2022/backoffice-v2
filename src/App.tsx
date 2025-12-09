@@ -8,12 +8,9 @@ import { ComplianceDashboard } from "./components/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
 import { People } from "./components/People";
 import { Units } from "./components/Units";
+import { NewUnit } from "./components/NewUnit";
 import { Organization } from "./components/Organization";
 import { ContentAuthoring } from "./components/ContentAuthoring";
-import { ContentLibrary } from "./components/ContentLibrary";
-import { Playlists } from "./components/Playlists";
-import { PlaylistWizard } from "./components/PlaylistWizard";
-import { KnowledgeBaseRevamp } from "./components/KnowledgeBaseRevamp";
 import { Forms } from "./components/Forms";
 import { Settings } from "./components/Settings";
 import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog";
@@ -41,6 +38,7 @@ type AppView =
   | "playlist-wizard"
   | "people"
   | "units"
+  | "new-unit"
   | "organization"
   | "authoring"
   | "forms"
@@ -467,6 +465,14 @@ export default function App() {
               setSelectedStoreId(storeId);
               requestNavigate("assignment");
             }}
+            onNavigate={requestNavigate}
+          />
+        );
+      case "new-unit":
+        return (
+          <NewUnit
+            onBack={() => requestNavigate("units")}
+            onSuccess={() => requestNavigate("units")}
           />
         );
       case "organization":

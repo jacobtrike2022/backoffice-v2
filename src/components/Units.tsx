@@ -9,12 +9,13 @@ import {
   Search, 
   Filter, 
   Download,
- Building,
+  Building,
   TrendingUp,
   X,
   ChevronDown,
   MapPin,
-  Users
+  Users,
+  Plus
 } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
@@ -37,12 +38,13 @@ interface Store {
 }
 
 interface UnitsProps {
-  currentRole: UserRole;
-  onBackToDashboard: () => void;
-  initialStoreId?: string;
+  role: UserRole;
+  selectedStoreId?: string;
+  onStoreSelect?: (storeId: string) => void;
+  onNavigate?: (view: string) => void;
 }
 
-export function Units({ currentRole, onBackToDashboard, initialStoreId }: UnitsProps) {
+export function Units({ role: currentRole, selectedStoreId: initialStoreId, onStoreSelect, onNavigate }: UnitsProps) {
   console.log('🏪 Units component rendered! Current role:', currentRole);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -237,6 +239,14 @@ export function Units({ currentRole, onBackToDashboard, initialStoreId }: UnitsP
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <Button 
+            variant="default" 
+            size="sm"
+            onClick={() => onNavigate?.('new-unit')}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            New Unit
+          </Button>
           <Button variant="outline" size="sm">
             <Download className="w-4 h-4 mr-2" />
             Export

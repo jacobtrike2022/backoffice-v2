@@ -1,0 +1,603 @@
+{
+  "$schema": "https://figma-make-lms-design-system/v1",
+  "version": "1.0.0",
+  "name": "Figma Make LMS Design System",
+  "description": "Comprehensive, machine-readable design system for the Learning Management System",
+  
+  "designTokens": {
+    "colors": {
+      "brand": {
+        "primary": {
+          "value": "#F64A05",
+          "description": "Primary brand color - vibrant orange",
+          "usage": ["primary buttons", "links", "accents", "focus states"]
+        },
+        "secondary": {
+          "value": "#FF733C",
+          "description": "Secondary brand color - lighter orange",
+          "usage": ["hover states", "gradients", "secondary accents"]
+        },
+        "grey": {
+          "value": "#1E1F27",
+          "description": "Brand grey - dark neutral",
+          "usage": ["dark mode backgrounds", "section backgrounds"]
+        },
+        "greyLight": {
+          "value": "#64748b",
+          "description": "Light grey for secondary text",
+          "usage": ["muted text", "secondary labels"]
+        },
+        "blueLight": {
+          "value": "#EAF0FF",
+          "description": "Light blue background",
+          "usage": ["light mode background", "subtle backgrounds"]
+        }
+      },
+      "semantic": {
+        "success": {
+          "value": "#10b981",
+          "description": "Success/excellent status",
+          "usage": ["success messages", "excellent performance", "completed states"]
+        },
+        "warning": {
+          "value": "#f59e0b",
+          "description": "Warning/caution status",
+          "usage": ["warning messages", "needs attention", "moderate performance"]
+        },
+        "danger": {
+          "value": "#ef4444",
+          "description": "Danger/error status",
+          "usage": ["error messages", "destructive actions", "poor performance"]
+        },
+        "atRisk": {
+          "value": "#dc2626",
+          "description": "At-risk status - critical",
+          "usage": ["critical alerts", "severe issues"]
+        },
+        "info": {
+          "value": "#3B82F6",
+          "description": "Information/good status",
+          "usage": ["info messages", "good performance", "neutral highlights"]
+        }
+      },
+      "ui": {
+        "light": {
+          "background": "#EAF0FF",
+          "foreground": "#1a1a1a",
+          "card": "#ffffff",
+          "cardForeground": "#1a1a1a",
+          "border": "rgba(71, 85, 105, 0.15)",
+          "input": "#ffffff",
+          "muted": "#f1f5f9",
+          "mutedForeground": "#64748b"
+        },
+        "dark": {
+          "background": "#1E1F27",
+          "foreground": "#ffffff",
+          "card": "#2D2E36",
+          "cardForeground": "#ffffff",
+          "border": "rgba(156, 163, 175, 0.2)",
+          "input": "#374151",
+          "muted": "#374151",
+          "mutedForeground": "#9ca3af"
+        }
+      },
+      "gradients": {
+        "brandPrimary": "linear-gradient(135deg, #F74A05 0%, #FF733C 100%)",
+        "excellent": "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+        "good": "linear-gradient(135deg, #3B82F6 0%, #2563eb 100%)",
+        "warning": "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+        "danger": "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
+      }
+    },
+    
+    "typography": {
+      "fontFamily": {
+        "primary": "Montserrat, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        "description": "Primary font family for all text"
+      },
+      "baseFontSize": "14px",
+      "fontWeights": {
+        "normal": 400,
+        "medium": 500,
+        "bold": 800
+      },
+      "scale": {
+        "h1": {
+          "fontSize": "2.25rem",
+          "fontWeight": 800,
+          "lineHeight": 1.1,
+          "letterSpacing": "-0.025em",
+          "usage": "Page titles, main headings"
+        },
+        "h2": {
+          "fontSize": "1.75rem",
+          "fontWeight": 800,
+          "lineHeight": 1.2,
+          "letterSpacing": "-0.015em",
+          "usage": "Section headings"
+        },
+        "h3": {
+          "fontSize": "1.375rem",
+          "fontWeight": 800,
+          "lineHeight": 1.3,
+          "usage": "Subsection headings, card titles"
+        },
+        "h4": {
+          "fontSize": "1.125rem",
+          "fontWeight": 800,
+          "lineHeight": 1.4,
+          "usage": "Component titles"
+        },
+        "body": {
+          "fontSize": "0.8125rem",
+          "fontWeight": 400,
+          "lineHeight": 1.5,
+          "usage": "Body text, descriptions"
+        },
+        "label": {
+          "fontSize": "0.8125rem",
+          "fontWeight": 500,
+          "lineHeight": 1.4,
+          "usage": "Form labels, small headings"
+        },
+        "caption": {
+          "fontSize": "0.75rem",
+          "fontWeight": 400,
+          "lineHeight": 1.4,
+          "usage": "Supporting text, metadata"
+        }
+      }
+    },
+    
+    "spacing": {
+      "scale": {
+        "0": "0",
+        "1": "0.25rem",
+        "2": "0.5rem",
+        "3": "0.75rem",
+        "4": "1rem",
+        "5": "1.25rem",
+        "6": "1.5rem",
+        "8": "2rem",
+        "10": "2.5rem",
+        "12": "3rem",
+        "16": "4rem",
+        "20": "5rem"
+      },
+      "semantic": {
+        "componentGap": "1.5rem",
+        "sectionGap": "2rem",
+        "sectionGapLarge": "3rem",
+        "cardPadding": "1.5rem",
+        "cardGap": "1.5rem",
+        "formFieldGap": "1rem",
+        "buttonGap": "0.75rem"
+      }
+    },
+    
+    "borderRadius": {
+      "sm": "8px",
+      "md": "10px",
+      "lg": "12px",
+      "xl": "16px",
+      "full": "9999px"
+    },
+    
+    "shadows": {
+      "sm": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)",
+      "md": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+      "lg": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+      "xl": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+      "brand": "0 10px 15px -3px rgba(247, 74, 5, 0.1), 0 4px 6px -2px rgba(247, 74, 5, 0.05)"
+    }
+  },
+  
+  "components": {
+    "Button": {
+      "description": "Primary interactive element for user actions",
+      "import": "import { Button } from './ui/button'",
+      "file": "/components/ui/button.tsx",
+      "props": {
+        "variant": {
+          "type": "enum",
+          "values": ["default", "destructive", "outline", "secondary", "ghost", "link"],
+          "default": "default",
+          "description": "Visual style variant"
+        },
+        "size": {
+          "type": "enum",
+          "values": ["default", "sm", "lg", "icon"],
+          "default": "default",
+          "description": "Size preset"
+        }
+      },
+      "variants": {
+        "default": {
+          "description": "Primary brand button with orange gradient",
+          "className": "bg-primary text-primary-foreground hover:bg-primary/90",
+          "usage": "Primary actions, save buttons, submit forms",
+          "example": "<Button>Save</Button>"
+        },
+        "destructive": {
+          "description": "Destructive action button",
+          "className": "bg-destructive text-white hover:bg-destructive/90",
+          "usage": "Delete, remove, cancel destructive operations",
+          "example": "<Button variant=\"destructive\">Delete</Button>"
+        },
+        "outline": {
+          "description": "Outlined button with border",
+          "className": "border bg-background text-foreground hover:bg-accent",
+          "usage": "Secondary actions, cancel buttons, filters",
+          "example": "<Button variant=\"outline\">Cancel</Button>"
+        },
+        "ghost": {
+          "description": "Minimal button without background",
+          "className": "hover:bg-accent hover:text-accent-foreground",
+          "usage": "Back buttons, minimal actions, icon buttons",
+          "example": "<Button variant=\"ghost\" size=\"sm\"><ArrowLeft /> Back</Button>"
+        }
+      },
+      "specialClasses": {
+        "brandGradient": {
+          "className": "bg-brand-gradient hover:opacity-90 text-white shadow-brand",
+          "description": "Enhanced primary button with gradient and shadow",
+          "usage": "Premium actions like 'Add Employee', 'Create Content'",
+          "example": "<Button className=\"bg-brand-gradient hover:opacity-90 text-white shadow-brand\">Add Employee</Button>"
+        }
+      },
+      "accessibility": {
+        "keyboardSupport": "Tab navigation, Enter/Space to activate",
+        "ariaAttributes": ["aria-label for icon-only buttons", "aria-disabled"],
+        "focusState": "focus-visible:ring with brand color"
+      }
+    },
+    
+    "Input": {
+      "description": "Text input field for user data entry",
+      "import": "import { Input } from './ui/input'",
+      "file": "/components/ui/input.tsx",
+      "props": {
+        "type": {
+          "type": "string",
+          "default": "text",
+          "description": "HTML input type (text, email, password, tel, etc.)"
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Placeholder text shown when empty"
+        }
+      },
+      "styling": {
+        "height": "h-9 (36px)",
+        "padding": "px-3 py-1",
+        "border": "border border-input",
+        "borderRadius": "rounded-md",
+        "background": "bg-input-background (white in light mode, dark grey in dark mode)",
+        "focusState": "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+        "errorState": "aria-invalid:border-destructive aria-invalid:ring-destructive/20"
+      },
+      "patterns": {
+        "withLabel": {
+          "description": "Standard input with label above",
+          "example": "<div>\n  <Label htmlFor=\"name\">Name</Label>\n  <Input id=\"name\" placeholder=\"Enter name\" />\n</div>"
+        },
+        "inlineLabel": {
+          "description": "Input with inline label (rare)",
+          "example": "<div className=\"flex items-center gap-2\">\n  <Label>Name</Label>\n  <Input />\n</div>"
+        }
+      },
+      "accessibility": {
+        "labels": "Always use Label component with htmlFor matching input id",
+        "validation": "Use aria-invalid for error states",
+        "required": "Mark required fields with aria-required or required attribute"
+      }
+    },
+    
+    "Card": {
+      "description": "Container component for grouping related content",
+      "import": "import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card'",
+      "file": "/components/ui/card.tsx",
+      "structure": {
+        "Card": "Outer container with border and rounded corners",
+        "CardHeader": "Optional header section with title and description",
+        "CardTitle": "Title text within header",
+        "CardDescription": "Subtitle/description text",
+        "CardContent": "Main content area with padding",
+        "CardFooter": "Optional footer section"
+      },
+      "styling": {
+        "background": "bg-card (white in light, dark grey in dark mode)",
+        "border": "border",
+        "borderRadius": "rounded-xl",
+        "gap": "gap-6 (internal spacing)"
+      },
+      "patterns": {
+        "standard": {
+          "description": "Card with header and content",
+          "example": "<Card>\n  <CardHeader>\n    <CardTitle>Title</CardTitle>\n    <CardDescription>Description</CardDescription>\n  </CardHeader>\n  <CardContent>\n    Content here\n  </CardContent>\n</Card>"
+        },
+        "contentOnly": {
+          "description": "Card with just content (no header)",
+          "example": "<Card>\n  <CardContent className=\"p-6\">\n    Content here\n  </CardContent>\n</Card>",
+          "usage": "Forms, simple grouped content"
+        },
+        "statsCard": {
+          "description": "Card displaying metrics with icon",
+          "example": "<Card className=\"border-2 border-primary/10\">\n  <CardContent className=\"p-6\">\n    <div className=\"flex items-center justify-between\">\n      <div>\n        <p className=\"text-sm text-muted-foreground\">Label</p>\n        <p className=\"text-3xl font-bold text-foreground mt-1\">123</p>\n      </div>\n      <div className=\"h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center\">\n        <Icon className=\"h-6 w-6 text-blue-600\" />\n      </div>\n    </div>\n  </CardContent>\n</Card>"
+        }
+      }
+    },
+    
+    "Label": {
+      "description": "Text label for form inputs",
+      "import": "import { Label } from './ui/label'",
+      "file": "/components/ui/label.tsx",
+      "props": {
+        "htmlFor": {
+          "type": "string",
+          "required": true,
+          "description": "ID of associated input element"
+        }
+      },
+      "styling": {
+        "fontSize": "text-sm (0.8125rem)",
+        "fontWeight": "font-medium (500)",
+        "color": "text-foreground"
+      },
+      "usage": "Always pair with Input using htmlFor/id relationship"
+    },
+    
+    "Select": {
+      "description": "Dropdown selection component",
+      "import": "import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'",
+      "file": "/components/ui/select.tsx",
+      "structure": {
+        "Select": "Container with value and onValueChange",
+        "SelectTrigger": "Button that opens dropdown",
+        "SelectValue": "Displays selected value",
+        "SelectContent": "Dropdown menu container",
+        "SelectItem": "Individual option"
+      },
+      "example": "<Select value={value} onValueChange={setValue}>\n  <SelectTrigger>\n    <SelectValue placeholder=\"Select...\" />\n  </SelectTrigger>\n  <SelectContent>\n    <SelectItem value=\"1\">Option 1</SelectItem>\n    <SelectItem value=\"2\">Option 2</SelectItem>\n  </SelectContent>\n</Select>"
+    },
+    
+    "Badge": {
+      "description": "Small status or category indicator",
+      "import": "import { Badge } from './ui/badge'",
+      "file": "/components/ui/badge.tsx",
+      "variants": {
+        "default": "Primary brand color",
+        "secondary": "Muted grey",
+        "destructive": "Red/danger",
+        "outline": "Outlined with border"
+      },
+      "usage": ["Status indicators", "Tags", "Categories", "Counts"]
+    },
+    
+    "Dialog": {
+      "description": "Modal dialog overlay",
+      "import": "import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog'",
+      "file": "/components/ui/dialog.tsx",
+      "structure": {
+        "Dialog": "Container with open state",
+        "DialogContent": "Modal content container",
+        "DialogHeader": "Header section",
+        "DialogTitle": "Title text",
+        "DialogDescription": "Subtitle/description",
+        "DialogFooter": "Footer with action buttons"
+      },
+      "accessibility": {
+        "focus": "Focus trap within modal",
+        "escape": "ESC key to close",
+        "overlay": "Click outside to close",
+        "aria": "aria-modal, aria-labelledby, aria-describedby"
+      }
+    },
+    
+    "Footer": {
+      "description": "Page footer component",
+      "import": "import { Footer } from './Footer'",
+      "file": "/components/Footer.tsx",
+      "usage": "Add at bottom of page content containers",
+      "example": "<div className=\"space-y-6\">\n  {/* Page content */}\n  <Footer />\n</div>"
+    }
+  },
+  
+  "layoutPatterns": {
+    "pageLayout": {
+      "description": "Standard page layout within DashboardLayout",
+      "structure": "<div className=\"space-y-6\">\n  {/* Header */}\n  <div className=\"flex items-center justify-between\">\n    <div>\n      <h1 className=\"text-foreground\">Page Title</h1>\n      <p className=\"text-muted-foreground mt-1\">Description</p>\n    </div>\n    <div className=\"flex items-center space-x-3\">\n      <Button variant=\"outline\">Secondary</Button>\n      <Button className=\"bg-brand-gradient hover:opacity-90 text-white shadow-brand\">Primary Action</Button>\n    </div>\n  </div>\n\n  {/* Stats Cards */}\n  <div className=\"grid grid-cols-1 md:grid-cols-3 gap-6\">\n    <Card>...</Card>\n  </div>\n\n  {/* Main Content */}\n  <Card>\n    <CardContent className=\"p-6\">\n      {/* Content */}\n    </CardContent>\n  </Card>\n\n  <Footer />\n</div>",
+      "examples": ["/components/People.tsx", "/components/Units.tsx"]
+    },
+    
+    "formLayout": {
+      "description": "Standard form layout within cards",
+      "structure": "<Card>\n  <CardContent className=\"p-6 space-y-6\">\n    {/* Section 1 */}\n    <div className=\"space-y-4\">\n      <h3 className=\"text-foreground\">Section Title</h3>\n      <div className=\"grid grid-cols-2 gap-4\">\n        <div>\n          <Label htmlFor=\"field1\">Field Label</Label>\n          <Input id=\"field1\" placeholder=\"Placeholder\" />\n        </div>\n        <div>\n          <Label htmlFor=\"field2\">Field Label</Label>\n          <Input id=\"field2\" placeholder=\"Placeholder\" />\n        </div>\n      </div>\n    </div>\n\n    {/* Section 2 */}\n    <div className=\"space-y-4\">\n      <h3 className=\"text-foreground\">Another Section</h3>\n      <div className=\"space-y-3\">\n        <div>\n          <Label htmlFor=\"field3\">Field Label</Label>\n          <Input id=\"field3\" placeholder=\"Placeholder\" />\n        </div>\n      </div>\n    </div>\n  </CardContent>\n</Card>",
+      "examples": ["/components/NewUnit.tsx"]
+    },
+    
+    "detailView": {
+      "description": "Detail page with back navigation",
+      "structure": "<div className=\"space-y-6\">\n  <div className=\"flex items-center gap-4\">\n    <Button variant=\"ghost\" size=\"sm\" onClick={onBack}>\n      <ArrowLeft className=\"w-4 h-4\" />\n      Back\n    </Button>\n    <div>\n      <h1 className=\"text-foreground\">Detail Title</h1>\n      <p className=\"text-muted-foreground mt-1\">Description</p>\n    </div>\n  </div>\n  {/* Content */}\n</div>",
+      "examples": ["/components/EmployeeProfile.tsx", "/components/StoreDetail.tsx"]
+    },
+    
+    "gridLayout": {
+      "description": "Responsive grid for cards/items",
+      "oneColumn": "grid grid-cols-1 gap-6",
+      "twoColumns": "grid grid-cols-1 md:grid-cols-2 gap-6",
+      "threeColumns": "grid grid-cols-1 md:grid-cols-3 gap-6",
+      "fourColumns": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+    },
+    
+    "listLayout": {
+      "description": "List of items with search and filters",
+      "structure": "<div className=\"space-y-6\">\n  {/* Search Bar */}\n  <div className=\"flex items-center gap-4\">\n    <div className=\"relative flex-1\">\n      <Search className=\"absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground\" />\n      <Input\n        placeholder=\"Search...\"\n        className=\"pl-10\"\n        value={searchQuery}\n        onChange={(e) => setSearchQuery(e.target.value)}\n      />\n    </div>\n    <Button variant=\"outline\" onClick={() => setShowFilters(!showFilters)}>\n      <Filter className=\"w-4 h-4 mr-2\" />\n      Filters\n    </Button>\n  </div>\n\n  {/* List Items */}\n  <div className=\"space-y-4\">\n    {items.map(item => (\n      <Card key={item.id}>\n        {/* Item content */}\n      </Card>\n    ))}\n  </div>\n</div>"
+    }
+  },
+  
+  "interactionPatterns": {
+    "navigation": {
+      "primaryNavigation": "Sidebar in DashboardLayout",
+      "backNavigation": "Ghost button with ArrowLeft icon",
+      "breadcrumbs": "Not commonly used, prefer back button",
+      "tabs": "Use for switching between related views within a page"
+    },
+    
+    "search": {
+      "pattern": "Input with Search icon on left",
+      "implementation": "<div className=\"relative flex-1\">\n  <Search className=\"absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground\" />\n  <Input\n    placeholder=\"Search...\"\n    className=\"pl-10\"\n    value={searchQuery}\n    onChange={(e) => setSearchQuery(e.target.value)}\n  />\n</div>",
+      "behavior": "Real-time filter as user types"
+    },
+    
+    "filtering": {
+      "pattern": "Button to toggle filter panel",
+      "implementation": "Button with Filter icon, toggles boolean state",
+      "filterPanel": "Card or Dialog with checkbox groups",
+      "clearFilters": "Provide clear/reset option"
+    },
+    
+    "modals": {
+      "confirmation": "Use Dialog for delete confirmations",
+      "forms": "Use Dialog for quick create/edit forms",
+      "selectors": "Custom modal components (e.g., TagSelector, DistrictSelector)",
+      "closeOptions": ["X button", "ESC key", "Click outside", "Cancel button"]
+    },
+    
+    "feedback": {
+      "toast": "Use toast from sonner@2.0.3 for success/error messages",
+      "loading": "disabled state on buttons with 'Saving...' text",
+      "emptyStates": "Show helpful message when no data",
+      "validation": "Inline errors below inputs, use aria-invalid"
+    },
+    
+    "dataDisplay": {
+      "lists": "Cards in vertical stack with space-y-4",
+      "grids": "Cards in responsive grid",
+      "tables": "Use data-table class for styled tables",
+      "stats": "Stats cards with large numbers and icons"
+    }
+  },
+  
+  "accessibilityGuidelines": {
+    "keyboardNavigation": {
+      "tabOrder": "Logical tab order through interactive elements",
+      "focusVisible": "Clear focus indicators on all interactive elements",
+      "shortcuts": "Consider keyboard shortcuts for common actions"
+    },
+    
+    "screenReaders": {
+      "semanticHTML": "Use proper heading hierarchy (h1 → h2 → h3)",
+      "labels": "All form inputs must have associated labels",
+      "ariaLabels": "Icon-only buttons need aria-label",
+      "altText": "All images need descriptive alt text",
+      "liveRegions": "Use aria-live for dynamic content updates"
+    },
+    
+    "colorContrast": {
+      "minimum": "WCAG AA standard - 4.5:1 for text",
+      "testing": "Test in both light and dark modes",
+      "colorBlindness": "Don't rely solely on color to convey information"
+    },
+    
+    "forms": {
+      "labels": "Visible labels for all inputs",
+      "required": "Mark required fields clearly",
+      "errors": "Associate error messages with inputs using aria-describedby",
+      "validation": "Provide clear, helpful error messages"
+    }
+  },
+  
+  "namingConventions": {
+    "components": {
+      "fileNames": "PascalCase.tsx (e.g., NewUnit.tsx)",
+      "componentNames": "PascalCase matching filename",
+      "props": "camelCase (e.g., onNavigate, selectedStore)"
+    },
+    
+    "functions": {
+      "handlers": "Prefix with 'handle' (e.g., handleSave, handleDelete)",
+      "callbacks": "Prefix with 'on' in props (e.g., onSave, onClose)",
+      "fetch": "Prefix with 'fetch' (e.g., fetchUsers)",
+      "utils": "camelCase descriptive names"
+    },
+    
+    "state": {
+      "boolean": "Prefix with 'is', 'has', 'show' (e.g., isLoading, showModal)",
+      "selected": "Prefix with 'selected' (e.g., selectedUser, selectedTags)",
+      "data": "Plural for arrays (e.g., users, stores, districts)"
+    },
+    
+    "styling": {
+      "classNames": "Use Tailwind utility classes",
+      "customClasses": "Kebab-case for custom classes in globals.css",
+      "semantic": "Use semantic color names (e.g., text-foreground, bg-card)"
+    }
+  },
+  
+  "bestPractices": {
+    "components": {
+      "composition": "Prefer composition over configuration",
+      "reusability": "Extract repeated patterns into shared components",
+      "singleResponsibility": "Each component should have one clear purpose",
+      "propTypes": "Use TypeScript interfaces for all component props"
+    },
+    
+    "state": {
+      "localFirst": "Use local state by default, lift up when needed",
+      "hooks": "Use custom hooks in /lib/hooks/useSupabase.ts for data fetching",
+      "derived": "Calculate derived state instead of storing it"
+    },
+    
+    "performance": {
+      "memoization": "Use React.memo for expensive components",
+      "keys": "Always provide stable keys for list items",
+      "lazyLoading": "Lazy load heavy components when appropriate"
+    },
+    
+    "errorHandling": {
+      "tryFinally": "Always use finally block to reset loading states",
+      "userMessages": "Show user-friendly error messages via toast",
+      "logging": "Console.error all errors with context",
+      "gracefulDegradation": "Show empty states or fallbacks on error"
+    },
+    
+    "dataFetching": {
+      "hooks": "Use useSupabase hooks for data fetching",
+      "loading": "Show loading states during fetch",
+      "refetch": "Provide refetch capability for user-triggered updates",
+      "caching": "Hooks handle caching automatically"
+    }
+  },
+  
+  "fileStructure": {
+    "components": {
+      "path": "/components",
+      "description": "Page-level and feature components",
+      "examples": ["People.tsx", "Units.tsx", "NewUnit.tsx", "Dashboard.tsx"]
+    },
+    
+    "ui": {
+      "path": "/components/ui",
+      "description": "Reusable UI primitives",
+      "examples": ["button.tsx", "input.tsx", "card.tsx", "dialog.tsx"]
+    },
+    
+    "lib": {
+      "path": "/lib",
+      "description": "Utilities and business logic",
+      "subdirectories": {
+        "crud": "CRUD operations for database",
+        "hooks": "Custom React hooks",
+        "utils": "Utility functions"
+      }
+    },
+    
+    "styles": {
+      "path": "/styles",
+      "description": "Global styles and CSS",
+      "files": ["globals.css"]
+    }
+  }
+}

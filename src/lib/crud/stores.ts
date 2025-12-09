@@ -160,15 +160,20 @@ export async function getDistrictById(districtId: string) {
  * Create a new district
  */
 export async function createDistrict(districtData: {
-  organization_id: string;
-  name: string;
-  code?: string;
-  manager_id?: string;
+  district_name: string;
+  district_code: string;
 }) {
   try {
+    const orgId = await getCurrentUserOrgId();
+    if (!orgId) throw new Error('Organization ID required');
+
     const { data, error } = await supabase
       .from('districts')
-      .insert([districtData])
+      .insert([{
+        organization_id: orgId,
+        name: districtData.district_name,
+        code: districtData.district_code
+      }])
       .select()
       .single();
 
@@ -186,16 +191,19 @@ export async function createDistrict(districtData: {
 export async function updateDistrict(
   districtId: string,
   updates: {
-    name?: string;
-    code?: string;
-    manager_id?: string;
-    is_active?: boolean;
+    district_name?: string;
+    district_code?: string;
   }
 ) {
   try {
+    const updateData: any = {};
+    if (updates.district_name) updateData.name = updates.district_name;
+    if (updates.district_code) updateData.code = updates.district_code;
+    updateData.updated_at = new Date().toISOString();
+
     const { data, error } = await supabase
       .from('districts')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq('id', districtId)
       .select()
       .single();
@@ -204,6 +212,24 @@ export async function updateDistrict(
     return data;
   } catch (err) {
     console.error('Error in updateDistrict:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a district
+ */
+export async function deleteDistrict(districtId: string) {
+  try {
+    const { error } = await supabase
+      .from('districts')
+      .delete()
+      .eq('id', districtId);
+
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Error in deleteDistrict:', err);
     throw err;
   }
 }
@@ -467,20 +493,30 @@ export async function getStoreById(storeId: string) {
  * Create a new store
  */
 export async function createStore(storeData: {
-  organization_id: string;
-  name: string;
-  code?: string;
-  district_id?: string;
-  manager_id?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
+  store_name: string;
+  store_code: string;
+  district_id: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
 }) {
   try {
+    const orgId = await getCurrentUserOrgId();
+    if (!orgId) throw new Error('Organization ID required');
+
     const { data, error } = await supabase
       .from('stores')
-      .insert([storeData])
+      .insert([{
+        organization_id: orgId,
+        name: storeData.store_name,
+        code: storeData.store_code,
+        district_id: storeData.district_id,
+        address: storeData.address,
+        city: storeData.city,
+        state: storeData.state,
+        zip: storeData.zip_code
+      }])
       .select()
       .single();
 
@@ -498,21 +534,29 @@ export async function createStore(storeData: {
 export async function updateStore(
   storeId: string,
   updates: {
-    name?: string;
-    code?: string;
+    store_name?: string;
+    store_code?: string;
     district_id?: string;
-    manager_id?: string;
-    address?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    is_active?: boolean;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip_code?: string | null;
   }
 ) {
   try {
+    const updateData: any = {};
+    if (updates.store_name) updateData.name = updates.store_name;
+    if (updates.store_code) updateData.code = updates.store_code;
+    if (updates.district_id) updateData.district_id = updates.district_id;
+    if (updates.address !== undefined) updateData.address = updates.address;
+    if (updates.city !== undefined) updateData.city = updates.city;
+    if (updates.state !== undefined) updateData.state = updates.state;
+    if (updates.zip_code !== undefined) updateData.zip = updates.zip_code;
+    updateData.updated_at = new Date().toISOString();
+
     const { data, error } = await supabase
       .from('stores')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq('id', storeId)
       .select()
       .single();
@@ -520,7 +564,7 @@ export async function updateStore(
     if (error) throw error;
     return data;
   } catch (err) {
-    console.error('Error in updateStore:', err);
+    console.error('Error in updateStore:', err)
     throw err;
   }
 }
