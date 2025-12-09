@@ -31,7 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
-import { useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 
@@ -68,6 +68,10 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
   // Get current user for organization context
   const { user: currentUser } = useCurrentUser();
+
+  // Fetch roles and stores for dropdowns
+  const { roles } = useRoles(currentUser?.organization_id);
+  const { stores } = useStores({ organization_id: currentUser?.organization_id });
 
   // Fetch users from Supabase
   const { users, loading, error, refetch } = useUsers({
@@ -136,7 +140,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
     setCreating(true);
     try {
-      const result = await crud.users.create({
+      const result = await crud.createUser({
         ...newUser,
         organization_id: currentUser.organization_id
       });
@@ -591,9 +595,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="role-1">Store Manager</SelectItem>
-                  <SelectItem value="role-2">Sales Associate</SelectItem>
-                  <SelectItem value="role-3">Assistant Manager</SelectItem>
+                  {roles.map(role => (
+                    <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -605,9 +609,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                   <SelectValue placeholder="Select store" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="store-1">Store A</SelectItem>
-                  <SelectItem value="store-2">Store B</SelectItem>
-                  <SelectItem value="store-3">Store C</SelectItem>
+                  {stores.map(store => (
+                    <SelectItem key={store.id} value={store.id}>{store.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

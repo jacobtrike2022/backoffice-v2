@@ -417,3 +417,61 @@ export function useKBCategories() {
 
   return { categories, loading, error, refetch };
 }
+
+/**
+ * Hook to get roles for an organization
+ */
+export function useRoles(organizationId?: string) {
+  const [roles, setRoles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function fetchRoles() {
+      try {
+        setLoading(true);
+        const data = await crud.getRoles(organizationId);
+        setRoles(data);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching roles:', err);
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRoles();
+  }, [organizationId]);
+
+  return { roles, loading, error, refetch: () => setLoading(true) };
+}
+
+/**
+ * Hook to get districts for an organization
+ */
+export function useDistricts(organizationId?: string) {
+  const [districts, setDistricts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function fetchDistricts() {
+      try {
+        setLoading(true);
+        const data = await crud.getDistricts(organizationId);
+        setDistricts(data);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching districts:', err);
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDistricts();
+  }, [organizationId]);
+
+  return { districts, loading, error, refetch: () => setLoading(true) };
+}

@@ -2,7 +2,215 @@
 // STORES CRUD OPERATIONS
 // ============================================================================
 
-import { supabase } from '../supabase';
+import { supabase, getCurrentUserOrgId } from '../supabase';
+
+// ============================================================================
+// ROLES CRUD OPERATIONS
+// ============================================================================
+
+/**
+ * Get all roles for an organization
+ */
+export async function getRoles(organizationId?: string) {
+  try {
+    const orgId = organizationId || await getCurrentUserOrgId();
+    if (!orgId) throw new Error('Organization ID required');
+
+    const { data, error } = await supabase
+      .from('roles')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('status', 'active')
+      .order('level', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error in getRoles:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get a single role by ID
+ */
+export async function getRoleById(roleId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('roles')
+      .select('*')
+      .eq('id', roleId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in getRoleById:', err);
+    throw err;
+  }
+}
+
+/**
+ * Create a new role
+ */
+export async function createRole(roleData: {
+  organization_id: string;
+  name: string;
+  description?: string;
+  level?: number;
+  permissions_json?: Record<string, any>;
+}) {
+  try {
+    const { data, error } = await supabase
+      .from('roles')
+      .insert([roleData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in createRole:', err);
+    throw err;
+  }
+}
+
+/**
+ * Update a role
+ */
+export async function updateRole(
+  roleId: string,
+  updates: {
+    name?: string;
+    description?: string;
+    level?: number;
+    permissions_json?: Record<string, any>;
+    is_active?: boolean;
+  }
+) {
+  try {
+    const { data, error } = await supabase
+      .from('roles')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', roleId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in updateRole:', err);
+    throw err;
+  }
+}
+
+// ============================================================================
+// DISTRICTS CRUD OPERATIONS
+// ============================================================================
+
+/**
+ * Get all districts for an organization
+ */
+export async function getDistricts(organizationId?: string) {
+  try {
+    const orgId = organizationId || await getCurrentUserOrgId();
+    if (!orgId) throw new Error('Organization ID required');
+
+    const { data, error } = await supabase
+      .from('districts')
+      .select(`
+        *,
+        manager:users!manager_id(id, first_name, last_name, email)
+      `)
+      .eq('organization_id', orgId)
+      .eq('status', 'active')
+      .order('name');
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error in getDistricts:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get a single district by ID
+ */
+export async function getDistrictById(districtId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('districts')
+      .select(`
+        *,
+        manager:users!manager_id(id, first_name, last_name, email)
+      `)
+      .eq('id', districtId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in getDistrictById:', err);
+    throw err;
+  }
+}
+
+/**
+ * Create a new district
+ */
+export async function createDistrict(districtData: {
+  organization_id: string;
+  name: string;
+  code?: string;
+  manager_id?: string;
+}) {
+  try {
+    const { data, error } = await supabase
+      .from('districts')
+      .insert([districtData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in createDistrict:', err);
+    throw err;
+  }
+}
+
+/**
+ * Update a district
+ */
+export async function updateDistrict(
+  districtId: string,
+  updates: {
+    name?: string;
+    code?: string;
+    manager_id?: string;
+    is_active?: boolean;
+  }
+) {
+  try {
+    const { data, error } = await supabase
+      .from('districts')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', districtId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error in updateDistrict:', err);
+    throw err;
+  }
+}
+
+// ============================================================================
+// STORES CRUD OPERATIONS
+// ============================================================================
 
 /**
  * Get store performance data for dashboard
