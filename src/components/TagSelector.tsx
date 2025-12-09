@@ -28,7 +28,8 @@ export function TagSelector({ selectedTags, onSave, onClose }: TagSelectorProps)
       const { data, error } = await supabase
         .from('tags')
         .select('id, name')
-        .eq('tag_type', 'unit')
+        .eq('system_category', 'units')
+        .eq('type', 'child')
         .order('name');
 
       if (error) throw error;
@@ -48,9 +49,49 @@ export function TagSelector({ selectedTags, onSave, onClose }: TagSelectorProps)
 
     setCreating(true);
     try {
+      // First, find or create a parent tag for custom unit tags
+      const { data: parentTags, error: parentError } = await supabase
+        .from('tags')
+        .select('id')
+        .eq('system_category', 'units')
+        .eq('type', 'parent')
+        .eq('name', 'Custom Unit Tags')
+        .limit(1);
+
+      if (parentError) throw parentError;
+
+      let parentId = parentTags?.[0]?.id;
+
+      // If no parent exists, create one
+      if (!parentId) {
+        const { data: newParent, error: createParentError } = await supabase
+          .from('tags')
+          .insert([{
+            name: 'Custom Unit Tags',
+            system_category: 'units',
+            type: 'parent',
+            organization_id: null,
+            is_system_locked: false,
+            description: 'User-created tags for unit categorization'
+          }])
+          .select()
+          .single();
+
+        if (createParentError) throw createParentError;
+        parentId = newParent.id;
+      }
+
+      // Create the child tag
       const { data, error } = await supabase
         .from('tags')
-        .insert([{ name: newTagName.trim(), tag_type: 'unit' }])
+        .insert([{
+          name: newTagName.trim(),
+          system_category: 'units',
+          type: 'child',
+          parent_id: parentId,
+          organization_id: null,
+          is_system_locked: false
+        }])
         .select()
         .single();
 
