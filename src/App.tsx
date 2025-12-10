@@ -402,10 +402,8 @@ export default function App() {
       case "compliance":
         return (
           <ComplianceDashboard
-            role={currentRole}
-            onNavigateToAudit={() =>
-              requestNavigate("compliance-audit")
-            }
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
           />
         );
       case "compliance-audit":

@@ -6,9 +6,12 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { ArrowLeft, Upload, X, Plus } from 'lucide-react';
 import { createStore } from '../lib/crud/stores';
+import { addUnitTags } from '../lib/crud/unitTags';
+import { uploadStorePhoto } from '../lib/storage/uploadStorePhoto';
 import { useDistricts, useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
 import { TagSelector } from './TagSelector';
 import { DistrictSelector } from './DistrictSelector';
+import { SimpleAddressForm } from './SimpleAddressForm';
 import { toast } from 'sonner@2.0.3';
 import {
   Select,
@@ -27,10 +30,18 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
   // Basic Info
   const [unitName, setUnitName] = useState('');
   const [unitNumber, setUnitNumber] = useState('');
-  const [address, setAddress] = useState('');
+  
+  // Address fields
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [zip, setZip] = useState('');
+  const [county, setCounty] = useState('');
+  
+  // Contact info
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [county, setCounty] = useState('');
   
   // Image
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -55,7 +66,7 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
   const { districts } = useDistricts();
   const { users } = useUsers();
 
-  // Filter managers
+  // Filter managers from live database
   const managers = users.filter(u => 
     u.role_name === 'Store Manager' || 
     u.role_name === 'District Manager' || 
@@ -79,6 +90,29 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
     setPhotoPreview(null);
   };
 
+  const handleAddressChange = (field: string, value: string) => {
+    switch (field) {
+      case 'addressLine1':
+        setAddressLine1(value);
+        break;
+      case 'addressLine2':
+        setAddressLine2(value);
+        break;
+      case 'city':
+        setCity(value);
+        break;
+      case 'state':
+        setState(value);
+        break;
+      case 'zip':
+        setZip(value);
+        break;
+      case 'county':
+        setCounty(value);
+        break;
+    }
+  };
+
   const handleSave = async () => {
     if (!currentUser?.organization_id) {
       toast.error('Organization context required');
@@ -97,24 +131,60 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
 
     setSaving(true);
     try {
-      // TODO: Upload photo to Supabase Storage if photoFile exists
-      // const photoUrl = photoFile ? await uploadPhoto(photoFile) : null;
+      // Build formatted address
+      const addressParts = [
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        zip
+      ].filter(Boolean);
+      const formattedAddress = addressParts.join(', ');
 
-      // Create the store/unit
-      await createStore({
+      // Step 1: Create the store/unit first (to get the store ID)
+      const newStore = await createStore({
         store_name: unitName,
         store_code: unitNumber,
         district_id: selectedDistrictId || null,
-        address: address || null,
-        city: null,
-        state: null,
-        zip_code: null,
+        street_address: addressLine1 || null,
+        address_line_2: addressLine2 || null,
+        address: formattedAddress || null,
+        city: city || null,
+        state: state || null,
+        zip_code: zip || null,
+        county: county || null,
+        phone: phone || null,
+        email: email || null,
+        manager_id: selectedManagerId || null,
+        latitude: null,
+        longitude: null,
+        place_id: null,
+        photo_url: null // Will update this after photo upload
       });
 
-      // TODO: Save tags relationship
-      // TODO: Save staff assignments
-      // TODO: Save photo URL
-      // TODO: Save phone and email
+      // Step 2: Upload photo to Supabase Storage if photoFile exists
+      if (photoFile && newStore.id) {
+        try {
+          const photoUrl = await uploadStorePhoto(photoFile, newStore.id);
+          
+          // Update the store with the photo URL
+          const { updateStore } = await import('../lib/crud/stores');
+          await updateStore(newStore.id, { photo_url: photoUrl });
+        } catch (photoError) {
+          console.error('Error uploading photo:', photoError);
+          toast.error('Unit created but photo upload failed');
+        }
+      }
+
+      // Step 3: Save tags relationship
+      if (selectedTags.length > 0 && newStore.id) {
+        try {
+          await addUnitTags(newStore.id, selectedTags);
+        } catch (tagError) {
+          console.error('Error adding tags:', tagError);
+          // Don't fail the entire operation for tag errors
+        }
+      }
 
       toast.success('Unit created successfully');
       onSuccess();
@@ -186,48 +256,44 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
             </div>
           </div>
 
+          {/* Location */}
+          <div className="space-y-4">
+            <h3 className="text-foreground">Location</h3>
+            <SimpleAddressForm
+              address={{
+                addressLine1,
+                addressLine2,
+                city,
+                state,
+                zip,
+                county
+              }}
+              onChange={handleAddressChange}
+            />
+          </div>
+
           {/* Contact Information */}
           <div className="space-y-4">
             <h3 className="text-foreground">Contact Information</h3>
-            <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="address">Address</Label>
+                <Label htmlFor="phone">Store Phone Number</Label>
                 <Input
-                  id="address"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="123 Main Street, City, State ZIP"
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(555) 123-4567"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(555) 123-4567"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="email">Store Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="store@company.com"
-                  />
-                </div>
-              </div>
               <div>
-                <Label htmlFor="county">County (Optional)</Label>
+                <Label htmlFor="email">Store Email</Label>
                 <Input
-                  id="county"
-                  value={county}
-                  onChange={(e) => setCounty(e.target.value)}
-                  placeholder="e.g., Suffolk County"
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="store@company.com"
                 />
               </div>
             </div>
@@ -329,11 +395,17 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
                   <SelectValue placeholder="Select a manager" />
                 </SelectTrigger>
                 <SelectContent>
-                  {managers.map((manager) => (
-                    <SelectItem key={manager.id} value={manager.id}>
-                      {manager.first_name} {manager.last_name} - {manager.role_name}
+                  {managers.length > 0 ? (
+                    managers.map((manager) => (
+                      <SelectItem key={manager.id} value={manager.id}>
+                        {manager.first_name} {manager.last_name} - {manager.role_name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="none" disabled>
+                      No managers found
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
             </div>

@@ -42,6 +42,23 @@ interface ComplianceDashboardProps {
   onNavigate?: (view: string) => void;
 }
 
+// Custom tick component that properly uses CSS variables
+const CustomTick = ({ x, y, payload, axis }: any) => {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={axis === 'x' ? 16 : 4}
+        textAnchor={axis === 'x' ? 'middle' : 'end'}
+        className="fill-muted-foreground text-xs"
+      >
+        {payload.value}
+      </text>
+    </g>
+  );
+};
+
 // Mock compliance data
 const complianceOverviewData = [
   { month: 'Jul', company: 88, district: 85, unit: 82 },
@@ -253,14 +270,12 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                 <XAxis 
                   dataKey="month" 
                   stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  fontSize={12}
+                  tick={(props) => <CustomTick {...props} axis="x" />}
                   tickLine={false}
                 />
                 <YAxis 
                   stroke="hsl(var(--muted-foreground))"
-                  tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  fontSize={12}
+                  tick={(props) => <CustomTick {...props} axis="y" />}
                   tickLine={false}
                   domain={[70, 100]}
                 />

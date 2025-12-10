@@ -60,145 +60,98 @@ export function FilterDialog({
   if (!property) return null;
 
   const Icon = property.icon;
-
-  const handleProgressChange = (field: 'min' | 'max', value: number) => {
-    onFilterChange('progress', {
-      ...filters.progress,
-      [field]: value
-    });
-  };
-
-  const handleDateRangeChange = (field: 'start' | 'end', date: Date | null) => {
-    onFilterChange('dateRange', {
-      ...filters.dateRange,
-      [field]: date
-    });
-  };
-
-  const handleApply = () => {
-    onClose();
-  };
-
+  
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-3">
             <div className="p-2 bg-primary/10 rounded-lg">
               <Icon className="h-4 w-4 text-primary" />
             </div>
-            <span>{title}</span>
+            <span>{property.label}</span>
           </DialogTitle>
           <DialogDescription>
-            Filter and refine your search results
+            {property.description}
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4">
-          {/* Progress Range Filter */}
+        <div className="grid gap-4 py-4">
           {property.type === 'range' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-sm">Min %</Label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={filters.progress.min}
-                    onChange={(e) => handleProgressChange('min', parseInt(e.target.value) || 0)}
-                    className="mt-1"
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="min">Min</Label>
+                <Input
+                  id="min"
+                  type="number"
+                  value={filters.progress.min}
+                  onChange={(e) => onFilterChange('progress', { min: parseFloat(e.target.value), max: filters.progress.max })}
+                  className="w-full"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="max">Max</Label>
+                <Input
+                  id="max"
+                  type="number"
+                  value={filters.progress.max}
+                  onChange={(e) => onFilterChange('progress', { min: filters.progress.min, max: parseFloat(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
+          {property.type === 'date' && (
+            <div className="relative">
+              <Popover>
+                <PopoverTrigger className="w-full">
+                  <Button
+                    variant="outline"
+                    className="w-full pl-3 text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {filters.dateRange.start ? (
+                      format(filters.dateRange.start, 'MMM dd')
+                    ) : (
+                      <span>Pick a date</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={filters.dateRange.start}
+                    onSelect={(date) => onFilterChange('dateRange', { start: date, end: filters.dateRange.end })}
+                    className="w-full"
                   />
-                </div>
-                <div>
-                  <Label className="text-sm">Max %</Label>
-                  <Input
-                    type="number"
-                    placeholder="100"
-                    value={filters.progress.max}
-                    onChange={(e) => handleProgressChange('max', parseInt(e.target.value) || 100)}
-                    className="mt-1"
-                  />
-                </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+          {property.type === 'checkbox' && (
+            <div className="space-y-2">
+              <Label htmlFor="checkbox">Select {property.label}</Label>
+              <div className="grid grid-cols-2 gap-4">
+                {property.options?.map((option) => (
+                  <Checkbox
+                    key={option}
+                    id={option}
+                    checked={filters[property.id as keyof FilterState].includes(option)}
+                    onCheckedChange={(checked) => onOptionSelect(property.id as keyof FilterState, option)}
+                  >
+                    {option}
+                  </Checkbox>
+                ))}
               </div>
             </div>
           )}
-
-          {/* Multi-Select Filter */}
-          {property.type === 'multi-select' && property.options && (
-            <div className="space-y-3">
-              <div className="max-h-64 overflow-y-auto space-y-2">
-                {property.options.map((option) => {
-                  const currentFilter = filters[property.id as keyof FilterState] as string[];
-                  const isSelected = currentFilter?.includes(option);
-                  return (
-                    <div key={option} className="flex items-center space-x-3">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => onOptionSelect(property.id as keyof FilterState, option)}
-                      />
-                      <label 
-                        className="text-sm cursor-pointer flex-1" 
-                        onClick={() => onOptionSelect(property.id as keyof FilterState, option)}
-                      >
-                        {option}
-                      </label>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Date Range Filter */}
-          {property.type === 'date-range' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-sm">Start Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {filters.dateRange.start ? format(filters.dateRange.start, 'MMM dd') : 'Select date'}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={filters.dateRange.start || undefined}
-                        onSelect={(date) => handleDateRangeChange('start', date || null)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label className="text-sm">End Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {filters.dateRange.end ? format(filters.dateRange.end, 'MMM dd') : 'Select date'}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={filters.dateRange.end || undefined}
-                        onSelect={(date) => handleDateRangeChange('end', date || null)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Button onClick={handleApply} className="w-full hero-primary">
-            Apply Filter
-          </Button>
         </div>
+        <Button
+          type="submit"
+          className="w-full"
+          onClick={onClose}
+        >
+          Apply
+        </Button>
       </DialogContent>
     </Dialog>
   );

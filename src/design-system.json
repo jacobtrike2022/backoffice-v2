@@ -395,6 +395,84 @@
       }
     },
     
+    "AddressPicker": {
+      "description": "Google Places Autocomplete address picker with automatic field population",
+      "import": "import { AddressPicker } from './AddressPicker'",
+      "file": "/components/AddressPicker.tsx",
+      "props": {
+        "onAddressSelect": {
+          "type": "function",
+          "required": true,
+          "description": "Callback when address is selected, receives AddressComponents object"
+        },
+        "defaultValue": {
+          "type": "string",
+          "default": "",
+          "description": "Initial address value to display"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disables the input field"
+        }
+      },
+      "addressComponents": {
+        "streetAddress": "Street line only (e.g., '123 Main St')",
+        "city": "City/town name",
+        "state": "State abbreviation (e.g., 'NY')",
+        "zip": "ZIP/postal code",
+        "county": "County name (without 'County' suffix)",
+        "country": "Country name",
+        "formattedAddress": "Full formatted address for display",
+        "latitude": "GPS latitude coordinate",
+        "longitude": "GPS longitude coordinate",
+        "placeId": "Google Places unique identifier"
+      },
+      "setup": {
+        "apiKey": "Requires VITE_GOOGLE_MAPS_API_KEY environment variable",
+        "documentation": "See /GOOGLE_MAPS_SETUP.md for complete setup instructions",
+        "enabledAPIs": ["Places API", "Maps JavaScript API"],
+        "restrictions": "Restricted to US addresses by default (configurable)",
+        "fallback": "Gracefully degrades to manual text input if API unavailable"
+      },
+      "usage": {
+        "basic": "<AddressPicker \n  onAddressSelect={(components) => {\n    setStreetAddress(components.streetAddress);\n    setCity(components.city);\n    setState(components.state);\n    setZip(components.zip);\n    setCounty(components.county);\n  }}\n/>",
+        "withState": "const [formattedAddress, setFormattedAddress] = useState('');\n\n<AddressPicker\n  defaultValue={formattedAddress}\n  onAddressSelect={(components) => {\n    // Auto-populate all address fields\n    setFormattedAddress(components.formattedAddress);\n    setStreetAddress(components.streetAddress);\n    setCity(components.city);\n    setState(components.state);\n    setZip(components.zip);\n    setCounty(components.county);\n    setLatitude(components.latitude);\n    setLongitude(components.longitude);\n    setPlaceId(components.placeId);\n  }}\n/>"
+      },
+      "styling": {
+        "container": "Standard Label + Input pattern",
+        "input": "Uses Input component with MapPin icon",
+        "loadingState": "Shows Loader2 spinner while loading API",
+        "icon": "MapPin icon (primary color when ready, muted when loading)"
+      },
+      "features": [
+        "Real-time address autocomplete as user types",
+        "Automatic extraction of address components",
+        "GPS coordinate capture for mapping features",
+        "Google Place ID for future reference",
+        "Graceful fallback to manual entry",
+        "US address restriction (configurable)",
+        "Loading state with spinner",
+        "Error handling with user-friendly messages"
+      ],
+      "accessibility": {
+        "labels": "Includes proper Label for 'Address' field",
+        "feedback": "Clear error messages and help text",
+        "keyboard": "Full keyboard navigation support via Google Places",
+        "fallback": "Manual entry always available"
+      },
+      "examples": [
+        "/components/NewUnit.tsx"
+      ],
+      "relatedPatterns": {
+        "autoFilledFields": {
+          "description": "Display auto-filled fields below AddressPicker in highlighted style",
+          "example": "<AddressPicker onAddressSelect={handleAddressSelect} />\n\n{formattedAddress && (\n  <div className=\"grid grid-cols-3 gap-4\">\n    <div>\n      <Label htmlFor=\"city\">City</Label>\n      <Input\n        id=\"city\"\n        value={city}\n        onChange={(e) => setCity(e.target.value)}\n        className=\"bg-primary/5\"\n      />\n    </div>\n    <div>\n      <Label htmlFor=\"state\">State</Label>\n      <Input\n        id=\"state\"\n        value={state}\n        onChange={(e) => setState(e.target.value)}\n        className=\"bg-primary/5\"\n      />\n    </div>\n    <div>\n      <Label htmlFor=\"zip\">ZIP Code</Label>\n      <Input\n        id=\"zip\"\n        value={zip}\n        onChange={(e) => setZip(e.target.value)}\n        className=\"bg-primary/5\"\n      />\n    </div>\n  </div>\n)}",
+          "usage": "Show fields remain editable after auto-fill with subtle background highlight"
+        }
+      }
+    },
+    
     "Footer": {
       "description": "Page footer component",
       "import": "import { Footer } from './Footer'",

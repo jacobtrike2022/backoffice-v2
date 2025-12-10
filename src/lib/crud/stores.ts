@@ -3,6 +3,9 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId } from '../supabase';
+import { projectId, publicAnonKey } from '../supabase/info';
+
+const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 // ============================================================================
 // ROLES CRUD OPERATIONS
@@ -164,21 +167,33 @@ export async function createDistrict(districtData: {
   district_code: string;
 }) {
   try {
-    const orgId = await getCurrentUserOrgId();
-    if (!orgId) throw new Error('Organization ID required');
+    // Get the current user's session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      throw new Error('You must be logged in to create a district');
+    }
 
-    const { data, error } = await supabase
-      .from('districts')
-      .insert([{
-        organization_id: orgId,
+    // Call server endpoint (bypasses RLS by using service role key)
+    const response = await fetch(`${SERVER_URL}/districts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
         name: districtData.district_name,
-        code: districtData.district_code
-      }])
-      .select()
-      .single();
+        code: districtData.district_code,
+      }),
+    });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to create district');
+    }
+
+    const { district } = await response.json();
+    return district;
   } catch (err) {
     console.error('Error in createDistrict:', err);
     throw err;
@@ -495,11 +510,21 @@ export async function getStoreById(storeId: string) {
 export async function createStore(storeData: {
   store_name: string;
   store_code: string;
-  district_id: string;
+  district_id?: string | null;
+  street_address?: string | null;
+  address_line_2?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
+  county?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  photo_url?: string | null;
+  manager_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  place_id?: string | null;
 }) {
   try {
     const orgId = await getCurrentUserOrgId();
@@ -511,11 +536,21 @@ export async function createStore(storeData: {
         organization_id: orgId,
         name: storeData.store_name,
         code: storeData.store_code,
-        district_id: storeData.district_id,
-        address: storeData.address,
-        city: storeData.city,
-        state: storeData.state,
-        zip: storeData.zip_code
+        district_id: storeData.district_id || null,
+        street_address: storeData.street_address || null,
+        address_line_2: storeData.address_line_2 || null,
+        address: storeData.address || null,
+        city: storeData.city || null,
+        state: storeData.state || null,
+        zip: storeData.zip_code || null,
+        county: storeData.county || null,
+        phone: storeData.phone || null,
+        email: storeData.email || null,
+        photo_url: storeData.photo_url || null,
+        manager_id: storeData.manager_id || null,
+        latitude: storeData.latitude || null,
+        longitude: storeData.longitude || null,
+        place_id: storeData.place_id || null
       }])
       .select()
       .single();
@@ -536,22 +571,32 @@ export async function updateStore(
   updates: {
     store_name?: string;
     store_code?: string;
-    district_id?: string;
+    district_id?: string | null;
     address?: string | null;
     city?: string | null;
     state?: string | null;
     zip_code?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    county?: string | null;
+    photo_url?: string | null;
+    manager_id?: string | null;
   }
 ) {
   try {
     const updateData: any = {};
     if (updates.store_name) updateData.name = updates.store_name;
     if (updates.store_code) updateData.code = updates.store_code;
-    if (updates.district_id) updateData.district_id = updates.district_id;
+    if (updates.district_id !== undefined) updateData.district_id = updates.district_id;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.city !== undefined) updateData.city = updates.city;
     if (updates.state !== undefined) updateData.state = updates.state;
     if (updates.zip_code !== undefined) updateData.zip = updates.zip_code;
+    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.email !== undefined) updateData.email = updates.email;
+    if (updates.county !== undefined) updateData.county = updates.county;
+    if (updates.photo_url !== undefined) updateData.photo_url = updates.photo_url;
+    if (updates.manager_id !== undefined) updateData.manager_id = updates.manager_id;
     updateData.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase

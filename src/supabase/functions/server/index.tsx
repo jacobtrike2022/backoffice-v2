@@ -9,6 +9,7 @@ import kbApp from "./kb.ts";
 import ttsApp from "./tts.ts";
 import checkpointAIApp from "./checkpoint-ai.ts";
 import trackRelationshipsApp from "./track-relationships-routes.ts";
+import districtsApp from "./districts.ts";
 
 const app = new Hono();
 
@@ -22,146 +23,33 @@ const BUCKET_NAME = 'make-2858cc8b-track-media';
 const ATTACHMENTS_BUCKET_NAME = 'make-2858cc8b-attachments';
 const PUBLIC_ASSETS_BUCKET_NAME = 'public-assets';
 
-// Track bucket initialization status to avoid repeated checks
-let mediaBucketInitialized = false;
-let attachmentsBucketInitialized = false;
-let publicAssetsBucketInitialized = false;
+// Don't initialize buckets on startup - do it lazily when needed
+// This prevents errors if storage isn't configured or accessible yet
 
-// Initialize storage bucket for track media
-async function ensureMediaBucket() {
-  if (mediaBucketInitialized) return true;
-  
-  try {
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-    
-    if (listError) {
-      console.error('Error listing buckets:', listError);
-      return false;
-    }
-    
-    const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log('Creating track media bucket:', BUCKET_NAME);
-      const { error: createError } = await supabase.storage.createBucket(BUCKET_NAME, {
-        public: false,
-        fileSizeLimit: 52428800, // 50MB max
-      });
-      
-      if (createError && !createError.message?.includes('already exists')) {
-        console.error('Error creating bucket:', createError);
-        return false;
-      }
-    }
-    
-    mediaBucketInitialized = true;
-    console.log('Media bucket ready');
-    return true;
-  } catch (error: any) {
-    console.error('ensureMediaBucket error:', error);
-    return false;
-  }
-}
-
-// Initialize storage bucket for attachments
-async function ensureAttachmentsBucket() {
-  if (attachmentsBucketInitialized) return true;
-  
-  try {
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-    
-    if (listError) {
-      console.error('Error listing buckets:', listError);
-      return false;
-    }
-    
-    const bucketExists = buckets?.some(bucket => bucket.name === ATTACHMENTS_BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log('Creating attachments bucket:', ATTACHMENTS_BUCKET_NAME);
-      const { error: createError } = await supabase.storage.createBucket(ATTACHMENTS_BUCKET_NAME, {
-        public: false,
-        fileSizeLimit: 52428800, // 50MB max
-      });
-      
-      if (createError && !createError.message?.includes('already exists')) {
-        console.error('Error creating attachments bucket:', createError);
-        return false;
-      }
-    }
-    
-    attachmentsBucketInitialized = true;
-    console.log('Attachments bucket ready');
-    return true;
-  } catch (error: any) {
-    console.error('ensureAttachmentsBucket error:', error);
-    return false;
-  }
-}
-
-// Initialize storage bucket for public assets
-async function ensurePublicAssetsBucket() {
-  if (publicAssetsBucketInitialized) return true;
-  
-  try {
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-    
-    if (listError) {
-      console.error('Error listing buckets:', listError);
-      return false;
-    }
-    
-    const bucketExists = buckets?.some(bucket => bucket.name === PUBLIC_ASSETS_BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log('Creating public assets bucket:', PUBLIC_ASSETS_BUCKET_NAME);
-      const { error: createError } = await supabase.storage.createBucket(PUBLIC_ASSETS_BUCKET_NAME, {
-        public: true,
-        fileSizeLimit: 52428800, // 50MB max
-      });
-      
-      if (createError && !createError.message?.includes('already exists')) {
-        console.error('Error creating public assets bucket:', createError);
-        return false;
-      }
-    }
-    
-    publicAssetsBucketInitialized = true;
-    console.log('Public assets bucket ready');
-    return true;
-  } catch (error: any) {
-    console.error('ensurePublicAssetsBucket error:', error);
-    return false;
-  }
-}
-
-// Initialize bucket on startup
-ensureMediaBucket()
-  .then(() => console.log('Bucket initialization complete'))
-  .catch((err) => console.error('Bucket initialization failed:', err));
-
-ensureAttachmentsBucket()
-  .then(() => console.log('Attachments bucket initialization complete'))
-  .catch((err) => console.error('Attachments bucket initialization failed:', err));
-
-ensurePublicAssetsBucket()
-  .then(() => console.log('Public assets bucket initialization complete'))
-  .catch((err) => console.error('Public assets bucket initialization failed:', err));
+// Enable CORS for all routes
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
 
 // Enable logger
 app.use('*', logger(console.log));
 
-// Enable CORS for all routes and methods
-app.use(
-  "/*",
-  cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    exposeHeaders: ["Content-Length"],
-    maxAge: 600,
-  }),
-);
+// Config endpoint to expose client-side environment variables
+app.get('/make-server-2858cc8b/config', (c) => {
+  const googleMapsKey = Deno.env.get('VITE_GOOGLE_MAPS_API_KEY');
+  console.log('Config endpoint called. Google Maps API key:', googleMapsKey ? 'Set' : 'Not set');
+  
+  return c.json({
+    GOOGLE_MAPS_API_KEY: googleMapsKey || null
+  });
+});
+
+// Main route
+app.get('/', (c) => {
+  return c.text('Hello, world!');
+});
 
 // Health check endpoint
 app.get("/make-server-2858cc8b/health", (c) => {
@@ -644,6 +532,9 @@ app.route("/make-server-2858cc8b/checkpoint-ai", checkpointAIApp);
 // Mount trackRelationshipsApp
 app.route("/make-server-2858cc8b/track-relationships", trackRelationshipsApp);
 
+// Mount districtsApp
+app.route("/make-server-2858cc8b/districts", districtsApp);
+
 // =====================================================
 // ORGANIZATION: UPDATE KB SETTINGS
 // =====================================================
@@ -1047,3 +938,104 @@ app.put("/make-server-2858cc8b/facts/:factId", async (c) => {
 });
 
 Deno.serve(app.fetch);
+
+// Initialize storage bucket for track media
+async function ensureMediaBucket() {
+  try {
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      // Don't fail - just mark as not initialized and try again later
+      return false;
+    }
+    
+    const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
+    
+    if (!bucketExists) {
+      console.log('Creating track media bucket:', BUCKET_NAME);
+      const { error: createError } = await supabase.storage.createBucket(BUCKET_NAME, {
+        public: false,
+        fileSizeLimit: 52428800, // 50MB max
+      });
+      
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error('Error creating bucket:', createError);
+        return false;
+      }
+    }
+    
+    console.log('Media bucket ready');
+    return true;
+  } catch (error: any) {
+    console.error('ensureMediaBucket error:', error);
+    // Non-critical error - don't crash the server
+    return false;
+  }
+}
+
+// Initialize storage bucket for attachments
+async function ensureAttachmentsBucket() {
+  try {
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    const bucketExists = buckets?.some(bucket => bucket.name === ATTACHMENTS_BUCKET_NAME);
+    
+    if (!bucketExists) {
+      console.log('Creating attachments bucket:', ATTACHMENTS_BUCKET_NAME);
+      const { error: createError } = await supabase.storage.createBucket(ATTACHMENTS_BUCKET_NAME, {
+        public: false,
+        fileSizeLimit: 52428800, // 50MB max
+      });
+      
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error('Error creating attachments bucket:', createError);
+        return false;
+      }
+    }
+    
+    console.log('Attachments bucket ready');
+    return true;
+  } catch (error: any) {
+    console.error('ensureAttachmentsBucket error:', error);
+    return false;
+  }
+}
+
+// Initialize storage bucket for public assets
+async function ensurePublicAssetsBucket() {
+  try {
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    const bucketExists = buckets?.some(bucket => bucket.name === PUBLIC_ASSETS_BUCKET_NAME);
+    
+    if (!bucketExists) {
+      console.log('Creating public assets bucket:', PUBLIC_ASSETS_BUCKET_NAME);
+      const { error: createError } = await supabase.storage.createBucket(PUBLIC_ASSETS_BUCKET_NAME, {
+        public: true,
+        fileSizeLimit: 52428800, // 50MB max
+      });
+      
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error('Error creating public assets bucket:', createError);
+        return false;
+      }
+    }
+    
+    console.log('Public assets bucket ready');
+    return true;
+  } catch (error: any) {
+    console.error('ensurePublicAssetsBucket error:', error);
+    return false;
+  }
+}
