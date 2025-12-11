@@ -248,8 +248,11 @@ html {
   padding: 2rem 0;
 }
 
-.section-spacing-lg {
-  padding: 3rem 0;
+/* Spinner animation for auth loading state */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .card-spacing {

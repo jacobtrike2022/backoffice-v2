@@ -16,9 +16,10 @@ interface DistrictSelectorProps {
   selectedId: string;
   onSelect: (districtId: string) => void;
   onClose: () => void;
+  onDistrictCreated?: () => void;
 }
 
-export function DistrictSelector({ districts, selectedId, onSelect, onClose }: DistrictSelectorProps) {
+export function DistrictSelector({ districts, selectedId, onSelect, onClose, onDistrictCreated }: DistrictSelectorProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newDistrictName, setNewDistrictName] = useState('');
   const [newDistrictCode, setNewDistrictCode] = useState('');
@@ -39,6 +40,9 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose }: D
       
       // Select the newly created district
       onSelect(newDistrict.id);
+      if (onDistrictCreated) {
+        onDistrictCreated();
+      }
     } catch (error) {
       console.error('Error creating district:', error);
       alert('Failed to create district');

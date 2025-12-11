@@ -98,10 +98,16 @@ export async function getCurrentUserProfile() {
       store:stores!users_store_id_fkey(*, district:districts(*))
     `)
     .eq('auth_user_id', user.id)
-    .single();
+    .maybeSingle(); // Use maybeSingle() instead of single() to handle 0 rows gracefully
 
   if (error) {
     console.error('Error fetching user profile:', error);
+    return null;
+  }
+
+  // If no profile exists yet (new user), return null
+  if (!data) {
+    console.log('No user profile found for auth user:', user.id);
     return null;
   }
 

@@ -1553,6 +1553,10 @@
     width: calc(var(--spacing) * 48);
   }
 
+  .w-56 {
+    width: calc(var(--spacing) * 56);
+  }
+
   .w-60 {
     width: calc(var(--spacing) * 60);
   }
@@ -4227,6 +4231,12 @@
     backdrop-filter: var(--tw-backdrop-blur, ) var(--tw-backdrop-brightness, ) var(--tw-backdrop-contrast, ) var(--tw-backdrop-grayscale, ) var(--tw-backdrop-hue-rotate, ) var(--tw-backdrop-invert, ) var(--tw-backdrop-opacity, ) var(--tw-backdrop-saturate, ) var(--tw-backdrop-sepia, );
   }
 
+  .transition {
+    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter;
+    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+    transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
+
   .transition-\[color\,box-shadow\] {
     transition-property: color, box-shadow;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
@@ -5152,6 +5162,18 @@
     }
   }
 
+  @media (hover: hover) {
+    .hover\:ring-primary\/40:hover {
+      --tw-ring-color: var(--primary);
+    }
+
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:ring-primary\/40:hover {
+        --tw-ring-color: color-mix(in oklab, var(--primary) 40%, transparent);
+      }
+    }
+  }
+
   .focus\:bg-accent:focus {
     background-color: var(--accent);
   }
@@ -5166,6 +5188,10 @@
 
   .focus\:text-accent-foreground:focus {
     color: var(--accent-foreground);
+  }
+
+  .focus\:text-destructive:focus {
+    color: var(--destructive);
   }
 
   .focus\:text-primary-foreground:focus {
@@ -7285,8 +7311,10 @@ html {
   padding: 2rem 0;
 }
 
-.section-spacing-lg {
-  padding: 3rem 0;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .card-spacing {
@@ -8074,12 +8102,6 @@ div.css-99qiqe, div.css-xgszvb, div.css-yttfzn, div.css-3izh4e, div.css-2csp8n, 
 @property --tw-ease {
   syntax: "*";
   inherits: false
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes ping {

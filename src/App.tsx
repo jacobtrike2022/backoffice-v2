@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { useAuth } from './lib/hooks/useAuth';
+import Login from './components/Login';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { Reports } from "./components/Reports";
@@ -50,33 +52,9 @@ type AppView =
   | "settings";
 
 export default function App() {
-  // Check if this is a public KB viewer request (before any other state)
-  // Try both query params AND hash for maximum compatibility
-  const urlParams = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.substring(1));
-  const slug = urlParams.get("slug") || hashParams.get("slug");
-  const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
-  
-  console.log('🔍🔍🔍 App.tsx routing check:', {
-    href: window.location.href,
-    search: window.location.search,
-    hash: window.location.hash,
-    pathname: window.location.pathname,
-    hasSlugQuery: urlParams.has("slug"),
-    hasSlugHash: hashParams.has("slug"),
-    slug: slug,
-    isPublicKBView,
-    timestamp: Date.now()
-  });
-  
-  // If public KB view, render only that component
-  if (isPublicKBView) {
-    console.log('✅✅✅ Rendering PublicKBViewer for slug:', slug);
-    return <PublicKBViewer />;
-  }
-  
-  console.log('❌ NOT rendering PublicKBViewer, showing dashboard');
+  const { user, loading: authLoading } = useAuth();
 
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   const [currentRole, setCurrentRole] = useState<UserRole>(
     () => {
       // Check localStorage on mount
@@ -157,14 +135,13 @@ export default function App() {
     checkServerHealth()
       .then((healthy) => {
         if (!healthy) {
-          console.warn("Server health check failed");
           toast.error(
             "Server connection issues detected. Some features may not work properly.",
           );
         }
       })
-      .catch((err) => {
-        console.error("Server health check error:", err);
+      .catch(() => {
+        // Silent catch
       });
   }, []);
 
@@ -180,10 +157,6 @@ export default function App() {
       | null;
 
     if (trackId && trackType) {
-      console.log(
-        `📍 URL params detected: trackId=${trackId}, type=${trackType}`,
-      );
-
       // Dynamically import crud to avoid circular dependencies
       import("./lib/crud").then((crud) => {
         crud
@@ -224,7 +197,6 @@ export default function App() {
     // Check for create-article mode
     const mode = urlParams.get("mode");
     if (mode === "create-article") {
-      console.log("📍 Create article mode detected");
       setInitialMode("create-article");
       setCurrentView("content");
 
@@ -250,10 +222,6 @@ export default function App() {
     const playlistId = urlParams.get("playlist");
 
     if (trackId && trackType && playlistId) {
-      console.log(
-        `📍 Playlist-sourced track detected: trackId=${trackId}, type=${trackType}, playlistId=${playlistId}`,
-      );
-
       import("./lib/crud").then((crud) => {
         crud
           .getTracks({
@@ -262,9 +230,6 @@ export default function App() {
           })
           .then((tracks) => {
             if (tracks && tracks.length > 0) {
-              console.log(
-                `📍 URL routing: ${trackType} loaded, switching to view`,
-              );
               setEditingArticle(tracks[0]);
 
               // Route to appropriate view based on track type
@@ -293,8 +258,8 @@ export default function App() {
               );
             }
           })
-          .catch((err) => {
-            console.error("Error loading track from URL:", err);
+          .catch(() => {
+            // Silent catch
           });
       });
     }
@@ -517,39 +482,83 @@ export default function App() {
 
   return (
     <>
-      <DashboardLayout
-        currentView={currentView}
-        onNavigate={requestNavigate}
-        currentRole={currentRole}
-        onRoleChange={handleRoleChange}
-        darkMode={darkMode}
-        onDarkModeToggle={() => setDarkMode(!darkMode)}
-        isSuperAdminAuthenticated={isSuperAdminAuthenticated}
-      >
-        {renderContent()}
-      </DashboardLayout>
-
-      {showPasswordPrompt && (
-        <SuperAdminPasswordDialog
-          onClose={() => setShowPasswordPrompt(false)}
-          onAuthenticate={handleSuperAdminAuth}
-        />
+      {/* Show loading state while checking auth */}
+      {authLoading && (
+        <div style={{
+          height: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#111827',
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              border: '4px solid #374151',
+              borderTopColor: '#667eea',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 16px',
+            }} />
+            <p style={{ color: '#9ca3af', fontSize: '14px' }}>Loading...</p>
+          </div>
+        </div>
       )}
 
-      <UnsavedChangesDialog
-        isOpen={pendingNavigationView !== null}
-        onDiscard={() => {
-          if (pendingNavigationView) {
-            // Clear unsaved changes state
-            setHasUnsavedChangesRef(null);
-            handleNavigate(pendingNavigationView);
-            setPendingNavigationView(null);
-          }
-        }}
-        onCancel={() => setPendingNavigationView(null)}
-      />
+      {/* Show login if not authenticated */}
+      {!authLoading && !user && <Login />}
 
-      <Toaster />
+      {/* Check if this is a public KB viewer request */}
+      {!authLoading && user && (() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const slug = urlParams.get("slug") || hashParams.get("slug");
+        const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
+        
+        if (isPublicKBView) {
+          return <PublicKBViewer />;
+        }
+
+        // Normal authenticated dashboard view
+        return (
+          <>
+            <DashboardLayout
+              currentView={currentView}
+              onNavigate={requestNavigate}
+              currentRole={currentRole}
+              onRoleChange={handleRoleChange}
+              darkMode={darkMode}
+              onDarkModeToggle={() => setDarkMode(!darkMode)}
+              isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            >
+              {renderContent()}
+            </DashboardLayout>
+
+            {showPasswordPrompt && (
+              <SuperAdminPasswordDialog
+                onClose={() => setShowPasswordPrompt(false)}
+                onAuthenticate={handleSuperAdminAuth}
+              />
+            )}
+
+            <UnsavedChangesDialog
+              isOpen={pendingNavigationView !== null}
+              onDiscard={() => {
+                if (pendingNavigationView) {
+                  // Clear unsaved changes state
+                  setHasUnsavedChangesRef(null);
+                  handleNavigate(pendingNavigationView);
+                  setPendingNavigationView(null);
+                }
+              }}
+              onCancel={() => setPendingNavigationView(null)}
+            />
+
+            <Toaster />
+          </>
+        );
+      })()}
     </>
   );
 }

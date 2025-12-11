@@ -454,6 +454,7 @@ export function useDistricts(organizationId?: string) {
   const [districts, setDistricts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchDistricts() {
@@ -463,7 +464,6 @@ export function useDistricts(organizationId?: string) {
         setDistricts(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching districts:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
@@ -471,7 +471,11 @@ export function useDistricts(organizationId?: string) {
     }
 
     fetchDistricts();
-  }, [organizationId]);
+  }, [organizationId, refetchTrigger]);
 
-  return { districts, loading, error, refetch: () => setLoading(true) };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { districts, loading, error, refetch };
 }

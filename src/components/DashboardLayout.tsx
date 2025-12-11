@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { signOut } from '../lib/hooks/useAuth';
 import { Button } from './ui/button';
 import { 
   Home,
@@ -23,7 +24,8 @@ import {
   UserCheck,
   Search,
   Bell,
-  Wrench
+  Wrench,
+  LogOut
 } from 'lucide-react';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
 import { Separator } from './ui/separator';
@@ -501,12 +503,44 @@ export function DashboardLayout({
               
               <Separator orientation="vertical" className="h-6" />
               
-              <Avatar className="h-9 w-9 ring-2 ring-primary/20">
-                <AvatarImage src="/placeholder-avatar.jpg" alt="User" />
-                <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
-                  JD
-                </AvatarFallback>
-              </Avatar>
+              {/* User Profile Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-full">
+                    <Avatar className="h-9 w-9 ring-2 ring-primary/20 cursor-pointer hover:ring-primary/40 transition-all">
+                      <AvatarImage src="/placeholder-avatar.jpg" alt="User" />
+                      <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                        JD
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <div className="flex items-center gap-3 p-3 border-b">
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage src="/placeholder-avatar.jpg" alt="User" />
+                      <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                        JD
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">John Doe</p>
+                      <p className="text-xs text-muted-foreground truncate">{roleLabels[currentRole]}</p>
+                    </div>
+                  </div>
+                  <DropdownMenuItem
+                    className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                    onClick={async () => {
+                      if (confirm('Are you sure you want to sign out?')) {
+                        await signOut();
+                      }
+                    }}
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign Out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </header>

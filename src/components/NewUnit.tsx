@@ -63,7 +63,7 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
 
   // Fetch data
   const { user: currentUser } = useCurrentUser();
-  const { districts } = useDistricts();
+  const { districts, loading: districtsLoading, error: districtsError, refetch: refetchDistricts } = useDistricts(currentUser?.organization_id);
   const { users } = useUsers();
 
   // Filter managers from live database
@@ -425,6 +425,9 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
             setShowDistrictSelector(false);
           }}
           onClose={() => setShowDistrictSelector(false)}
+          onDistrictCreated={() => {
+            refetchDistricts();
+          }}
         />
       )}
 
