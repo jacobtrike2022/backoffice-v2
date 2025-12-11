@@ -53,13 +53,13 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+      <div className="bg-card rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col border border-border">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-gray-900">Select District</h2>
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <h2 className="text-foreground">Select District</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -116,14 +116,14 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
               {/* Create New Button */}
               <button
                 onClick={() => setShowCreateForm(true)}
-                className="w-full flex items-center gap-3 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+                className="w-full flex items-center gap-3 px-4 py-3 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-accent transition-colors text-left"
               >
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Plus className="w-5 h-5 text-blue-600" />
+                <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Plus className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">Create New District</p>
-                  <p className="text-sm text-gray-500">Add a new district to your organization</p>
+                  <p className="font-medium text-foreground">Create New District</p>
+                  <p className="text-sm text-muted-foreground">Add a new district to your organization</p>
                 </div>
               </button>
 
@@ -131,24 +131,24 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
               {districts.length > 0 && (
                 <>
                   <div className="pt-2">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Existing Districts</p>
+                    <p className="text-sm font-medium text-foreground mb-2">Existing Districts</p>
                   </div>
                   {districts.map((district) => (
                     <button
                       key={district.id}
                       onClick={() => onSelect(district.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 border rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left ${
+                      className={`w-full flex items-center gap-3 px-4 py-3 border rounded-lg hover:border-primary hover:bg-accent transition-colors text-left ${
                         selectedId === district.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200'
+                          ? 'border-primary bg-accent'
+                          : 'border-border'
                       }`}
                     >
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">{district.name}</p>
-                        <p className="text-sm text-gray-500">Code: {district.code}</p>
+                        <p className="font-medium text-foreground">{district.name}</p>
+                        <p className="text-sm text-muted-foreground">Code: {district.code}</p>
                       </div>
                       {selectedId === district.id && (
-                        <Check className="w-5 h-5 text-blue-600" />
+                        <Check className="w-5 h-5 text-primary" />
                       )}
                     </button>
                   ))}
@@ -156,7 +156,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
               )}
 
               {districts.length === 0 && (
-                <p className="text-sm text-gray-500 text-center py-8">
+                <p className="text-sm text-muted-foreground text-center py-8">
                   No districts yet. Create one above to get started.
                 </p>
               )}

@@ -4,9 +4,14 @@
 
 import { getSupabaseClient } from '../utils/supabase/client';
 import { APP_CONFIG } from './config';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Use singleton Supabase client to avoid multiple GoTrueClient instances
 export const supabase = getSupabaseClient();
+
+// Export Supabase URL for server function calls
+export const supabaseUrl = `https://${projectId}.supabase.co`;
+export const supabaseAnonKey = publicAnonKey;
 
 /**
  * Get current authenticated user's organization ID

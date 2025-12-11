@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId } from '../supabase';
-import { projectId, publicAnonKey } from '../supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
