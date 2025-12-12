@@ -43,9 +43,18 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
       if (onDistrictCreated) {
         onDistrictCreated();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating district:', error);
-      alert('Failed to create district');
+      const errorMessage = error?.message || 'Failed to create district';
+      
+      // Show user-friendly error message
+      if (errorMessage.includes('User profile not found')) {
+        alert('Your account is not fully set up. Please contact your administrator to complete your profile setup.');
+      } else if (errorMessage.includes('Insufficient permissions')) {
+        alert('You do not have permission to create districts. Please contact your administrator.');
+      } else {
+        alert(`Failed to create district: ${errorMessage}`);
+      }
     } finally {
       setCreating(false);
     }

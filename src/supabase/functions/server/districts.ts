@@ -32,10 +32,16 @@ app.get("/", async (c) => {
       .from('users')
       .select('organization_id')
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to handle users without profiles
 
-    if (userError || !userData) {
-      return c.json({ error: 'User not found' }, 404);
+    if (userError) {
+      console.error('User lookup error:', userError);
+      return c.json({ error: 'Database error looking up user' }, 500);
+    }
+
+    if (!userData) {
+      console.error('No user profile found for auth user:', user.id);
+      return c.json({ error: 'User profile not found. Please contact your administrator to set up your account.' }, 404);
     }
 
     // Get all districts for the organization
@@ -81,15 +87,19 @@ app.post("/", async (c) => {
       .select(`
         id,
         organization_id,
-        role_id,
         roles!inner(name)
       `)
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to handle users without profiles
 
-    if (userError || !userData) {
+    if (userError) {
       console.error('User lookup error:', userError);
-      return c.json({ error: 'User not found' }, 404);
+      return c.json({ error: 'Database error looking up user' }, 500);
+    }
+
+    if (!userData) {
+      console.error('No user profile found for auth user:', user.id);
+      return c.json({ error: 'User profile not found. Please contact your administrator to set up your account.' }, 404);
     }
 
     // Check if user has permission (Admin, District Manager, or Trike Super Admin)
@@ -165,10 +175,16 @@ app.put("/:id", async (c) => {
         roles!inner(name)
       `)
       .eq('auth_user_id', user.id)
-      .single();
+      .maybeSingle(); // Use maybeSingle() to handle users without profiles
 
-    if (userError || !userData) {
-      return c.json({ error: 'User not found' }, 404);
+    if (userError) {
+      console.error('User lookup error:', userError);
+      return c.json({ error: 'Database error looking up user' }, 500);
+    }
+
+    if (!userData) {
+      console.error('No user profile found for auth user:', user.id);
+      return c.json({ error: 'User profile not found. Please contact your administrator to set up your account.' }, 404);
     }
 
     // Check permissions
