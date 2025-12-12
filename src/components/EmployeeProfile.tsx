@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -27,8 +26,7 @@ import {
   Send,
   Key,
   Edit,
-  Save,
-  X,
+  Pencil,
   Activity,
   BarChart3,
   PieChart,
@@ -62,8 +60,13 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../lib/supabase';
 import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { resetPassword } from '../lib/hooks/useAuth';
+import { createNotification } from '../lib/crud/notifications';
+import { getUserCertifications } from '../lib/crud/certifications';
+import { ExternalLink } from 'lucide-react';
+import { EditPeopleDialog } from './EditPeopleDialog';
 
-type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
+type UserRole = 'admin' | 'administrator' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface Employee {
   id: string;
@@ -80,6 +83,13 @@ interface Employee {
   lastActive: string;
   certifications: number;
   complianceScore: number;
+  // Additional fields
+  phone?: string;
+  employeeId?: string;
+  hireDate?: string;
+  terminationDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface EmployeeProfileProps {
@@ -103,14 +113,15 @@ interface Certification {
   name: string;
   issueDate: string;
   expiryDate: string;
-  status: 'valid' | 'expiring-soon' | 'expired';
-  score: number;
+  status: 'active' | 'expiring-soon' | 'expired' | 'revoked';
+  score?: number;
+  certificateNumber?: string;
+  certificateUrl?: string;
+  issuedAt: string;
+  expiresAt?: string;
 }
 
 export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfileProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedName, setEditedName] = useState(employee.name);
-  const [editedEmail, setEditedEmail] = useState(employee.email);
   const [activeTab, setActiveTab] = useState('overview');
   const [showReminderDialog, setShowReminderDialog] = useState(false);
   const [reminderSMS, setReminderSMS] = useState(true);
@@ -125,6 +136,8 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const [tags, setTags] = useState<string[]>([]);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [userDetails, setUserDetails] = useState<any>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
 
   const { user: currentUser } = useCurrentUser();
 
@@ -138,9 +151,64 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     try {
       setLoading(true);
 
+      // Fetch full user details with all fields
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', employee.id)
+        .single();
+
+      if (userError) throw userError;
+      setUserDetails(userData);
+
       // Fetch tags
       const employeeTags = await tagCrud.getEntityTags(employee.id, 'user');
       setTags(employeeTags.map(t => t.name));
+
+      // Fetch certifications
+      try {
+        const certsData = await getUserCertifications(employee.id);
+        const formattedCerts: Certification[] = (certsData || []).map((cert: any) => {
+          // Schema uses issued_at and expires_at
+          const expiryDate = cert.expires_at;
+          const issueDate = cert.issued_at;
+          const now = new Date();
+          const expiresAt = expiryDate ? new Date(expiryDate) : null;
+          
+          let status: 'active' | 'expiring-soon' | 'expired' | 'revoked' = 'active';
+          if (cert.status === 'revoked') {
+            status = 'revoked';
+          } else if (cert.status === 'expired') {
+            status = 'expired';
+          } else if (expiresAt) {
+            const daysUntilExpiry = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysUntilExpiry < 0) {
+              status = 'expired';
+            } else if (daysUntilExpiry <= 30) {
+              status = 'expiring-soon';
+            }
+          } else {
+            // If no expiration date, keep as active
+            status = 'active';
+          }
+
+          return {
+            id: cert.id,
+            name: cert.certification?.name || 'Unknown Certification',
+            issueDate: issueDate || '',
+            expiryDate: expiryDate || '',
+            issuedAt: issueDate || '',
+            expiresAt: expiryDate || undefined,
+            status,
+            score: cert.score,
+            certificateNumber: cert.certificate_number,
+            certificateUrl: cert.certificate_url
+          };
+        });
+        setCertifications(formattedCerts);
+      } catch (certError) {
+        console.error('Error fetching certifications:', certError);
+      }
 
       // Fetch assignments for this employee
       const { data: assignmentsData, error: assignmentsError } = await supabase
@@ -253,63 +321,68 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     }
   };
 
-  const handleSave = async () => {
-    try {
-      // Parse name
-      const nameParts = editedName.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-
-      const { error } = await supabase
-        .from('users')
-        .update({
-          first_name: firstName,
-          last_name: lastName,
-          email: editedEmail,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', employee.id);
-
-      if (error) throw error;
-
-      toast.success('Employee information updated successfully', {
-        description: `Changes saved for ${editedName}`
-      });
-      setIsEditing(false);
-      
-      // Refresh the page to show updated data
-      window.location.reload();
-    } catch (err: any) {
-      console.error('Error updating employee:', err);
-      toast.error(err.message || 'Failed to update employee information');
-    }
+  const handleEditSuccess = () => {
+    // Refresh the page to show updated data
+    window.location.reload();
   };
 
-  const handleResetPassword = () => {
-    toast.success('Password reset email sent', {
-      description: `Reset link sent to ${employee.email}`
-    });
+  const handleResetPassword = async () => {
+    try {
+      await resetPassword(employee.email);
+      toast.success('Password reset email sent', {
+        description: `Reset link sent to ${employee.email}`
+      });
+    } catch (err: any) {
+      console.error('Error resetting password:', err);
+      toast.error('Failed to send password reset email', {
+        description: err.message || 'Please try again later'
+      });
+    }
   };
 
   const handleSendReminder = () => {
     setShowReminderDialog(true);
   };
 
-  const handleConfirmReminder = () => {
-    toast.success('Reminder sent successfully', {
-      description: `Training reminder sent to ${employee.name}`
-    });
-    setShowReminderDialog(false);
+  const handleConfirmReminder = async () => {
+    try {
+      const notificationTypes: string[] = [];
+      if (reminderEmail) notificationTypes.push('email');
+      if (reminderSMS) notificationTypes.push('SMS');
+      if (reminderPush) notificationTypes.push('push notification');
+
+      // Create notification in database
+      await createNotification({
+        user_id: employee.id,
+        type: 'due-date',
+        title: 'Training Reminder',
+        message: `You have pending training assignments that require your attention.`,
+        link_url: '/assignments'
+      });
+
+      toast.success('Reminder sent successfully', {
+        description: `Training reminder sent to ${employee.name} via ${notificationTypes.join(', ')}`
+      });
+      setShowReminderDialog(false);
+    } catch (err: any) {
+      console.error('Error sending reminder:', err);
+      toast.error('Failed to send reminder', {
+        description: err.message || 'Please try again later'
+      });
+    }
   };
 
   const getCertificationStatusColor = (status: string) => {
     switch (status) {
+      case 'active':
       case 'valid':
         return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400';
       case 'expiring-soon':
         return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400';
       case 'expired':
         return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400';
+      case 'revoked':
+        return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400';
       default:
         return 'bg-gray-100 text-gray-700 border-gray-200';
     }
@@ -328,9 +401,39 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const avgScore = userProgress.filter(p => p.score).reduce((acc, p) => acc + (p.score || 0), 0) / 
                    (userProgress.filter(p => p.score).length || 1);
 
-  // Build performance data from user_progress
+  // Build performance data from user_progress with dynamic months
   const performanceData = (() => {
-    const months = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
+    // Get all completion dates and determine date range
+    const completionDates = userProgress
+      .filter(p => p.completed_at)
+      .map(p => new Date(p.completed_at))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    if (completionDates.length === 0) {
+      // Return last 6 months if no data
+      const months: string[] = [];
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(date.toLocaleDateString('en-US', { month: 'short' }));
+      }
+      return months.map(month => ({ month, completed: 0, score: 0 }));
+    }
+
+    const startDate = completionDates[0];
+    const endDate = completionDates[completionDates.length - 1];
+    
+    // Generate months between start and end (or last 6 months if range is smaller)
+    const months: string[] = [];
+    const now = new Date();
+    const monthsToShow = Math.max(6, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+    const actualMonths = Math.min(monthsToShow, 12); // Cap at 12 months
+    
+    for (let i = actualMonths - 1; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(date.toLocaleDateString('en-US', { month: 'short' }));
+    }
+
     return months.map(month => {
       const monthData = userProgress.filter(p => {
         if (!p.completed_at) return false;
@@ -381,6 +484,16 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             </p>
           </div>
         </div>
+        {/* Edit Button - only show for admins and district managers */}
+        {((currentRole === 'admin' || currentRole === 'administrator') || currentRole === 'district-manager' || currentRole === 'trike-super-admin') && (
+          <Button
+            onClick={() => setShowEditDialog(true)}
+            className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
+          >
+            <Pencil className="w-4 h-4 mr-2" />
+            Edit Employee
+          </Button>
+        )}
       </div>
 
       {/* Profile Header Card */}
@@ -396,30 +509,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               </Avatar>
 
               <div className="space-y-4">
-                {isEditing ? (
-                  <div className="space-y-3">
-                    <div>
-                      <Label htmlFor="name">Full Name</Label>
-                      <Input
-                        id="name"
-                        value={editedName}
-                        onChange={(e) => setEditedName(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="email">Email Address</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={editedEmail}
-                        onChange={(e) => setEditedEmail(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <>
+                <>
                     <div>
                       <h2 className="text-2xl font-bold text-foreground">{employee.name}</h2>
                       <p className="text-muted-foreground mt-1">{employee.role}</p>
@@ -430,6 +520,12 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         <Mail className="h-4 w-4" />
                         <span>{employee.email}</span>
                       </div>
+                      {employee.phone && (
+                        <div className="flex items-center space-x-2 text-muted-foreground">
+                          <Phone className="h-4 w-4" />
+                          <span>{employee.phone}</span>
+                        </div>
+                      )}
                       <div className="flex items-center space-x-2 text-muted-foreground">
                         <Building className="h-4 w-4" />
                         <span>{employee.homeStore}</span>
@@ -441,6 +537,53 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         </div>
                       )}
                     </div>
+
+                    {/* Employment Information */}
+                    {(employee.employeeId || employee.hireDate || employee.createdAt) && (
+                      <div className="mt-4 p-4 bg-accent/30 rounded-lg border border-border">
+                        <h3 className="text-sm font-semibold text-foreground mb-3">Employment Information</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                          {employee.employeeId && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Employee ID</p>
+                              <p className="font-medium text-foreground">{employee.employeeId}</p>
+                            </div>
+                          )}
+                          {employee.hireDate && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Hire Date</p>
+                              <p className="font-medium text-foreground">
+                                {new Date(employee.hireDate).toLocaleDateString()}
+                                {(() => {
+                                  const hireDate = new Date(employee.hireDate);
+                                  const now = new Date();
+                                  const years = Math.floor((now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24 * 365));
+                                  return years > 0 ? ` (${years} ${years === 1 ? 'year' : 'years'})` : '';
+                                })()}
+                              </p>
+                            </div>
+                          )}
+                          {employee.terminationDate && employee.status === 'inactive' && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Termination Date</p>
+                              <p className="font-medium text-foreground">{new Date(employee.terminationDate).toLocaleDateString()}</p>
+                            </div>
+                          )}
+                          {employee.createdAt && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Account Created</p>
+                              <p className="font-medium text-foreground">{new Date(employee.createdAt).toLocaleDateString()}</p>
+                            </div>
+                          )}
+                          {employee.updatedAt && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Last Updated</p>
+                              <p className="font-medium text-foreground">{new Date(employee.updatedAt).toLocaleDateString()}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center space-x-3">
                       <Badge 
@@ -454,9 +597,11 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                       <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
                         {assignments.length} Assignments
                       </Badge>
-                      <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
-                        Last active {employee.lastActive}
-                      </Badge>
+                      {employee.lastActive && employee.lastActive !== 'Never' && (
+                        <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
+                          Last active {employee.lastActive}
+                        </Badge>
+                      )}
                     </div>
                     
                     {/* Tags Section */}
@@ -483,67 +628,29 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         </Button>
                       )}
                     </div>
-                  </>
-                )}
+                </>
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col space-y-2">
-              {isEditing ? (
-                <>
-                  <Button
-                    size="sm"
-                    onClick={handleSave}
-                    className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
-                  >
-                    <Save className="w-4 h-4 mr-2" />
-                    Save Changes
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setIsEditing(false);
-                      setEditedName(employee.name);
-                      setEditedEmail(employee.email);
-                    }}
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <>
-                  {(currentRole === 'admin' || currentRole === 'district-manager') && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setIsEditing(true)}
-                    >
-                      <Edit className="w-4 h-4 mr-2" />
-                      Edit Profile
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleSendReminder}
-                  >
-                    <Send className="w-4 h-4 mr-2" />
-                    Send Reminder
-                  </Button>
-                  {currentRole === 'admin' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleResetPassword}
-                    >
-                      <Key className="w-4 h-4 mr-2" />
-                      Reset Password
-                    </Button>
-                  )}
-                </>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSendReminder}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Send Reminder
+              </Button>
+              {currentRole === 'admin' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleResetPassword}
+                >
+                  <Key className="w-4 h-4 mr-2" />
+                  Reset Password
+                </Button>
               )}
             </div>
           </div>
@@ -583,7 +690,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       {/* Tabs Section */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
             Overview
@@ -595,6 +702,15 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
           <TabsTrigger value="assignments">
             <BookOpen className="w-4 h-4 mr-2" />
             Assignments
+          </TabsTrigger>
+          <TabsTrigger value="certifications">
+            <Award className="w-4 h-4 mr-2" />
+            Certifications
+            {certifications.length > 0 && (
+              <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">
+                {certifications.length}
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -913,6 +1029,101 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Certifications Tab */}
+        <TabsContent value="certifications" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <Award className="w-5 h-5 mr-2 text-primary" />
+                  Certifications
+                </div>
+                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
+                  {certifications.filter(c => c.status === 'active').length} Active
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
+                </div>
+              ) : certifications.length > 0 ? (
+                <div className="space-y-4">
+                  {certifications.map((cert) => (
+                    <div key={cert.id} className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h4 className="font-semibold text-foreground">{cert.name}</h4>
+                            <Badge 
+                              variant="outline"
+                              className={getCertificationStatusColor(cert.status)}
+                            >
+                              {cert.status === 'expiring-soon' ? 'Expiring Soon' : cert.status.toUpperCase()}
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-3">
+                            {cert.issueDate && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Issued</p>
+                                <p className="font-medium text-foreground">
+                                  {new Date(cert.issueDate).toLocaleDateString()}
+                                </p>
+                              </div>
+                            )}
+                            {cert.expiryDate && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Expires</p>
+                                <p className="font-medium text-foreground">
+                                  {new Date(cert.expiryDate).toLocaleDateString()}
+                                  {cert.status === 'expiring-soon' && (
+                                    <span className="text-yellow-600 dark:text-yellow-400 ml-1">
+                                      ({Math.ceil((new Date(cert.expiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days)
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                            {cert.certificateNumber && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Certificate #</p>
+                                <p className="font-medium text-foreground">{cert.certificateNumber}</p>
+                              </div>
+                            )}
+                            {cert.score !== undefined && cert.score !== null && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Score</p>
+                                <p className="font-medium text-foreground">{cert.score}%</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {cert.certificateUrl && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(cert.certificateUrl, '_blank')}
+                            className="ml-4"
+                          >
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            View Certificate
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No certifications found</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Reminder Dialog */}
@@ -986,6 +1197,16 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
         onTagsChange={handleTagsChange}
         systemCategory="people"
       />
+
+      {/* Edit People Dialog */}
+      {userDetails && (
+        <EditPeopleDialog
+          isOpen={showEditDialog}
+          onClose={() => setShowEditDialog(false)}
+          user={userDetails}
+          onSuccess={handleEditSuccess}
+        />
+      )}
     </div>
   );
 }

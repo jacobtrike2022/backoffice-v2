@@ -216,7 +216,7 @@ export async function getUserCertifications(userId: string) {
       certification:certifications(*)
     `)
     .eq('user_id', userId)
-    .order('issue_date', { ascending: false });
+    .order('issued_at', { ascending: false });
 
   if (error) throw error;
   return data;

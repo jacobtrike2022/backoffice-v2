@@ -425,7 +425,7 @@ export default function App() {
           />
         );
       case "people":
-        return <People role={currentRole} />;
+        return <People currentRole={currentRole} onBackToDashboard={() => requestNavigate("dashboard")} />;
       case "units":
         return (
           <Units

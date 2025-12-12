@@ -31,9 +31,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
+import { EditPeopleDialog } from './EditPeopleDialog';
 import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
+import { Edit } from 'lucide-react';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -48,6 +50,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
   
   // Filter states
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -167,6 +170,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   // If employee is selected, show profile
   if (selectedEmployee) {
     // Transform database user to Employee format for EmployeeProfile
+    const lastActiveDate = selectedEmployee.last_active_at || selectedEmployee.last_login;
     const transformedEmployee = {
       id: selectedEmployee.id,
       name: `${selectedEmployee.first_name || ''} ${selectedEmployee.last_name || ''}`.trim(),
@@ -179,9 +183,16 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       status: selectedEmployee.status as 'active' | 'inactive' | 'on-leave',
       completedTracks: selectedEmployee.completed_tracks || 0,
       totalTracks: selectedEmployee.total_tracks || 0,
-      lastActive: selectedEmployee.last_login ? new Date(selectedEmployee.last_login).toLocaleDateString() : 'Never',
+      lastActive: lastActiveDate ? new Date(lastActiveDate).toLocaleDateString() : 'Never',
       certifications: selectedEmployee.certifications_count || 0,
-      complianceScore: selectedEmployee.compliance_score || 0
+      complianceScore: selectedEmployee.compliance_score || 0,
+      // Additional fields
+      phone: selectedEmployee.phone || undefined,
+      employeeId: selectedEmployee.employee_id || undefined,
+      hireDate: selectedEmployee.hire_date || undefined,
+      terminationDate: selectedEmployee.termination_date || undefined,
+      createdAt: selectedEmployee.created_at || undefined,
+      updatedAt: selectedEmployee.updated_at || undefined
     };
 
     return (
@@ -459,9 +470,22 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                 return (
                   <div
                     key={employee.id}
-                    className="p-4 hover:bg-accent/50 cursor-pointer transition-colors"
+                    className="p-4 hover:bg-accent/50 cursor-pointer transition-colors relative group"
                     onClick={() => setSelectedEmployee(employee)}
                   >
+                    {(currentRole === 'admin' || currentRole === 'district-manager') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingEmployee(employee);
+                        }}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    )}
                     <div className="flex items-center space-x-4">
                       <Avatar className="h-10 w-10 ring-2 ring-primary/20">
                         <AvatarImage src={employee.avatar_url || undefined} alt={fullName} />
@@ -487,10 +511,10 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                               <span>{employee.store.district.name} District</span>
                             </>
                           )}
-                          {employee.last_login && (
+                          {(employee.last_active_at || employee.last_login) && (
                             <>
                               <span>•</span>
-                              <span>Last active {new Date(employee.last_login).toLocaleDateString()}</span>
+                              <span>Last active {new Date(employee.last_active_at || employee.last_login).toLocaleDateString()}</span>
                             </>
                           )}
                         </div>
@@ -533,6 +557,19 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit User Dialog */}
+      {editingEmployee && (
+        <EditPeopleDialog
+          isOpen={!!editingEmployee}
+          onClose={() => setEditingEmployee(null)}
+          user={editingEmployee}
+          onSuccess={() => {
+            setEditingEmployee(null);
+            refetch();
+          }}
+        />
+      )}
 
       {/* Create User Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
