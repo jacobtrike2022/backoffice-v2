@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { ArrowLeft, Upload, X, Plus } from 'lucide-react';
-import { createStore } from '../lib/crud/stores';
-import { addUnitTags } from '../lib/crud/unitTags';
+import { createStore, updateStore } from '../lib/crud/stores';
+import { addUnitTags, getUnitTags } from '../lib/crud/unitTags';
 import { uploadStorePhoto } from '../lib/storage/uploadStorePhoto';
 import { useDistricts, useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
-import { TagSelector } from './TagSelector';
+import { TagSelectorDialog } from './TagSelectorDialog';
 import { DistrictSelector } from './DistrictSelector';
 import { SimpleAddressForm } from './SimpleAddressForm';
 import { toast } from 'sonner@2.0.3';
@@ -21,12 +21,30 @@ import {
   SelectValue,
 } from './ui/select';
 
+interface Store {
+  id: string;
+  name: string;
+  code: string;
+  district_id?: string | null;
+  address?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  county?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  photo_url?: string | null;
+  manager_id?: string | null;
+}
+
 interface NewUnitProps {
   onBack: () => void;
   onSuccess: () => void;
+  editStore?: Store | null;  // If provided, we're in edit mode
 }
 
-export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
+export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
   // Basic Info
   const [unitName, setUnitName] = useState('');
   const [unitNumber, setUnitNumber] = useState('');
@@ -65,6 +83,42 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
   const { user: currentUser } = useCurrentUser();
   const { districts, loading: districtsLoading, error: districtsError, refetch: refetchDistricts } = useDistricts(currentUser?.organization_id);
   const { users } = useUsers();
+
+  // Pre-fill form if in edit mode
+  useEffect(() => {
+    if (editStore) {
+      setUnitName(editStore.name || '');
+      setUnitNumber(editStore.code || '');
+      
+      // Parse address if it's a formatted string
+      const addressParts = editStore.address?.split(',') || [];
+      setAddressLine1(addressParts[0]?.trim() || '');
+      setAddressLine2(editStore.address_line_2 || '');
+      setCity(editStore.city || '');
+      setState(editStore.state || '');
+      setZip(editStore.zip || '');
+      setCounty(editStore.county || '');
+      
+      setPhone(editStore.phone || '');
+      setEmail(editStore.email || '');
+      setSelectedDistrictId(editStore.district_id || '');
+      setSelectedManagerId(editStore.manager_id || '');
+      setPhotoPreview(editStore.photo_url || null);
+      
+      // Load existing tags
+      if (editStore.id) {
+        getUnitTags(editStore.id).then(unitTags => {
+          // Extract tag names from the returned data structure
+          const tagNames = unitTags
+            .map(ut => ut.tag?.name)
+            .filter(name => name != null) as string[];
+          setSelectedTags(tagNames);
+        }).catch(err => {
+          console.error('Error loading unit tags:', err);
+        });
+      }
+    }
+  }, [editStore]);
 
   // Filter managers from live database
   const managers = users.filter(u => 
@@ -141,56 +195,90 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
       ].filter(Boolean);
       const formattedAddress = addressParts.join(', ');
 
-      // Step 1: Create the store/unit first (to get the store ID)
-      const newStore = await createStore({
-        store_name: unitName,
-        store_code: unitNumber,
-        district_id: selectedDistrictId || null,
-        street_address: addressLine1 || null,
-        address_line_2: addressLine2 || null,
-        address: formattedAddress || null,
-        city: city || null,
-        state: state || null,
-        zip_code: zip || null,
-        county: county || null,
-        phone: phone || null,
-        email: email || null,
-        manager_id: selectedManagerId || null,
-        latitude: null,
-        longitude: null,
-        place_id: null,
-        photo_url: null // Will update this after photo upload
-      });
+      if (editStore) {
+        // UPDATE MODE - Update existing store
+        await updateStore(editStore.id, {
+          store_name: unitName,
+          store_code: unitNumber,
+          district_id: selectedDistrictId || null,
+          address: formattedAddress || null,
+          address_line_2: addressLine2 || null,
+          city: city || null,
+          state: state || null,
+          zip_code: zip || null,
+          county: county || null,
+          phone: phone || null,
+          email: email || null,
+          manager_id: selectedManagerId || null,
+        });
 
-      // Step 2: Upload photo to Supabase Storage if photoFile exists
-      if (photoFile && newStore.id) {
-        try {
-          const photoUrl = await uploadStorePhoto(photoFile, newStore.id);
-          
-          // Update the store with the photo URL
-          const { updateStore } = await import('../lib/crud/stores');
-          await updateStore(newStore.id, { photo_url: photoUrl });
-        } catch (photoError) {
-          console.error('Error uploading photo:', photoError);
-          toast.error('Unit created but photo upload failed');
+        // Upload photo if a new one was selected
+        if (photoFile && editStore.id) {
+          try {
+            const photoUrl = await uploadStorePhoto(photoFile, editStore.id);
+            await updateStore(editStore.id, { photo_url: photoUrl });
+          } catch (photoError) {
+            console.error('Error uploading photo:', photoError);
+            toast.error('Unit updated but photo upload failed');
+          }
         }
+
+        // Update tags relationship
+        if (selectedTags.length > 0 && editStore.id) {
+          try {
+            await addUnitTags(editStore.id, selectedTags);
+          } catch (tagError) {
+            console.error('Error updating tags:', tagError);
+          }
+        }
+
+        toast.success('Unit updated successfully');
+      } else {
+        // CREATE MODE - Create new store
+        const newStore = await createStore({
+          store_name: unitName,
+          store_code: unitNumber,
+          district_id: selectedDistrictId || null,
+          address: formattedAddress || null,
+          address_line_2: addressLine2 || null,
+          city: city || null,
+          state: state || null,
+          zip_code: zip || null,
+          county: county || null,
+          phone: phone || null,
+          email: email || null,
+          manager_id: selectedManagerId || null,
+          photo_url: null // Will update this after photo upload
+        });
+
+        // Upload photo to Supabase Storage if photoFile exists
+        if (photoFile && newStore.id) {
+          try {
+            const photoUrl = await uploadStorePhoto(photoFile, newStore.id);
+            await updateStore(newStore.id, { photo_url: photoUrl });
+          } catch (photoError) {
+            console.error('Error uploading photo:', photoError);
+            toast.error('Unit created but photo upload failed');
+          }
+        }
+
+        // Save tags relationship
+        if (selectedTags.length > 0 && newStore.id) {
+          try {
+            await addUnitTags(newStore.id, selectedTags);
+          } catch (tagError) {
+            console.error('Error adding tags:', tagError);
+            // Don't fail the entire operation for tag errors
+          }
+        }
+
+        toast.success('Unit created successfully');
       }
 
-      // Step 3: Save tags relationship
-      if (selectedTags.length > 0 && newStore.id) {
-        try {
-          await addUnitTags(newStore.id, selectedTags);
-        } catch (tagError) {
-          console.error('Error adding tags:', tagError);
-          // Don't fail the entire operation for tag errors
-        }
-      }
-
-      toast.success('Unit created successfully');
       onSuccess();
     } catch (error) {
-      console.error('Error creating unit:', error);
-      toast.error('Failed to create unit');
+      console.error('Error saving unit:', error);
+      toast.error(editStore ? 'Failed to update unit' : 'Failed to create unit');
     } finally {
       setSaving(false);
     }
@@ -208,9 +296,9 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
             Back
           </Button>
           <div>
-            <h1 className="text-foreground">New Unit</h1>
+            <h1 className="text-foreground">{editStore ? 'Edit Unit' : 'New Unit'}</h1>
             <p className="text-muted-foreground mt-1">
-              Create a new store location
+              {editStore ? 'Update store location details' : 'Create a new store location'}
             </p>
           </div>
         </div>
@@ -223,7 +311,7 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
             disabled={saving}
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
-            {saving ? 'Saving...' : 'Save Unit'}
+            {saving ? 'Saving...' : (editStore ? 'Update Unit' : 'Save Unit')}
           </Button>
         </div>
       </div>
@@ -432,13 +520,15 @@ export function NewUnit({ onBack, onSuccess }: NewUnitProps) {
       )}
 
       {showTagSelector && (
-        <TagSelector
+        <TagSelectorDialog
+          isOpen={showTagSelector}
           selectedTags={selectedTags}
-          onSave={(tags) => {
+          onTagsChange={(tags) => {
             setSelectedTags(tags);
-            setShowTagSelector(false);
+            // Modal will close itself when user clicks "Apply Tags"
           }}
           onClose={() => setShowTagSelector(false)}
+          systemCategory="units"
         />
       )}
     </div>

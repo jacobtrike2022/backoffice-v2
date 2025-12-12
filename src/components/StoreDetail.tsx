@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   MapPin,
   Mail,
-  Phone
+  Phone,
+  Pencil
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -61,6 +62,7 @@ interface StoreDetailProps {
   store: Store;
   onBack: () => void;
   currentRole: UserRole;
+  onEdit?: () => void;  // NEW: Callback to trigger edit mode
 }
 
 interface ActivityItem {
@@ -145,7 +147,7 @@ const employeeProgressData = [
   { name: 'Christopher Lee', progress: 65 }
 ];
 
-export function StoreDetail({ store, onBack, currentRole }: StoreDetailProps) {
+export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [tags, setTags] = useState<string[]>([]);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
@@ -222,6 +224,16 @@ export function StoreDetail({ store, onBack, currentRole }: StoreDetailProps) {
             </p>
           </div>
         </div>
+        {/* Edit Button - only show for admins */}
+        {currentRole === 'admin' && onEdit && (
+          <Button
+            onClick={onEdit}
+            className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
+          >
+            <Pencil className="w-4 h-4 mr-2" />
+            Edit Unit
+          </Button>
+        )}
       </div>
 
       {/* Store Header Card */}

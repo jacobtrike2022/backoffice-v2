@@ -38,12 +38,14 @@ export function TagSelectorDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tagToEdit, setTagToEdit] = useState<Tag | null>(null);
+  const [localSelectedTags, setLocalSelectedTags] = useState<string[]>(selectedTags); // Local state for tag selection
 
   useEffect(() => {
     if (isOpen) {
       loadTags();
+      setLocalSelectedTags(selectedTags); // Reset local state when modal opens
     }
-  }, [isOpen, systemCategory]);
+  }, [isOpen, systemCategory, selectedTags]);
 
   const loadTags = async () => {
     setIsLoading(true);
@@ -117,20 +119,12 @@ export function TagSelectorDialog({
 
   const handleToggleTag = (tag: Tag) => {
     const tagName = tag.name;
-    if (selectedTags.includes(tagName)) {
-      // Remove
-      const newSelected = selectedTags.filter(t => t !== tagName);
-      // We can't easily reconstruct the full objects for ALL selected tags if we only store names locally
-      // But we can try to find them in loaded categories
-      const allTags = categories.flatMap(c => c.children || []);
-      const selectedObjects = allTags.filter(t => newSelected.includes(t.name));
-      onTagsChange(newSelected, selectedObjects);
+    if (localSelectedTags.includes(tagName)) {
+      // Remove from local selection only
+      setLocalSelectedTags(localSelectedTags.filter(t => t !== tagName));
     } else {
-      // Add
-      const newSelected = [...selectedTags, tagName];
-      const allTags = categories.flatMap(c => c.children || []);
-      const selectedObjects = allTags.filter(t => newSelected.includes(t.name));
-      onTagsChange(newSelected, selectedObjects);
+      // Add to local selection only
+      setLocalSelectedTags([...localSelectedTags, tagName]);
     }
   };
 
@@ -160,6 +154,16 @@ export function TagSelectorDialog({
   };
 
   const handleSave = () => {
+    // Only call onTagsChange when user clicks "Apply Tags"
+    const allTags = categories.flatMap(c => c.children || []).flatMap(parent => {
+      const tags = [parent];
+      if (parent.children) {
+        tags.push(...parent.children);
+      }
+      return tags;
+    });
+    const selectedObjects = allTags.filter(t => localSelectedTags.includes(t.name));
+    onTagsChange(localSelectedTags, selectedObjects);
     onClose();
   };
 
@@ -257,7 +261,7 @@ export function TagSelectorDialog({
                   
                   <div className="flex flex-wrap gap-2 pl-6">
                     {childTags.map((tag) => {
-                      const isSelected = selectedTags.includes(tag.name);
+                      const isSelected = localSelectedTags.includes(tag.name);
                       const tagColor = tag.color || '#F74A05'; // Default to brand orange
 
                       return (
@@ -310,7 +314,7 @@ export function TagSelectorDialog({
           {/* Footer with Selected Summary */}
           <div className="pt-4 border-t mt-auto flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              {selectedTags.length} tag{selectedTags.length !== 1 ? 's' : ''} selected
+              {localSelectedTags.length} tag{localSelectedTags.length !== 1 ? 's' : ''} selected
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={onClose}>

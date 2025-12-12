@@ -511,9 +511,8 @@ export async function createStore(storeData: {
   store_name: string;
   store_code: string;
   district_id?: string | null;
-  street_address?: string | null;
-  address_line_2?: string | null;
   address?: string | null;
+  address_line_2?: string | null;
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
@@ -522,9 +521,6 @@ export async function createStore(storeData: {
   email?: string | null;
   photo_url?: string | null;
   manager_id?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  place_id?: string | null;
 }) {
   try {
     const orgId = await getCurrentUserOrgId();
@@ -537,9 +533,8 @@ export async function createStore(storeData: {
         name: storeData.store_name,
         code: storeData.store_code,
         district_id: storeData.district_id || null,
-        street_address: storeData.street_address || null,
-        address_line_2: storeData.address_line_2 || null,
         address: storeData.address || null,
+        address_line_2: storeData.address_line_2 || null,
         city: storeData.city || null,
         state: storeData.state || null,
         zip: storeData.zip_code || null,
@@ -547,10 +542,7 @@ export async function createStore(storeData: {
         phone: storeData.phone || null,
         email: storeData.email || null,
         photo_url: storeData.photo_url || null,
-        manager_id: storeData.manager_id || null,
-        latitude: storeData.latitude || null,
-        longitude: storeData.longitude || null,
-        place_id: storeData.place_id || null
+        manager_id: storeData.manager_id || null
       }])
       .select()
       .single();

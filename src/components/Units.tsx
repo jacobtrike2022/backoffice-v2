@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
+import { NewUnit } from './NewUnit';
 import { useStores, useCurrentUser } from '../lib/hooks/useSupabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -50,6 +51,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
+  const [editingStore, setEditingStore] = useState<any | null>(null);  // NEW: Store being edited
   
   // Filter states
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
@@ -172,6 +174,21 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
     return 'bg-red-500';
   };
 
+  // If editing a store, show edit form
+  if (editingStore) {
+    const rawStore = rawStores.find(s => s.id === editingStore.id);
+    return (
+      <NewUnit
+        editStore={rawStore}
+        onBack={() => setEditingStore(null)}
+        onSuccess={() => {
+          setEditingStore(null);
+          window.location.reload(); // Refresh to show updated data
+        }}
+      />
+    );
+  }
+
   // If store is selected, show detail view
   if (selectedStore) {
     return (
@@ -179,6 +196,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
         store={selectedStore}
         onBack={() => setSelectedStore(null)}
         currentRole={currentRole}
+        onEdit={() => setEditingStore(selectedStore)}
       />
     );
   }
