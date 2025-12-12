@@ -1270,6 +1270,17 @@ export function StoryEditor({
               </CardContent>
             </Card>
 
+            {/* Video Transcripts */}
+            {currentTrackId && (
+              <StoryTranscript
+                storyData={slides}
+                trackId={currentTrackId}
+                projectId={projectId}
+                publicAnonKey={publicAnonKey}
+                onTranscriptsGenerated={handleTranscriptsGenerated}
+              />
+            )}
+
             {/* Key Facts */}
             {(() => {
               const validObjectives = objectives.filter((o: any) => {
@@ -1353,17 +1364,6 @@ export function StoryEditor({
                 </Card>
               );
             })()}
-
-            {/* Video Transcripts */}
-            {currentTrackId && (
-              <StoryTranscript
-                storyData={slides}
-                trackId={currentTrackId}
-                projectId={projectId}
-                publicAnonKey={publicAnonKey}
-                onTranscriptsGenerated={handleTranscriptsGenerated}
-              />
-            )}
           </div>
 
           {/* Sidebar */}

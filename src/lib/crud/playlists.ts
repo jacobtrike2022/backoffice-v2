@@ -63,67 +63,107 @@ export async function getPlaylists(filters: {
 
   if (error) throw error;
 
-  // Enrich each playlist with stats
-  const enrichedPlaylists = await Promise.all(
-    (playlists || []).map(async (playlist) => {
-      // Get album count
-      const { count: albumCount } = await supabase
-        .from('playlist_albums')
-        .select('id', { count: 'exact', head: true })
-        .eq('playlist_id', playlist.id);
+  // Early return if no playlists
+  if (!playlists || playlists.length === 0) {
+    return [];
+  }
 
-      // Get standalone track count from junction table
-      const { count: trackCount } = await supabase
-        .from('playlist_tracks')
-        .select('id', { count: 'exact', head: true })
-        .eq('playlist_id', playlist.id);
+  // Extract all playlist IDs for batched queries
+  const playlistIds = playlists.map((p: any) => p.id);
 
-      // Get track IDs from junction table
-      const { data: playlistTracks } = await supabase
-        .from('playlist_tracks')
-        .select('track_id')
-        .eq('playlist_id', playlist.id)
-        .order('display_order', { ascending: true });
+  // Batch query 1: Get all album counts for all playlists at once
+  const { data: allPlaylistAlbums } = await supabase
+    .from('playlist_albums')
+    .select('playlist_id')
+    .in('playlist_id', playlistIds);
 
-      const track_ids = playlistTracks?.map((pt: any) => pt.track_id).filter(Boolean) || [];
+  // Batch query 2: Get all track data for all playlists at once
+  const { data: allPlaylistTracks } = await supabase
+    .from('playlist_tracks')
+    .select('playlist_id, track_id, display_order')
+    .in('playlist_id', playlistIds)
+    .order('display_order', { ascending: true });
 
-      // Get assignment count
-      const { count: assignmentCount } = await supabase
-        .from('assignments')
-        .select('id', { count: 'exact', head: true })
-        .eq('playlist_id', playlist.id)
-        .in('status', ['assigned', 'in_progress', 'completed']);
+  // Batch query 3: Get all assignment counts for all playlists at once
+  const { data: allAssignments } = await supabase
+    .from('assignments')
+    .select('playlist_id, progress_percent, status')
+    .in('playlist_id', playlistIds)
+    .in('status', ['assigned', 'in_progress', 'completed']);
 
-      // Get completion stats
-      const { data: assignments } = await supabase
-        .from('assignments')
-        .select('progress_percent, status')
-        .eq('playlist_id', playlist.id)
-        .in('status', ['assigned', 'in_progress', 'completed']);
+  // Build lookup maps
+  const albumCountByPlaylist: Record<string, number> = {};
+  (allPlaylistAlbums as any[])?.forEach((pa: any) => {
+    albumCountByPlaylist[pa.playlist_id] = (albumCountByPlaylist[pa.playlist_id] || 0) + 1;
+  });
 
-      const completedCount = assignments?.filter(a => a.status === 'completed').length || 0;
-      const totalAssignments = assignments?.length || 0;
-      const completionRate = totalAssignments > 0 
-        ? Math.round((completedCount / totalAssignments) * 100)
-        : 0;
+  const tracksByPlaylist: Record<string, { track_id: string; display_order: number }[]> = {};
+  (allPlaylistTracks as any[])?.forEach((pt: any) => {
+    if (!tracksByPlaylist[pt.playlist_id]) {
+      tracksByPlaylist[pt.playlist_id] = [];
+    }
+    if (pt.track_id) {
+      tracksByPlaylist[pt.playlist_id].push({
+        track_id: pt.track_id,
+        display_order: pt.display_order || 0,
+      });
+    }
+  });
 
-      const avgProgress = totalAssignments > 0
-        ? Math.round(
-            assignments.reduce((sum, a) => sum + (a.progress_percent || 0), 0) / totalAssignments
-          )
-        : 0;
+  // Sort tracks by display_order for each playlist
+  Object.keys(tracksByPlaylist).forEach(playlistId => {
+    tracksByPlaylist[playlistId].sort((a, b) => a.display_order - b.display_order);
+  });
 
-      return {
-        ...playlist,
-        album_count: albumCount || 0,
-        track_count: trackCount || 0,
-        assignment_count: assignmentCount || 0,
-        completion_rate: completionRate,
-        avg_progress: avgProgress,
-        track_ids,
-      };
-    })
-  );
+  const trackCountByPlaylist: Record<string, number> = {};
+  Object.keys(tracksByPlaylist).forEach(playlistId => {
+    trackCountByPlaylist[playlistId] = tracksByPlaylist[playlistId].length;
+  });
+
+  const assignmentsByPlaylist: Record<string, { progress_percent: number; status: string }[]> = {};
+  (allAssignments as any[])?.forEach((a: any) => {
+    if (!assignmentsByPlaylist[a.playlist_id]) {
+      assignmentsByPlaylist[a.playlist_id] = [];
+    }
+    assignmentsByPlaylist[a.playlist_id].push({
+      progress_percent: a.progress_percent || 0,
+      status: a.status,
+    });
+  });
+
+  const assignmentCountByPlaylist: Record<string, number> = {};
+  Object.keys(assignmentsByPlaylist).forEach(playlistId => {
+    assignmentCountByPlaylist[playlistId] = assignmentsByPlaylist[playlistId].length;
+  });
+
+  // Enrich each playlist with data from lookup maps
+  const enrichedPlaylists = playlists.map((playlist: any) => {
+    const playlistTracks = tracksByPlaylist[playlist.id] || [];
+    const track_ids = playlistTracks.map((pt: any) => pt.track_id).filter(Boolean);
+    
+    const assignments = assignmentsByPlaylist[playlist.id] || [];
+    const completedCount = assignments.filter((a: any) => a.status === 'completed').length;
+    const totalAssignments = assignments.length;
+    const completionRate = totalAssignments > 0 
+      ? Math.round((completedCount / totalAssignments) * 100)
+      : 0;
+
+    const avgProgress = totalAssignments > 0
+      ? Math.round(
+          assignments.reduce((sum: number, a: any) => sum + (a.progress_percent || 0), 0) / totalAssignments
+        )
+      : 0;
+
+    return {
+      ...playlist,
+      album_count: albumCountByPlaylist[playlist.id] || 0,
+      track_count: trackCountByPlaylist[playlist.id] || 0,
+      assignment_count: assignmentCountByPlaylist[playlist.id] || 0,
+      completion_rate: completionRate,
+      avg_progress: avgProgress,
+      track_ids,
+    };
+  });
 
   return enrichedPlaylists;
 }

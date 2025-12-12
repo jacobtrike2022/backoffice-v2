@@ -392,29 +392,32 @@ export default function App() {
       case "assignments":
         return (
           <Playlists
-            role={currentRole}
+            currentRole={currentRole}
             onNavigate={requestNavigate}
             selectedPlaylistId={selectedPlaylistId}
             onClearSelection={() => setSelectedPlaylistId(undefined)}
             onEditTrack={handleEditTrack}
+            onEditPlaylist={(playlistId: string) => {
+              setEditingPlaylistId(playlistId);
+              requestNavigate("playlist-wizard");
+            }}
           />
         );
       case "assignment":
         return (
           <Playlists
-            role={currentRole}
-            onNavigate={requestNavigate}
-            selectedStoreId={selectedStoreId}
-            onClearStoreSelection={() =>
-              setSelectedStoreId(undefined)
-            }
+            currentRole={currentRole}
+            onEditPlaylist={(playlistId: string) => {
+              setEditingPlaylistId(playlistId);
+              requestNavigate("playlist-wizard");
+            }}
           />
         );
       case "playlist-wizard":
         return (
           <PlaylistWizard
-            role={currentRole}
-            editingPlaylistId={editingPlaylistId}
+            mode={editingPlaylistId ? 'edit' : 'create'}
+            existingPlaylistId={editingPlaylistId}
             onClose={() => {
               setEditingPlaylistId(undefined);
               requestNavigate("assignments");
