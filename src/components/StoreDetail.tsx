@@ -39,7 +39,8 @@ import {
 import { Reports } from './Reports';
 import { Info, Tag as TagIcon, Plus } from 'lucide-react';
 import { TagSelectorDialog } from './TagSelectorDialog';
-import * as tagCrud from '../lib/crud/tags';
+import * as unitTagCrud from '../lib/crud/unitTags';
+import * as storeCrud from '../lib/crud/stores';
 import { toast } from 'sonner@2.0.3';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -56,6 +57,19 @@ interface Store {
   performance: 'excellent' | 'good' | 'needs-improvement';
   city: string;
   state: string;
+  // Additional fields from database
+  address?: string;
+  address_line_2?: string;
+  zip?: string;
+  county?: string;
+  phone?: string;
+  store_email?: string;
+  photo_url?: string;
+  timezone?: string;
+  created_at?: string;
+  updated_at?: string;
+  managerEmail?: string;
+  managerId?: string;
 }
 
 interface StoreDetailProps {
@@ -76,92 +90,121 @@ interface ActivityItem {
   iconColor: string;
 }
 
-const mockStoreActivity: ActivityItem[] = [
-  {
-    id: '1',
-    type: 'completion',
-    employee: 'Sarah Johnson',
-    title: 'Training Module Completed',
-    description: 'Advanced Customer Service Excellence - Score: 95%',
-    timestamp: '1 hour ago',
-    icon: CheckCircle,
-    iconColor: 'text-green-600'
-  },
-  {
-    id: '2',
-    type: 'certification',
-    employee: 'Michael Chen',
-    title: 'New Certification Earned',
-    description: 'Safety & Compliance Level 2',
-    timestamp: '3 hours ago',
-    icon: Award,
-    iconColor: 'text-blue-600'
-  },
-  {
-    id: '3',
-    type: 'alert',
-    employee: 'Christopher Lee',
-    title: 'Compliance Alert',
-    description: 'Annual Safety Refresher due in 5 days',
-    timestamp: '5 hours ago',
-    icon: AlertTriangle,
-    iconColor: 'text-orange-600'
-  },
-  {
-    id: '4',
-    type: 'assignment',
-    employee: 'Store Team',
-    title: 'New Content Assigned',
-    description: 'Product Knowledge Update Series - 3 modules',
-    timestamp: '1 day ago',
-    icon: Activity,
-    iconColor: 'text-purple-600'
-  },
-  {
-    id: '5',
-    type: 'completion',
-    employee: 'Jessica Park',
-    title: 'Quiz Completed',
-    description: 'Sales Techniques Assessment - Score: 92%',
-    timestamp: '1 day ago',
-    icon: CheckCircle,
-    iconColor: 'text-green-600'
+// Helper function to get activity icon and color
+const getActivityIcon = (type: string) => {
+  switch (type) {
+    case 'completion':
+      return { icon: CheckCircle, color: 'text-green-600' };
+    case 'certification':
+      return { icon: Award, color: 'text-blue-600' };
+    case 'alert':
+      return { icon: AlertTriangle, color: 'text-orange-600' };
+    case 'assignment':
+      return { icon: Activity, color: 'text-purple-600' };
+    default:
+      return { icon: Activity, color: 'text-gray-600' };
   }
-];
-
-// Mock performance data
-const performanceData = [
-  { month: 'Jun', progress: 75, compliance: 88, engagement: 82 },
-  { month: 'Jul', progress: 78, compliance: 90, engagement: 85 },
-  { month: 'Aug', progress: 80, compliance: 89, engagement: 83 },
-  { month: 'Sep', progress: 82, compliance: 91, engagement: 87 },
-  { month: 'Oct', progress: 84, compliance: 92, engagement: 89 },
-  { month: 'Nov', progress: 85, compliance: 92, engagement: 90 }
-];
-
-const employeeProgressData = [
-  { name: 'Sarah Johnson', progress: 95 },
-  { name: 'Michael Chen', progress: 92 },
-  { name: 'Jessica Park', progress: 88 },
-  { name: 'David Thompson', progress: 78 },
-  { name: 'Christopher Lee', progress: 65 }
-];
+};
 
 export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [tags, setTags] = useState<string[]>([]);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
+  
+  // Data state
+  const [performanceData, setPerformanceData] = useState<Array<{ month: string; progress: number; compliance: number; engagement: number }>>([]);
+  const [employeeProgressData, setEmployeeProgressData] = useState<Array<{ name: string; progress: number }>>([]);
+  const [storeActivity, setStoreActivity] = useState<Array<{ id: string; type: string; employee: string; title: string; description: string; timestamp: string; created_at: string }>>([]);
+  const [quickStats, setQuickStats] = useState<{ completionRate: number; certifications: number; learningHours: number; overdueItems: number } | null>(null);
+  const [engagementScore, setEngagementScore] = useState<number>(0);
+  
+  // Loading states
+  const [loadingPerformance, setLoadingPerformance] = useState(true);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const [loadingActivity, setLoadingActivity] = useState(true);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [photoError, setPhotoError] = useState(false);
 
   React.useEffect(() => {
     if (store.id) {
       loadTags();
+      loadStoreData();
     }
   }, [store.id]);
 
+  const loadStoreData = async () => {
+    try {
+      // Load all data in parallel
+      await Promise.all([
+        loadPerformanceTrends(),
+        loadEmployeeProgress(),
+        loadActivity(),
+        loadQuickStats()
+      ]);
+    } catch (error) {
+      console.error('Error loading store data:', error);
+      toast.error('Failed to load some store data');
+    }
+  };
+
+  const loadPerformanceTrends = async () => {
+    try {
+      setLoadingPerformance(true);
+      const data = await storeCrud.getStorePerformanceTrends(store.id);
+      setPerformanceData(data);
+      
+      // Calculate engagement score from latest month's engagement
+      if (data.length > 0) {
+        const latestEngagement = data[data.length - 1].engagement;
+        setEngagementScore(latestEngagement);
+      }
+    } catch (error) {
+      console.error('Error loading performance trends:', error);
+    } finally {
+      setLoadingPerformance(false);
+    }
+  };
+
+  const loadEmployeeProgress = async () => {
+    try {
+      setLoadingEmployees(true);
+      const data = await storeCrud.getStoreEmployeeProgress(store.id, 10);
+      setEmployeeProgressData(data);
+    } catch (error) {
+      console.error('Error loading employee progress:', error);
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  const loadActivity = async () => {
+    try {
+      setLoadingActivity(true);
+      const data = await storeCrud.getStoreActivity(store.id, 20);
+      setStoreActivity(data);
+    } catch (error) {
+      console.error('Error loading activity:', error);
+    } finally {
+      setLoadingActivity(false);
+    }
+  };
+
+  const loadQuickStats = async () => {
+    try {
+      setLoadingStats(true);
+      const data = await storeCrud.getStoreQuickStats(store.id);
+      setQuickStats(data);
+    } catch (error) {
+      console.error('Error loading quick stats:', error);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
   const loadTags = async () => {
     try {
-      const storeTags = await tagCrud.getEntityTags(store.id, 'store');
-      setTags(storeTags.map(t => t.name));
+      const unitTags = await unitTagCrud.getUnitTags(store.id);
+      setTags(unitTags.map((ut: any) => ut.tag?.name).filter(Boolean));
     } catch (error) {
       console.error('Error loading tags:', error);
     }
@@ -173,7 +216,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
     if (tagObjects) {
       const tagIds = tagObjects.map(t => t.id);
       try {
-        await tagCrud.assignTags(store.id, 'store', tagIds);
+        await unitTagCrud.replaceUnitTags(store.id, tagIds);
         toast.success('Tags updated successfully');
       } catch (error) {
         console.error('Error updating tags:', error);
@@ -241,9 +284,20 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
         <CardContent className="p-8">
           <div className="flex items-start justify-between">
             <div className="flex items-start space-x-6">
-              <div className="h-20 w-20 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                <Building className="h-10 w-10 text-primary" />
-              </div>
+              {store.photo_url && !photoError ? (
+                <div className="h-20 w-20 rounded-xl overflow-hidden flex-shrink-0 border-2 border-primary/10">
+                  <img 
+                    src={store.photo_url} 
+                    alt={store.name}
+                    className="h-full w-full object-cover"
+                    onError={() => setPhotoError(true)}
+                  />
+                </div>
+              ) : (
+                <div className="h-20 w-20 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Building className="h-10 w-10 text-primary" />
+                </div>
+              )}
 
               <div className="space-y-4">
                 <div>
@@ -272,18 +326,58 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                     <Users className="h-4 w-4" />
                     <span>{store.employees} Employees</span>
                   </div>
+                  {store.timezone && currentRole === 'admin' && (
+                    <div className="flex items-center space-x-2 text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      <span>{store.timezone}</span>
+                    </div>
+                  )}
                 </div>
+                
+                {/* Audit Info for Admin */}
+                {currentRole === 'admin' && (store.created_at || store.updated_at) && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {store.created_at && (
+                      <span>Created: {new Date(store.created_at).toLocaleDateString()}</span>
+                    )}
+                    {store.created_at && store.updated_at && <span className="mx-2">•</span>}
+                    {store.updated_at && (
+                      <span>Updated: {new Date(store.updated_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                )}
 
-                <div className="flex items-center space-x-3">
-                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                    <Mail className="h-3 w-3 mr-1" />
-                    {store.manager.toLowerCase().replace(' ', '.')}@trike.com
-                  </Badge>
-                  <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
-                    <Phone className="h-3 w-3 mr-1" />
-                    (555) 123-4567
-                  </Badge>
+                <div className="flex items-center space-x-3 flex-wrap">
+                  {store.store_email && (
+                    <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
+                      <Mail className="h-3 w-3 mr-1" />
+                      {store.store_email}
+                    </Badge>
+                  )}
+                  {store.phone && (
+                    <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
+                      <Phone className="h-3 w-3 mr-1" />
+                      {store.phone}
+                    </Badge>
+                  )}
                 </div>
+                
+                {/* Full Address */}
+                {(store.address || store.city || store.state || store.zip) && (
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    <div className="flex items-start space-x-2">
+                      <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        {store.address && <div>{store.address}</div>}
+                        {store.address_line_2 && <div>{store.address_line_2}</div>}
+                        <div>
+                          {[store.city, store.state, store.zip].filter(Boolean).join(', ')}
+                          {store.county && ` (${store.county} County)`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Tags Section */}
                 <div className="flex items-center gap-2 mt-4 flex-wrap">
@@ -340,7 +434,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
 
             <div className="text-center border-l border-border pl-6">
               <p className="text-sm text-muted-foreground mb-1">Engagement Score</p>
-              <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">8.5</p>
+              <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{engagementScore}</p>
             </div>
           </div>
         </CardContent>
@@ -376,8 +470,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={performanceData}>
+                {loadingPerformance ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    Loading performance data...
+                  </div>
+                ) : performanceData.length === 0 ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No performance data available
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={performanceData}>
                     <defs>
                       <linearGradient id="colorProgress" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#F74A05" stopOpacity={0.3}/>
@@ -416,7 +519,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       name="Compliance"
                     />
                   </AreaChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -429,8 +533,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={employeeProgressData} layout="vertical">
+                {loadingEmployees ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    Loading employee data...
+                  </div>
+                ) : employeeProgressData.length === 0 ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No employee progress data available
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={employeeProgressData} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis type="number" domain={[0, 100]} className="text-xs" />
                     <YAxis dataKey="name" type="category" className="text-xs" width={100} />
@@ -443,7 +556,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                     />
                     <Bar dataKey="progress" fill="#F74A05" name="Progress %" radius={[0, 8, 8, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -456,8 +570,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={performanceData}>
+                {loadingPerformance ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    Loading engagement data...
+                  </div>
+                ) : performanceData.length === 0 ? (
+                  <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                    No engagement data available
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={performanceData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis dataKey="month" className="text-xs" />
                     <YAxis className="text-xs" domain={[0, 100]} />
@@ -477,7 +600,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       name="Engagement %"
                     />
                   </LineChart>
-                </ResponsiveContainer>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -501,7 +625,11 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <p className="text-xs text-muted-foreground">Last 30 days</p>
                       </div>
                     </div>
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">91%</p>
+                    {loadingStats ? (
+                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">...</p>
+                    ) : (
+                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">{quickStats?.completionRate || 0}%</p>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
@@ -514,7 +642,11 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <p className="text-xs text-muted-foreground">Active certifications</p>
                       </div>
                     </div>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">32</p>
+                    {loadingStats ? (
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">...</p>
+                    ) : (
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{quickStats?.certifications || 0}</p>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
@@ -527,7 +659,11 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <p className="text-xs text-muted-foreground">Total this month</p>
                       </div>
                     </div>
-                    <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">156h</p>
+                    {loadingStats ? (
+                      <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">...</p>
+                    ) : (
+                      <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{quickStats?.learningHours || 0}h</p>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
@@ -540,7 +676,11 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <p className="text-xs text-muted-foreground">Requires attention</p>
                       </div>
                     </div>
-                    <p className="text-2xl font-bold text-red-600 dark:text-red-400">2</p>
+                    {loadingStats ? (
+                      <p className="text-2xl font-bold text-red-600 dark:text-red-400">...</p>
+                    ) : (
+                      <p className="text-2xl font-bold text-red-600 dark:text-red-400">{quickStats?.overdueItems || 0}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -558,35 +698,55 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockStoreActivity.map((activity, index) => (
-                  <div key={activity.id}>
-                    <div className="flex items-start space-x-4">
-                      <div className={`h-10 w-10 rounded-lg bg-${activity.iconColor.split('-')[1]}-100 dark:bg-${activity.iconColor.split('-')[1]}-900/30 flex items-center justify-center flex-shrink-0`}>
-                        {React.createElement(activity.icon, { 
-                          className: `h-5 w-5 ${activity.iconColor} dark:${activity.iconColor.replace('600', '400')}` 
-                        })}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2">
-                          <p className="font-medium text-foreground">{activity.title}</p>
-                          <Badge variant="outline" className="text-xs">
-                            {activity.employee}
-                          </Badge>
+              {loadingActivity ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  Loading activity feed...
+                </div>
+              ) : storeActivity.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  No recent activity
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {storeActivity.map((activity, index) => {
+                    const { icon: IconComponent, color } = getActivityIcon(activity.type);
+                    const colorName = color.split('-')[1]; // 'green', 'blue', etc.
+                    const bgColorClass = {
+                      'green': 'bg-green-100 dark:bg-green-900/30',
+                      'blue': 'bg-blue-100 dark:bg-blue-900/30',
+                      'orange': 'bg-orange-100 dark:bg-orange-900/30',
+                      'purple': 'bg-purple-100 dark:bg-purple-900/30',
+                      'gray': 'bg-gray-100 dark:bg-gray-900/30'
+                    }[colorName] || 'bg-gray-100 dark:bg-gray-900/30';
+                    
+                    return (
+                      <div key={activity.id}>
+                        <div className="flex items-start space-x-4">
+                          <div className={`h-10 w-10 rounded-lg ${bgColorClass} flex items-center justify-center flex-shrink-0`}>
+                            <IconComponent className={`h-5 w-5 ${color} dark:${color.replace('600', '400')}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <p className="font-medium text-foreground">{activity.title}</p>
+                              <Badge variant="outline" className="text-xs">
+                                {activity.employee}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
+                            <p className="text-xs text-muted-foreground mt-2 flex items-center">
+                              <Clock className="h-3 w-3 mr-1" />
+                              {activity.timestamp}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
-                        <p className="text-xs text-muted-foreground mt-2 flex items-center">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {activity.timestamp}
-                        </p>
+                        {index < storeActivity.length - 1 && (
+                          <Separator className="my-4" />
+                        )}
                       </div>
-                    </div>
-                    {index < mockStoreActivity.length - 1 && (
-                      <Separator className="my-4" />
-                    )}
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -474,7 +474,7 @@ export async function getStores(filters?: {
           zip: store.zip,
           county: store.county,
           phone: store.phone,
-          email: store.email,
+          store_email: store.store_email,
           photo_url: store.photo_url,
           district_id: store.district_id,
           manager_id: store.manager_id,
@@ -538,7 +538,7 @@ export async function createStore(storeData: {
   zip_code?: string | null;
   county?: string | null;
   phone?: string | null;
-  email?: string | null;
+  store_email?: string | null;
   photo_url?: string | null;
   manager_id?: string | null;
 }) {
@@ -560,7 +560,7 @@ export async function createStore(storeData: {
         zip: storeData.zip_code || null,
         county: storeData.county || null,
         phone: storeData.phone || null,
-        email: storeData.email || null,
+        store_email: storeData.store_email || null,
         photo_url: storeData.photo_url || null,
         manager_id: storeData.manager_id || null
       }])
@@ -590,7 +590,7 @@ export async function updateStore(
     state?: string | null;
     zip_code?: string | null;
     phone?: string | null;
-    email?: string | null;
+    store_email?: string | null;
     county?: string | null;
     photo_url?: string | null;
     manager_id?: string | null;
@@ -607,7 +607,7 @@ export async function updateStore(
     if (updates.state !== undefined) updateData.state = updates.state;
     if (updates.zip_code !== undefined) updateData.zip = updates.zip_code;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
-    if (updates.email !== undefined) updateData.email = updates.email;
+    if (updates.store_email !== undefined) updateData.store_email = updates.store_email;
     if (updates.county !== undefined) updateData.county = updates.county;
     if (updates.photo_url !== undefined) updateData.photo_url = updates.photo_url;
     if (updates.manager_id !== undefined) updateData.manager_id = updates.manager_id;
@@ -642,6 +642,335 @@ export async function deleteStore(storeId: string) {
     return true;
   } catch (err) {
     console.error('Error in deleteStore:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get store activity feed
+ * Returns recent activity logs for employees at a specific store
+ */
+export async function getStoreActivity(storeId: string, limit: number = 20) {
+  try {
+    // Get all employees for this store
+    const { data: employees, error: empError } = await supabase
+      .from('users')
+      .select('id, first_name, last_name')
+      .eq('store_id', storeId)
+      .eq('status', 'active');
+
+    if (empError) throw empError;
+    if (!employees || employees.length === 0) return [];
+
+    const employeeIds = employees.map(e => e.id);
+    const employeeMap = new Map(employees.map(e => [e.id, `${e.first_name} ${e.last_name}`]));
+
+    // Get recent activity logs for these employees
+    const { data: activities, error: activityError } = await supabase
+      .from('activity_logs')
+      .select(`
+        *,
+        user:users(id, first_name, last_name)
+      `)
+      .in('user_id', employeeIds)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (activityError) throw activityError;
+
+    // Format activities for display
+    return (activities || []).map((activity: any) => {
+      const employeeName = activity.user 
+        ? `${activity.user.first_name} ${activity.user.last_name}`
+        : 'Unknown';
+      
+      // Format timestamp
+      const timestamp = new Date(activity.created_at);
+      const now = new Date();
+      const diffMs = now.getTime() - timestamp.getTime();
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffHours / 24);
+      
+      let timeAgo = '';
+      if (diffHours < 1) {
+        timeAgo = 'Just now';
+      } else if (diffHours < 24) {
+        timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+      } else if (diffDays < 7) {
+        timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+      } else {
+        timeAgo = timestamp.toLocaleDateString();
+      }
+
+      // Determine activity type and icon
+      let type: 'completion' | 'certification' | 'assignment' | 'alert' = 'assignment';
+      let title = activity.action || 'Activity';
+      let description = activity.details?.description || activity.action || '';
+
+      if (activity.action === 'completion') {
+        type = 'completion';
+        title = 'Training Module Completed';
+        const trackTitle = activity.details?.track_title || 'Training';
+        const score = activity.details?.score;
+        description = `${trackTitle}${score ? ` - Score: ${score}%` : ''}`;
+      } else if (activity.action === 'certification') {
+        type = 'certification';
+        title = 'New Certification Earned';
+        description = activity.details?.certification_name || 'Certification';
+      } else if (activity.action === 'assignment') {
+        type = 'assignment';
+        title = 'New Content Assigned';
+        description = activity.details?.playlist_title || 'Content';
+      }
+
+      return {
+        id: activity.id,
+        type,
+        employee: employeeName,
+        title,
+        description,
+        timestamp: timeAgo,
+        created_at: activity.created_at
+      };
+    });
+  } catch (err) {
+    console.error('Error in getStoreActivity:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get store performance trends (monthly data for last 6 months)
+ * Returns progress, compliance, and engagement metrics
+ */
+export async function getStorePerformanceTrends(storeId: string) {
+  try {
+    // Get all employees for this store
+    const { data: employees, error: empError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('store_id', storeId)
+      .eq('status', 'active');
+
+    if (empError) throw empError;
+    if (!employees || employees.length === 0) {
+      // Return empty data structure
+      const months = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
+      return months.map(month => ({ month, progress: 0, compliance: 0, engagement: 0 }));
+    }
+
+    const employeeIds = employees.map(e => e.id);
+
+    // Get last 6 months
+    const now = new Date();
+    const months: { month: string; start: Date; end: Date }[] = [];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+      months.push({
+        month: monthNames[date.getMonth()],
+        start: monthStart,
+        end: monthEnd
+      });
+    }
+
+    // Calculate metrics for each month
+    const performanceData = await Promise.all(
+      months.map(async ({ month, start, end }) => {
+        // Get progress data for this month
+        const { data: progressData } = await supabase
+          .from('user_progress')
+          .select('status, progress_percent, updated_at')
+          .in('user_id', employeeIds)
+          .gte('updated_at', start.toISOString())
+          .lte('updated_at', end.toISOString());
+
+        // Calculate average progress
+        let progress = 0;
+        if (progressData && progressData.length > 0) {
+          const completed = progressData.filter(p => p.status === 'completed').length;
+          progress = Math.round((completed / progressData.length) * 100);
+        }
+
+        // Calculate compliance (completed assignments / total assignments)
+        const { data: assignments } = await supabase
+          .from('assignments')
+          .select('status, assigned_at')
+          .in('user_id', employeeIds)
+          .lte('assigned_at', end.toISOString());
+
+        let compliance = 0;
+        if (assignments && assignments.length > 0) {
+          const completed = assignments.filter(a => a.status === 'completed').length;
+          compliance = Math.round((completed / assignments.length) * 100);
+        }
+
+        // Calculate engagement (activity count as percentage)
+        const { data: activities } = await supabase
+          .from('activity_logs')
+          .select('id')
+          .in('user_id', employeeIds)
+          .gte('created_at', start.toISOString())
+          .lte('created_at', end.toISOString());
+
+        // Engagement score based on activity frequency (normalized to 0-100)
+        const activityCount = activities?.length || 0;
+        const expectedActivity = employeeIds.length * 10; // Assume 10 activities per employee per month is 100%
+        const engagement = Math.min(100, Math.round((activityCount / expectedActivity) * 100));
+
+        return { month, progress, compliance, engagement };
+      })
+    );
+
+    return performanceData;
+  } catch (err) {
+    console.error('Error in getStorePerformanceTrends:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get employee progress for a store
+ * Returns top employees by progress percentage
+ */
+export async function getStoreEmployeeProgress(storeId: string, limit: number = 10) {
+  try {
+    // Get employees for this store
+    const { data: employees, error: empError } = await supabase
+      .from('users')
+      .select('id, first_name, last_name')
+      .eq('store_id', storeId)
+      .eq('status', 'active');
+
+    if (empError) throw empError;
+    if (!employees || employees.length === 0) return [];
+
+    const employeeIds = employees.map(e => e.id);
+
+    // Get progress data for all employees
+    const { data: progressData, error: progressError } = await supabase
+      .from('user_progress')
+      .select('user_id, progress_percent, status')
+      .in('user_id', employeeIds);
+
+    if (progressError) throw progressError;
+
+    // Calculate average progress per employee
+    const employeeProgressMap = new Map<string, { total: number; completed: number }>();
+    
+    (progressData || []).forEach((progress: any) => {
+      const existing = employeeProgressMap.get(progress.user_id) || { total: 0, completed: 0 };
+      existing.total += 1;
+      if (progress.status === 'completed') {
+        existing.completed += 1;
+      }
+      employeeProgressMap.set(progress.user_id, existing);
+    });
+
+    // Calculate progress percentage for each employee
+    const employeeProgress = employees.map(employee => {
+      const stats = employeeProgressMap.get(employee.id) || { total: 0, completed: 0 };
+      const progress = stats.total > 0 
+        ? Math.round((stats.completed / stats.total) * 100)
+        : 0;
+      
+      return {
+        name: `${employee.first_name} ${employee.last_name}`,
+        progress
+      };
+    });
+
+    // Sort by progress (descending) and return top N
+    return employeeProgress
+      .sort((a, b) => b.progress - a.progress)
+      .slice(0, limit);
+  } catch (err) {
+    console.error('Error in getStoreEmployeeProgress:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get quick statistics for a store
+ * Returns completion rate, certifications, learning hours, and overdue items
+ */
+export async function getStoreQuickStats(storeId: string) {
+  try {
+    // Get all employees for this store
+    const { data: employees, error: empError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('store_id', storeId)
+      .eq('status', 'active');
+
+    if (empError) throw empError;
+    if (!employees || employees.length === 0) {
+      return {
+        completionRate: 0,
+        certifications: 0,
+        learningHours: 0,
+        overdueItems: 0
+      };
+    }
+
+    const employeeIds = employees.map(e => e.id);
+
+    // Calculate completion rate (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: recentProgress } = await supabase
+      .from('user_progress')
+      .select('status, updated_at')
+      .in('user_id', employeeIds)
+      .gte('updated_at', thirtyDaysAgo.toISOString());
+
+    let completionRate = 0;
+    if (recentProgress && recentProgress.length > 0) {
+      const completed = recentProgress.filter(p => p.status === 'completed').length;
+      completionRate = Math.round((completed / recentProgress.length) * 100);
+    }
+
+    // Count active certifications
+    const { data: certifications } = await supabase
+      .from('user_certifications')
+      .select('id')
+      .in('user_id', employeeIds)
+      .eq('status', 'active');
+
+    const certificationCount = certifications?.length || 0;
+
+    // Sum learning hours (from user_progress time_spent_minutes)
+    const { data: userProgress } = await supabase
+      .from('user_progress')
+      .select('time_spent_minutes')
+      .in('user_id', employeeIds);
+
+    const totalMinutes = userProgress?.reduce((sum, p) => sum + (p.time_spent_minutes || 0), 0) || 0;
+    const learningHours = Math.round(totalMinutes / 60);
+
+    // Count overdue assignments
+    const now = new Date().toISOString();
+    const { data: overdueAssignments } = await supabase
+      .from('assignments')
+      .select('id')
+      .in('user_id', employeeIds)
+      .lt('due_date', now)
+      .neq('status', 'completed');
+
+    const overdueCount = overdueAssignments?.length || 0;
+
+    return {
+      completionRate,
+      certifications: certificationCount,
+      learningHours,
+      overdueItems: overdueCount
+    };
+  } catch (err) {
+    console.error('Error in getStoreQuickStats:', err);
     throw err;
   }
 }

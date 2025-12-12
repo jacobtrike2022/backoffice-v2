@@ -33,7 +33,7 @@ interface Store {
   zip?: string | null;
   county?: string | null;
   phone?: string | null;
-  email?: string | null;
+  store_email?: string | null;
   photo_url?: string | null;
   manager_id?: string | null;
 }
@@ -100,7 +100,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         zip: editStore.zip,
         county: editStore.county,
         phone: editStore.phone,
-        email: editStore.email,
+        store_email: editStore.store_email,
         photo_url: editStore.photo_url,
         manager_id: editStore.manager_id
       });
@@ -118,7 +118,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
       setCounty(editStore.county || '');
       
       setPhone(editStore.phone || '');
-      setEmail(editStore.email || '');
+      setEmail(editStore.store_email || '');
       setSelectedDistrictId(editStore.district_id || '');
       setSelectedManagerId(editStore.manager_id || '');
       setPhotoPreview(editStore.photo_url || null);
@@ -127,7 +127,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         addressLine2: editStore.address_line_2,
         county: editStore.county,
         phone: editStore.phone,
-        email: editStore.email,
+        store_email: editStore.store_email,
         photoPreview: editStore.photo_url,
         selectedDistrictId: editStore.district_id
       });
@@ -253,11 +253,11 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           city: city || null,
           state: state || null,
           zip_code: zip || null,
-          county: county || null,
-          phone: phone || null,
-          email: email || null,
-          manager_id: selectedManagerId || null,
-        };
+        county: county || null,
+        phone: phone || null,
+        store_email: email || null,
+        manager_id: selectedManagerId || null,
+      };
 
         console.log('📝 Update data being sent:', updateData);
         await updateStore(editStore.id, updateData);
@@ -306,7 +306,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           zip_code: zip || null,
           county: county || null,
           phone: phone || null,
-          email: email || null,
+          store_email: email || null,
           manager_id: selectedManagerId || null,
           photo_url: null // Will update this after photo upload
         };

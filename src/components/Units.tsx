@@ -36,6 +36,19 @@ interface Store {
   performance: 'excellent' | 'good' | 'needs-improvement';
   city: string;
   state: string;
+  // Additional fields for StoreDetail
+  address?: string;
+  address_line_2?: string;
+  zip?: string;
+  county?: string;
+  phone?: string;
+  email?: string;
+  photo_url?: string;
+  timezone?: string;
+  created_at?: string;
+  updated_at?: string;
+  managerEmail?: string;
+  managerId?: string;
 }
 
 interface UnitsProps {
@@ -86,7 +99,20 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
     compliance: store.compliance || 0,
     performance: store.performance || 'needs-improvement',
     city: store.city || '',
-    state: store.state || ''
+    state: store.state || '',
+    // Additional fields for StoreDetail
+    address: store.address,
+    address_line_2: store.address_line_2,
+    zip: store.zip,
+    county: store.county,
+    phone: store.phone,
+    store_email: store.store_email,
+    photo_url: store.photo_url,
+    timezone: store.timezone,
+    created_at: store.created_at,
+    updated_at: store.updated_at,
+    managerEmail: store.manager?.email,
+    managerId: store.manager_id
   }));
 
   // Get stores based on role
