@@ -71,6 +71,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
   
   // Tags
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTagObjects, setSelectedTagObjects] = useState<any[]>([]);  // Store full tag objects for IDs
   const [showTagSelector, setShowTagSelector] = useState(false);
   
   // Staff
@@ -113,6 +114,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
             .map(ut => ut.tag?.name)
             .filter(name => name != null) as string[];
           setSelectedTags(tagNames);
+          setSelectedTagObjects(unitTags.map(ut => ut.tag));
         }).catch(err => {
           console.error('Error loading unit tags:', err);
         });
@@ -223,10 +225,13 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           }
         }
 
-        // Update tags relationship
-        if (selectedTags.length > 0 && editStore.id) {
+        // Update tags relationship - use tag IDs instead of tag names
+        if (selectedTagObjects.length > 0 && editStore.id) {
           try {
-            await addUnitTags(editStore.id, selectedTags);
+            const tagIds = selectedTagObjects.map(t => t.id).filter(Boolean);
+            if (tagIds.length > 0) {
+              await addUnitTags(editStore.id, tagIds);
+            }
           } catch (tagError) {
             console.error('Error updating tags:', tagError);
           }
@@ -262,10 +267,13 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           }
         }
 
-        // Save tags relationship
-        if (selectedTags.length > 0 && newStore.id) {
+        // Save tags relationship - use tag IDs instead of tag names
+        if (selectedTagObjects.length > 0 && newStore.id) {
           try {
-            await addUnitTags(newStore.id, selectedTags);
+            const tagIds = selectedTagObjects.map(t => t.id).filter(Boolean);
+            if (tagIds.length > 0) {
+              await addUnitTags(newStore.id, tagIds);
+            }
           } catch (tagError) {
             console.error('Error adding tags:', tagError);
             // Don't fail the entire operation for tag errors
@@ -460,7 +468,10 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                   >
                     <span>{tag}</span>
                     <button
-                      onClick={() => setSelectedTags(selectedTags.filter(t => t !== tag))}
+                      onClick={() => {
+                        setSelectedTags(selectedTags.filter(t => t !== tag));
+                        setSelectedTagObjects(selectedTagObjects.filter(obj => obj.name !== tag));
+                      }}
                       className="hover:bg-primary/20 rounded-full p-0.5"
                     >
                       <X className="w-3 h-3" />
@@ -523,8 +534,9 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         <TagSelectorDialog
           isOpen={showTagSelector}
           selectedTags={selectedTags}
-          onTagsChange={(tags) => {
+          onTagsChange={(tags, tagObjects) => {
             setSelectedTags(tags);
+            setSelectedTagObjects(tagObjects || []);
             // Modal will close itself when user clicks "Apply Tags"
           }}
           onClose={() => setShowTagSelector(false)}
