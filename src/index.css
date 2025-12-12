@@ -3001,10 +3001,6 @@
     }
   }
 
-  .bg-red-600 {
-    background-color: var(--color-red-600);
-  }
-
   .bg-red-900\/20 {
     background-color: color-mix(in srgb, oklch(.396 .141 25.723) 20%, transparent);
   }
@@ -6126,16 +6122,6 @@
   @supports (color: color-mix(in lab, red, red)) {
     .dark\:bg-blue-950\/20:is(.dark *) {
       background-color: color-mix(in oklab, var(--color-blue-950) 20%, transparent);
-    }
-  }
-
-  .dark\:bg-blue-950\/30:is(.dark *) {
-    background-color: color-mix(in srgb, oklch(.282 .091 267.935) 30%, transparent);
-  }
-
-  @supports (color: color-mix(in lab, red, red)) {
-    .dark\:bg-blue-950\/30:is(.dark *) {
-      background-color: color-mix(in oklab, var(--color-blue-950) 30%, transparent);
     }
   }
 
