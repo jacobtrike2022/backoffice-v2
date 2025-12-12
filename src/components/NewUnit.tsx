@@ -190,16 +190,34 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
       // Build formatted address
       const addressParts = [
         addressLine1,
-        addressLine2,
         city,
         state,
         zip
       ].filter(Boolean);
       const formattedAddress = addressParts.join(', ');
 
+      console.log('💾 Saving unit with data:', {
+        unitName,
+        unitNumber,
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        zip,
+        county,
+        phone,
+        email,
+        selectedDistrictId,
+        selectedManagerId,
+        photoFile: photoFile?.name,
+        photoPreview: photoPreview?.substring(0, 50)
+      });
+
+      let storeId: string;
+
       if (editStore) {
         // UPDATE MODE - Update existing store
-        await updateStore(editStore.id, {
+        const updateData = {
           store_name: unitName,
           store_code: unitNumber,
           district_id: selectedDistrictId || null,
@@ -212,13 +230,21 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           phone: phone || null,
           email: email || null,
           manager_id: selectedManagerId || null,
-        });
+        };
+
+        console.log('📝 Update data being sent:', updateData);
+        await updateStore(editStore.id, updateData);
+        storeId = editStore.id;
+        console.log('✅ Store updated successfully');
 
         // Upload photo if a new one was selected
         if (photoFile && editStore.id) {
           try {
+            console.log('📸 Uploading photo...');
             const photoUrl = await uploadStorePhoto(photoFile, editStore.id);
+            console.log('✅ Photo uploaded:', photoUrl);
             await updateStore(editStore.id, { photo_url: photoUrl });
+            console.log('✅ Photo URL saved to store');
           } catch (photoError) {
             console.error('Error uploading photo:', photoError);
             toast.error('Unit updated but photo upload failed');
@@ -228,9 +254,11 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         // Update tags relationship - use tag IDs instead of tag names
         if (selectedTagObjects.length > 0 && editStore.id) {
           try {
+            console.log('🏷️ Saving tags:', selectedTagObjects.map(t => t.name));
             const tagIds = selectedTagObjects.map(t => t.id).filter(Boolean);
             if (tagIds.length > 0) {
               await addUnitTags(editStore.id, tagIds);
+              console.log('✅ Tags saved');
             }
           } catch (tagError) {
             console.error('Error updating tags:', tagError);
@@ -240,7 +268,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         toast.success('Unit updated successfully');
       } else {
         // CREATE MODE - Create new store
-        const newStore = await createStore({
+        const createData = {
           store_name: unitName,
           store_code: unitNumber,
           district_id: selectedDistrictId || null,
@@ -254,13 +282,21 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           email: email || null,
           manager_id: selectedManagerId || null,
           photo_url: null // Will update this after photo upload
-        });
+        };
+
+        console.log('📝 Create data being sent:', createData);
+        const newStore = await createStore(createData);
+        storeId = newStore.id;
+        console.log('✅ Store created with ID:', storeId);
 
         // Upload photo to Supabase Storage if photoFile exists
         if (photoFile && newStore.id) {
           try {
+            console.log('📸 Uploading photo...');
             const photoUrl = await uploadStorePhoto(photoFile, newStore.id);
+            console.log('✅ Photo uploaded:', photoUrl);
             await updateStore(newStore.id, { photo_url: photoUrl });
+            console.log('✅ Photo URL saved to store');
           } catch (photoError) {
             console.error('Error uploading photo:', photoError);
             toast.error('Unit created but photo upload failed');
@@ -270,9 +306,11 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         // Save tags relationship - use tag IDs instead of tag names
         if (selectedTagObjects.length > 0 && newStore.id) {
           try {
+            console.log('🏷️ Saving tags:', selectedTagObjects.map(t => t.name));
             const tagIds = selectedTagObjects.map(t => t.id).filter(Boolean);
             if (tagIds.length > 0) {
               await addUnitTags(newStore.id, tagIds);
+              console.log('✅ Tags saved');
             }
           } catch (tagError) {
             console.error('Error adding tags:', tagError);
@@ -283,9 +321,10 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         toast.success('Unit created successfully');
       }
 
+      console.log('✅ ALL DATA SAVED SUCCESSFULLY');
       onSuccess();
     } catch (error) {
-      console.error('Error saving unit:', error);
+      console.error('❌ Save error:', error);
       toast.error(editStore ? 'Failed to update unit' : 'Failed to create unit');
     } finally {
       setSaving(false);

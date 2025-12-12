@@ -565,6 +565,7 @@ export async function updateStore(
     store_code?: string;
     district_id?: string | null;
     address?: string | null;
+    address_line_2?: string | null;
     city?: string | null;
     state?: string | null;
     zip_code?: string | null;
@@ -581,6 +582,7 @@ export async function updateStore(
     if (updates.store_code) updateData.code = updates.store_code;
     if (updates.district_id !== undefined) updateData.district_id = updates.district_id;
     if (updates.address !== undefined) updateData.address = updates.address;
+    if (updates.address_line_2 !== undefined) updateData.address_line_2 = updates.address_line_2;
     if (updates.city !== undefined) updateData.city = updates.city;
     if (updates.state !== undefined) updateData.state = updates.state;
     if (updates.zip_code !== undefined) updateData.zip = updates.zip_code;
