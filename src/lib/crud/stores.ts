@@ -508,8 +508,18 @@ export async function getStores(filters?: {
  */
 export async function getStoreById(storeId: string) {
   try {
-    const stores = await getStores();
-    return stores.find(s => s.id === storeId) || null;
+    const { data, error } = await supabase
+      .from('stores')
+      .select(`
+        *,
+        district:districts(id, name, code),
+        manager:users!fk_stores_manager(id, first_name, last_name, email)
+      `)
+      .eq('id', storeId)
+      .single();
+
+    if (error) throw error;
+    return data;
   } catch (err) {
     console.error('Error in getStoreById:', err);
     throw err;
