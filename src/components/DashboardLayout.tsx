@@ -27,13 +27,13 @@ import {
   Wrench,
   LogOut
 } from 'lucide-react';
+import trikeLogo from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
 import { Separator } from './ui/separator';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
-import trikeLogo from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
