@@ -88,6 +88,23 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
   // Pre-fill form if in edit mode
   useEffect(() => {
     if (editStore) {
+      console.log('📝 Edit mode - Raw store data received:', {
+        id: editStore.id,
+        name: editStore.name,
+        code: editStore.code,
+        district_id: editStore.district_id,
+        address: editStore.address,
+        address_line_2: editStore.address_line_2,
+        city: editStore.city,
+        state: editStore.state,
+        zip: editStore.zip,
+        county: editStore.county,
+        phone: editStore.phone,
+        email: editStore.email,
+        photo_url: editStore.photo_url,
+        manager_id: editStore.manager_id
+      });
+
       setUnitName(editStore.name || '');
       setUnitNumber(editStore.code || '');
       
@@ -106,6 +123,15 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
       setSelectedManagerId(editStore.manager_id || '');
       setPhotoPreview(editStore.photo_url || null);
       
+      console.log('✅ Edit mode - State variables set:', {
+        addressLine2: editStore.address_line_2,
+        county: editStore.county,
+        phone: editStore.phone,
+        email: editStore.email,
+        photoPreview: editStore.photo_url,
+        selectedDistrictId: editStore.district_id
+      });
+      
       // Load existing tags
       if (editStore.id) {
         getUnitTags(editStore.id).then(unitTags => {
@@ -115,6 +141,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
             .filter(name => name != null) as string[];
           setSelectedTags(tagNames);
           setSelectedTagObjects(unitTags.map(ut => ut.tag));
+          console.log('✅ Edit mode - Tags loaded:', tagNames);
         }).catch(err => {
           console.error('Error loading unit tags:', err);
         });
