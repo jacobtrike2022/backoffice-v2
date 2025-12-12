@@ -1,7 +1,5 @@
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 export interface Attachment {
   id: string;
@@ -24,7 +22,7 @@ export async function uploadAttachment(trackId: string, file: File): Promise<Att
 
   console.log('uploadAttachment - Sending request to server with trackId:', trackId, 'file:', file.name);
 
-  const response = await fetch(`${SERVER_URL}/upload-attachment`, {
+  const response = await fetch(`${getServerUrl()}/upload-attachment`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${publicAnonKey}`,
@@ -56,7 +54,7 @@ export async function uploadAttachment(trackId: string, file: File): Promise<Att
  */
 export async function getAttachments(trackId: string): Promise<Attachment[]> {
   try {
-    const response = await fetch(`${SERVER_URL}/attachments/${trackId}`, {
+    const response = await fetch(`${getServerUrl()}/attachments/${trackId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
@@ -83,7 +81,7 @@ export async function getAttachments(trackId: string): Promise<Attachment[]> {
  * Delete an attachment
  */
 export async function deleteAttachment(attachmentId: string): Promise<void> {
-  const response = await fetch(`${SERVER_URL}/attachment/${attachmentId}`, {
+  const response = await fetch(`${getServerUrl()}/attachment/${attachmentId}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${publicAnonKey}`,

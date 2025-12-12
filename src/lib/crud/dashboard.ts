@@ -9,87 +9,84 @@ import { getStorePerformanceData } from './stores';
  * Get organization dashboard statistics
  */
 export async function getOrganizationStats(organizationId: string) {
-  try {
-    console.log('[getOrganizationStats] Starting with organizationId:', organizationId);
+  if (!organizationId || typeof organizationId !== 'string') {
+    throw new Error('Invalid organizationId: must be a non-empty string');
+  }
 
+  try {
     // Get total active employees
-    const { count: employeeCount, error: employeeError } = await supabase
+    const { count: employeeCount } = await supabase
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
       .eq('status', 'active');
 
-    console.log('[getOrganizationStats] Employee count:', employeeCount, 'error:', employeeError);
-
     // Get total stores
-    const { count: storeCount, error: storeError } = await supabase
+    const { count: storeCount } = await supabase
       .from('stores')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId);
 
-    console.log('[getOrganizationStats] Store count:', storeCount, 'error:', storeError);
-
-    // Get all user IDs for this organization first
-    const { data: orgUsers, error: orgUsersError } = await supabase
+    // Optimize: Fetch user IDs only once, then use in subsequent queries
+    // This is more efficient than fetching user IDs separately for each query
+    const { data: orgUsers } = await supabase
       .from('users')
       .select('id')
       .eq('organization_id', organizationId);
 
-    console.log('[getOrganizationStats] Org users:', orgUsers?.length, 'error:', orgUsersError);
-
     const userIds = orgUsers?.map(u => u.id) || [];
-    console.log('[getOrganizationStats] User IDs array length:', userIds.length, 'first few IDs:', userIds.slice(0, 3));
+    
+    // Early return if no users (avoids unnecessary queries)
+    if (userIds.length === 0) {
+      return {
+        employeeCount: employeeCount || 0,
+        storeCount: storeCount || 0,
+        activeAssignments: activeAssignments || 0,
+        completedTracks: 0,
+        avgCompletion: 0,
+        certificationCount: 0,
+        atRiskStores: 0
+      };
+    }
 
     // Calculate WEIGHTED average completion using user_progress (TRACKS, not playlists)
     // Company completion = Total completed tracks / Total assigned tracks
-    const { count: completedTracks, error: completedError } = await supabase
+    const { count: completedTracks } = await supabase
       .from('user_progress')
       .select('id', { count: 'exact', head: true })
-      .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000'])
+      .in('user_id', userIds)
       .eq('status', 'completed');
 
-    console.log('[getOrganizationStats] Completed tracks:', completedTracks, 'error:', completedError);
-
     // Get total track progress records (all assigned tracks)
-    const { count: totalProgressRecords, error: totalProgressError } = await supabase
+    const { count: totalProgressRecords } = await supabase
       .from('user_progress')
       .select('id', { count: 'exact', head: true })
-      .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000']);
-
-    console.log('[getOrganizationStats] Total progress records:', totalProgressRecords, 'error:', totalProgressError);
+      .in('user_id', userIds);
 
     // Calculate weighted average completion
     const avgCompletion = totalProgressRecords && totalProgressRecords > 0
       ? Math.round(((completedTracks || 0) / totalProgressRecords) * 100)
       : 0;
 
-    console.log('[getOrganizationStats] Weighted avg completion:', avgCompletion, `(${completedTracks}/${totalProgressRecords})`);
-
     // Get active assignments count
-    const { count: activeAssignments, error: assignmentError } = await supabase
+    const { count: activeAssignments } = await supabase
       .from('assignments')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
       .eq('status', 'active');
 
-    console.log('[getOrganizationStats] Active assignments:', activeAssignments, 'error:', assignmentError);
-
     // Get certifications issued
-    const { count: certificationCount, error: certError } = await supabase
+    const { count: certificationCount } = await supabase
       .from('user_certifications')
       .select('id', { count: 'exact', head: true })
-      .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000'])
+      .in('user_id', userIds)
       .eq('status', 'valid');
-
-    console.log('[getOrganizationStats] Certifications:', certificationCount, 'error:', certError);
 
     // Get stores with low performance - count stores with 'at-risk' status
     const storePerformance = await getStorePerformanceData(organizationId);
     const atRiskStores = storePerformance.filter(store => store.status === 'at-risk').length;
 
-    console.log('[getOrganizationStats] Store performance:', storePerformance.length, 'at-risk:', atRiskStores);
-
-    const result = {
+    return {
       employeeCount: employeeCount || 0,
       storeCount: storeCount || 0,
       activeAssignments: activeAssignments || 0,
@@ -98,10 +95,6 @@ export async function getOrganizationStats(organizationId: string) {
       certificationCount: certificationCount || 0,
       atRiskStores
     };
-
-    console.log('[getOrganizationStats] Final result:', result);
-
-    return result;
   } catch (error) {
     console.error('Error fetching organization stats:', error);
     return {
@@ -120,24 +113,27 @@ export async function getOrganizationStats(organizationId: string) {
  * Get previous period stats for trend calculation
  */
 export async function getOrganizationStatsTrends(organizationId: string, daysAgo: number = 30) {
+  if (!organizationId || typeof organizationId !== 'string') {
+    throw new Error('Invalid organizationId: must be a non-empty string');
+  }
+  if (typeof daysAgo !== 'number' || daysAgo < 0) {
+    throw new Error('Invalid daysAgo: must be a non-negative number');
+  }
+
   try {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysAgo);
     const cutoffStr = cutoffDate.toISOString();
 
-    console.log('[getOrganizationStatsTrends] Starting with organizationId:', organizationId, 'cutoff:', cutoffStr);
-
     // Get new employees in the last period
-    const { count: newEmployees, error: employeeError } = await supabase
+    const { count: newEmployees } = await supabase
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
       .eq('status', 'active')
       .gte('created_at', cutoffStr);
 
-    console.log('[getOrganizationStatsTrends] New employees:', newEmployees, 'error:', employeeError);
-
-    // Get all user IDs for this organization
+    // Get user IDs for this organization (optimized: fetch once)
     const { data: orgUsers } = await supabase
       .from('users')
       .select('id')
@@ -146,23 +142,17 @@ export async function getOrganizationStatsTrends(organizationId: string, daysAgo
     const userIds = orgUsers?.map(u => u.id) || [];
 
     // Get completed tracks in the last period
-    const { count: recentCompletions, error: completionError } = await supabase
+    const { count: recentCompletions } = await supabase
       .from('user_progress')
       .select('id', { count: 'exact', head: true })
       .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000'])
       .eq('status', 'completed')
       .gte('completed_at', cutoffStr);
 
-    console.log('[getOrganizationStatsTrends] Recent completions:', recentCompletions, 'error:', completionError);
-
-    const result = {
+    return {
       newEmployees: newEmployees || 0,
       recentCompletions: recentCompletions || 0
     };
-
-    console.log('[getOrganizationStatsTrends] Final result:', result);
-
-    return result;
   } catch (error) {
     console.error('Error fetching organization trends:', error);
     return {
@@ -176,9 +166,14 @@ export async function getOrganizationStatsTrends(organizationId: string, daysAgo
  * Get top performing playlists (units) ranked by average completion rate
  */
 export async function getTopPerformingUnits(organizationId: string, limit: number = 3) {
-  try {
-    console.log('[getTopPerformingUnits] Starting with organizationId:', organizationId, 'limit:', limit);
+  if (!organizationId || typeof organizationId !== 'string') {
+    throw new Error('Invalid organizationId: must be a non-empty string');
+  }
+  if (typeof limit !== 'number' || limit < 1) {
+    throw new Error('Invalid limit: must be a positive number');
+  }
 
+  try {
     // Get all active assignments with their progress and playlist info
     const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
@@ -197,11 +192,9 @@ export async function getTopPerformingUnits(organizationId: string, limit: numbe
       .not('playlist_id', 'is', null);
 
     if (assignmentsError) {
-      console.error('[getTopPerformingUnits] Error fetching assignments:', assignmentsError);
+      console.error('Error fetching assignments:', assignmentsError);
       return [];
     }
-
-    console.log('[getTopPerformingUnits] Assignments fetched:', assignments?.length);
 
     if (!assignments || assignments.length === 0) {
       return [];
@@ -224,7 +217,7 @@ export async function getTopPerformingUnits(organizationId: string, limit: numbe
     });
 
     // Calculate averages and create ranked list
-    const rankedUnits = Array.from(playlistStats.entries())
+    return Array.from(playlistStats.entries())
       .map(([playlistId, stats]) => {
         const avgProgress = stats.progressValues.reduce((sum, val) => sum + val, 0) / stats.progressValues.length;
         return {
@@ -240,10 +233,6 @@ export async function getTopPerformingUnits(organizationId: string, limit: numbe
         ...unit,
         rank: index + 1
       }));
-
-    console.log('[getTopPerformingUnits] Ranked units:', rankedUnits);
-
-    return rankedUnits;
   } catch (error) {
     console.error('Error fetching top performing units:', error);
     return [];
@@ -254,9 +243,11 @@ export async function getTopPerformingUnits(organizationId: string, limit: numbe
  * Get detailed unit performance data for all playlists
  */
 export async function getUnitPerformanceData(organizationId: string) {
-  try {
-    console.log('[getUnitPerformanceData] Starting with organizationId:', organizationId);
+  if (!organizationId || typeof organizationId !== 'string') {
+    throw new Error('Invalid organizationId: must be a non-empty string');
+  }
 
+  try {
     // Get all playlists with their assignments
     const { data: playlists, error: playlistsError } = await supabase
       .from('playlists')
@@ -270,11 +261,9 @@ export async function getUnitPerformanceData(organizationId: string) {
       .eq('is_active', true);
 
     if (playlistsError) {
-      console.error('[getUnitPerformanceData] Error fetching playlists:', playlistsError);
+      console.error('Error fetching playlists:', playlistsError);
       return [];
     }
-
-    console.log('[getUnitPerformanceData] Playlists fetched:', playlists?.length);
 
     if (!playlists || playlists.length === 0) {
       return [];
@@ -288,24 +277,20 @@ export async function getUnitPerformanceData(organizationId: string) {
       .in('status', ['assigned', 'in_progress', 'completed', 'overdue']);
 
     if (assignmentsError) {
-      console.error('[getUnitPerformanceData] Error fetching assignments:', assignmentsError);
+      console.error('Error fetching assignments:', assignmentsError);
       return [];
     }
 
-    console.log('[getUnitPerformanceData] Assignments fetched:', assignments?.length);
-
     // Get user progress records to calculate avg scores
     const userIds = [...new Set(assignments?.map(a => a.user_id) || [])];
-    const { data: progressRecords, error: progressError } = await supabase
+    const { data: progressRecords } = await supabase
       .from('user_progress')
       .select('user_id, assignment_id, score')
       .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000'])
       .not('score', 'is', null);
 
-    console.log('[getUnitPerformanceData] Progress records fetched:', progressRecords?.length);
-
     // Build performance data for each playlist
-    const performanceData = playlists.map((playlist: any) => {
+    return playlists.map((playlist: any) => {
       const playlistAssignments = assignments?.filter(a => a.playlist_id === playlist.id) || [];
       
       // Calculate completion rate
@@ -363,10 +348,6 @@ export async function getUnitPerformanceData(organizationId: string) {
         trendData
       };
     });
-
-    console.log('[getUnitPerformanceData] Performance data generated:', performanceData.length);
-
-    return performanceData;
   } catch (error) {
     console.error('Error fetching unit performance data:', error);
     return [];

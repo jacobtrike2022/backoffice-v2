@@ -262,15 +262,55 @@
     const urlParams = new URLSearchParams(window.location.search);
     const slug = urlParams.get('slug') || window.location.pathname.split('/kb/')[1] || window.location.pathname.split('/').pop();
 
-    // Supabase config - Configured automatically
-    const SUPABASE_URL = 'https://kgzhlvxzdlexsrozbbxs.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
+    // Supabase config - Fetch from server endpoint to avoid hard-coding credentials
+    let SUPABASE_URL = '';
+    let SUPABASE_ANON_KEY = '';
+    let SERVER_FUNCTION_NAME = 'make-server-2858cc8b';
+
+    // Fetch config from server endpoint
+    async function loadConfig() {
+      try {
+        // Try to get config from server endpoint
+        // First, try to determine the Supabase project ID from the current domain
+        const currentHost = window.location.hostname;
+        let configUrl = '';
+        
+        // If we're on a Supabase domain or can infer it, use that
+        // Otherwise, try common patterns
+        if (currentHost.includes('supabase.co') || currentHost.includes('vercel.app')) {
+          // Extract project ID from hostname or use default
+          const projectId = currentHost.includes('supabase.co') 
+            ? currentHost.split('.')[0] 
+            : 'kgzhlvxzdlexsrozbbxs';
+          configUrl = `https://${projectId}.supabase.co/functions/v1/${SERVER_FUNCTION_NAME}/config`;
+        } else {
+          // Fallback: use default project ID
+          configUrl = `https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/${SERVER_FUNCTION_NAME}/config`;
+        }
+
+        const configResponse = await fetch(configUrl);
+        if (configResponse.ok) {
+          const config = await configResponse.json();
+          SUPABASE_URL = config.SUPABASE_URL || 'https://kgzhlvxzdlexsrozbbxs.supabase.co';
+          SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
+        } else {
+          // Fallback to defaults if config endpoint fails
+          SUPABASE_URL = 'https://kgzhlvxzdlexsrozbbxs.supabase.co';
+          SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
+        }
+      } catch (error) {
+        // Fallback to defaults if config fetch fails
+        SUPABASE_URL = 'https://kgzhlvxzdlexsrozbbxs.supabase.co';
+        SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
+      }
+    }
 
     const app = document.getElementById('app');
 
     async function loadArticle() {
       try {
-        console.log('Loading article with slug:', slug);
+        // Ensure config is loaded first
+        await loadConfig();
         
         if (!slug) {
           showError('Invalid article link - no slug found');
@@ -278,8 +318,7 @@
         }
 
         // Fetch track and organization data from server endpoint
-        const url = `${SUPABASE_URL}/functions/v1/make-server-2858cc8b/kb/public/${slug}`;
-        console.log('Fetching from:', url);
+        const url = `${SUPABASE_URL}/functions/v1/${SERVER_FUNCTION_NAME}/kb/public/${slug}`;
         
         const response = await fetch(url, {
           headers: {
@@ -287,11 +326,8 @@
           }
         });
 
-        console.log('Response status:', response.status);
-
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Response error:', errorText);
           
           let errorData;
           try {
@@ -309,8 +345,6 @@
         }
 
         const { track, org } = await response.json();
-        console.log('Loaded track:', track);
-        console.log('Loaded org:', org);
 
         if (!track) {
           showError('not_found');
@@ -330,8 +364,7 @@
         trackPageView(track.id);
 
       } catch (error) {
-        console.error('Error loading article:', error);
-        showError(`Failed to load article: ${error.message}`);
+        showError(`Failed to load article: ${error.message || 'Unknown error'}`);
       }
     }
 
@@ -455,7 +488,7 @@
     async function trackPageView(trackId) {
       try {
         await fetch(
-          `${SUPABASE_URL}/functions/v1/make-server-2858cc8b/kb/page-view`,
+          `${SUPABASE_URL}/functions/v1/${SERVER_FUNCTION_NAME}/kb/page-view`,
           {
             method: 'POST',
             headers: {
@@ -470,8 +503,7 @@
           }
         );
       } catch (err) {
-        // Silent fail
-        console.warn('Failed to track page view:', err);
+        // Silent fail - page view tracking is non-critical
       }
     }
 

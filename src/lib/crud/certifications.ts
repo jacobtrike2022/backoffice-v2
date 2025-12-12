@@ -67,6 +67,16 @@ export async function issueCertification(
   certificationId: string,
   score?: number
 ) {
+  // Input validation
+  if (!userId || typeof userId !== 'string') {
+    throw new Error('Invalid userId: must be a non-empty string');
+  }
+  if (!certificationId || typeof certificationId !== 'string') {
+    throw new Error('Invalid certificationId: must be a non-empty string');
+  }
+  if (score !== undefined && (typeof score !== 'number' || score < 0 || score > 100)) {
+    throw new Error('Invalid score: must be a number between 0 and 100');
+  }
   // Get certification details
   const { data: cert } = await supabase
     .from('certifications')
@@ -96,23 +106,33 @@ export async function issueCertification(
 
   if (error) throw error;
 
-  // Create notification
-  await createNotification({
-    user_id: userId,
-    type: 'certification-issued',
-    title: 'Certification Earned!',
-    message: `You earned the "${cert.name}" certification`,
-    link_url: `/certifications/${userCert.id}`
-  });
+  // Create notification (non-critical - wrap in try-catch)
+  try {
+    await createNotification({
+      user_id: userId,
+      type: 'certification-issued',
+      title: 'Certification Earned!',
+      message: `You earned the "${cert.name}" certification`,
+      link_url: `/certifications/${userCert.id}`
+    });
+  } catch (error) {
+    // Log error but don't fail the certification issuance
+    console.error('Failed to create certification notification:', error);
+  }
 
-  // Log activity
-  await logActivity({
-    user_id: userId,
-    action: 'certification',
-    entity_type: 'certification',
-    entity_id: certificationId,
-    description: `Earned "${cert.name}" certification`
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userId,
+      action: 'certification',
+      entity_type: 'certification',
+      entity_id: certificationId,
+      description: `Earned "${cert.name}" certification`
+    });
+  } catch (error) {
+    // Log error but don't fail the certification issuance
+    console.error('Failed to log certification activity:', error);
+  }
 
   return userCert;
 }
@@ -138,13 +158,18 @@ export async function updateCertificationStatuses() {
   // Notify users of expired certifications
   if (expiredCerts) {
     for (const cert of expiredCerts) {
-      await createNotification({
-        user_id: cert.user_id,
-        type: 'certification-expired',
-        title: 'Certification Expired',
-        message: `Your "${(cert as any).certifications.name}" certification has expired`,
-        link_url: `/certifications/${cert.id}`
-      });
+      try {
+        await createNotification({
+          user_id: cert.user_id,
+          type: 'certification-expired',
+          title: 'Certification Expired',
+          message: `Your "${(cert as any).certifications.name}" certification has expired`,
+          link_url: `/certifications/${cert.id}`
+        });
+      } catch (error) {
+        // Log error but continue processing other certifications
+        console.error(`Failed to create expired notification for user ${cert.user_id}:`, error);
+      }
     }
   }
 
@@ -164,13 +189,18 @@ export async function updateCertificationStatuses() {
         (new Date(cert.expiration_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      await createNotification({
-        user_id: cert.user_id,
-        type: 'certification-expiry',
-        title: 'Certification Expiring Soon',
-        message: `Your "${(cert as any).certifications.name}" certification expires in ${daysUntilExpiration} days`,
-        link_url: `/certifications/${cert.id}`
-      });
+      try {
+        await createNotification({
+          user_id: cert.user_id,
+          type: 'certification-expiry',
+          title: 'Certification Expiring Soon',
+          message: `Your "${(cert as any).certifications.name}" certification expires in ${daysUntilExpiration} days`,
+          link_url: `/certifications/${cert.id}`
+        });
+      } catch (error) {
+        // Log error but continue processing other certifications
+        console.error(`Failed to create expiry notification for user ${cert.user_id}:`, error);
+      }
     }
   }
 }
@@ -258,14 +288,19 @@ export async function renewCertification(
 
   if (error) throw error;
 
-  // Notify user
-  await createNotification({
-    user_id: existingCert.user_id,
-    type: 'certification-issued',
-    title: 'Certification Renewed',
-    message: `Your certification has been renewed`,
-    link_url: `/certifications/${userCertificationId}`
-  });
+  // Notify user (non-critical - wrap in try-catch)
+  try {
+    await createNotification({
+      user_id: existingCert.user_id,
+      type: 'certification-issued',
+      title: 'Certification Renewed',
+      message: `Your certification has been renewed`,
+      link_url: `/certifications/${userCertificationId}`
+    });
+  } catch (error) {
+    // Log error but don't fail the renewal
+    console.error('Failed to create renewal notification:', error);
+  }
 
   return data;
 }

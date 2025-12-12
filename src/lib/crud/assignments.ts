@@ -17,6 +17,20 @@ export interface CreateAssignmentInput {
  * Create assignment for a single user to a playlist
  */
 export async function createAssignment(input: CreateAssignmentInput) {
+  // Input validation
+  if (!input.user_id || typeof input.user_id !== 'string') {
+    throw new Error('Invalid user_id: must be a non-empty string');
+  }
+  if (!input.playlist_id || typeof input.playlist_id !== 'string') {
+    throw new Error('Invalid playlist_id: must be a non-empty string');
+  }
+  if (!input.title || typeof input.title !== 'string' || input.title.trim().length === 0) {
+    throw new Error('Invalid title: must be a non-empty string');
+  }
+  if (input.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(input.due_date)) {
+    throw new Error('Invalid due_date: must be in YYYY-MM-DD format');
+  }
+
   const orgId = await getCurrentUserOrgId();
   const userProfile = await getCurrentUserProfile();
   
@@ -38,23 +52,33 @@ export async function createAssignment(input: CreateAssignmentInput) {
 
   if (error) throw error;
 
-  // Create notification for the user
-  await createNotification({
-    user_id: input.user_id,
-    type: 'assignment',
-    title: 'New Assignment',
-    message: `You have been assigned: ${input.title}`,
-    link_url: `/assignments/${assignment.id}`
-  });
+  // Create notification for the user (non-critical - wrap in try-catch)
+  try {
+    await createNotification({
+      user_id: input.user_id,
+      type: 'assignment',
+      title: 'New Assignment',
+      message: `You have been assigned: ${input.title}`,
+      link_url: `/assignments/${assignment.id}`
+    });
+  } catch (error) {
+    // Log error but don't fail the assignment creation
+    console.error('Failed to create assignment notification:', error);
+  }
 
-  // Log activity
-  await logActivity({
-    user_id: userProfile.id,
-    action: 'assignment',
-    entity_type: 'playlist',
-    entity_id: input.playlist_id,
-    description: `Assigned "${input.title}" to user`
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userProfile.id,
+      action: 'assignment',
+      entity_type: 'playlist',
+      entity_id: input.playlist_id,
+      description: `Assigned "${input.title}" to user`
+    });
+  } catch (error) {
+    // Log error but don't fail the assignment creation
+    console.error('Failed to log assignment activity:', error);
+  }
 
   return assignment;
 }
@@ -71,6 +95,22 @@ export async function updateAssignment(
     assignment_type?: string;
   }
 ) {
+  // Input validation
+  if (!assignmentId || typeof assignmentId !== 'string') {
+    throw new Error('Invalid assignmentId: must be a non-empty string');
+  }
+  if (updates.title !== undefined && (typeof updates.title !== 'string' || updates.title.trim().length === 0)) {
+    throw new Error('Invalid title: must be a non-empty string');
+  }
+  if (updates.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(updates.due_date)) {
+    throw new Error('Invalid due_date: must be in YYYY-MM-DD format');
+  }
+  if (updates.target_id && typeof updates.target_id !== 'string') {
+    throw new Error('Invalid target_id: must be a string if provided');
+  }
+  if (updates.assignment_type && !['user', 'store', 'district', 'role'].includes(updates.assignment_type)) {
+    throw new Error('Invalid assignment_type: must be one of user, store, district, or role');
+  }
   const { data, error } = await supabase
     .from('assignments')
     .update(updates)
@@ -191,19 +231,48 @@ export async function getAssignments(filters: {
 
   if (error) throw error;
   
-  // Enrich each assignment with learner count
-  const enrichedData = await Promise.all((data || []).map(async (assignment: any) => {
-    const affectedUsers = await getAffectedUsers(
-      assignment.assignment_type,
-      assignment.target_id,
-      orgId
-    );
+  if (!data || data.length === 0) {
+    return [];
+  }
+  
+  // Batch query all affected users to avoid N+1 problem
+  // Group assignments by assignment_type and target_id
+  const userQueries = new Map<string, Promise<string[]>>();
+  const assignmentKeys: Array<{ assignment: any; key: string }> = [];
+  
+  for (const assignment of data) {
+    const key = `${assignment.assignment_type}:${assignment.target_id}`;
+    assignmentKeys.push({ assignment, key });
     
+    // Only create query if we haven't seen this key before
+    if (!userQueries.has(key)) {
+      userQueries.set(key, getAffectedUsers(
+        assignment.assignment_type,
+        assignment.target_id,
+        orgId
+      ));
+    }
+  }
+  
+  // Execute all queries in parallel
+  const userQueryResults = await Promise.all(
+    Array.from(userQueries.entries()).map(async ([key, promise]) => {
+      const users = await promise;
+      return [key, users] as [string, string[]];
+    })
+  );
+  
+  // Create lookup map
+  const usersByKey = new Map(userQueryResults);
+  
+  // Enrich assignments with learner counts
+  const enrichedData = assignmentKeys.map(({ assignment, key }) => {
+    const affectedUsers = usersByKey.get(key) || [];
     return {
       ...assignment,
       learner_count: affectedUsers.length
     };
-  }));
+  });
   
   return enrichedData;
 }

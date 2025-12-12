@@ -16,6 +16,8 @@ export interface CreateActivityLogInput {
 
 /**
  * Log an activity
+ * Note: This function throws errors to allow callers to handle failures explicitly.
+ * For non-critical activity logging, wrap calls in try-catch if needed.
  */
 export async function logActivity(input: CreateActivityLogInput) {
   const orgId = await getCurrentUserOrgId();
@@ -35,7 +37,7 @@ export async function logActivity(input: CreateActivityLogInput) {
 
   if (error) {
     console.error('Error logging activity:', error);
-    return null;
+    throw error;
   }
 
   return data;

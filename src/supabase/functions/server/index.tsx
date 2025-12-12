@@ -39,10 +39,14 @@ app.use('*', logger(console.log));
 // Config endpoint to expose client-side environment variables
 app.get('/make-server-2858cc8b/config', (c) => {
   const googleMapsKey = Deno.env.get('VITE_GOOGLE_MAPS_API_KEY');
-  console.log('Config endpoint called. Google Maps API key:', googleMapsKey ? 'Set' : 'Not set');
+  // Get Supabase config from environment variables with fallbacks
+  const projectId = Deno.env.get('SUPABASE_PROJECT_ID') || Deno.env.get('SUPABASE_URL')?.replace('https://', '').replace('.supabase.co', '') || 'kgzhlvxzdlexsrozbbxs';
+  const publicAnonKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLIC_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU';
   
   return c.json({
-    GOOGLE_MAPS_API_KEY: googleMapsKey || null
+    GOOGLE_MAPS_API_KEY: googleMapsKey || null,
+    SUPABASE_URL: `https://${projectId}.supabase.co`,
+    SUPABASE_ANON_KEY: publicAnonKey
   });
 });
 

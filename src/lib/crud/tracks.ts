@@ -2,11 +2,9 @@
 // TRACKS CRUD OPERATIONS
 // ============================================================================
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
 import { supabase, getCurrentUserOrgId } from '../supabase';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 export interface CreateTrackInput {
   title: string;
@@ -77,10 +75,6 @@ export async function createTrack(input: CreateTrackInput) {
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
-  // Check if we have an authenticated session
-  const { data: { session } } = await supabase.auth.getSession();
-  console.log('🔑 Update track - has session:', !!session);
-
   // Update the track
   const { data: track, error } = await supabase
     .from('tracks')
@@ -90,20 +84,12 @@ export async function updateTrack(input: UpdateTrackInput) {
     .single();
 
   if (error) {
-    console.error('❌ Track update error:', error);
-    console.error('❌ Error code:', error.code);
-    console.error('❌ Error message:', error.message);
-    console.error('❌ Error details:', error.details);
-    console.error('❌ Error hint:', error.hint);
-    console.error('❌ Track ID:', id);
-    console.error('❌ Update data:', updateData);
+    // Error details are already in the error object, no need for multiple console.error calls
     throw error;
   }
   
   // Auto-regenerate facts if content changed
   if (updateData.transcript && track.type === 'article') {
-    console.log('🔍 Checking if facts need regeneration...');
-    
     // Dynamic import to avoid circular dependencies
     import('../../utils/hash').then(async ({ sha256, stripMarkdown }) => {
       const plainText = stripMarkdown(updateData.transcript || '');
@@ -112,23 +98,19 @@ export async function updateTrack(input: UpdateTrackInput) {
       // Check word count (minimum 150 words)
       const wordCount = plainText.split(/\s+/).filter(w => w.length > 0).length;
       if (wordCount < 150) {
-        console.log(`⚠️ Article too short (${wordCount} words), skipping facts regeneration`);
         return;
       }
       
       // Check if content actually changed (compare to stored hash if it exists)
       const storedHash = track.facts_content_hash || null;
       if (storedHash && storedHash === newContentHash) {
-        console.log('✓ Content unchanged, skipping facts regeneration');
         return;
       }
       
-      console.log('🔄 Content changed, regenerating facts...');
-      
       // Call the facts extraction endpoint
-      const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
+      const { publicAnonKey, getServerUrl } = await import('../../utils/supabase/info');
       
-      fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`, {
+      fetch(`${getServerUrl()}/generate-key-facts`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${publicAnonKey}`,
@@ -145,7 +127,6 @@ export async function updateTrack(input: UpdateTrackInput) {
       .then(async (res) => {
         if (res.ok) {
           const result = await res.json();
-          console.log(`✅ Facts regenerated: ${result.enriched?.length || 0} facts extracted`);
           
           // Update hash in database
           const { error: hashError } = await supabase.from('tracks').update({
@@ -154,23 +135,22 @@ export async function updateTrack(input: UpdateTrackInput) {
           }).eq('id', id);
           
           if (hashError) {
-            console.error('⚠️ Failed to update facts hash:', hashError.message);
+            console.error('Failed to update facts hash:', hashError.message);
           }
           
-          // 🆕 CRITICAL: Trigger UI refresh by dispatching custom event
+          // Trigger UI refresh by dispatching custom event
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('factsRegenerated', { 
               detail: { trackId: id, factCount: result.enriched?.length || 0 }
             }));
-            console.log('📡 Dispatched factsRegenerated event');
           }
         } else {
           const errorData = await res.json().catch(() => ({}));
-          console.error('❌ Failed to regenerate facts:', errorData.error || res.statusText);
+          console.error('Failed to regenerate facts:', errorData.error || res.statusText);
         }
       })
-      .catch(err => console.error('❌ Failed to regenerate facts:', err.message));
-    }).catch(err => console.error('❌ Failed to import hash utilities:', err));
+      .catch(err => console.error('Failed to regenerate facts:', err.message));
+    }).catch(err => console.error('Failed to import hash utilities:', err));
   }
   
   return track;
@@ -254,11 +234,9 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
   
   if (error || !latestTrack) {
     // Fallback: if we can't find the latest, return the requested track
-    console.warn('Could not find latest version, returning requested track');
     return { track, isLatest: false, latestTrackId: trackId };
   }
   
-  console.log(`🔄 Redirecting from version ${track.version_number} to latest version ${latestTrack.version_number}`);
   return { track: latestTrack, isLatest: false, latestTrackId: latestTrack.id };
 }
 
@@ -292,6 +270,48 @@ export async function getTracks(filters: {
     query = query.eq('type', filters.type);
   }
 
+  // Handle tag filtering at database level if tags are provided
+  let trackIdsWithTags: string[] | null = null;
+  if (filters.tags && filters.tags.length > 0) {
+    // First, get tag IDs from tag names
+    const { data: matchingTags } = await supabase
+      .from('tags')
+      .select('id, name')
+      .in('name', filters.tags)
+      .or(`organization_id.eq.${orgId},organization_id.is.null`);
+    
+    const tagIds = matchingTags?.map(t => t.id) || [];
+    
+    // Get track IDs that have these tags via junction table
+    if (tagIds.length > 0) {
+      const { data: trackTagMatches } = await supabase
+        .from('track_tags')
+        .select('track_id')
+        .in('tag_id', tagIds);
+      
+      trackIdsWithTags = trackTagMatches?.map(tt => tt.track_id) || [];
+    }
+    
+    // Also get track IDs from legacy tags column (array contains)
+    const { data: legacyTracks } = await supabase
+      .from('tracks')
+      .select('id')
+      .eq('organization_id', orgId)
+      .contains('tags', filters.tags);
+    
+    const legacyTrackIds = legacyTracks?.map(t => t.id) || [];
+    
+    // Combine both sets of track IDs
+    const allMatchingTrackIds = [...new Set([...(trackIdsWithTags || []), ...legacyTrackIds])];
+    
+    if (allMatchingTrackIds.length > 0) {
+      query = query.in('id', allMatchingTrackIds);
+    } else {
+      // No tracks match the tag filter, return empty result
+      return [];
+    }
+  }
+
   if (filters.status) {
     if (filters.status === 'archived') {
       // For archived view, just show tracks with status='archived'
@@ -300,9 +320,59 @@ export async function getTracks(filters: {
       // For drafts view, show tracks with status='draft'
       query = query.eq('status', 'draft');
     } else if (filters.status === 'in-kb') {
-      // For Knowledge Base view, show tracks that have show_in_knowledge_base tag
-      // This will be post-filtered after fetching since we need to check tags array
+      // For Knowledge Base view, filter at database level
       query = query.eq('status', 'published');
+      
+      // Get the system:show_in_knowledge_base tag ID if it exists
+      const { data: kbTag } = await supabase
+        .from('tags')
+        .select('id')
+        .eq('name', 'system:show_in_knowledge_base')
+        .maybeSingle();
+      
+      let kbTrackIds: string[] = [];
+      
+      if (kbTag) {
+        // Get track IDs that have this tag via junction table
+        const { data: kbTrackTags } = await supabase
+          .from('track_tags')
+          .select('track_id')
+          .eq('tag_id', kbTag.id);
+        
+        kbTrackIds = kbTrackTags?.map(tt => tt.track_id) || [];
+      }
+      
+      // Get tracks with show_in_knowledge_base=true
+      const { data: kbBooleanTracks } = await supabase
+        .from('tracks')
+        .select('id')
+        .eq('organization_id', orgId)
+        .eq('status', 'published')
+        .eq('show_in_knowledge_base', true);
+      
+      // Get tracks with legacy tags array containing the tag
+      const { data: kbLegacyTracks } = await supabase
+        .from('tracks')
+        .select('id')
+        .eq('organization_id', orgId)
+        .eq('status', 'published')
+        .contains('tags', ['system:show_in_knowledge_base']);
+      
+      // Combine all track IDs
+      const allKbTrackIds = [
+        ...kbTrackIds,
+        ...(kbBooleanTracks?.map(t => t.id) || []),
+        ...(kbLegacyTracks?.map(t => t.id) || [])
+      ];
+      
+      const uniqueKbTrackIds = [...new Set(allKbTrackIds)];
+      
+      if (uniqueKbTrackIds.length > 0) {
+        query = query.in('id', uniqueKbTrackIds);
+      } else {
+        // No tracks match KB filter, return empty result
+        return [];
+      }
     } else {
       // For published/other status, filter by status
       query = query.eq('status', filters.status);
@@ -319,7 +389,7 @@ export async function getTracks(filters: {
       query = query.or('is_latest_version.eq.true,is_latest_version.is.null');
     } catch (error: any) {
       // Column doesn't exist yet - migration not run. That's okay, continue without filter
-      console.log('Versioning columns not yet added. Please run migration.');
+      // Removed console.log per code quality standards
     }
   }
 
@@ -328,8 +398,7 @@ export async function getTracks(filters: {
   if (error) {
     // If error is about missing column, just log it and continue
     if (error.code === '42703') {
-      console.warn('⚠️ Some database columns are missing. Continuing without advanced filters.');
-      console.log('💡 To enable all features, run migrations from MIGRATION_INSTRUCTIONS.md');
+      // Removed console.warn and console.log per code quality standards
       
       // Retry query without the problematic filter
       const simpleQuery = supabase
@@ -348,7 +417,7 @@ export async function getTracks(filters: {
         simpleQuery.eq('type', filters.type);
       }
       
-      if (filters.status) {
+      if (filters.status && filters.status !== 'in-kb') {
         simpleQuery.eq('status', filters.status);
       }
       
@@ -360,32 +429,31 @@ export async function getTracks(filters: {
       
       if (retryError) throw retryError;
       
-      return retryData || [];
+      // Apply client-side filtering for tags and in-kb if needed (fallback)
+      let filteredData = retryData || [];
+      
+      if (filters.tags && filters.tags.length > 0) {
+        filteredData = filteredData.filter(track => {
+          const trackTags = track.track_tags?.map((tt: any) => tt.tags.name) || [];
+          const columnTags = track.tags || [];
+          const allTags = [...trackTags, ...columnTags];
+          return filters.tags!.some(tag => allTags.includes(tag));
+        });
+      }
+      
+      if (filters.status === 'in-kb') {
+        filteredData = filteredData.filter(track => {
+          const columnTags = track.tags || [];
+          return columnTags.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base === true;
+        });
+      }
+      
+      return filteredData;
     }
     throw error;
   }
 
-  let filteredData = data || [];
-
-  // Filter by tags if provided (client-side for now)
-  if (filters.tags && filters.tags.length > 0) {
-    filteredData = filteredData.filter(track => {
-      const trackTags = track.track_tags?.map((tt: any) => tt.tags.name) || [];
-      const columnTags = track.tags || [];
-      const allTags = [...trackTags, ...columnTags];
-      return filters.tags!.some(tag => allTags.includes(tag));
-    });
-  }
-
-  // Filter by Knowledge Base status (client-side)
-  if (filters.status === 'in-kb') {
-    filteredData = filteredData.filter(track => {
-      const columnTags = track.tags || [];
-      return columnTags.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base === true;
-    });
-  }
-
-  return filteredData;
+  return data || [];
 }
 
 /**
@@ -400,7 +468,7 @@ export async function uploadTrackMedia(
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${SERVER_URL}/upload-media`, {
+  const response = await fetch(`${getServerUrl()}/upload-media`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${publicAnonKey}`,
@@ -433,7 +501,7 @@ export async function uploadTrackFile(trackId: string, file: File): Promise<{ ur
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${SERVER_URL}/upload-media`, {
+  const response = await fetch(`${getServerUrl()}/upload-media`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${publicAnonKey}`,
@@ -675,8 +743,7 @@ async function getNextCopyNumber(originalTitle: string): Promise<number> {
  */
 export async function getTrackVersions(trackId: string) {
   try {
-    console.log('🔍 getTrackVersions: Fetching versions for track:', trackId);
-    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/track-versions/${trackId}`, {
+    const response = await fetch(`${getServerUrl()}/track-versions/${trackId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
@@ -690,8 +757,6 @@ export async function getTrackVersions(trackId: string) {
     }
 
     const data = await response.json();
-    console.log('✅ getTrackVersions: Received data:', data);
-    console.log('✅ getTrackVersions: Returning versions:', data.versions || []);
     return data.versions || [];
   } catch (error: any) {
     // Return empty array silently - server health check handles the warning
@@ -721,8 +786,6 @@ export async function createTrackVersion(
   const currentVersion = originalTrack.version_number || 1;
   const nextVersion = currentVersion + 1;
 
-  console.log(`🔄 Creating version ${nextVersion} from version ${currentVersion} (parent: ${parentId})`);
-
   // SAFETY CHECK: Prevent duplicate versions
   // Check if the next version already exists
   const { data: existingVersion } = await supabase
@@ -733,7 +796,6 @@ export async function createTrackVersion(
     .maybeSingle();
 
   if (existingVersion) {
-    console.warn(`⚠️ Version ${nextVersion} already exists (ID: ${existingVersion.id}). Returning existing version.`);
     return existingVersion;
   }
 
@@ -749,14 +811,12 @@ export async function createTrackVersion(
   };
 
   const newVersion = await createTrack(newVersionData);
-  console.log(`✅ Created version ${nextVersion} with ID: ${newVersion.id}`);
 
   // Mark old version as no longer latest
   await updateTrack({
     id: originalTrackId,
     is_latest_version: false
   });
-  console.log(`✅ Marked version ${currentVersion} (ID: ${originalTrackId}) as no longer latest`);
 
   return newVersion;
 }
@@ -787,19 +847,17 @@ export async function getPlaylistsForTrack(trackId: string) {
  * Get assignment stats for a track (pending and completed)
  */
 export async function getTrackAssignmentStats(trackId: string) {
-  console.log('🔍 getTrackAssignmentStats - Checking stats for track:', trackId);
-  
   // Get all playlist assignments for this track
   const { data: playlistTracks, error: playlistError } = await supabase
     .from('playlist_tracks')
     .select('playlist_id')
     .eq('track_id', trackId);
 
-  console.log('🔍 Playlist tracks found:', playlistTracks);
-  console.log('🔍 Playlist tracks error:', playlistError);
+  if (playlistError) {
+    console.error('Error fetching playlist tracks:', playlistError);
+  }
 
   if (!playlistTracks || playlistTracks.length === 0) {
-    console.log('🔍 No playlists found for this track');
     return { 
       pendingCount: 0, 
       completedCount: 0, 
@@ -809,7 +867,6 @@ export async function getTrackAssignmentStats(trackId: string) {
   }
 
   const playlistIds = playlistTracks.map(pt => pt.playlist_id);
-  console.log('🔍 Playlist IDs to check:', playlistIds);
 
   // Query the assignments table using the ACTUAL schema (playlist_id, user_id, status='assigned')
   const { data: assignments, error: assignmentsError } = await supabase
@@ -818,25 +875,11 @@ export async function getTrackAssignmentStats(trackId: string) {
     .in('playlist_id', playlistIds)
     .eq('status', 'assigned');
 
-  console.log('🔍 Full query details:');
-  console.log('   - playlist_id IN:', playlistIds);
-  console.log('   - status: assigned');
-  console.log('🔍 Assignments found:', assignments);
-  console.log('🔍 Assignments count:', assignments?.length);
-  console.log('🔍 Assignments error:', assignmentsError);
+  if (assignmentsError) {
+    console.error('Error fetching assignments:', assignmentsError);
+  }
 
   if (!assignments || assignments.length === 0) {
-    console.log('🔍 No assignments found for these playlists - checking if ANY assignments exist');
-    
-    // Debug query: Check if ANY assignments exist for these playlists (without filters)
-    const { data: allAssignments, error: allError } = await supabase
-      .from('assignments')
-      .select('*')
-      .in('playlist_id', playlistIds);
-    
-    console.log('🔍 ALL assignments (no filter):', allAssignments);
-    console.log('🔍 ALL assignments error:', allError);
-    
     return {
       pendingCount: 0,
       completedCount: 0,
@@ -850,16 +893,12 @@ export async function getTrackAssignmentStats(trackId: string) {
   const completedCount = assignments.filter(a => a.completed_at).length;
   const pendingCount = totalAssignments - completedCount;
 
-  const stats = {
+  return {
     pendingCount,
     completedCount,
     totalAssignments,
     playlistCount: playlistTracks.length
   };
-  
-  console.log('🔍 Final stats:', stats);
-  
-  return stats;
 }
 
 /**

@@ -2,10 +2,8 @@
 // TRACK RELATIONSHIPS CRUD OPERATIONS (Frontend)
 // ============================================================================
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 export interface TrackRelationship {
   id: string;
@@ -57,7 +55,7 @@ export async function createTrackRelationship(
 ): Promise<TrackRelationship> {
   const accessToken = await getAccessToken();
 
-  const response = await fetch(`${SERVER_URL}/track-relationships/create`, {
+  const response = await fetch(`${getServerUrl()}/track-relationships/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -88,7 +86,7 @@ export async function getDerivedTracks(
 ): Promise<TrackRelationship[]> {
   const accessToken = await getAccessToken();
   
-  let url = `${SERVER_URL}/track-relationships/derived/${sourceTrackId}`;
+  let url = `${getServerUrl()}/track-relationships/derived/${sourceTrackId}`;
   if (relationshipType) {
     url += `?type=${relationshipType}`;
   }
@@ -117,7 +115,7 @@ export async function getSourceTrack(
 ): Promise<TrackRelationship | null> {
   const accessToken = await getAccessToken();
   
-  let url = `${SERVER_URL}/track-relationships/source/${derivedTrackId}`;
+  let url = `${getServerUrl()}/track-relationships/source/${derivedTrackId}`;
   if (relationshipType) {
     url += `?type=${relationshipType}`;
   }
@@ -145,7 +143,7 @@ export async function getTrackRelationshipStats(
 ): Promise<RelationshipStats> {
   const accessToken = await getAccessToken();
 
-  const response = await fetch(`${SERVER_URL}/track-relationships/stats/${trackId}`, {
+  const response = await fetch(`${getServerUrl()}/track-relationships/stats/${trackId}`, {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
     },
@@ -166,7 +164,7 @@ export async function getTrackRelationshipStats(
 export async function deleteTrackRelationship(relationshipId: string): Promise<void> {
   const accessToken = await getAccessToken();
 
-  const response = await fetch(`${SERVER_URL}/track-relationships/${relationshipId}`, {
+  const response = await fetch(`${getServerUrl()}/track-relationships/${relationshipId}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${accessToken}`,

@@ -21,6 +21,25 @@ export async function updateTrackProgress(
     time_spent_minutes?: number;
   }
 ) {
+  // Input validation
+  if (!userId || typeof userId !== 'string') {
+    throw new Error('Invalid userId: must be a non-empty string');
+  }
+  if (!trackId || typeof trackId !== 'string') {
+    throw new Error('Invalid trackId: must be a non-empty string');
+  }
+  if (updates.status && !['not-started', 'in-progress', 'completed'].includes(updates.status)) {
+    throw new Error('Invalid status: must be one of not-started, in-progress, or completed');
+  }
+  if (updates.progress_percentage !== undefined && (typeof updates.progress_percentage !== 'number' || updates.progress_percentage < 0 || updates.progress_percentage > 100)) {
+    throw new Error('Invalid progress_percentage: must be a number between 0 and 100');
+  }
+  if (updates.score !== undefined && (typeof updates.score !== 'number' || updates.score < 0 || updates.score > 100)) {
+    throw new Error('Invalid score: must be a number between 0 and 100');
+  }
+  if (updates.time_spent_minutes !== undefined && (typeof updates.time_spent_minutes !== 'number' || updates.time_spent_minutes < 0)) {
+    throw new Error('Invalid time_spent_minutes: must be a non-negative number');
+  }
   const now = new Date().toISOString();
 
   // Get existing progress
@@ -84,21 +103,31 @@ export async function updateTrackProgress(
       .single();
 
     if (track) {
-      await createNotification({
-        user_id: userId,
-        type: 'completion',
-        title: 'Track Completed!',
-        message: `You completed "${track.title}"`,
-        link_url: `/content/${trackId}`
-      });
+      try {
+        await createNotification({
+          user_id: userId,
+          type: 'completion',
+          title: 'Track Completed!',
+          message: `You completed "${track.title}"`,
+          link_url: `/content/${trackId}`
+        });
+      } catch (error) {
+        // Log error but don't fail the progress update
+        console.error('Failed to create completion notification:', error);
+      }
 
-      await logActivity({
-        user_id: userId,
-        action: 'completion',
-        entity_type: 'track',
-        entity_id: trackId,
-        description: `Completed "${track.title}" with score ${updates.score || 'N/A'}`
-      });
+      try {
+        await logActivity({
+          user_id: userId,
+          action: 'completion',
+          entity_type: 'track',
+          entity_id: trackId,
+          description: `Completed "${track.title}" with score ${updates.score || 'N/A'}`
+        });
+      } catch (error) {
+        // Log error but don't fail the progress update
+        console.error('Failed to log completion activity:', error);
+      }
     }
   }
 

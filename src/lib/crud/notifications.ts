@@ -33,7 +33,7 @@ export async function createNotification(input: CreateNotificationInput) {
 
   if (error) {
     console.error('Error creating notification:', error);
-    return null;
+    throw error;
   }
 
   return data;
@@ -154,13 +154,18 @@ export async function checkOverdueAssignments() {
         .single();
 
       if (!existingNotif) {
-        await createNotification({
-          user_id: userId,
-          type: 'overdue',
-          title: 'Assignment Overdue',
-          message: `Your assignment "${assignment.title}" is overdue`,
-          link_url: `/assignments/${assignment.id}`
-        });
+        try {
+          await createNotification({
+            user_id: userId,
+            type: 'overdue',
+            title: 'Assignment Overdue',
+            message: `Your assignment "${assignment.title}" is overdue`,
+            link_url: `/assignments/${assignment.id}`
+          });
+        } catch (error) {
+          // Log error but don't fail the entire process
+          console.error(`Failed to create overdue notification for user ${userId}:`, error);
+        }
       }
     }
   }
@@ -205,13 +210,18 @@ export async function checkApproachingDueDates(daysThreshold: number = 3) {
           (new Date(assignment.due_date).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
         );
 
-        await createNotification({
-          user_id: userId,
-          type: 'due-date',
-          title: 'Assignment Due Soon',
-          message: `Your assignment "${assignment.title}" is due in ${daysUntilDue} day(s)`,
-          link_url: `/assignments/${assignment.id}`
-        });
+        try {
+          await createNotification({
+            user_id: userId,
+            type: 'due-date',
+            title: 'Assignment Due Soon',
+            message: `Your assignment "${assignment.title}" is due in ${daysUntilDue} day(s)`,
+            link_url: `/assignments/${assignment.id}`
+          });
+        } catch (error) {
+          // Log error but don't fail the entire process
+          console.error(`Failed to create due-date notification for user ${userId}:`, error);
+        }
       }
     }
   }

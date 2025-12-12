@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 export type SystemCategory = 'content' | 'playlists' | 'forms' | 'knowledge-base' | 'people' | 'units' | 'shared';
 export type TagType = 'system-category' | 'parent' | 'child';
@@ -255,7 +255,7 @@ export async function getEntityTags(entityId: string, entityType: 'track' | 'alb
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.session?.access_token || publicAnonKey;
       
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/tags/entity/${entityType}/${entityId}`, {
+      const response = await fetch(`${getServerUrl()}/tags/entity/${entityType}/${entityId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -333,7 +333,7 @@ export async function assignTags(
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.session?.access_token || publicAnonKey;
     
-    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/tags/assign`, {
+    const response = await fetch(`${getServerUrl()}/tags/assign`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

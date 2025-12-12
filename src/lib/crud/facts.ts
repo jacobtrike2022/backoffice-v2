@@ -1,7 +1,5 @@
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
 
 export interface KeyFact {
   id: string;
@@ -30,7 +28,7 @@ export interface KeyFact {
 export async function getFactsForTrack(trackId: string): Promise<KeyFact[]> {
   try {
     const response = await fetch(
-      `${SERVER_URL}/facts/track/${trackId}`,
+      `${getServerUrl()}/facts/track/${trackId}`,
       {
         method: 'GET',
         headers: {
@@ -70,7 +68,7 @@ export async function generateKeyFacts(params: {
 }): Promise<{ enriched: any[]; factIds: string[] }> {
   try {
     const response = await fetch(
-      `${SERVER_URL}/generate-key-facts`,
+      `${getServerUrl()}/generate-key-facts`,
       {
         method: 'POST',
         headers: {
@@ -103,7 +101,7 @@ export async function generateKeyFacts(params: {
 export async function deleteFactFromTrack(factId: string, trackId: string): Promise<void> {
   try {
     const response = await fetch(
-      `${SERVER_URL}/facts/${factId}/track/${trackId}`,
+      `${getServerUrl()}/facts/${factId}/track/${trackId}`,
       {
         method: 'DELETE',
         headers: {
@@ -137,7 +135,7 @@ export async function updateFact(
 ): Promise<KeyFact> {
   try {
     const response = await fetch(
-      `${SERVER_URL}/facts/${factId}`,
+      `${getServerUrl()}/facts/${factId}`,
       {
         method: 'PUT',
         headers: {

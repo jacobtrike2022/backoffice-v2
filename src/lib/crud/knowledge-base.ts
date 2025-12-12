@@ -5,7 +5,7 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 export interface AddTrackToKBInput {
   track_id: string;
@@ -433,7 +433,7 @@ export async function searchAvailableTracksForKB(categoryId: string, search: str
  * Uses KV store to persist likes count
  */
 export async function toggleTrackLike(trackId: string) {
-  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/like`, {
+  const response = await fetch(`${getServerUrl()}/kb/like`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -458,7 +458,7 @@ export async function recordKBFeedback(trackId: string, helpful: boolean) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token || publicAnonKey;
 
-  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/feedback`, {
+  const response = await fetch(`${getServerUrl()}/kb/feedback`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -482,7 +482,7 @@ export async function getUserKBFeedback(trackId: string) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token || publicAnonKey;
 
-  const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/feedback/${trackId}`, {
+  const response = await fetch(`${getServerUrl()}/kb/feedback/${trackId}`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`

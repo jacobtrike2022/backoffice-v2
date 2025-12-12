@@ -1,6 +1,4 @@
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
+import { publicAnonKey, getServerUrl } from '../utils/supabase/info';
 
 interface ServerHealthStatus {
   isHealthy: boolean;
@@ -28,7 +26,7 @@ export async function checkServerHealth(): Promise<boolean> {
   }
   
   try {
-    const response = await fetch(`${SERVER_URL}/health`, {
+    const response = await fetch(`${getServerUrl()}/health`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
@@ -83,7 +81,7 @@ export function resetHealthStatus(): void {
  */
 export async function isServerAvailable(): Promise<boolean> {
   try {
-    const response = await fetch(`${SERVER_URL}/health`, {
+    const response = await fetch(`${getServerUrl()}/health`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,

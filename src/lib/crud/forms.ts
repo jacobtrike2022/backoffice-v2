@@ -247,24 +247,35 @@ export async function submitFormResponse(
     .eq('id', formId)
     .single();
 
-  // If requires approval, notify creator/admins
+  // If requires approval, notify creator/admins (non-critical - wrap in try-catch)
   if (form?.requires_approval && form.created_by_id) {
-    await createNotification({
-      user_id: form.created_by_id,
-      type: 'form-submitted',
-      title: 'Form Submission Requires Approval',
-      message: `A submission for "${form.title}" needs your review`,
-      link_url: `/forms/${formId}/submissions/${submission.id}`
-    });
+    try {
+      await createNotification({
+        user_id: form.created_by_id,
+        type: 'form-submitted',
+        title: 'Form Submission Requires Approval',
+        message: `A submission for "${form.title}" needs your review`,
+        link_url: `/forms/${formId}/submissions/${submission.id}`
+      });
+    } catch (error) {
+      // Log error but don't fail the form submission
+      console.error('Failed to create form submission notification:', error);
+    }
   }
 
-  await logActivity({
-    user_id: userProfile?.data?.id || userProfile?.id,
-    action: 'form-submission',
-    entity_type: 'form',
-    entity_id: formId,
-    description: `Submitted form "${form?.title}"`
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userProfile?.data?.id || userProfile?.id,
+      action: 'form-submission',
+      entity_type: 'form',
+      entity_id: formId,
+      description: `Submitted form "${form?.title}"`
+    });
+  } catch (error) {
+    // Log error but don't fail the form submission
+    console.error('Failed to log form submission activity:', error);
+  }
 
   return submission;
 }

@@ -3,9 +3,7 @@
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId } from '../supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-
-const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
+import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 // ============================================================================
 // ROLES CRUD OPERATIONS
@@ -175,7 +173,7 @@ export async function createDistrict(districtData: {
     }
 
     // Call server endpoint (bypasses RLS by using service role key)
-    const response = await fetch(`${SERVER_URL}/districts`, {
+    const response = await fetch(`${getServerUrl()}/districts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -19,6 +19,29 @@ export interface CreateUserInput {
  * Create a new user and send invite email
  */
 export async function createUser(input: CreateUserInput) {
+  // Input validation
+  if (!input.email || typeof input.email !== 'string' || !input.email.includes('@')) {
+    throw new Error('Invalid email: must be a valid email address');
+  }
+  if (!input.first_name || typeof input.first_name !== 'string' || input.first_name.trim().length === 0) {
+    throw new Error('Invalid first_name: must be a non-empty string');
+  }
+  if (!input.last_name || typeof input.last_name !== 'string' || input.last_name.trim().length === 0) {
+    throw new Error('Invalid last_name: must be a non-empty string');
+  }
+  if (!input.role_id || typeof input.role_id !== 'string') {
+    throw new Error('Invalid role_id: must be a non-empty string');
+  }
+  if (input.store_id && typeof input.store_id !== 'string') {
+    throw new Error('Invalid store_id: must be a string if provided');
+  }
+  if (input.phone && typeof input.phone !== 'string') {
+    throw new Error('Invalid phone: must be a string if provided');
+  }
+  if (input.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(input.hire_date)) {
+    throw new Error('Invalid hire_date: must be in YYYY-MM-DD format');
+  }
+
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
@@ -56,6 +79,26 @@ export async function updateUser(
   userId: string,
   updates: Partial<CreateUserInput> & { status?: 'active' | 'inactive' | 'on-leave' }
 ) {
+  // Input validation
+  if (!userId || typeof userId !== 'string') {
+    throw new Error('Invalid userId: must be a non-empty string');
+  }
+  if (updates.email && (!updates.email.includes('@') || typeof updates.email !== 'string')) {
+    throw new Error('Invalid email: must be a valid email address');
+  }
+  if (updates.first_name && (typeof updates.first_name !== 'string' || updates.first_name.trim().length === 0)) {
+    throw new Error('Invalid first_name: must be a non-empty string');
+  }
+  if (updates.last_name && (typeof updates.last_name !== 'string' || updates.last_name.trim().length === 0)) {
+    throw new Error('Invalid last_name: must be a non-empty string');
+  }
+  if (updates.status && !['active', 'inactive', 'on-leave'].includes(updates.status)) {
+    throw new Error('Invalid status: must be one of active, inactive, or on-leave');
+  }
+  if (updates.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(updates.hire_date)) {
+    throw new Error('Invalid hire_date: must be in YYYY-MM-DD format');
+  }
+
   const { data, error } = await supabase
     .from('users')
     .update(updates)
@@ -71,6 +114,10 @@ export async function updateUser(
  * Get user by ID with relations
  */
 export async function getUserById(userId: string) {
+  if (!userId || typeof userId !== 'string') {
+    throw new Error('Invalid userId: must be a non-empty string');
+  }
+
   const { data, error } = await supabase
     .from('users')
     .select(`
@@ -126,79 +173,80 @@ export async function getUsers(filters: {
 
   if (error) throw error;
 
-  // Enrich users with progress data
-  if (users && users.length > 0) {
-    const userIds = users.map(u => u.id);
-
-    // Fetch progress data for all users
-    const { data: progressData } = await supabase
-      .from('user_progress')
-      .select('user_id, status, score')
-      .in('user_id', userIds);
-
-    // Fetch assignments data for all users
-    const { data: assignmentsData } = await supabase
-      .from('assignments')
-      .select('user_id, status, progress_percent')
-      .in('user_id', userIds);
-
-    // Fetch certifications count for all users
-    const { data: certificationsData } = await supabase
-      .from('user_certifications')
-      .select('user_id, status')
-      .in('user_id', userIds)
-      .eq('status', 'active');
-
-    // Build lookup maps
-    const progressByUser: Record<string, any[]> = {};
-    progressData?.forEach(p => {
-      if (!progressByUser[p.user_id]) progressByUser[p.user_id] = [];
-      progressByUser[p.user_id].push(p);
-    });
-
-    const assignmentsByUser: Record<string, any[]> = {};
-    assignmentsData?.forEach(a => {
-      if (!assignmentsByUser[a.user_id]) assignmentsByUser[a.user_id] = [];
-      assignmentsByUser[a.user_id].push(a);
-    });
-
-    const certsByUser: Record<string, number> = {};
-    certificationsData?.forEach(c => {
-      certsByUser[c.user_id] = (certsByUser[c.user_id] || 0) + 1;
-    });
-
-    // Enrich each user with calculated data
-    return users.map(user => {
-      const userProgress = progressByUser[user.id] || [];
-      const userAssignments = assignmentsByUser[user.id] || [];
-      const userCerts = certsByUser[user.id] || 0;
-
-      const completedTracks = userProgress.filter(p => p.status === 'completed').length;
-      const totalTracks = userProgress.length;
-      const trainingProgress = totalTracks > 0 
-        ? Math.round((completedTracks / totalTracks) * 100) 
-        : 0;
-
-      // Calculate average score from completed tracks
-      const scoresArray = userProgress
-        .filter(p => p.score !== null && p.score !== undefined)
-        .map(p => p.score);
-      const complianceScore = scoresArray.length > 0
-        ? Math.round(scoresArray.reduce((sum, score) => sum + score, 0) / scoresArray.length)
-        : 0;
-
-      return {
-        ...user,
-        training_progress: trainingProgress,
-        completed_tracks: completedTracks,
-        total_tracks: totalTracks,
-        certifications_count: userCerts,
-        compliance_score: complianceScore
-      };
-    });
+  if (!users || users.length === 0) {
+    return [];
   }
 
-  return users || [];
+  const userIds = users.map(u => u.id);
+
+  // Use database aggregations instead of fetching all records
+  // Get progress stats aggregated by user
+  const { data: progressStats } = await supabase
+    .from('user_progress')
+    .select('user_id, status, score')
+    .in('user_id', userIds);
+
+  // Get assignment counts aggregated by user
+  const { data: assignmentStats } = await supabase
+    .from('assignments')
+    .select('user_id, status, progress_percent')
+    .in('user_id', userIds);
+
+  // Get certification counts aggregated by user
+  const { data: certificationStats } = await supabase
+    .from('user_certifications')
+    .select('user_id')
+    .in('user_id', userIds)
+    .eq('status', 'active');
+
+  // Build lookup maps from aggregated data
+  const progressByUser: Record<string, { completed: number; total: number; scores: number[] }> = {};
+  progressStats?.forEach(p => {
+    if (!progressByUser[p.user_id]) {
+      progressByUser[p.user_id] = { completed: 0, total: 0, scores: [] };
+    }
+    progressByUser[p.user_id].total++;
+    if (p.status === 'completed') {
+      progressByUser[p.user_id].completed++;
+    }
+    if (p.score !== null && p.score !== undefined) {
+      progressByUser[p.user_id].scores.push(p.score);
+    }
+  });
+
+  const assignmentsByUser: Record<string, number> = {};
+  assignmentStats?.forEach(a => {
+    assignmentsByUser[a.user_id] = (assignmentsByUser[a.user_id] || 0) + 1;
+  });
+
+  const certsByUser: Record<string, number> = {};
+  certificationStats?.forEach(c => {
+    certsByUser[c.user_id] = (certsByUser[c.user_id] || 0) + 1;
+  });
+
+  // Enrich each user with calculated data
+  return users.map(user => {
+    const userProgress = progressByUser[user.id] || { completed: 0, total: 0, scores: [] };
+    const userAssignments = assignmentsByUser[user.id] || 0;
+    const userCerts = certsByUser[user.id] || 0;
+
+    const trainingProgress = userProgress.total > 0 
+      ? Math.round((userProgress.completed / userProgress.total) * 100) 
+      : 0;
+
+    const complianceScore = userProgress.scores.length > 0
+      ? Math.round(userProgress.scores.reduce((sum, score) => sum + score, 0) / userProgress.scores.length)
+      : 0;
+
+    return {
+      ...user,
+      training_progress: trainingProgress,
+      completed_tracks: userProgress.completed,
+      total_tracks: userProgress.total,
+      certifications_count: userCerts,
+      compliance_score: complianceScore
+    };
+  });
 }
 
 /**

@@ -244,6 +244,23 @@ export async function getPlaylistById(playlistId: string) {
  * Create a new playlist
  */
 export async function createPlaylist(input: CreatePlaylistInput) {
+  // Input validation
+  if (!input.title || typeof input.title !== 'string' || input.title.trim().length === 0) {
+    throw new Error('Invalid title: must be a non-empty string');
+  }
+  if (input.type && !['manual', 'auto'].includes(input.type)) {
+    throw new Error('Invalid type: must be "manual" or "auto"');
+  }
+  if (input.release_type && !['immediate', 'progressive'].includes(input.release_type)) {
+    throw new Error('Invalid release_type: must be "immediate" or "progressive"');
+  }
+  if (input.album_ids && (!Array.isArray(input.album_ids) || !input.album_ids.every(id => typeof id === 'string'))) {
+    throw new Error('Invalid album_ids: must be an array of strings');
+  }
+  if (input.track_ids && (!Array.isArray(input.track_ids) || !input.track_ids.every(id => typeof id === 'string'))) {
+    throw new Error('Invalid track_ids: must be an array of strings');
+  }
+
   const orgId = await getCurrentUserOrgId();
   const userProfile = await getCurrentUserProfile();
   
@@ -300,14 +317,19 @@ export async function createPlaylist(input: CreatePlaylistInput) {
     if (trackError) throw trackError;
   }
 
-  // Log activity
-  await logActivity({
-    user_id: userProfile.id,
-    action: 'create',
-    entity_type: 'playlist',
-    entity_id: playlist.id,
-    description: `Created playlist "${input.title}"`,
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userProfile.id,
+      action: 'create',
+      entity_type: 'playlist',
+      entity_id: playlist.id,
+      description: `Created playlist "${input.title}"`,
+    });
+  } catch (error) {
+    // Log error but don't fail the playlist creation
+    console.error('Failed to log playlist creation activity:', error);
+  }
 
   return playlist;
 }
@@ -316,6 +338,26 @@ export async function createPlaylist(input: CreatePlaylistInput) {
  * Update an existing playlist
  */
 export async function updatePlaylist(playlistId: string, input: UpdatePlaylistInput) {
+  // Input validation
+  if (!playlistId || typeof playlistId !== 'string') {
+    throw new Error('Invalid playlistId: must be a non-empty string');
+  }
+  if (input.title !== undefined && (typeof input.title !== 'string' || input.title.trim().length === 0)) {
+    throw new Error('Invalid title: must be a non-empty string');
+  }
+  if (input.type && !['manual', 'auto'].includes(input.type)) {
+    throw new Error('Invalid type: must be "manual" or "auto"');
+  }
+  if (input.release_type && !['immediate', 'progressive'].includes(input.release_type)) {
+    throw new Error('Invalid release_type: must be "immediate" or "progressive"');
+  }
+  if (input.album_ids && (!Array.isArray(input.album_ids) || !input.album_ids.every(id => typeof id === 'string'))) {
+    throw new Error('Invalid album_ids: must be an array of strings');
+  }
+  if (input.track_ids && (!Array.isArray(input.track_ids) || !input.track_ids.every(id => typeof id === 'string'))) {
+    throw new Error('Invalid track_ids: must be an array of strings');
+  }
+
   const userProfile = await getCurrentUserProfile();
   if (!userProfile) throw new Error('User not authenticated');
 
@@ -385,14 +427,19 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
     }
   }
 
-  // Log activity
-  await logActivity({
-    user_id: userProfile.id,
-    action: 'update',
-    entity_type: 'playlist',
-    entity_id: playlistId,
-    description: `Updated playlist "${playlist.title}"`,
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userProfile.id,
+      action: 'update',
+      entity_type: 'playlist',
+      entity_id: playlistId,
+      description: `Updated playlist "${playlist.title}"`,
+    });
+  } catch (error) {
+    // Log error but don't fail the playlist update
+    console.error('Failed to log playlist update activity:', error);
+  }
 
   return playlist;
 }
@@ -419,15 +466,20 @@ export async function deletePlaylist(playlistId: string) {
 
   if (error) throw error;
 
-  // Log activity
+  // Log activity (non-critical - wrap in try-catch)
   if (playlist) {
-    await logActivity({
-      user_id: userProfile.id,
-      action: 'delete',
-      entity_type: 'playlist',
-      entity_id: playlistId,
-      description: `Deleted playlist "${playlist.title}"`,
-    });
+    try {
+      await logActivity({
+        user_id: userProfile.id,
+        action: 'delete',
+        entity_type: 'playlist',
+        entity_id: playlistId,
+        description: `Deleted playlist "${playlist.title}"`,
+      });
+    } catch (error) {
+      // Log error but don't fail the playlist deletion
+      console.error('Failed to log playlist deletion activity:', error);
+    }
   }
 
   return true;
@@ -502,14 +554,19 @@ export async function duplicatePlaylist(playlistId: string) {
     await supabase.from('playlist_tracks').insert(trackRecords);
   }
 
-  // Log activity
-  await logActivity({
-    user_id: userProfile.id,
-    action: 'duplicate',
-    entity_type: 'playlist',
-    entity_id: newPlaylist.id,
-    description: `Duplicated playlist "${original.title}"`,
-  });
+  // Log activity (non-critical - wrap in try-catch)
+  try {
+    await logActivity({
+      user_id: userProfile.id,
+      action: 'duplicate',
+      entity_type: 'playlist',
+      entity_id: newPlaylist.id,
+      description: `Duplicated playlist "${original.title}"`,
+    });
+  } catch (error) {
+    // Log error but don't fail the playlist duplication
+    console.error('Failed to log playlist duplication activity:', error);
+  }
 
   return newPlaylist;
 }
