@@ -18,6 +18,7 @@ import {
   Phone,
   Building,
   Calendar,
+  CalendarX,
   Award,
   CheckCircle,
   AlertTriangle,
@@ -38,7 +39,8 @@ import {
   MessageSquare,
   Bell,
   Tag as TagIcon,
-  Plus
+  Plus,
+  Hash
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -352,6 +354,9 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       if (reminderPush) notificationTypes.push('push notification');
 
       // Create notification in database
+      // Note: The notification system currently only supports in-app notifications.
+      // Channel selection (email/SMS/push) is collected for UI feedback but actual
+      // multi-channel delivery would require additional integration.
       await createNotification({
         user_id: employee.id,
         type: 'due-date',
@@ -360,8 +365,11 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
         link_url: '/assignments'
       });
 
+      const channelText = notificationTypes.length > 0 
+        ? ` via ${notificationTypes.join(', ')}` 
+        : '';
       toast.success('Reminder sent successfully', {
-        description: `Training reminder sent to ${employee.name} via ${notificationTypes.join(', ')}`
+        description: `Training reminder sent to ${employee.name}${channelText}`
       });
       setShowReminderDialog(false);
     } catch (err: any) {
@@ -424,25 +432,37 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     const endDate = completionDates[completionDates.length - 1];
     
     // Generate months between start and end (or last 6 months if range is smaller)
-    const months: string[] = [];
+    // Store both the display string and the actual date for accurate matching
     const now = new Date();
     const monthsToShow = Math.max(6, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
     const actualMonths = Math.min(monthsToShow, 12); // Cap at 12 months
     
+    interface MonthData {
+      display: string;
+      year: number;
+      month: number;
+    }
+    
+    const months: MonthData[] = [];
     for (let i = actualMonths - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(date.toLocaleDateString('en-US', { month: 'short' }));
+      months.push({
+        display: date.toLocaleDateString('en-US', { month: 'short' }),
+        year: date.getFullYear(),
+        month: date.getMonth()
+      });
     }
 
-    return months.map(month => {
-      const monthData = userProgress.filter(p => {
+    return months.map(monthData => {
+      const monthProgress = userProgress.filter(p => {
         if (!p.completed_at) return false;
         const date = new Date(p.completed_at);
-        return date.toLocaleDateString('en-US', { month: 'short' }) === month;
+        // Match both month and year to avoid grouping data from different years
+        return date.getMonth() === monthData.month && date.getFullYear() === monthData.year;
       });
-      const completed = monthData.length;
-      const score = monthData.reduce((acc, p) => acc + (p.score || 0), 0) / (completed || 1);
-      return { month, completed, score: Math.round(score) };
+      const completed = monthProgress.length;
+      const score = monthProgress.reduce((acc, p) => acc + (p.score || 0), 0) / (completed || 1);
+      return { month: monthData.display, completed, score: Math.round(score) };
     });
   })();
 
@@ -515,75 +535,37 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                       <p className="text-muted-foreground mt-1">{employee.role}</p>
                     </div>
 
-                    <div className="flex items-center space-x-6 text-sm">
-                      <div className="flex items-center space-x-2 text-muted-foreground">
-                        <Mail className="h-4 w-4" />
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center gap-8 text-muted-foreground">
                         <span>{employee.email}</span>
-                      </div>
-                      {employee.phone && (
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <Phone className="h-4 w-4" />
-                          <span>{employee.phone}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center space-x-2 text-muted-foreground">
-                        <Building className="h-4 w-4" />
+                        {employee.phone && <span>{employee.phone}</span>}
                         <span>{employee.homeStore}</span>
+                        {currentRole === 'admin' && <span>{employee.district} District</span>}
                       </div>
-                      {currentRole === 'admin' && (
-                        <div className="flex items-center space-x-2 text-muted-foreground">
-                          <Target className="h-4 w-4" />
-                          <span>{employee.district} District</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-8 text-muted-foreground">
+                        {employee.employeeId && <span>ID: {employee.employeeId}</span>}
+                        {employee.hireDate && (
+                          <span>
+                            Hired {new Date(employee.hireDate).toLocaleDateString()}
+                            {(() => {
+                              const hireDate = new Date(employee.hireDate);
+                              const now = new Date();
+                              const years = Math.floor((now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24 * 365));
+                              return years > 0 ? ` (${years} ${years === 1 ? 'year' : 'years'})` : '';
+                            })()}
+                          </span>
+                        )}
+                        {employee.terminationDate && employee.status === 'inactive' && (
+                          <span>Terminated {new Date(employee.terminationDate).toLocaleDateString()}</span>
+                        )}
+                        {employee.createdAt && (
+                          <span>Created {new Date(employee.createdAt).toLocaleDateString()}</span>
+                        )}
+                        {employee.updatedAt && (
+                          <span>Updated {new Date(employee.updatedAt).toLocaleDateString()}</span>
+                        )}
+                      </div>
                     </div>
-
-                    {/* Employment Information */}
-                    {(employee.employeeId || employee.hireDate || employee.createdAt) && (
-                      <div className="mt-4 p-4 bg-accent/30 rounded-lg border border-border">
-                        <h3 className="text-sm font-semibold text-foreground mb-3">Employment Information</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                          {employee.employeeId && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Employee ID</p>
-                              <p className="font-medium text-foreground">{employee.employeeId}</p>
-                            </div>
-                          )}
-                          {employee.hireDate && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Hire Date</p>
-                              <p className="font-medium text-foreground">
-                                {new Date(employee.hireDate).toLocaleDateString()}
-                                {(() => {
-                                  const hireDate = new Date(employee.hireDate);
-                                  const now = new Date();
-                                  const years = Math.floor((now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24 * 365));
-                                  return years > 0 ? ` (${years} ${years === 1 ? 'year' : 'years'})` : '';
-                                })()}
-                              </p>
-                            </div>
-                          )}
-                          {employee.terminationDate && employee.status === 'inactive' && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Termination Date</p>
-                              <p className="font-medium text-foreground">{new Date(employee.terminationDate).toLocaleDateString()}</p>
-                            </div>
-                          )}
-                          {employee.createdAt && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Account Created</p>
-                              <p className="font-medium text-foreground">{new Date(employee.createdAt).toLocaleDateString()}</p>
-                            </div>
-                          )}
-                          {employee.updatedAt && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Last Updated</p>
-                              <p className="font-medium text-foreground">{new Date(employee.updatedAt).toLocaleDateString()}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
 
                     <div className="flex items-center space-x-3">
                       <Badge 
@@ -1199,7 +1181,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       />
 
       {/* Edit People Dialog */}
-      {userDetails && (
+      {showEditDialog && (
         <EditPeopleDialog
           isOpen={showEditDialog}
           onClose={() => setShowEditDialog(false)}

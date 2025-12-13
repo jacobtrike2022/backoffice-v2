@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Skeleton } from './ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -129,7 +130,41 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        {!user ? (
+          <div className="space-y-6 py-4">
+            <div className="space-y-4">
+              <h3 className="font-semibold text-foreground">Basic Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h3 className="font-semibold text-foreground">Employment Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6 py-4">
           {/* Basic Information */}
           <div className="space-y-4">
             <h3 className="font-semibold text-foreground">Basic Information</h3>
@@ -273,15 +308,16 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={saving}>
+          <Button variant="outline" onClick={handleClose} disabled={saving || !user}>
             Cancel
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !user}
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
             {saving ? 'Saving...' : 'Save Changes'}
