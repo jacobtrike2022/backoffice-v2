@@ -145,6 +145,9 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
   useEffect(() => {
     if (employee.id) {
+      // Reset userDetails when employee changes to prevent showing stale data
+      setUserDetails(null);
+      setShowEditDialog(false);
       fetchEmployeeData();
     }
   }, [employee.id]);

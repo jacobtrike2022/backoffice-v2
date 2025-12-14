@@ -838,15 +838,44 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     }
   };
 
-  const handleKBToggle = (checked: boolean) => {
-    setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
-    
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
+  const handleKBToggle = async (checked: boolean) => {
+    if (isEditMode) {
+      // In edit mode, update the form data
+      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
+      
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
+    } else {
+      // In view mode, update the track directly in the database
+      try {
+        await crud.updateTrack({
+          id: track.id,
+          show_in_knowledge_base: checked
+        });
+        
+        toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
+        
+        // Refresh the track data
+        onUpdate();
+        
+        if (checked) {
+          setTagSelectorConfig({
+            systemCategory: 'knowledge-base',
+            restrictToParentName: 'KB Category'
+          });
+          setIsTagSelectorOpen(true);
+        }
+      } catch (error: any) {
+        console.error('Error updating KB toggle:', error);
+        toast.error('Failed to update Knowledge Base setting', {
+          description: error.message || 'Please try again'
+        });
+      }
     }
   };
 
@@ -1446,7 +1475,6 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     id="show-in-kb"
                     checked={isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)}
                     onCheckedChange={handleKBToggle}
-                    disabled={!isEditMode}
                   />
                 </div>
                 
@@ -1740,7 +1768,29 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <div 
                       key={attachment.id} 
                       className="flex items-center gap-2 p-2 rounded-md border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
-                      onClick={() => setPreviewAttachment(attachment)}
+                      onClick={() => {
+                        // Ensure the attachment object matches the expected format
+                        // Validate URL before setting preview
+                        if (!attachment.url || attachment.url === '#' || attachment.url === '') {
+                          console.error('Invalid attachment URL:', attachment);
+                          toast.error('Attachment URL is missing. Please refresh the page and try again.');
+                          return;
+                        }
+                        
+                        console.log('Opening attachment preview:', {
+                          fileName: attachment.fileName,
+                          fileType: attachment.fileType,
+                          url: attachment.url,
+                          fileSize: attachment.fileSize
+                        });
+                        
+                        setPreviewAttachment({
+                          fileName: attachment.fileName,
+                          fileType: attachment.fileType,
+                          url: attachment.url,
+                          fileSize: attachment.fileSize
+                        });
+                      }}
                     >
                       {getFileIcon(attachment.fileType)}
                       <div className="flex-1 min-w-0">

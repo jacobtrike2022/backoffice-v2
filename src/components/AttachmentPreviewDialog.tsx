@@ -17,11 +17,35 @@ interface AttachmentPreviewDialogProps {
 export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: AttachmentPreviewDialogProps) {
   if (!attachment) return null;
 
+  // Validate URL before using it
+  const isValidUrl = attachment.url && 
+                     attachment.url !== '#' && 
+                     attachment.url !== '' && 
+                     (attachment.url.startsWith('http://') || attachment.url.startsWith('https://'));
+
   const handleDownload = () => {
-    window.open(attachment.url, '_blank');
+    if (isValidUrl) {
+      window.open(attachment.url, '_blank');
+    } else {
+      console.error('Invalid attachment URL:', attachment.url);
+    }
   };
 
   const renderPreview = () => {
+    if (!isValidUrl) {
+      return (
+        <div className="flex flex-col items-center justify-center bg-gray-100 rounded-lg p-12 text-center">
+          <p className="text-lg font-medium mb-2">Invalid attachment URL</p>
+          <p className="text-sm text-muted-foreground mb-6">
+            The attachment URL is missing or invalid. Please try refreshing the page.
+          </p>
+          <p className="text-xs text-muted-foreground font-mono break-all">
+            URL: {attachment.url || '(empty)'}
+          </p>
+        </div>
+      );
+    }
+
     const fileType = attachment.fileType.toLowerCase();
 
     // Image preview
@@ -32,6 +56,10 @@ export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: Attachm
             src={attachment.url} 
             alt={attachment.fileName}
             className="max-w-full max-h-[70vh] object-contain rounded"
+            onError={(e) => {
+              console.error('Failed to load image:', attachment.url);
+              e.currentTarget.style.display = 'none';
+            }}
           />
         </div>
       );
@@ -45,6 +73,9 @@ export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: Attachm
             src={attachment.url}
             className="w-full h-full border-0"
             title={attachment.fileName}
+            onError={() => {
+              console.error('Failed to load PDF:', attachment.url);
+            }}
           />
         </div>
       );

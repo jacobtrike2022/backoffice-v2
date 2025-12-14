@@ -582,15 +582,52 @@ export function StoryEditor({
     setDraggedSlideId(null);
   };
 
-  const handleKBToggle = (checked: boolean) => {
-    setShowInKnowledgeBase(checked);
-    
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
+  const handleKBToggle = async (checked: boolean) => {
+    if (isEditMode) {
+      // In edit mode, update the local state
+      setShowInKnowledgeBase(checked);
+      
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
+    } else {
+      // In view mode, update the track directly in the database
+      try {
+        const currentTrackId = track?.id || trackId;
+        if (!currentTrackId) return;
+        
+        await crud.updateTrack({
+          id: currentTrackId,
+          show_in_knowledge_base: checked
+        });
+        
+        toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
+        
+        // Update local state to reflect the change
+        setShowInKnowledgeBase(checked);
+        
+        // Refresh the track data
+        if (onUpdate) {
+          onUpdate();
+        }
+        
+        if (checked) {
+          setTagSelectorConfig({
+            systemCategory: 'knowledge-base',
+            restrictToParentName: 'KB Category'
+          });
+          setIsTagSelectorOpen(true);
+        }
+      } catch (error: any) {
+        console.error('Error updating KB toggle:', error);
+        toast.error('Failed to update Knowledge Base setting', {
+          description: error.message || 'Please try again'
+        });
+      }
     }
   };
 
@@ -1429,7 +1466,7 @@ export function StoryEditor({
                   <Switch
                     id="show-in-kb-view"
                     checked={showInKnowledgeBase}
-                    disabled
+                    onCheckedChange={handleKBToggle}
                   />
                 </div>
                 

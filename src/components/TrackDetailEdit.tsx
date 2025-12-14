@@ -663,15 +663,44 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     setEditFormData({ ...editFormData, tags: newTags });
   };
 
-  const handleKBToggle = (checked: boolean) => {
-    setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
-    
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
+  const handleKBToggle = async (checked: boolean) => {
+    if (isEditMode) {
+      // In edit mode, update the form data
+      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
+      
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
+    } else {
+      // In view mode, update the track directly in the database
+      try {
+        await crud.updateTrack({
+          id: track.id,
+          show_in_knowledge_base: checked
+        });
+        
+        toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
+        
+        // Refresh the track data
+        onUpdate();
+        
+        if (checked) {
+          setTagSelectorConfig({
+            systemCategory: 'knowledge-base',
+            restrictToParentName: 'KB Category'
+          });
+          setIsTagSelectorOpen(true);
+        }
+      } catch (error: any) {
+        console.error('Error updating KB toggle:', error);
+        toast.error('Failed to update Knowledge Base setting', {
+          description: error.message || 'Please try again'
+        });
+      }
     }
   };
 
@@ -1542,7 +1571,6 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     id="show-in-kb"
                     checked={isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)}
                     onCheckedChange={handleKBToggle}
-                    disabled={!isEditMode}
                   />
                 </div>
                 
