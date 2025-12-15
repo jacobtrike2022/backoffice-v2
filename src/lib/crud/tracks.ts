@@ -75,6 +75,25 @@ export async function createTrack(input: CreateTrackInput) {
 export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
+  // First, check if track exists and user has permission
+  const { data: existingTrack, error: checkError } = await supabase
+    .from('tracks')
+    .select('id, created_by, organization_id')
+    .eq('id', id)
+    .single();
+
+  if (checkError) {
+    if (checkError.code === 'PGRST116') {
+      // No rows returned - track not found
+      throw new Error('Track not found. It may have been deleted or you may not have permission to access it.');
+    }
+    throw checkError;
+  }
+
+  if (!existingTrack) {
+    throw new Error('Track not found');
+  }
+
   // Update the track
   const { data: track, error } = await supabase
     .from('tracks')
@@ -84,7 +103,10 @@ export async function updateTrack(input: UpdateTrackInput) {
     .single();
 
   if (error) {
-    // Error details are already in the error object, no need for multiple console.error calls
+    // Check if it's a permission error (RLS blocked the update)
+    if (error.code === 'PGRST116' || error.message?.includes('not found')) {
+      throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
+    }
     throw error;
   }
   
