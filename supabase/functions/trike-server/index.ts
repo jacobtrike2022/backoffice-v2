@@ -1,9 +1,10 @@
 // =============================================================================
 // TRIKE SERVER - Supabase Edge Function
-// Handles: Health checks, Attachments, Key Facts (AI), and more
+// Handles: Health checks, Attachments, Key Facts (AI), Transcription, and more
 // =============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 
 // CORS headers for browser requests
 const corsHeaders = {
@@ -16,6 +17,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 
 // Create Supabase client with service role (bypasses RLS)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -41,7 +43,14 @@ Deno.serve(async (req: Request) => {
     // HEALTH CHECK
     // =========================================================================
     if (method === "GET" && (path === "/health" || path === "")) {
-      return jsonResponse({ status: "ok", timestamp: new Date().toISOString() });
+      return jsonResponse({ 
+        status: "ok", 
+        timestamp: new Date().toISOString(),
+        services: {
+          openai: !!OPENAI_API_KEY,
+          assemblyai: !!ASSEMBLYAI_API_KEY,
+        }
+      });
     }
 
     // =========================================================================
@@ -63,6 +72,26 @@ Deno.serve(async (req: Request) => {
     if (method === "DELETE" && path.startsWith("/attachment/")) {
       const attachmentId = path.replace("/attachment/", "");
       return await handleDeleteAttachment(attachmentId);
+    }
+
+    // =========================================================================
+    // TRANSCRIPTION
+    // =========================================================================
+
+    // Transcribe audio/video
+    if (method === "POST" && path === "/transcribe") {
+      return await handleTranscribe(req);
+    }
+
+    // Get cached transcript by URL
+    if (method === "POST" && path === "/transcript/lookup") {
+      return await handleTranscriptLookup(req);
+    }
+
+    // Get transcript by ID
+    if (method === "GET" && path.startsWith("/transcript/")) {
+      const transcriptId = path.replace("/transcript/", "");
+      return await handleGetTranscript(transcriptId);
     }
 
     // =========================================================================
@@ -114,6 +143,14 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function hashString(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str.trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 // =============================================================================
@@ -257,6 +294,262 @@ async function handleDeleteAttachment(attachmentId: string): Promise<Response> {
     return jsonResponse({ success: true });
   } catch (error) {
     console.error("Delete attachment error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// =============================================================================
+// TRANSCRIPTION HANDLERS
+// =============================================================================
+
+async function handleTranscribe(req: Request): Promise<Response> {
+  try {
+    if (!ASSEMBLYAI_API_KEY) {
+      return jsonResponse({ error: "AssemblyAI API key not configured" }, 500);
+    }
+
+    const body = await req.json();
+    const { audioUrl, mediaType = "video", trackId, forceRefresh = false } = body;
+
+    if (!audioUrl) {
+      return jsonResponse({ error: "audioUrl is required" }, 400);
+    }
+
+    console.log(`🎙️ Transcription request for: ${audioUrl.substring(0, 60)}...`);
+
+    // Check for YouTube URLs (not supported)
+    if (audioUrl.includes("youtube.com") || audioUrl.includes("youtu.be")) {
+      return jsonResponse({ 
+        error: "YouTube URLs are not supported. Please upload the video file directly." 
+      }, 400);
+    }
+
+    const urlHash = await hashString(audioUrl);
+
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      const { data: cached, error: cacheError } = await supabase
+        .from("media_transcripts")
+        .select("*")
+        .eq("media_url_hash", urlHash)
+        .single();
+
+      if (cached && !cacheError) {
+        console.log(`✅ Found cached transcript (ID: ${cached.id})`);
+        
+        // Update usage tracking
+        const updatedTracks = Array.from(new Set([...(cached.used_in_tracks || []), trackId].filter(Boolean)));
+        
+        await supabase
+          .from("media_transcripts")
+          .update({
+            usage_count: (cached.usage_count || 0) + 1,
+            last_used_at: new Date().toISOString(),
+            used_in_tracks: updatedTracks,
+          })
+          .eq("id", cached.id);
+
+        return jsonResponse({
+          transcript: cached,
+          cached: true,
+          message: `Using cached transcript (previously used ${cached.usage_count} times)`,
+        });
+      }
+    }
+
+    // Not cached - need to transcribe with AssemblyAI
+    console.log("📤 Submitting to AssemblyAI...");
+
+    // Determine if we need to download and re-upload the file
+    let uploadUrl = audioUrl;
+    const urlObj = new URL(audioUrl);
+    const hasToken = urlObj.searchParams.has("token");
+
+    if (!hasToken && audioUrl.includes("supabase.co/storage")) {
+      // Need to download from Supabase and upload to AssemblyAI
+      console.log("📥 Downloading from Supabase storage...");
+      
+      const pathParts = urlObj.pathname.split("/");
+      const bucketIndex = pathParts.findIndex(part => part === "sign" || part === "public") + 1;
+      
+      if (bucketIndex > 0) {
+        const bucket = pathParts[bucketIndex];
+        const filePath = pathParts.slice(bucketIndex + 1).join("/");
+        
+        const { data: fileData, error: downloadError } = await supabase.storage
+          .from(bucket)
+          .download(filePath);
+        
+        if (downloadError || !fileData) {
+          console.error("Download error:", downloadError);
+          return jsonResponse({ error: `Failed to download file: ${downloadError?.message}` }, 500);
+        }
+        
+        // Upload to AssemblyAI
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uploadResponse = await fetch("https://api.assemblyai.com/v2/upload", {
+          method: "POST",
+          headers: { "Authorization": ASSEMBLYAI_API_KEY },
+          body: new Uint8Array(arrayBuffer),
+        });
+        
+        if (!uploadResponse.ok) {
+          const error = await uploadResponse.text();
+          return jsonResponse({ error: `AssemblyAI upload failed: ${error}` }, 500);
+        }
+        
+        const uploadResult = await uploadResponse.json();
+        uploadUrl = uploadResult.upload_url;
+        console.log("✅ Uploaded to AssemblyAI");
+      }
+    }
+
+    // Submit transcription request
+    const transcriptResponse = await fetch("https://api.assemblyai.com/v2/transcript", {
+      method: "POST",
+      headers: {
+        "Authorization": ASSEMBLYAI_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        audio_url: uploadUrl,
+        speaker_labels: true,
+        format_text: true,
+      }),
+    });
+
+    if (!transcriptResponse.ok) {
+      const error = await transcriptResponse.text();
+      return jsonResponse({ error: `AssemblyAI error: ${error}` }, 500);
+    }
+
+    const { id: jobId } = await transcriptResponse.json();
+    console.log(`📋 Transcription job submitted: ${jobId}`);
+
+    // Poll for completion
+    let transcript;
+    let attempts = 0;
+    const maxAttempts = 60; // 3 minutes max (60 * 3 seconds)
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      attempts++;
+
+      const pollResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${jobId}`, {
+        headers: { "Authorization": ASSEMBLYAI_API_KEY },
+      });
+
+      transcript = await pollResponse.json();
+      console.log(`📊 Status: ${transcript.status} (attempt ${attempts})`);
+
+      if (transcript.status === "completed") {
+        break;
+      } else if (transcript.status === "error") {
+        return jsonResponse({ error: `Transcription failed: ${transcript.error}` }, 500);
+      }
+    }
+
+    if (!transcript || transcript.status !== "completed") {
+      return jsonResponse({ error: "Transcription timed out" }, 500);
+    }
+
+    console.log("✅ Transcription completed!");
+
+    // Calculate metadata
+    const wordCount = transcript.text?.split(/\s+/).length || 0;
+    const durationSeconds = transcript.audio_duration ? Math.floor(transcript.audio_duration / 1000) : null;
+
+    // Save to database
+    const { data: newTranscript, error: insertError } = await supabase
+      .from("media_transcripts")
+      .insert({
+        media_url: audioUrl,
+        media_url_hash: urlHash,
+        media_type: mediaType,
+        transcript_text: transcript.text || "",
+        transcript_json: transcript,
+        transcript_utterances: transcript.utterances || [],
+        duration_seconds: durationSeconds,
+        word_count: wordCount,
+        language: "en",
+        confidence_score: transcript.confidence || null,
+        transcription_service: "assemblyai",
+        used_in_tracks: trackId ? [trackId] : [],
+        usage_count: 1,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Failed to save transcript:", insertError);
+      // Return the transcript anyway, just not cached
+      return jsonResponse({
+        transcript: {
+          transcript_text: transcript.text,
+          transcript_json: transcript,
+          word_count: wordCount,
+          duration_seconds: durationSeconds,
+        },
+        cached: false,
+        message: "Transcription complete (failed to cache)",
+      });
+    }
+
+    return jsonResponse({
+      transcript: newTranscript,
+      cached: false,
+      message: "Newly transcribed and cached",
+    });
+
+  } catch (error) {
+    console.error("Transcription error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleTranscriptLookup(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { audioUrl } = body;
+
+    if (!audioUrl) {
+      return jsonResponse({ error: "audioUrl is required" }, 400);
+    }
+
+    const urlHash = await hashString(audioUrl);
+
+    const { data, error } = await supabase
+      .from("media_transcripts")
+      .select("*")
+      .eq("media_url_hash", urlHash)
+      .single();
+
+    if (error || !data) {
+      return jsonResponse({ transcript: null, found: false });
+    }
+
+    return jsonResponse({ transcript: data, found: true });
+  } catch (error) {
+    console.error("Transcript lookup error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleGetTranscript(transcriptId: string): Promise<Response> {
+  try {
+    const { data, error } = await supabase
+      .from("media_transcripts")
+      .select("*")
+      .eq("id", transcriptId)
+      .single();
+
+    if (error || !data) {
+      return jsonResponse({ error: "Transcript not found" }, 404);
+    }
+
+    return jsonResponse({ transcript: data });
+  } catch (error) {
+    console.error("Get transcript error:", error);
     return jsonResponse({ error: error.message }, 500);
   }
 }
