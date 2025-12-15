@@ -140,6 +140,27 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const [loading, setLoading] = useState(true);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  
+  // Tab-specific data states
+  const [overviewData, setOverviewData] = useState<any>(null);
+  const [progressData, setProgressData] = useState<any[]>([]);
+  const [performanceTabData, setPerformanceTabData] = useState<any>(null);
+  const [activityTimeline, setActivityTimeline] = useState<any[]>([]);
+  const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
+    overview: false,
+    progress: false,
+    performance: false,
+    activity: false,
+    certifications: false
+  });
+  
+  // Progress tab filters
+  const [progressFilter, setProgressFilter] = useState<'all' | 'in_progress' | 'completed' | 'overdue'>('all');
+  const [progressSort, setProgressSort] = useState<'progress' | 'due_date' | 'last_activity' | 'name'>('progress');
+  
+  // Activity tab filters
+  const [activityDateRange, setActivityDateRange] = useState<'7' | '30' | '90' | 'all'>('30');
+  const [activityTypeFilter, setActivityTypeFilter] = useState<'all' | 'tracks' | 'quizzes' | 'completions'>('all');
 
   const { user: currentUser } = useCurrentUser();
 
@@ -262,7 +283,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       const activities: ActivityItem[] = [];
 
       // Add completion activities
-      progressData?.forEach(progress => {
+      (progressData as any[])?.forEach((progress: any) => {
         if (progress.status === 'completed' && progress.completed_at) {
           activities.push({
             id: progress.id,
@@ -277,7 +298,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       });
 
       // Add assignment activities
-      assignmentsData?.forEach(assignment => {
+      (assignmentsData as any[])?.forEach((assignment: any) => {
         activities.push({
           id: assignment.id,
           type: 'assignment',
@@ -296,6 +317,9 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       setActivityFeed(activities.slice(0, 10)); // Keep only 10 most recent
 
+      // Load overview data by default
+      await fetchOverviewData();
+
     } catch (err) {
       console.error('Error fetching employee data:', err);
       toast.error('Failed to load employee details');
@@ -303,6 +327,353 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       setLoading(false);
     }
   };
+
+  // Fetch Overview Tab Data
+  const fetchOverviewData = async () => {
+    try {
+      setTabLoading(prev => ({ ...prev, overview: true }));
+      
+      // Fetch all user progress for calculations
+      const { data: allProgress, error: progressError } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          track:tracks (
+            id,
+            title,
+            type
+          ),
+          assignment:assignments (
+            id,
+            due_date
+          )
+        `)
+        .eq('user_id', employee.id) as { data: any[] | null; error: any };
+
+      if (progressError) throw progressError;
+
+      // Calculate summary metrics
+      const assignedCount = allProgress?.length || 0;
+      const completedCount = allProgress?.filter(p => p.status === 'completed' && p.completed_at).length || 0;
+      const inProgressCount = allProgress?.filter(p => 
+        p.status === 'in_progress' || (p.progress_percent > 0 && p.progress_percent < 100 && !p.completed_at)
+      ).length || 0;
+      
+      // Calculate average score from checkpoint attempts (tracks with type='checkpoint')
+      const checkpointProgress = allProgress?.filter(p => p.track?.type === 'checkpoint' && p.score !== null) || [];
+      const avgScore = checkpointProgress.length > 0
+        ? checkpointProgress.reduce((sum, p) => sum + (p.score || 0), 0) / checkpointProgress.length
+        : 0;
+
+      // Get recent activity (last 10)
+      const recentActivity = (allProgress || [])
+        .filter(p => p.updated_at)
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 10)
+        .map(p => ({
+          id: p.id,
+          trackTitle: p.track?.title || 'Unknown Track',
+          action: p.status === 'completed' ? 'completed' : p.status === 'in_progress' ? 'started' : 'updated',
+          timestamp: p.updated_at,
+          trackType: p.track?.type
+        }));
+
+      // Get upcoming deadlines
+      const now = new Date();
+      const upcomingDeadlines = (allProgress || [])
+        .filter(p => {
+          const dueDate = p.assignment?.due_date;
+          return dueDate && new Date(dueDate) > now && !p.completed_at;
+        })
+        .map(p => {
+          const dueDate = new Date(p.assignment.due_date);
+          const daysRemaining = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          return {
+            id: p.id,
+            trackTitle: p.track?.title || 'Unknown Track',
+            dueDate: p.assignment.due_date,
+            daysRemaining
+          };
+        })
+        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+        .slice(0, 10);
+
+      setOverviewData({
+        assignedCount,
+        completedCount,
+        inProgressCount,
+        avgScore: Math.round(avgScore),
+        recentActivity,
+        upcomingDeadlines
+      });
+    } catch (err) {
+      console.error('Error fetching overview data:', err);
+      toast.error('Failed to load overview data');
+    } finally {
+      setTabLoading(prev => ({ ...prev, overview: false }));
+    }
+  };
+
+  // Fetch Progress Tab Data
+  const fetchProgressData = async () => {
+    try {
+      setTabLoading(prev => ({ ...prev, progress: true }));
+      
+      const { data: progressData, error: progressError } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          track:tracks (
+            id,
+            title,
+            type,
+            duration_minutes
+          ),
+          assignment:assignments (
+            id,
+            due_date
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('updated_at', { ascending: false }) as { data: any[] | null; error: any };
+
+      if (progressError) throw progressError;
+
+      setProgressData((progressData || []) as any[]);
+    } catch (err) {
+      console.error('Error fetching progress data:', err);
+      toast.error('Failed to load progress data');
+    } finally {
+      setTabLoading(prev => ({ ...prev, progress: false }));
+    }
+  };
+
+  // Fetch Performance Tab Data
+  const fetchPerformanceData = async () => {
+    try {
+      setTabLoading(prev => ({ ...prev, performance: true }));
+      
+      // Get all progress with checkpoint scores
+      const { data: allProgress, error: progressError } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          track:tracks (
+            id,
+            title,
+            type
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('completed_at', { ascending: false, nullsFirst: false }) as { data: any[] | null; error: any };
+
+      if (progressError) throw progressError;
+
+      // Calculate metrics
+      const checkpointProgress = (allProgress || []).filter(p => p.track?.type === 'checkpoint' && p.score !== null);
+      const overallAvgScore = checkpointProgress.length > 0
+        ? checkpointProgress.reduce((sum, p) => sum + (p.score || 0), 0) / checkpointProgress.length
+        : 0;
+
+      // Quiz completion rate
+      const assignedCheckpoints = (allProgress || []).filter(p => p.track?.type === 'checkpoint').length;
+      const completedCheckpoints = checkpointProgress.filter(p => p.status === 'completed').length;
+      const quizCompletionRate = assignedCheckpoints > 0
+        ? (completedCheckpoints / assignedCheckpoints) * 100
+        : 0;
+
+      // Average time to complete
+      const completedTracks = (allProgress || []).filter(p => 
+        p.status === 'completed' && p.started_at && p.completed_at
+      );
+      const timeToComplete = completedTracks.length > 0
+        ? completedTracks.reduce((sum, p) => {
+            const start = new Date(p.started_at);
+            const end = new Date(p.completed_at);
+            return sum + (end.getTime() - start.getTime());
+          }, 0) / completedTracks.length / (1000 * 60) // Convert to minutes
+        : 0;
+
+      // Improvement trend (compare recent vs older scores)
+      const sortedCheckpoints = checkpointProgress
+        .filter(p => p.completed_at)
+        .sort((a, b) => new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime());
+      
+      const recentScores = sortedCheckpoints.slice(-5).map(p => p.score || 0);
+      const olderScores = sortedCheckpoints.slice(0, Math.min(5, sortedCheckpoints.length - 5)).map(p => p.score || 0);
+      
+      const recentAvg = recentScores.length > 0 ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : 0;
+      const olderAvg = olderScores.length > 0 ? olderScores.reduce((a, b) => a + b, 0) / olderScores.length : 0;
+      const improvementTrend = olderAvg > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
+
+      // Score trend chart data
+      const scoreTrendData = checkpointProgress
+        .filter(p => p.completed_at)
+        .sort((a, b) => new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime())
+        .map(p => ({
+          date: new Date(p.completed_at).toISOString().split('T')[0],
+          score: p.score || 0,
+          trackTitle: p.track?.title || 'Unknown'
+        }));
+
+      // Recent quiz results (last 10)
+      const recentQuizResults = checkpointProgress
+        .filter(p => p.completed_at)
+        .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
+        .slice(0, 10)
+        .map(p => ({
+          id: p.id,
+          trackName: p.track?.title || 'Unknown Track',
+          dateTaken: p.completed_at,
+          score: p.score || 0,
+          passed: p.passed || false,
+          timeSpent: p.time_spent_minutes || 0
+        }));
+
+      setPerformanceTabData({
+        overallAvgScore: Math.round(overallAvgScore),
+        quizCompletionRate: Math.round(quizCompletionRate),
+        timeToComplete: Math.round(timeToComplete),
+        improvementTrend: Math.round(improvementTrend),
+        scoreTrendData,
+        recentQuizResults
+      });
+    } catch (err) {
+      console.error('Error fetching performance data:', err);
+      toast.error('Failed to load performance data');
+    } finally {
+      setTabLoading(prev => ({ ...prev, performance: false }));
+    }
+  };
+
+  // Fetch Activity Timeline Data
+  const fetchActivityTimeline = async () => {
+    try {
+      setTabLoading(prev => ({ ...prev, activity: true }));
+      
+      // Get all progress events
+      const { data: progressData, error: progressError } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          track:tracks (
+            id,
+            title,
+            type
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('created_at', { ascending: false }) as { data: any[] | null; error: any };
+
+      if (progressError) throw progressError;
+
+      // Get assignments
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          playlist:playlists (
+            id,
+            title
+          )
+        `)
+        .eq('user_id', employee.id)
+        .order('assigned_at', { ascending: false }) as { data: any[] | null; error: any };
+
+      if (assignmentsError) throw assignmentsError;
+
+      // Build timeline events
+      const timelineEvents: any[] = [];
+
+      // Add track assigned events (from assignments)
+      (assignmentsData || []).forEach(assignment => {
+        timelineEvents.push({
+          id: `assignment-${assignment.id}`,
+          type: 'track_assigned',
+          title: `Track Assigned: ${assignment.playlist?.title || 'Playlist'}`,
+          timestamp: assignment.assigned_at,
+          icon: BookOpen,
+          iconColor: 'text-blue-600'
+        });
+      });
+
+      // Add progress events
+      (progressData || []).forEach(progress => {
+        // Track started
+        if (progress.started_at) {
+          timelineEvents.push({
+            id: `started-${progress.id}`,
+            type: 'track_started',
+            title: `Started: ${progress.track?.title || 'Track'}`,
+            timestamp: progress.started_at,
+            icon: BookOpen,
+            iconColor: 'text-orange-600',
+            trackType: progress.track?.type
+          });
+        }
+
+        // Quiz taken (checkpoint completed)
+        if (progress.track?.type === 'checkpoint' && progress.completed_at && progress.score !== null) {
+          timelineEvents.push({
+            id: `quiz-${progress.id}`,
+            type: 'quiz_taken',
+            title: `Took Quiz: ${progress.track?.title || 'Checkpoint'}`,
+            description: `Score: ${progress.score}%`,
+            timestamp: progress.completed_at,
+            icon: FileCheck,
+            iconColor: 'text-purple-600',
+            score: progress.score
+          });
+        }
+
+        // Track completed
+        if (progress.status === 'completed' && progress.completed_at) {
+          timelineEvents.push({
+            id: `completed-${progress.id}`,
+            type: 'track_completed',
+            title: `Completed: ${progress.track?.title || 'Track'}`,
+            description: progress.track?.type === 'checkpoint' ? `Score: ${progress.score || 'N/A'}%` : undefined,
+            timestamp: progress.completed_at,
+            icon: CheckCircle,
+            iconColor: 'text-green-600',
+            score: progress.score
+          });
+        }
+      });
+
+      // Sort by timestamp (most recent first)
+      timelineEvents.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      setActivityTimeline(timelineEvents);
+    } catch (err) {
+      console.error('Error fetching activity timeline:', err);
+      toast.error('Failed to load activity timeline');
+    } finally {
+      setTabLoading(prev => ({ ...prev, activity: false }));
+    }
+  };
+
+  // Load tab data when tab changes
+  useEffect(() => {
+    if (!employee.id) return;
+
+    switch (activeTab) {
+      case 'overview':
+        if (!overviewData) fetchOverviewData();
+        break;
+      case 'progress':
+        if (progressData.length === 0) fetchProgressData();
+        break;
+      case 'performance':
+        if (!performanceTabData) fetchPerformanceData();
+        break;
+      case 'activity':
+        if (activityTimeline.length === 0) fetchActivityTimeline();
+        break;
+    }
+  }, [activeTab, employee.id]);
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -654,9 +1025,9 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               <p className="text-sm text-muted-foreground mb-2">Training Progress</p>
               <div className="flex items-center space-x-3">
                 <Progress 
-                  value={employee.progress} 
+                  value={Number(employee.progress) || 0} 
                   className="h-3 flex-1"
-                  indicatorClassName={getProgressColor(employee.progress)}
+                  indicatorClassName={getProgressColor(Number(employee.progress) || 0)}
                 />
                 <span className="text-lg font-bold text-foreground">{employee.progress}%</span>
               </div>
@@ -682,18 +1053,22 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       {/* Tabs Section */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
             Overview
           </TabsTrigger>
+          <TabsTrigger value="progress">
+            <Target className="w-4 h-4 mr-2" />
+            Progress
+          </TabsTrigger>
+          <TabsTrigger value="performance">
+            <TrendingUp className="w-4 h-4 mr-2" />
+            Performance
+          </TabsTrigger>
           <TabsTrigger value="activity">
             <Activity className="w-4 h-4 mr-2" />
-            Activity Feed
-          </TabsTrigger>
-          <TabsTrigger value="assignments">
-            <BookOpen className="w-4 h-4 mr-2" />
-            Assignments
+            Activity
           </TabsTrigger>
           <TabsTrigger value="certifications">
             <Award className="w-4 h-4 mr-2" />
@@ -708,249 +1083,615 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          {loading ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {[1, 2, 3, 4].map(i => (
-                <Card key={i}>
-                  <CardContent className="p-6">
-                    <Skeleton className="h-64" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Monthly Performance Chart */}
+          {tabLoading.overview || !overviewData ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map(i => (
+                  <Card key={i}>
+                    <CardContent className="p-6">
+                      <Skeleton className="h-24" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <TrendingUp className="w-5 h-5 mr-2 text-primary" />
-                    Monthly Performance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={performanceData}>
-                      <defs>
-                        <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#F74A05" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#F74A05" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--card))', 
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px'
-                        }} 
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="completed" 
-                        stroke="#F74A05" 
-                        fillOpacity={1} 
-                        fill="url(#colorCompleted)"
-                        name="Courses Completed"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <CardContent className="p-6">
+                  <Skeleton className="h-64" />
                 </CardContent>
               </Card>
+            </div>
+          ) : (
+            <>
+              {/* Training Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Assigned Tracks</p>
+                        <p className="text-3xl font-bold text-foreground">{overviewData.assignedCount}</p>
+                      </div>
+                      <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                        <BookOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* Course Distribution Pie Chart */}
-              {categoryData.length > 0 && (
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Completed Tracks</p>
+                        <p className="text-3xl font-bold text-green-600 dark:text-green-400">{overviewData.completedCount}</p>
+                      </div>
+                      <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                        <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">In Progress</p>
+                        <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{overviewData.inProgressCount}</p>
+                      </div>
+                      <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
+                        <Clock className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+                        <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{overviewData.avgScore}%</p>
+                      </div>
+                      <div className="h-12 w-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+                        <Award className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Recent Activity */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center">
-                      <PieChart className="w-5 h-5 mr-2 text-primary" />
-                      Course Distribution by Type
+                      <Activity className="w-5 h-5 mr-2 text-primary" />
+                      Recent Activity
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <RechartsPie>
-                        <Pie
-                          data={categoryData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, value }) => `${name}: ${value}`}
-                          outerRadius={100}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {categoryData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: 'hsl(var(--card))', 
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px'
-                          }} 
-                        />
-                      </RechartsPie>
-                    </ResponsiveContainer>
+                    {overviewData.recentActivity.length > 0 ? (
+                      <div className="space-y-4">
+                        {overviewData.recentActivity.map((activity: any) => (
+                          <div key={activity.id} className="flex items-start space-x-3">
+                            <div className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                              activity.action === 'completed' ? 'bg-green-100 dark:bg-green-900/30' :
+                              activity.action === 'started' ? 'bg-orange-100 dark:bg-orange-900/30' :
+                              'bg-blue-100 dark:bg-blue-900/30'
+                            }`}>
+                              {activity.action === 'completed' ? (
+                                <CheckCircle className={`h-4 w-4 ${
+                                  activity.action === 'completed' ? 'text-green-600 dark:text-green-400' :
+                                  activity.action === 'started' ? 'text-orange-600 dark:text-orange-400' :
+                                  'text-blue-600 dark:text-blue-400'
+                                }`} />
+                              ) : (
+                                <BookOpen className={`h-4 w-4 ${
+                                  activity.action === 'started' ? 'text-orange-600 dark:text-orange-400' :
+                                  'text-blue-600 dark:text-blue-400'
+                                }`} />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-foreground">
+                                {activity.action === 'completed' ? 'Completed' : activity.action === 'started' ? 'Started' : 'Updated'} {activity.trackTitle}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {formatTimestamp(activity.timestamp)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No recent activity</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-              )}
 
-              {/* Average Score Trend */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <BarChart3 className="w-5 h-5 mr-2 text-primary" />
-                    Average Scores Trend
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={performanceData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs" />
-                      <YAxis className="text-xs" domain={[0, 100]} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--card))', 
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px'
-                        }} 
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="score" 
-                        stroke="#F74A05" 
-                        strokeWidth={3}
-                        dot={{ fill: '#F74A05', r: 5 }}
-                        name="Average Score"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Quick Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Zap className="w-5 h-5 mr-2 text-primary" />
-                    Quick Statistics
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-10 w-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                          <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Completed</p>
-                          <p className="text-xs text-muted-foreground">Total tracks</p>
-                        </div>
+                {/* Upcoming Deadlines */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <CalendarX className="w-5 h-5 mr-2 text-primary" />
+                      Upcoming Deadlines
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {overviewData.upcomingDeadlines.length > 0 ? (
+                      <div className="space-y-4">
+                        {overviewData.upcomingDeadlines.map((deadline: any) => (
+                          <div key={deadline.id} className="flex items-start justify-between p-3 border border-border rounded-lg">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-foreground">{deadline.trackTitle}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Due {new Date(deadline.dueDate).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <Badge 
+                              variant="outline"
+                              className={
+                                deadline.daysRemaining <= 7 
+                                  ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                  : deadline.daysRemaining <= 14
+                                  ? 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                  : 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
+                              }
+                            >
+                              {deadline.daysRemaining} {deadline.daysRemaining === 1 ? 'day' : 'days'} left
+                            </Badge>
+                          </div>
+                        ))}
                       </div>
-                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedCount}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                          <Award className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Average Score</p>
-                          <p className="text-xs text-muted-foreground">All assessments</p>
-                        </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CalendarX className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No upcoming deadlines</p>
                       </div>
-                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{Math.round(avgScore)}%</p>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-10 w-10 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
-                          <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">In Progress</p>
-                          <p className="text-xs text-muted-foreground">Active tracks</p>
-                        </div>
-                      </div>
-                      <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{inProgressCount}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-accent/50 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-10 w-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
-                          <Target className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Assignments</p>
-                          <p className="text-xs text-muted-foreground">Total assigned</p>
-                        </div>
-                      </div>
-                      <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{assignments.length}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
           )}
         </TabsContent>
 
-        {/* Activity Feed Tab */}
-        <TabsContent value="activity" className="space-y-6">
+        {/* Progress Tab */}
+        <TabsContent value="progress" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center">
-                <Activity className="w-5 h-5 mr-2 text-primary" />
-                Recent Activity
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center">
+                  <Target className="w-5 h-5 mr-2 text-primary" />
+                  Track Progress
+                </CardTitle>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={progressFilter}
+                    onChange={(e) => setProgressFilter(e.target.value as any)}
+                    className="text-sm border border-border rounded-md px-3 py-1 bg-background"
+                  >
+                    <option value="all">All</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="overdue">Overdue</option>
+                  </select>
+                  <select
+                    value={progressSort}
+                    onChange={(e) => setProgressSort(e.target.value as any)}
+                    className="text-sm border border-border rounded-md px-3 py-1 bg-background"
+                  >
+                    <option value="progress">Progress</option>
+                    <option value="due_date">Due Date</option>
+                    <option value="last_activity">Last Activity</option>
+                    <option value="name">Track Name</option>
+                  </select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              {loading ? (
+              {tabLoading.progress ? (
                 <div className="space-y-4">
-                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
                 </div>
-              ) : activityFeed.length > 0 ? (
-                <div className="space-y-4">
-                  {activityFeed.map((activity, index) => (
-                    <div key={activity.id}>
-                      <div className="flex items-start space-x-4">
-                        <div className={`h-10 w-10 rounded-lg bg-${activity.iconColor.split('-')[1]}-100 dark:bg-${activity.iconColor.split('-')[1]}-900/30 flex items-center justify-center flex-shrink-0`}>
-                          {React.createElement(activity.icon, { 
-                            className: `h-5 w-5 ${activity.iconColor} dark:${activity.iconColor.replace('600', '400')}` 
-                          })}
+              ) : (() => {
+                // Filter and sort progress data
+                let filtered = [...progressData];
+                
+                // Apply filter
+                if (progressFilter === 'in_progress') {
+                  filtered = filtered.filter(p => p.status === 'in_progress' || (p.progress_percent > 0 && p.progress_percent < 100));
+                } else if (progressFilter === 'completed') {
+                  filtered = filtered.filter(p => p.status === 'completed');
+                } else if (progressFilter === 'overdue') {
+                  const now = new Date();
+                  filtered = filtered.filter(p => {
+                    const dueDate = p.assignment?.due_date;
+                    return dueDate && new Date(dueDate) < now && !p.completed_at;
+                  });
+                }
+                
+                // Apply sort
+                filtered.sort((a, b) => {
+                  switch (progressSort) {
+                    case 'progress':
+                      return (b.progress_percent || 0) - (a.progress_percent || 0);
+                    case 'due_date':
+                      const aDue = a.assignment?.due_date ? new Date(a.assignment.due_date).getTime() : 0;
+                      const bDue = b.assignment?.due_date ? new Date(b.assignment.due_date).getTime() : 0;
+                      return aDue - bDue;
+                    case 'last_activity':
+                      return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
+                    case 'name':
+                      return (a.track?.title || '').localeCompare(b.track?.title || '');
+                    default:
+                      return 0;
+                  }
+                });
+                
+                return filtered.length > 0 ? (
+                  <div className="space-y-4">
+                    {filtered.map((progress) => {
+                      const getTrackTypeColor = (type: string) => {
+                        switch (type) {
+                          case 'video': return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400';
+                          case 'article': return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400';
+                          case 'story': return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400';
+                          case 'checkpoint': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400';
+                          default: return 'bg-gray-100 text-gray-700 border-gray-200';
+                        }
+                      };
+                      
+                      const getStatusBadge = () => {
+                        if (progress.status === 'completed') {
+                          return <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">Completed</Badge>;
+                        } else if (progress.progress_percent > 0) {
+                          return <Badge className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">In Progress</Badge>;
+                        } else {
+                          return <Badge variant="outline">Not Started</Badge>;
+                        }
+                      };
+                      
+                      return (
+                        <div key={progress.id} className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <h4 className="font-semibold text-foreground">{progress.track?.title || 'Unknown Track'}</h4>
+                                {progress.track?.type && (
+                                  <Badge variant="outline" className={getTrackTypeColor(progress.track.type)}>
+                                    {progress.track.type}
+                                  </Badge>
+                                )}
+                                {getStatusBadge()}
+                              </div>
+                              <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                                {progress.updated_at && (
+                                  <span className="flex items-center">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    Last activity: {formatTimestamp(progress.updated_at)}
+                                  </span>
+                                )}
+                                {progress.assignment?.due_date && (
+                                  <span className="flex items-center">
+                                    <Calendar className="h-3 w-3 mr-1" />
+                                    Due: {new Date(progress.assignment.due_date).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <Progress 
+                              value={Number(progress.progress_percent) || 0} 
+                              className="h-2 flex-1"
+                              indicatorClassName={getProgressColor(Number(progress.progress_percent) || 0)}
+                            />
+                            <span className="text-sm font-semibold min-w-[3rem] text-right">{progress.progress_percent || 0}%</span>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground">{activity.title}</p>
-                          <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
-                          <p className="text-xs text-muted-foreground mt-2 flex items-center">
-                            <Clock className="h-3 w-3 mr-1" />
-                            {activity.timestamp}
-                          </p>
-                        </div>
-                      </div>
-                      {index < activityFeed.length - 1 && (
-                        <Separator className="my-4" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No recent activity</p>
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Target className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No tracks found</p>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Assignments Tab */}
+        {/* Performance Tab */}
+        <TabsContent value="performance" className="space-y-6">
+          {tabLoading.performance || !performanceTabData ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map(i => (
+                  <Card key={i}>
+                    <CardContent className="p-6">
+                      <Skeleton className="h-24" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <Card>
+                <CardContent className="p-6">
+                  <Skeleton className="h-64" />
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <>
+              {/* Performance Metrics Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Overall Avg Score</p>
+                        <p className="text-3xl font-bold text-foreground">{performanceTabData.overallAvgScore}%</p>
+                      </div>
+                      <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                        <Award className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Quiz Completion</p>
+                        <p className="text-3xl font-bold text-green-600 dark:text-green-400">{performanceTabData.quizCompletionRate}%</p>
+                      </div>
+                      <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                        <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Avg Time to Complete</p>
+                        <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{performanceTabData.timeToComplete}m</p>
+                      </div>
+                      <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
+                        <Clock className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Improvement Trend</p>
+                        <p className={`text-3xl font-bold ${performanceTabData.improvementTrend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {performanceTabData.improvementTrend >= 0 ? '+' : ''}{performanceTabData.improvementTrend}%
+                        </p>
+                      </div>
+                      <div className="h-12 w-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
+                        <TrendingUp className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Score Trend Chart */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <TrendingUp className="w-5 h-5 mr-2 text-primary" />
+                      Score Trend
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {performanceTabData.scoreTrendData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={performanceTabData.scoreTrendData}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis 
+                            dataKey="date" 
+                            className="text-xs"
+                            tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          />
+                          <YAxis className="text-xs" domain={[0, 100]} />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: 'hsl(var(--card))', 
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '8px'
+                            }}
+                            labelFormatter={(value) => new Date(value).toLocaleDateString()}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="score" 
+                            stroke="#F74A05" 
+                            strokeWidth={3}
+                            dot={{ fill: '#F74A05', r: 5 }}
+                            name="Score"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No quiz data available</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Recent Quiz Results */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <FileCheck className="w-5 h-5 mr-2 text-primary" />
+                      Recent Quiz Results
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {performanceTabData.recentQuizResults.length > 0 ? (
+                      <div className="space-y-3">
+                        {performanceTabData.recentQuizResults.map((quiz: any) => (
+                          <div key={quiz.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-foreground">{quiz.trackName}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(quiz.dateTaken).toLocaleDateString()} • {quiz.timeSpent}m
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Badge 
+                                variant="outline"
+                                className={
+                                  quiz.passed 
+                                    ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                }
+                              >
+                                {quiz.score}%
+                              </Badge>
+                              {quiz.passed ? (
+                                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <FileCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No quiz attempts yet</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+        </TabsContent>
+
+        {/* Activity Tab */}
+        <TabsContent value="activity" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center">
+                  <Activity className="w-5 h-5 mr-2 text-primary" />
+                  Activity Timeline
+                </CardTitle>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={activityDateRange}
+                    onChange={(e) => setActivityDateRange(e.target.value as any)}
+                    className="text-sm border border-border rounded-md px-3 py-1 bg-background"
+                  >
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                    <option value="all">All time</option>
+                  </select>
+                  <select
+                    value={activityTypeFilter}
+                    onChange={(e) => setActivityTypeFilter(e.target.value as any)}
+                    className="text-sm border border-border rounded-md px-3 py-1 bg-background"
+                  >
+                    <option value="all">All</option>
+                    <option value="tracks">Tracks</option>
+                    <option value="quizzes">Quizzes</option>
+                    <option value="completions">Completions</option>
+                  </select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {tabLoading.activity ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
+                </div>
+              ) : (() => {
+                // Filter timeline events
+                let filtered = [...activityTimeline];
+                
+                // Apply date range filter
+                if (activityDateRange !== 'all') {
+                  const days = parseInt(activityDateRange);
+                  const cutoffDate = new Date();
+                  cutoffDate.setDate(cutoffDate.getDate() - days);
+                  filtered = filtered.filter(event => new Date(event.timestamp) >= cutoffDate);
+                }
+                
+                // Apply type filter
+                if (activityTypeFilter === 'tracks') {
+                  filtered = filtered.filter(event => event.type === 'track_assigned' || event.type === 'track_started');
+                } else if (activityTypeFilter === 'quizzes') {
+                  filtered = filtered.filter(event => event.type === 'quiz_taken');
+                } else if (activityTypeFilter === 'completions') {
+                  filtered = filtered.filter(event => event.type === 'track_completed');
+                }
+                
+                return filtered.length > 0 ? (
+                  <div className="space-y-4">
+                    {filtered.map((event, index) => (
+                      <div key={event.id}>
+                        <div className="flex items-start space-x-4">
+                          <div className={`h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            event.iconColor.includes('green') ? 'bg-green-100 dark:bg-green-900/30' :
+                            event.iconColor.includes('orange') ? 'bg-orange-100 dark:bg-orange-900/30' :
+                            event.iconColor.includes('purple') ? 'bg-purple-100 dark:bg-purple-900/30' :
+                            'bg-blue-100 dark:bg-blue-900/30'
+                          }`}>
+                            {React.createElement(event.icon, { 
+                              className: `h-5 w-5 ${event.iconColor}` 
+                            })}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-foreground">{event.title}</p>
+                            {event.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{event.description}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-2 flex items-center">
+                              <Clock className="h-3 w-3 mr-1" />
+                              {formatTimestamp(event.timestamp)}
+                            </p>
+                          </div>
+                        </div>
+                        {index < filtered.length - 1 && (
+                          <Separator className="my-4" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No activity found</p>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Assignments Tab - Keeping for backward compatibility but can be removed */}
         <TabsContent value="assignments" className="space-y-6">
           <Card>
             <CardHeader>
@@ -1004,7 +1745,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             {assignment.status.replace('_', ' ').toUpperCase()}
                           </Badge>
                           <div className="flex items-center space-x-2">
-                            <Progress value={assignment.progress_percent || 0} className="h-2 w-24" />
+                            <Progress value={Number(assignment.progress_percent) || 0} className="h-2 w-24" />
                             <span className="text-sm font-semibold">{assignment.progress_percent || 0}%</span>
                           </div>
                         </div>
