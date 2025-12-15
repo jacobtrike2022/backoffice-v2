@@ -152,6 +152,13 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     }
   }, [employee.id]);
 
+  // Close dialog if userDetails doesn't match current employee (prevents stale data)
+  useEffect(() => {
+    if (showEditDialog && userDetails && userDetails.id !== employee.id) {
+      setShowEditDialog(false);
+    }
+  }, [showEditDialog, userDetails, employee.id]);
+
   const fetchEmployeeData = async () => {
     try {
       setLoading(true);
@@ -1188,7 +1195,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
         <EditPeopleDialog
           isOpen={showEditDialog}
           onClose={() => setShowEditDialog(false)}
-          user={userDetails}
+          user={userDetails && userDetails.id === employee.id ? userDetails : null}
           onSuccess={handleEditSuccess}
         />
       )}
