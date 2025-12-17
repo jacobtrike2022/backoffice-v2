@@ -43,6 +43,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as factsCrud from '../../lib/crud/facts';
+import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
@@ -856,6 +857,57 @@ export function StoryEditor({
         const kbChanged = showInKnowledgeBase !== wasInKb;
 
         console.log('Changes detected:', { contentChanged, tagsChanged, kbChanged });
+
+        // Check for related tracks if content changed
+        if (contentChanged) {
+          try {
+            const stats = await trackRelCrud.getTrackRelationshipStats(currentTrackId) as any;
+            
+            // Check if this track has ANY derived/related tracks
+            if (stats.derivedCount > 0 && stats.derived) {
+              // Group relationships by type for clearer messaging
+              const relationshipsByType: Record<string, any[]> = {};
+              stats.derived.forEach((rel: any) => {
+                const type = rel.relationship_type || 'related';
+                if (!relationshipsByType[type]) {
+                  relationshipsByType[type] = [];
+                }
+                relationshipsByType[type].push(rel);
+              });
+              
+              // Build warning message
+              let warningMessage = `⚠️ This ${existingTrack.type} has relationships with ${stats.derivedCount} other track(s):\n\n`;
+              
+              Object.entries(relationshipsByType).forEach(([relType, rels]) => {
+                const typeLabel = relType === 'source' ? 'Derived from this content' 
+                  : relType === 'prerequisite' ? 'Has this as prerequisite'
+                  : 'Related';
+                
+                warningMessage += `${typeLabel}:\n`;
+                rels.forEach((rel: any) => {
+                  const trackInfo = rel.derived_track;
+                  if (trackInfo) {
+                    warningMessage += `  • ${trackInfo.title || 'Untitled'} (${trackInfo.type})\n`;
+                  }
+                });
+                warningMessage += '\n';
+              });
+              
+              warningMessage += 'Your changes may affect these related tracks.\n\n';
+              warningMessage += 'Continue with saving?';
+              
+              const confirmed = window.confirm(warningMessage);
+              
+              if (!confirmed) {
+                setIsSaving(false);
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('Error checking for track relationships:', error);
+            // Continue with save even if relationship check fails
+          }
+        }
 
         // Check if track is published and has assignments AND has content changes
         if (existingTrack?.status === 'published' && contentChanged) {

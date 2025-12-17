@@ -270,35 +270,101 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const handleArchiveTrack = async (track: any, e?: React.MouseEvent) => {
     e?.stopPropagation();
     
+    console.log('🔍 [Archive] Checking relationships for track:', track.id, track.title);
+    
     try {
-      // Check for derived tracks before archiving (optional check - don't fail if endpoint unavailable)
-      let stats = { derivedCount: 0, hasDerivedCheckpoints: false };
-      let derivedTracks: trackRelCrud.TrackRelationship[] = [];
+      // Check for related tracks before archiving (optional check - don't fail if endpoint unavailable)
+      // We check both directions independently so if one fails, we still check the other
+      const allRelationships: trackRelCrud.TrackRelationship[] = [];
+      const sourceRelationships: trackRelCrud.TrackRelationship[] = [];
       
+      // Check 1: Fetch relationships where this track is the source (tracks derived FROM this track)
       try {
-        stats = await trackRelCrud.getTrackRelationshipStats(track.id);
-        
-        if (stats.derivedCount > 0) {
-          derivedTracks = await trackRelCrud.getDerivedTracks(track.id, 'source');
-          
-          // Show warning dialog with relationships
-          setArchiveWarningDialog({
-            open: true,
-            track,
-            relationships: derivedTracks
-          });
-          return; // Wait for user confirmation in dialog
+        console.log('🔍 [Archive] Fetching all derived tracks for:', track.id);
+        const derived = await trackRelCrud.getDerivedTracks(track.id);
+        if (derived && Array.isArray(derived)) {
+          allRelationships.push(...derived);
         }
-      } catch (relationshipError: any) {
-        // Relationship check failed (endpoint might not be available) - log but continue
-        console.warn('Could not check track relationships (continuing anyway):', relationshipError);
-        // Continue with archive - the relationship check is just a warning, not a blocker
+        console.log('📊 [Archive] Found derived relationships:', derived?.length || 0);
+      } catch (derivedError: any) {
+        console.warn('⚠️ [Archive] Could not fetch derived tracks, trying stats endpoint:', derivedError?.message);
+        // Fallback: Try using getTrackRelationshipStats which might have better auth
+        try {
+          const stats = await trackRelCrud.getTrackRelationshipStats(track.id) as any;
+          if (stats?.derived && Array.isArray(stats.derived)) {
+            allRelationships.push(...stats.derived);
+            console.log('📊 [Archive] Found relationships via stats endpoint:', stats.derived.length);
+          }
+        } catch (statsError: any) {
+          console.warn('⚠️ [Archive] Stats endpoint also failed:', statsError?.message);
+        }
+      }
+      
+      // Check 2: Fetch relationships where this track is derived FROM another track
+      try {
+        console.log('🔍 [Archive] Checking if track has a source...');
+        const sourceTypes: Array<'source' | 'prerequisite' | 'related'> = ['source', 'prerequisite', 'related'];
+        for (const relType of sourceTypes) {
+          try {
+            const source = await trackRelCrud.getSourceTrack(track.id, relType);
+            if (source && source.source_track) {
+              // Convert source relationship to the same format as derived relationships for display
+              // The source relationship shows this track is derived FROM source_track
+              // For the dialog, we want to show source_track as the "related" track
+              sourceRelationships.push({
+                id: source.id,
+                source_track_id: source.source_track_id,
+                derived_track_id: source.derived_track_id,
+                relationship_type: source.relationship_type,
+                created_at: source.created_at,
+                // Show the source track (parent) as the "derived_track" for display purposes
+                derived_track: {
+                  id: source.source_track.id,
+                  title: source.source_track.title,
+                  type: source.source_track.type,
+                  thumbnail_url: source.source_track.thumbnail_url,
+                  status: source.source_track.status
+                }
+              } as trackRelCrud.TrackRelationship);
+              break; // Found one, no need to check other types
+            }
+          } catch (err) {
+            // Continue checking other types
+          }
+        }
+        console.log('📊 [Archive] Found source relationships:', sourceRelationships.length);
+      } catch (sourceError: any) {
+        console.warn('⚠️ [Archive] Could not fetch source track:', sourceError?.message);
+        // Continue even if this fails
+      }
+      
+      // Combine both directions: tracks derived FROM this track, and tracks this track is derived FROM
+      const allCombinedRelationships = [
+        ...allRelationships,
+        ...sourceRelationships
+      ];
+      
+      console.log('📊 [Archive] Total relationships found:', allCombinedRelationships.length);
+      
+      // Show warning if this track has ANY relationships (either direction)
+      if (allCombinedRelationships.length > 0) {
+        console.log('⚠️ [Archive] Relationships found, showing warning dialog');
+        // Show warning dialog with relationships
+        setArchiveWarningDialog({
+          open: true,
+          track,
+          relationships: allCombinedRelationships
+        });
+        return; // Wait for user confirmation in dialog
+      } else {
+        console.log('✅ [Archive] No relationships found, proceeding with archive');
       }
       
       // No relationships found, proceed directly with archiving
+      console.log('💾 [Archive] Proceeding with archive');
       await performArchive(track.id, track.title);
     } catch (error: any) {
-      console.error('Failed to archive:', error);
+      console.error('❌ [Archive] Failed to archive:', error);
       toast.error(`Failed to archive: ${error.message || 'Unknown error'}`);
     }
   };
@@ -321,9 +387,29 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
   };
 
-  const handleNavigateToRelatedTrack = (trackId: string) => {
-    setSelectedTrack({ id: trackId });
+  const handleNavigateToRelatedTrack = async (trackId: string) => {
     setArchiveWarningDialog({ open: false, track: null, relationships: [] });
+    
+    // Fetch the full track data before navigating
+    try {
+      const { track: fullTrack, isLatest, latestTrackId } = await crud.getTrackByIdOrLatest(trackId);
+      if (fullTrack) {
+        setSelectedTrack(fullTrack);
+        
+        // Update URL to match the track
+        const trackType = fullTrack.type;
+        const urlToUse = isLatest ? latestTrackId : trackId;
+        const newUrl = `/${trackType}/${urlToUse}`;
+        window.history.pushState({}, '', newUrl);
+        console.log('🔗 Navigated to related track:', fullTrack.title, newUrl);
+      } else {
+        console.error('Failed to load track:', trackId);
+        toast.error('Failed to load track');
+      }
+    } catch (error) {
+      console.error('Error loading related track:', error);
+      toast.error('Failed to load track');
+    }
   };
 
   const handleMoveToPublished = async (track: any, e?: React.MouseEvent) => {
@@ -616,6 +702,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           />
         )}
         
+        <Footer />
+        
+        {/* Unsaved Changes Dialog */}
+        <UnsavedChangesDialog
+          open={showNavigationWarning}
+          onOpenChange={(open) => setShowNavigationWarning(open)}
+          onDiscard={handleDiscardAndNavigate}
+        />
+        
         {/* Archive Warning Dialog */}
         <Dialog open={archiveWarningDialog.open} onOpenChange={(open) => {
           if (!open) {
@@ -629,7 +724,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 Archive Track with Relationships
               </DialogTitle>
               <DialogDescription>
-                This track has relationships with other tracks. Archiving it will not delete the related tracks, but they will lose their source reference.
+                This track has relationships with other tracks. Archiving it will not delete the related tracks, but the relationships may be affected.
               </DialogDescription>
             </DialogHeader>
             
@@ -639,7 +734,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   You are about to archive: <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  This {archiveWarningDialog.track?.type} is used as source material for {archiveWarningDialog.relationships.length} other track(s):
+                  This {archiveWarningDialog.track?.type} has relationships with {archiveWarningDialog.relationships.length} other track(s):
                 </p>
               </div>
               
@@ -719,15 +814,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        
-        <Footer />
-        
-        {/* Unsaved Changes Dialog */}
-        <UnsavedChangesDialog
-          open={showNavigationWarning}
-          onOpenChange={(open) => setShowNavigationWarning(open)}
-          onDiscard={handleDiscardAndNavigate}
-        />
       </>
     );
   }
@@ -1345,6 +1431,110 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           ))}
         </div>
       )}
+
+      {/* Archive Warning Dialog - must be outside selectedTrack conditional */}
+      <Dialog open={archiveWarningDialog.open} onOpenChange={(open) => {
+        if (!open) {
+          setArchiveWarningDialog({ open: false, track: null, relationships: [] });
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              Archive Track with Relationships
+            </DialogTitle>
+            <DialogDescription>
+              This track has relationships with other tracks. Archiving it will not delete the related tracks, but the relationships may be affected.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div>
+              <p className="text-sm font-medium mb-2">
+                You are about to archive: <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This {archiveWarningDialog.track?.type} has relationships with {archiveWarningDialog.relationships.length} other track(s):
+              </p>
+            </div>
+            
+            <div className="border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
+              <div className="space-y-3">
+                {archiveWarningDialog.relationships.map((rel) => {
+                  const derivedTrack = rel.derived_track;
+                  if (!derivedTrack) return null;
+                  
+                  const getTypeColor = (type: string) => {
+                    switch (type) {
+                      case 'checkpoint': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400';
+                      case 'video': return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400';
+                      case 'article': return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400';
+                      case 'story': return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400';
+                      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+                    }
+                  };
+                  
+                  return (
+                    <div 
+                      key={rel.id} 
+                      className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+                      onClick={() => handleNavigateToRelatedTrack(derivedTrack.id)}
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <Badge variant="outline" className={getTypeColor(derivedTrack.type)}>
+                          {derivedTrack.type}
+                        </Badge>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-foreground">{derivedTrack.title || 'Untitled'}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Relationship: {rel.relationship_type}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNavigateToRelatedTrack(derivedTrack.id);
+                        }}
+                        className="ml-2"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                <strong>Note:</strong> Archiving this track will not delete the related tracks above, but they will lose their source reference. The related tracks will continue to function independently.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setArchiveWarningDialog({ open: false, track: null, relationships: [] })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmArchive}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <Archive className="h-4 w-4 mr-2" />
+              Archive Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>

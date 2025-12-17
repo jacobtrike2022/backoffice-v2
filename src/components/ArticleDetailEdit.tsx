@@ -402,19 +402,45 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         updateData.transcript !== (track.transcript || '') ||
         !areArraysEqual(editFormData.learning_objectives, originalFacts);
 
-      // Check for derived checkpoints if content changed
+      // Check for related tracks if content changed
       if (contentChanged) {
         try {
-          const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
-          if (stats.hasDerivedCheckpoints) {
-            const derivedCheckpoints = stats.derived
-              .filter((rel: any) => rel.derived_track?.type === 'checkpoint')
-              .map((rel: any) => `• ${rel.derived_track?.title || 'Untitled'}`)
-              .join('\n');
+          const stats = await trackRelCrud.getTrackRelationshipStats(track.id) as any;
+          
+          // Check if this track has ANY derived/related tracks
+          if (stats.derivedCount > 0 && stats.derived) {
+            // Group relationships by type for clearer messaging
+            const relationshipsByType: Record<string, any[]> = {};
+            stats.derived.forEach((rel: any) => {
+              const type = rel.relationship_type || 'related';
+              if (!relationshipsByType[type]) {
+                relationshipsByType[type] = [];
+              }
+              relationshipsByType[type].push(rel);
+            });
             
-            const confirmed = window.confirm(
-              `⚠️ This ${track.type} has ${stats.derived.filter((r: any) => r.derived_track?.type === 'checkpoint').length} checkpoint(s) that were generated from this content:\n\n${derivedCheckpoints}\n\nYour changes may make the checkpoint questions outdated or incorrect.\n\nConsider regenerating the checkpoint(s) after saving.\n\nContinue with saving?`
-            );
+            // Build warning message
+            let warningMessage = `⚠️ This ${track.type} has relationships with ${stats.derivedCount} other track(s):\n\n`;
+            
+            Object.entries(relationshipsByType).forEach(([relType, rels]) => {
+              const typeLabel = relType === 'source' ? 'Derived from this content' 
+                : relType === 'prerequisite' ? 'Has this as prerequisite'
+                : 'Related';
+              
+              warningMessage += `${typeLabel}:\n`;
+              rels.forEach((rel: any) => {
+                const trackInfo = rel.derived_track;
+                if (trackInfo) {
+                  warningMessage += `  • ${trackInfo.title || 'Untitled'} (${trackInfo.type})\n`;
+                }
+              });
+              warningMessage += '\n';
+            });
+            
+            warningMessage += 'Your changes may affect these related tracks.\n\n';
+            warningMessage += 'Continue with saving?';
+            
+            const confirmed = window.confirm(warningMessage);
             
             if (!confirmed) {
               setIsSaving(false);
@@ -422,7 +448,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             }
           }
         } catch (error) {
-          console.error('Error checking for derived checkpoints:', error);
+          console.error('Error checking for track relationships:', error);
           // Continue with save even if relationship check fails
         }
       }
@@ -996,19 +1022,45 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         updateData.type !== track.type ||
         updateData.transcript !== (track.transcript || '');
 
-      // Check for derived checkpoints if content changed
+      // Check for related tracks if content changed
       if (contentChanged) {
         try {
-          const stats = await trackRelCrud.getTrackRelationshipStats(track.id);
-          if (stats.hasDerivedCheckpoints) {
-            const derivedCheckpoints = stats.derived
-              .filter((rel: any) => rel.derived_track?.type === 'checkpoint')
-              .map((rel: any) => `• ${rel.derived_track?.title || 'Untitled'}`)
-              .join('\n');
+          const stats = await trackRelCrud.getTrackRelationshipStats(track.id) as any;
+          
+          // Check if this track has ANY derived/related tracks
+          if (stats.derivedCount > 0 && stats.derived) {
+            // Group relationships by type for clearer messaging
+            const relationshipsByType: Record<string, any[]> = {};
+            stats.derived.forEach((rel: any) => {
+              const type = rel.relationship_type || 'related';
+              if (!relationshipsByType[type]) {
+                relationshipsByType[type] = [];
+              }
+              relationshipsByType[type].push(rel);
+            });
             
-            const confirmed = window.confirm(
-              `⚠️ This ${track.type} has ${stats.derived.filter((r: any) => r.derived_track?.type === 'checkpoint').length} checkpoint(s) that were generated from this content:\n\n${derivedCheckpoints}\n\nYour changes may make the checkpoint questions outdated or incorrect.\n\nConsider regenerating the checkpoint(s) after saving.\n\nContinue with saving?`
-            );
+            // Build warning message
+            let warningMessage = `⚠️ This ${track.type} has relationships with ${stats.derivedCount} other track(s):\n\n`;
+            
+            Object.entries(relationshipsByType).forEach(([relType, rels]) => {
+              const typeLabel = relType === 'source' ? 'Derived from this content' 
+                : relType === 'prerequisite' ? 'Has this as prerequisite'
+                : 'Related';
+              
+              warningMessage += `${typeLabel}:\n`;
+              rels.forEach((rel: any) => {
+                const trackInfo = rel.derived_track;
+                if (trackInfo) {
+                  warningMessage += `  • ${trackInfo.title || 'Untitled'} (${trackInfo.type})\n`;
+                }
+              });
+              warningMessage += '\n';
+            });
+            
+            warningMessage += 'Your changes may affect these related tracks.\n\n';
+            warningMessage += 'Continue with saving?';
+            
+            const confirmed = window.confirm(warningMessage);
             
             if (!confirmed) {
               setShowUnsavedDialog(false);
@@ -1017,7 +1069,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             }
           }
         } catch (error) {
-          console.error('Error checking for derived checkpoints:', error);
+          console.error('Error checking for track relationships:', error);
           // Continue with save even if relationship check fails
         }
       }
