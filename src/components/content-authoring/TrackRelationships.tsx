@@ -24,15 +24,19 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
   async function loadRelationships() {
     setIsLoading(true);
     try {
+      console.log(`🔍 [TrackRelationships] Loading relationships for trackId: ${trackId}`);
+      
       // Fetch source track (parent)
       const source = await trackRelCrud.getSourceTrack(trackId, 'source');
+      console.log(`📊 [TrackRelationships] Source track:`, source);
       setSourceTrack(source);
 
       // Fetch derived tracks (children)
       const derived = await trackRelCrud.getDerivedTracks(trackId, 'source');
-      setDerivedTracks(derived);
+      console.log(`📊 [TrackRelationships] Derived tracks:`, derived, `(count: ${derived?.length || 0})`);
+      setDerivedTracks(derived || []);
     } catch (error) {
-      console.error('Error loading track relationships:', error);
+      console.error('❌ [TrackRelationships] Error loading track relationships:', error);
     } finally {
       setIsLoading(false);
     }

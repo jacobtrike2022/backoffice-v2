@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -71,6 +71,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [existingTrack, setExistingTrack] = useState<any>(null);
+  const [hasCreatedTrack, setHasCreatedTrack] = useState(false); // Prevent double-save after creating new track
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [passingScore, setPassingScore] = useState('70');
@@ -108,6 +109,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
+  
+  // Ref to track if we just saved (to bypass unsaved changes check)
+  const justSavedRef = useRef(false);
 
   // Determine the current track ID - either from props or from track object
   const currentTrackId = trackId || track?.id;
@@ -239,7 +243,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = () => {
-    console.log('🔍 hasUnsavedChanges called - isEditMode:', isEditMode, 'initialState:', !!initialState);
+    console.log('🔍 hasUnsavedChanges called - isEditMode:', isEditMode, 'initialState:', !!initialState, 'justSaved:', justSavedRef.current);
+    
+    // If we just saved, immediately return false (bypass check)
+    if (justSavedRef.current) {
+      console.log('✅ Just saved, returning false');
+      return false;
+    }
     
     if (!isEditMode) {
       console.log('❌ Not in edit mode, returning false');
@@ -610,6 +620,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       return;
     }
 
+    // Prevent double-save if we've already created a track and are waiting for navigation
+    if (hasCreatedTrack && !currentTrackId) {
+      console.log('⚠️ Track already created, waiting for navigation...');
+      return;
+    }
+
     // Set saving state BEFORE validation to prevent double-clicks
     setIsSaving(true);
 
@@ -691,6 +707,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
         if (!silent) toast.success('Checkpoint created as draft!');
         
+        // Mark that we've created a track to prevent double-save
+        setHasCreatedTrack(true);
+        
         // Create track relationship if this checkpoint was AI-generated from a source
         if (sourceTrackId) {
           try {
@@ -703,6 +722,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           }
         }
         
+        // Mark that we just saved (before state updates) to bypass unsaved changes check
+        justSavedRef.current = true;
+        
         // Update initial state to reflect saved state
         setInitialState({
           title,
@@ -714,11 +736,23 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           timeLimit,
         });
         
+        // Unregister unsaved changes check before navigating (track is already saved)
+        if (registerUnsavedChangesCheck) {
+          registerUnsavedChangesCheck(null);
+        }
+        
         // For new content creation, close the editor and return to library
         // Keep button disabled during navigation
         const backFn = onBack || onClose;
         if (backFn) {
-          backFn();
+          // Use setTimeout to ensure state updates have propagated before navigation
+          setTimeout(() => {
+            backFn();
+            // Reset the flag after navigation completes
+            setTimeout(() => {
+              justSavedRef.current = false;
+            }, 100);
+          }, 0);
         }
         
         // Safety timeout: re-enable button after 2 seconds if navigation didn't happen
@@ -729,6 +763,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     } catch (error: any) {
       console.error('Error saving checkpoint:', error);
       toast.error('Failed to save checkpoint');
+      // Reset flags on error so user can retry
+      if (hasCreatedTrack && !currentTrackId) {
+        setHasCreatedTrack(false);
+      }
+      justSavedRef.current = false;
     } finally {
       // Only re-enable button if we're NOT navigating away
       if (!willNavigateAway) {

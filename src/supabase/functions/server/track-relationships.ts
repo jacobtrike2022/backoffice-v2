@@ -77,6 +77,8 @@ export async function getDerivedTracks(
   sourceTrackId: string,
   relationshipType?: 'source' | 'prerequisite' | 'related'
 ): Promise<TrackRelationship[]> {
+  console.log('🔍 Fetching derived tracks:', { orgId, sourceTrackId, relationshipType });
+  
   let query = supabase
     .from('track_relationships')
     .select(`
@@ -107,7 +109,40 @@ export async function getDerivedTracks(
     throw error;
   }
 
-  return data || [];
+  console.log('📊 Derived tracks query result:', { 
+    count: data?.length || 0, 
+    hasData: !!data,
+    sample: data?.[0] 
+  });
+
+  // If join didn't work (derived_track is null), fetch tracks separately
+  const relationships = data || [];
+  const needsFallback = relationships.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+  
+  if (needsFallback && relationships.length > 0) {
+    console.log('⚠️ Join returned null tracks, fetching separately...');
+    const trackIds = relationships.map((rel: any) => rel.derived_track_id).filter(Boolean);
+    
+    if (trackIds.length > 0) {
+      const { data: tracks, error: tracksError } = await supabase
+        .from('tracks')
+        .select('id, title, type, thumbnail_url, status')
+        .in('id', trackIds)
+        .eq('organization_id', orgId);
+
+      if (!tracksError && tracks) {
+        const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+        relationships.forEach((rel: any) => {
+          if (rel.derived_track_id && !rel.derived_track) {
+            rel.derived_track = trackMap.get(rel.derived_track_id);
+          }
+        });
+        console.log('✅ Fetched tracks separately and merged');
+      }
+    }
+  }
+
+  return relationships;
 }
 
 /**
@@ -118,6 +153,8 @@ export async function getSourceTrack(
   derivedTrackId: string,
   relationshipType?: 'source' | 'prerequisite' | 'related'
 ): Promise<TrackRelationship | null> {
+  console.log('🔍 Fetching source track:', { orgId, derivedTrackId, relationshipType });
+  
   let query = supabase
     .from('track_relationships')
     .select(`
@@ -146,10 +183,33 @@ export async function getSourceTrack(
   if (error) {
     if (error.code === 'PGRST116') {
       // No rows returned
+      console.log('📊 No source track found for derived track');
       return null;
     }
     console.error('❌ Error fetching source track:', error);
     throw error;
+  }
+
+  console.log('📊 Source track query result:', { 
+    hasData: !!data,
+    hasSourceTrack: !!data?.source_track,
+    sourceTrackId: data?.source_track_id
+  });
+
+  // If join didn't work (source_track is null), fetch track separately
+  if (data && !data.source_track && data.source_track_id) {
+    console.log('⚠️ Join returned null track, fetching separately...');
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('id, title, type, thumbnail_url, status')
+      .eq('id', data.source_track_id)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (!trackError && track) {
+      data.source_track = track;
+      console.log('✅ Fetched source track separately and merged');
+    }
   }
 
   return data;
@@ -209,6 +269,8 @@ export async function getTrackRelationshipStats(
   hasDerivedCheckpoints: boolean;
   derived: TrackRelationship[];
 }> {
+  console.log('🔍 Fetching relationship stats:', { orgId, trackId });
+  
   // Get derived tracks (where this is the source)
   const { data: derivedData, error: derivedError } = await supabase
     .from('track_relationships')
@@ -235,6 +297,39 @@ export async function getTrackRelationshipStats(
     throw derivedError;
   }
 
+  console.log('📊 Derived tracks stats query result:', { 
+    count: derivedData?.length || 0,
+    hasData: !!derivedData,
+    sample: derivedData?.[0]
+  });
+
+  // If join didn't work (derived_track is null), fetch tracks separately
+  const relationships = derivedData || [];
+  const needsFallback = relationships.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+  
+  if (needsFallback && relationships.length > 0) {
+    console.log('⚠️ Join returned null tracks in stats, fetching separately...');
+    const trackIds = relationships.map((rel: any) => rel.derived_track_id).filter(Boolean);
+    
+    if (trackIds.length > 0) {
+      const { data: tracks, error: tracksError } = await supabase
+        .from('tracks')
+        .select('id, title, type, thumbnail_url, status')
+        .in('id', trackIds)
+        .eq('organization_id', orgId);
+
+      if (!tracksError && tracks) {
+        const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+        relationships.forEach((rel: any) => {
+          if (rel.derived_track_id && !rel.derived_track) {
+            rel.derived_track = trackMap.get(rel.derived_track_id);
+          }
+        });
+        console.log('✅ Fetched tracks separately and merged in stats');
+      }
+    }
+  }
+
   // Get source tracks (where this is derived)
   const { count: sourceCount, error: sourceError } = await supabase
     .from('track_relationships')
@@ -247,16 +342,21 @@ export async function getTrackRelationshipStats(
     throw sourceError;
   }
 
-  const derived = derivedData || [];
-  const hasDerivedCheckpoints = derived.some(
+  const hasDerivedCheckpoints = relationships.some(
     (rel: any) => rel.derived_track?.type === 'checkpoint'
   );
 
+  console.log('📊 Final stats:', {
+    derivedCount: relationships.length,
+    sourceCount: sourceCount || 0,
+    hasDerivedCheckpoints
+  });
+
   return {
-    derivedCount: derived.length,
+    derivedCount: relationships.length,
     sourceCount: sourceCount || 0,
     hasDerivedCheckpoints,
-    derived
+    derived: relationships
   };
 }
 
@@ -275,11 +375,14 @@ export async function getBatchTrackRelationships(
     relationship_type: string;
   }>;
 }>> {
+  console.log('🔍 Fetching batch track relationships:', { orgId, trackCount: trackIds.length });
+  
   const { data, error } = await supabase
     .from('track_relationships')
     .select(`
       source_track_id,
       relationship_type,
+      derived_track_id,
       derived_track:tracks!derived_track_id(
         id,
         title,
@@ -294,6 +397,42 @@ export async function getBatchTrackRelationships(
     throw error;
   }
 
+  console.log('📊 Batch relationships query result:', { 
+    count: data?.length || 0,
+    hasData: !!data,
+    sample: data?.[0]
+  });
+
+  // If join didn't work (derived_track is null), fetch tracks separately
+  const relationships = data || [];
+  const needsFallback = relationships.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+  
+  if (needsFallback && relationships.length > 0) {
+    console.log('⚠️ Join returned null tracks in batch, fetching separately...');
+    const trackIdsToFetch = relationships
+      .map((rel: any) => rel.derived_track_id)
+      .filter(Boolean)
+      .filter((id: string, index: number, arr: string[]) => arr.indexOf(id) === index); // unique
+    
+    if (trackIdsToFetch.length > 0) {
+      const { data: tracks, error: tracksError } = await supabase
+        .from('tracks')
+        .select('id, title, type')
+        .in('id', trackIdsToFetch)
+        .eq('organization_id', orgId);
+
+      if (!tracksError && tracks) {
+        const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+        relationships.forEach((rel: any) => {
+          if (rel.derived_track_id && !rel.derived_track) {
+            rel.derived_track = trackMap.get(rel.derived_track_id);
+          }
+        });
+        console.log('✅ Fetched tracks separately and merged in batch');
+      }
+    }
+  }
+
   // Initialize result for all requested tracks
   const result: Record<string, any> = {};
   for (const trackId of trackIds) {
@@ -304,7 +443,7 @@ export async function getBatchTrackRelationships(
   }
 
   // Group by source track
-  for (const rel of data || []) {
+  for (const rel of relationships) {
     if (rel.derived_track) {
       result[rel.source_track_id].derivedCount++;
       result[rel.source_track_id].derivedTracks.push({
@@ -315,6 +454,10 @@ export async function getBatchTrackRelationships(
       });
     }
   }
+
+  console.log('📊 Batch result summary:', {
+    tracksWithRelationships: Object.values(result).filter((r: any) => r.derivedCount > 0).length
+  });
 
   return result;
 }

@@ -98,7 +98,11 @@ export async function getDerivedTracks(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch derived tracks');
   }
 
@@ -127,7 +131,11 @@ export async function getSourceTrack(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch source track');
   }
 
@@ -150,7 +158,11 @@ export async function getTrackRelationshipStats(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch relationship stats');
   }
 

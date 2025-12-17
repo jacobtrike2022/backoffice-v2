@@ -33,10 +33,19 @@ Deno.serve(async (req: Request) => {
   }
 
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/trike-server/, ""); // Remove function name prefix
+  // Supabase strips /functions/v1/{function-name} automatically, but sometimes the pathname
+  // might still include the function name, so we remove it if present
+  let path = url.pathname;
+  if (path.startsWith("/trike-server")) {
+    path = path.replace(/^\/trike-server/, "");
+  }
+  // Ensure path starts with / for consistency
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
   const method = req.method;
 
-  console.log(`[${method}] ${path}`);
+  console.log(`[${method}] ${path} (original: ${url.pathname})`);
 
   try {
     // =========================================================================
@@ -124,9 +133,82 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // TRACK RELATIONSHIPS
+    // =========================================================================
+
+    // Get source track (parent) for a derived track
+    if (method === "GET" && path.startsWith("/track-relationships/source/")) {
+      const trackId = path.replace("/track-relationships/source/", "").split("?")[0];
+      const relationshipType = url.searchParams.get("type") as 'source' | 'prerequisite' | 'related' | null;
+      return await handleGetSourceTrack(trackId, relationshipType, req);
+    }
+
+    // Get derived tracks (children) for a source track
+    if (method === "GET" && path.startsWith("/track-relationships/derived/")) {
+      const trackId = path.replace("/track-relationships/derived/", "").split("?")[0];
+      const relationshipType = url.searchParams.get("type") as 'source' | 'prerequisite' | 'related' | null;
+      return await handleGetDerivedTracks(trackId, relationshipType, req);
+    }
+
+    // Get relationship stats for a track
+    if (method === "GET" && path.startsWith("/track-relationships/stats/")) {
+      const trackId = path.replace("/track-relationships/stats/", "");
+      return await handleGetRelationshipStats(trackId, req);
+    }
+
+    // Create a relationship between tracks
+    if (method === "POST" && path === "/track-relationships/create") {
+      return await handleCreateRelationship(req);
+    }
+
+    // Delete a relationship (must not be a sub-path)
+    if (method === "DELETE" && path.startsWith("/track-relationships/")) {
+      const remainingPath = path.replace("/track-relationships/", "");
+      // Only match if it's not a sub-path (no slashes)
+      if (remainingPath && !remainingPath.includes("/")) {
+        return await handleDeleteRelationship(remainingPath, req);
+      }
+    }
+
+    // =========================================================================
+    // TRACK VERSIONS
+    // =========================================================================
+
+    // Get all versions of a track
+    if (method === "GET" && path.startsWith("/track-versions/")) {
+      const trackId = path.replace("/track-versions/", "");
+      return await handleGetTrackVersions(trackId);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
-    return jsonResponse({ error: "Not found", path }, 404);
+    console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
+    return jsonResponse({ 
+      error: "Not found", 
+      path,
+      originalPath: url.pathname,
+      method,
+      availableRoutes: [
+        "GET /health",
+        "POST /upload-attachment",
+        "GET /attachments/:trackId",
+        "DELETE /attachment/:attachmentId",
+        "POST /transcribe",
+        "POST /transcript/lookup",
+        "GET /transcript/:transcriptId",
+        "GET /facts/track/:trackId",
+        "POST /generate-key-facts",
+        "PUT /facts/:factId",
+        "DELETE /facts/:factId/track/:trackId",
+        "GET /track-relationships/source/:trackId",
+        "GET /track-relationships/derived/:trackId",
+        "GET /track-relationships/stats/:trackId",
+        "POST /track-relationships/create",
+        "DELETE /track-relationships/:relationshipId",
+        "GET /track-versions/:trackId"
+      ]
+    }, 404);
 
   } catch (error) {
     console.error("Server error:", error);
@@ -803,5 +885,493 @@ async function handleDeleteFactFromTrack(factId: string, trackId: string): Promi
   } catch (error) {
     console.error("Delete fact from track error:", error);
     return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// =============================================================================
+// TRACK RELATIONSHIPS HANDLERS
+// =============================================================================
+
+async function getOrgIdFromToken(req: Request): Promise<string | null> {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.log("⚠️ [getOrgIdFromToken] No Authorization header");
+      return null;
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    if (!token) {
+      console.log("⚠️ [getOrgIdFromToken] No token in Authorization header");
+      return null;
+    }
+
+    // Check if this is the public anon key (demo mode)
+    const publicAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (token === publicAnonKey) {
+      // Demo mode: return default org ID
+      console.log("🔓 [getOrgIdFromToken] Demo mode detected, using default org ID");
+      return "10000000-0000-0000-0000-000000000001";
+    }
+
+    // Get user from token
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError) {
+      console.error("❌ [getOrgIdFromToken] Error getting user from token:", userError.message);
+      return null;
+    }
+    if (!user) {
+      console.log("⚠️ [getOrgIdFromToken] No user returned from token");
+      return null;
+    }
+
+    console.log(`👤 [getOrgIdFromToken] User ID: ${user.id}`);
+
+    // Get organization from user profile
+    const { data: profile, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError) {
+      console.error("❌ [getOrgIdFromToken] Error getting profile:", profileError.message);
+      return null;
+    }
+    if (!profile) {
+      console.log("⚠️ [getOrgIdFromToken] No profile found for user");
+      return null;
+    }
+
+    const orgId = profile.organization_id || null;
+    console.log(`🏢 [getOrgIdFromToken] Organization ID: ${orgId}`);
+    return orgId;
+  } catch (error) {
+    console.error("❌ [getOrgIdFromToken] Exception:", error);
+    return null;
+  }
+}
+
+async function handleGetSourceTrack(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
+  try {
+    let orgId = await getOrgIdFromToken(req);
+    console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
+    
+    // Fallback: Get org_id from the track itself if token extraction failed
+    if (!orgId) {
+      console.log("⚠️ [GetSourceTrack] No orgId from token, trying to get from track...");
+      const { data: track, error: trackError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", trackId)
+        .single();
+      
+      if (!trackError && track?.organization_id) {
+        orgId = track.organization_id;
+        console.log(`✅ [GetSourceTrack] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [GetSourceTrack] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    }
+
+    let query = supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        created_at,
+        source_track:tracks!source_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", trackId);
+
+    if (relationshipType) {
+      query = query.eq("relationship_type", relationshipType);
+    }
+
+    const { data, error } = await query.single();
+
+    console.log(`📊 [GetSourceTrack] Query result:`, { 
+      hasData: !!data, 
+      hasError: !!error, 
+      errorCode: error?.code,
+      dataKeys: data ? Object.keys(data) : []
+    });
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        // No rows returned
+        console.log("📊 [GetSourceTrack] No relationship found (PGRST116)");
+        return jsonResponse({ source: null });
+      }
+      console.error("❌ [GetSourceTrack] Error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    // If join didn't work, fetch track separately
+    if (data && !data.source_track && data.source_track_id) {
+      const { data: track, error: trackError } = await supabase
+        .from("tracks")
+        .select("id, title, type, thumbnail_url, status")
+        .eq("id", data.source_track_id)
+        .eq("organization_id", orgId)
+        .single();
+
+      if (!trackError && track) {
+        data.source_track = track;
+      }
+    }
+
+    console.log(`✅ [GetSourceTrack] Returning source relationship`);
+    return jsonResponse({ source: data });
+  } catch (error) {
+    console.error("❌ [GetSourceTrack] Exception:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleGetDerivedTracks(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
+  try {
+    let orgId = await getOrgIdFromToken(req);
+    console.log(`🔍 [GetDerivedTracks] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
+    
+    // Fallback: Get org_id from the track itself if token extraction failed
+    if (!orgId) {
+      console.log("⚠️ [GetDerivedTracks] No orgId from token, trying to get from track...");
+      const { data: track, error: trackError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", trackId)
+        .single();
+      
+      if (!trackError && track?.organization_id) {
+        orgId = track.organization_id;
+        console.log(`✅ [GetDerivedTracks] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [GetDerivedTracks] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    }
+
+    let query = supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId);
+
+    if (relationshipType) {
+      query = query.eq("relationship_type", relationshipType);
+    }
+
+    const { data, error } = await query;
+
+    console.log(`📊 [GetDerivedTracks] Query result:`, { 
+      count: data?.length || 0,
+      hasData: !!data, 
+      hasError: !!error, 
+      errorMessage: error?.message,
+      sample: data?.[0]
+    });
+
+    if (error) {
+      console.error("❌ [GetDerivedTracks] Error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    // If join didn't work, fetch tracks separately
+    const relationships = data || [];
+    const needsFallback = relationships.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+    
+    console.log(`📊 [GetDerivedTracks] Relationships:`, {
+      count: relationships.length,
+      needsFallback,
+      hasDerivedTracks: relationships.some((rel: any) => rel.derived_track)
+    });
+
+    if (needsFallback && relationships.length > 0) {
+      const trackIds = relationships.map((rel: any) => rel.derived_track_id).filter(Boolean);
+
+      if (trackIds.length > 0) {
+        const { data: tracks, error: tracksError } = await supabase
+          .from("tracks")
+          .select("id, title, type, thumbnail_url, status")
+          .in("id", trackIds)
+          .eq("organization_id", orgId);
+
+        if (!tracksError && tracks) {
+          const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+          relationships.forEach((rel: any) => {
+            if (rel.derived_track_id && !rel.derived_track) {
+              rel.derived_track = trackMap.get(rel.derived_track_id);
+            }
+          });
+        }
+      }
+    }
+
+    console.log(`✅ [GetDerivedTracks] Returning ${relationships.length} relationships`);
+    return jsonResponse({ derived: relationships });
+  } catch (error) {
+    console.error("❌ [GetDerivedTracks] Exception:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleGetRelationshipStats(trackId: string, req: Request): Promise<Response> {
+  try {
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Fallback: Get org_id from the track itself if token extraction failed
+    if (!orgId) {
+      console.log("⚠️ [GetRelationshipStats] No orgId from token, trying to get from track...");
+      const { data: track, error: trackError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", trackId)
+        .single();
+      
+      if (!trackError && track?.organization_id) {
+        orgId = track.organization_id;
+        console.log(`✅ [GetRelationshipStats] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [GetRelationshipStats] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    }
+
+    // Get derived tracks (where this is the source)
+    const { data: derivedData, error: derivedError } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "source");
+
+    if (derivedError) {
+      console.error("Get derived track stats error:", derivedError);
+      return jsonResponse({ error: derivedError.message }, 500);
+    }
+
+    // If join didn't work, fetch tracks separately
+    const relationships = derivedData || [];
+    const needsFallback = relationships.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+
+    if (needsFallback && relationships.length > 0) {
+      const trackIds = relationships.map((rel: any) => rel.derived_track_id).filter(Boolean);
+
+      if (trackIds.length > 0) {
+        const { data: tracks, error: tracksError } = await supabase
+          .from("tracks")
+          .select("id, title, type, thumbnail_url, status")
+          .in("id", trackIds)
+          .eq("organization_id", orgId);
+
+        if (!tracksError && tracks) {
+          const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+          relationships.forEach((rel: any) => {
+            if (rel.derived_track_id && !rel.derived_track) {
+              rel.derived_track = trackMap.get(rel.derived_track_id);
+            }
+          });
+        }
+      }
+    }
+
+    // Get source tracks count (where this is derived)
+    const { count: sourceCount, error: sourceError } = await supabase
+      .from("track_relationships")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", trackId);
+
+    if (sourceError) {
+      console.error("Get source track stats error:", sourceError);
+      return jsonResponse({ error: sourceError.message }, 500);
+    }
+
+    const hasDerivedCheckpoints = relationships.some(
+      (rel: any) => rel.derived_track?.type === "checkpoint"
+    );
+
+    return jsonResponse({
+      stats: {
+        derivedCount: relationships.length,
+        sourceCount: sourceCount || 0,
+        hasDerivedCheckpoints,
+        derived: relationships,
+      },
+    });
+  } catch (error) {
+    console.error("Get relationship stats error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleCreateRelationship(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { sourceTrackId, derivedTrackId, relationshipType = "source" } = body;
+    
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Fallback: Get org_id from one of the tracks if token extraction failed
+    if (!orgId) {
+      console.log("⚠️ [CreateRelationship] No orgId from token, trying to get from track...");
+      const { data: track, error: trackError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", sourceTrackId || derivedTrackId)
+        .single();
+      
+      if (!trackError && track?.organization_id) {
+        orgId = track.organization_id;
+        console.log(`✅ [CreateRelationship] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [CreateRelationship] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+    }
+    
+    if (!sourceTrackId || !derivedTrackId) {
+      return jsonResponse({ error: "sourceTrackId and derivedTrackId are required" }, 400);
+    }
+
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .insert({
+        organization_id: orgId,
+        source_track_id: sourceTrackId,
+        derived_track_id: derivedTrackId,
+        relationship_type: relationshipType,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Create relationship error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ relationship: data });
+  } catch (error) {
+    console.error("Create relationship error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function handleDeleteRelationship(relationshipId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { error } = await supabase
+      .from("track_relationships")
+      .delete()
+      .eq("id", relationshipId)
+      .eq("organization_id", orgId);
+
+    if (error) {
+      console.error("Delete relationship error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error) {
+    console.error("Delete relationship error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// =============================================================================
+// TRACK VERSIONS HANDLERS
+// =============================================================================
+
+async function handleGetTrackVersions(trackId: string): Promise<Response> {
+  try {
+    if (!trackId) {
+      return jsonResponse({ error: "Track ID is required" }, 400);
+    }
+
+    // Get the track to find parent ID
+    const { data: track, error: trackError } = await supabase
+      .from("tracks")
+      .select("id, parent_track_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trackError || !track) {
+      // Track not found, return empty versions
+      return jsonResponse({
+        success: true,
+        versions: [],
+      });
+    }
+
+    // Find the parent track ID (could be this track or its parent)
+    const parentId = track.parent_track_id || track.id;
+
+    // Get all versions (parent + children)
+    const { data: versions, error: versionsError } = await supabase
+      .from("tracks")
+      .select("*")
+      .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+      .order("version_number", { ascending: true });
+
+    if (versionsError) {
+      console.error("Error getting versions:", versionsError);
+      return jsonResponse({
+        success: true,
+        versions: [],
+      });
+    }
+
+    return jsonResponse({
+      success: true,
+      versions: versions || [],
+    });
+  } catch (error) {
+    console.error("Get track versions error:", error);
+    return jsonResponse({
+      success: true,
+      versions: [],
+    });
   }
 }
