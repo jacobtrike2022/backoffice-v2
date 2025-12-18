@@ -11,6 +11,7 @@ export * from './assignments';
 
 // Progress Tracking
 export * from './progress';
+export * from './track-completions'; // NEW: Dual-write system
 
 // Forms
 export * from './forms';
