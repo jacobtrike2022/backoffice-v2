@@ -186,6 +186,7 @@ export function DashboardLayout({
 }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
+  const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
 
   // Update activeTab when currentView changes
   React.useEffect(() => {
@@ -193,39 +194,47 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Fetch organization name
+  // Fetch organization name and logo
   useEffect(() => {
-    const fetchOrganizationName = async () => {
+    const fetchOrganizationData = async () => {
       try {
         const orgId = await getCurrentUserOrgId();
         if (!orgId) return;
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name')
+          .select('name, logo_dark_url, logo_light_url')
           .eq('id', orgId)
           .single();
 
-        if (org?.name) {
-          setOrganizationName(org.name);
+        if (org) {
+          if (org.name) {
+            setOrganizationName(org.name);
+          }
+          
+          // Set logo based on current dark mode
+          const logoUrl = darkMode 
+            ? (org.logo_dark_url || trikeLogo)
+            : (org.logo_light_url || trikeLogo);
+          setOrganizationLogo(logoUrl);
         }
       } catch (error) {
-        console.error('Error fetching organization name:', error);
+        console.error('Error fetching organization data:', error);
       }
     };
 
-    fetchOrganizationName();
+    fetchOrganizationData();
 
     // Listen for organization updates
     const handleOrgUpdate = () => {
-      fetchOrganizationName();
+      fetchOrganizationData();
     };
     window.addEventListener('organization-updated', handleOrgUpdate);
     
     return () => {
       window.removeEventListener('organization-updated', handleOrgUpdate);
     };
-  }, []);
+  }, [darkMode]);
 
   const roleLabels = {
     'admin': 'Administrator',
@@ -281,7 +290,15 @@ export function DashboardLayout({
             {!sidebarCollapsed && (
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 flex items-center justify-center">
-                  <img src={trikeLogo} alt="Trike Logo" className="w-10 h-10 object-contain" />
+                  <img 
+                    src={organizationLogo || trikeLogo} 
+                    alt={organizationName || 'Trike Logo'} 
+                    className="w-10 h-10 object-contain"
+                    onError={(e) => {
+                      // Fallback to default logo if custom logo fails to load
+                      e.currentTarget.src = trikeLogo;
+                    }}
+                  />
                 </div>
                 <div>
                   <h2 className="font-bold text-sidebar-foreground text-lg">
@@ -293,7 +310,15 @@ export function DashboardLayout({
             )}
             {sidebarCollapsed && (
               <div className="flex items-center justify-center w-full">
-                <img src={trikeLogo} alt="Trike Logo" className="w-8 h-8 object-contain" />
+                <img 
+                  src={organizationLogo || trikeLogo} 
+                  alt={organizationName || 'Trike Logo'} 
+                  className="w-8 h-8 object-contain"
+                  onError={(e) => {
+                    // Fallback to default logo if custom logo fails to load
+                    e.currentTarget.src = trikeLogo;
+                  }}
+                />
               </div>
             )}
             {!sidebarCollapsed && (
