@@ -22,10 +22,13 @@ import {
   Video as VideoIcon,
   Paperclip,
   Target,
-  BookOpen
+  BookOpen,
+  User
 } from 'lucide-react';
 import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 import { TTSPlayer } from './content/TTSPlayer';
+import { PinLoginModal } from './public/PinLoginModal';
+import { getPinSession } from '@/lib/crud';
 
 interface Fact {
   id: string;
@@ -68,9 +71,11 @@ interface Track {
   transcript?: string;
   duration_minutes?: number;
   updated_at: string;
+  organization_id?: string;
 }
 
 interface Organization {
+  id?: string;
   name: string;
   kb_logo_url?: string;
   kb_logo_dark?: string;
@@ -90,6 +95,11 @@ export function PublicKBViewer() {
   const [related, setRelated] = useState<RelatedTrack[]>([]);
   const [likes, setLikes] = useState<number>(0);
   const [hasLiked, setHasLiked] = useState<boolean>(false);
+  
+  // PIN login state
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [loggedInUser, setLoggedInUser] = useState<{ id: string; name: string } | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   
   // UI state
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
@@ -121,6 +131,18 @@ export function PublicKBViewer() {
     }
     localStorage.setItem('kb_dark_mode', darkMode.toString());
   }, [darkMode]);
+
+  // Check for existing PIN session on mount
+  useEffect(() => {
+    const session = getPinSession();
+    if (session) {
+      setLoggedInUser({
+        id: session.userId,
+        name: `${session.firstName} ${session.lastName}`.trim()
+      });
+      setUserId(session.userId);
+    }
+  }, []);
 
   useEffect(() => {
     loadArticle();
@@ -210,10 +232,27 @@ export function PublicKBViewer() {
         return;
       } else {
         console.log('✅ Public mode - no password required');
+        
+        // Show PIN login modal if no session exists (only for public mode)
+        // Don't show if password prompt is needed or if already logged in
+        const existingSession = getPinSession();
+        if (!existingSession && !showPasswordPrompt) {
+          // Small delay to ensure UI is ready
+          setTimeout(() => {
+            setShowPinModal(true);
+          }, 300);
+        } else if (existingSession) {
+          // Restore logged in user from session
+          setLoggedInUser({
+            id: existingSession.userId,
+            name: `${existingSession.firstName} ${existingSession.lastName}`.trim()
+          });
+          setUserId(existingSession.userId);
+        }
       }
 
-      // Track page view
-      trackPageView(data.track.id);
+      // Track page view (with userId if logged in)
+      trackPageView(data.track.id, userId);
       
       // Load likes count
       loadLikes(data.track.id);
@@ -226,7 +265,7 @@ export function PublicKBViewer() {
     }
   }
 
-  async function trackPageView(trackId: string) {
+  async function trackPageView(trackId: string, userId?: string | null) {
     try {
       await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/page-view`,
@@ -238,6 +277,7 @@ export function PublicKBViewer() {
           },
           body: JSON.stringify({
             trackId: trackId,
+            userId: userId || null,
             referrer: document.referrer.includes('qr') ? 'qr_scan' : 'direct_link',
             userAgent: navigator.userAgent,
           }),
@@ -305,6 +345,26 @@ export function PublicKBViewer() {
     navigator.clipboard.writeText(window.location.href);
     alert('Link copied to clipboard!');
   }
+
+  function handlePinLoginSuccess(userId: string, userName: string) {
+    setLoggedInUser({ id: userId, name: userName });
+    setUserId(userId);
+    setShowPinModal(false);
+    
+    // Track page view with userId
+    if (track) {
+      trackPageView(track.id, userId);
+    }
+  }
+
+  function handleContinueAsGuest() {
+    setShowPinModal(false);
+    // Store anonymous session marker
+    localStorage.setItem('kb_anonymous_session', 'true');
+  }
+
+  // Get organizationId from track or org
+  const organizationId = track?.organization_id || org?.id || '';
 
   function getTagColor(tag: Tag) {
     const colorMap: Record<string, string> = {
@@ -456,6 +516,17 @@ export function PublicKBViewer() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors duration-200">
+      {/* PIN Login Modal */}
+      {showPinModal && organizationId && (
+        <PinLoginModal
+          isOpen={showPinModal}
+          onClose={() => setShowPinModal(false)}
+          onLoginSuccess={handlePinLoginSuccess}
+          onContinueAsGuest={handleContinueAsGuest}
+          organizationId={organizationId}
+        />
+      )}
+
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -477,8 +548,20 @@ export function PublicKBViewer() {
               />
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2">
+            {/* User Name (if logged in) and Action Buttons */}
+            <div className="flex items-center gap-3">
+              {/* Logged in user name */}
+              {loggedInUser && (
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-lg">
+                  <User className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground">
+                    {loggedInUser.name}
+                  </span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
               {/* Like Button */}
               <button
                 onClick={handleLike}
@@ -513,6 +596,7 @@ export function PublicKBViewer() {
             </div>
           </div>
         </div>
+      </div>
       </header>
 
       {/* Main Content */}

@@ -304,13 +304,9 @@ export function getTitleFromSlug(slug: string): string {
  * 2. KB viewer: public deployment (update baseUrl below)
  */
 export function generateKBPublicUrl(slug: string): string {
-  // Use the main app domain with query parameter routing
+  // Use the current deployment origin (Vercel or local dev)
   // The React app will detect the slug param and render PublicKBViewer
-  const baseUrl = 'https://sticky-web-65379292.figma.site';
-  
-  // TODO: If you need to use a separate public deployment for QR codes,
-  // update this baseUrl to your public deployment domain
-  // Example: const baseUrl = 'https://kb-public.yourcompany.com';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
   
   return `${baseUrl}?slug=${slug}`;
 }
