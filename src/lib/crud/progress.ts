@@ -7,6 +7,7 @@ import { createNotification } from './notifications';
 import { logActivity } from './activity';
 import { checkAndCompleteAssignment } from './assignments';
 import { checkAndIssueCertification } from './certifications';
+import { recordTrackCompletion } from './trackCompletions';
 
 /**
  * Update track progress and cascade to album/playlist
@@ -42,7 +43,7 @@ export async function updateTrackProgress(
   }
   const now = new Date().toISOString();
 
-  // Get existing progress
+  // Get existing progress (need assignment_id)
   const { data: existingProgress } = await supabase
     .from('track_progress')
     .select('*, assignment_id')
@@ -54,9 +55,39 @@ export async function updateTrackProgress(
     throw new Error('Progress record not found');
   }
 
-  // Prepare update data
-  const updateData: any = { ...updates };
+  // ✨ NEW: If completing, use dual-write system
+  // TRANSITION: Migrating to recordTrackCompletion() for all completions
+  // This writes to track_completions (new) + user_progress (legacy) + activity_events
+  if (updates.status === 'completed') {
+    try {
+      await recordTrackCompletion({
+        userId,
+        trackId,
+        assignmentId: existingProgress.assignment_id,
+        status: updates.score && updates.score >= 70 ? 'passed' : 'completed',
+        score: updates.score,
+        passed: updates.score ? updates.score >= 70 : undefined,
+        timeSpentMinutes: updates.time_spent_minutes || 0,
+        attempts: 1
+      });
+      
+      // Return - recordTrackCompletion handles everything including track_progress
+      return {
+        ...existingProgress,
+        status: 'completed',
+        progress_percentage: 100,
+        score: updates.score,
+        completed_at: now
+      };
+    } catch (error) {
+      console.error('recordTrackCompletion failed, falling back to legacy:', error);
+      // Fall through to old logic if new system fails
+    }
+  }
 
+  // OLD LOGIC: For in-progress or if recordTrackCompletion failed
+  const updateData: any = { ...updates };
+  
   if (updates.status === 'in-progress' && !existingProgress.started_at) {
     updateData.started_at = now;
     updateData.last_accessed_at = now;
@@ -80,22 +111,17 @@ export async function updateTrackProgress(
 
   if (error) throw error;
 
-  // CASCADE: Update album progress
+  // Keep all the cascade logic for now
   await cascadeToAlbumProgress(userId, trackId);
-
-  // CASCADE: Update playlist progress
   await cascadeToPlaylistProgress(userId, trackId);
 
-  // Check if assignment should be completed
   if (existingProgress.assignment_id) {
     await checkAndCompleteAssignment(existingProgress.assignment_id);
   }
 
-  // Check if user qualifies for certifications
   if (updates.status === 'completed') {
     await checkAndIssueCertification(userId);
-
-    // Create completion notification
+    
     const { data: track } = await supabase
       .from('tracks')
       .select('title')
@@ -112,7 +138,6 @@ export async function updateTrackProgress(
           link_url: `/content/${trackId}`
         });
       } catch (error) {
-        // Log error but don't fail the progress update
         console.error('Failed to create completion notification:', error);
       }
 
@@ -125,7 +150,6 @@ export async function updateTrackProgress(
           description: `Completed "${track.title}" with score ${updates.score || 'N/A'}`
         });
       } catch (error) {
-        // Log error but don't fail the progress update
         console.error('Failed to log completion activity:', error);
       }
     }
