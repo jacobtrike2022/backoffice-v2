@@ -39,6 +39,12 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
   
   const qrPreviewRef = useRef<HTMLDivElement>(null);
 
+  // Sync state when track prop changes (e.g., after parent refetches data)
+  useEffect(() => {
+    setQrEnabled(track.kb_qr_enabled || false);
+    setQrLocation(track.kb_qr_location || '');
+  }, [track.kb_qr_enabled, track.kb_qr_location]);
+
   useEffect(() => {
     if (isOpen) {
       loadOrganizationSettings();

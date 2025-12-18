@@ -483,6 +483,17 @@ export default function App() {
     }
   };
 
+  // Check if this is a public KB viewer request (NO AUTH REQUIRED)
+  const urlParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.substring(1));
+  const slug = urlParams.get("slug") || hashParams.get("slug");
+  const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
+
+  // If public KB view, show it immediately without auth check
+  if (isPublicKBView) {
+    return <PublicKBViewer />;
+  }
+
   return (
     <>
       {/* Show loading state while checking auth */}
@@ -512,18 +523,9 @@ export default function App() {
       {/* Show login if not authenticated */}
       {!authLoading && !user && <Login />}
 
-      {/* Check if this is a public KB viewer request */}
+      {/* Normal authenticated dashboard view */}
       {!authLoading && user && (() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const slug = urlParams.get("slug") || hashParams.get("slug");
-        const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
-        
-        if (isPublicKBView) {
-          return <PublicKBViewer />;
-        }
 
-        // Normal authenticated dashboard view
         return (
           <>
             <DashboardLayout
