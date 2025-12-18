@@ -144,23 +144,28 @@ export function PinLoginModal({
 
   if (!isOpen) return null;
 
+  // Prevent modal from being dismissed - only allow via Continue as Guest or successful login
+  const handleOpenChange = (open: boolean) => {
+    // Do nothing - prevent dismissal by clicking outside or ESC key
+    // Modal can only be closed via onContinueAsGuest or onLoginSuccess
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogPortal>
         {/* Glass blur overlay - matching CheckpointPreviewModal */}
         <DialogOverlay className="backdrop-blur-md bg-black/30" />
-        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden" aria-describedby={undefined}>
+        <DialogContent 
+          className="max-w-md p-0 gap-0 overflow-hidden [&>button]:hidden" 
+          aria-describedby={undefined}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogTitle className="sr-only">Enter PIN to Continue</DialogTitle>
           
           <div className="relative flex flex-col">
-            {/* Close button */}
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 z-10 p-2 rounded-full hover:bg-accent/50 transition-colors"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5 text-muted-foreground" />
-            </button>
+            {/* Close button removed - modal cannot be dismissed without action */}
 
             {/* Content */}
             <div className="p-8 sm:p-10">

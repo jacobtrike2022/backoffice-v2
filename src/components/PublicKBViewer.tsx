@@ -214,6 +214,11 @@ export function PublicKBViewer() {
       setAttachments(data.attachments || []);
       setRelated(data.related || []);
 
+      // Auto-expand transcript for stories and videos
+      if (data.track && (data.track.type === 'story' || data.track.type === 'video') && data.track.transcript) {
+        setShowTranscript(true);
+      }
+
       // Check privacy settings
       console.log('🔒🔒🔒 Privacy Mode Check:', {
         'org exists': !!data.org,
