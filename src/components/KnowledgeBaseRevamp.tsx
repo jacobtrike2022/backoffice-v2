@@ -32,7 +32,9 @@ import {
   Image as ImageIcon,
   FileVideo,
   FileAudio,
-  Paperclip
+  Paperclip,
+  Settings,
+  Info
 } from 'lucide-react';
 import { 
   useTracks,
@@ -63,11 +65,15 @@ import {
   DialogContent,
   DialogTitle,
   DialogDescription,
+  DialogHeader,
 } from "./ui/dialog";
+import { Switch } from './ui/switch';
+import { Label } from './ui/label';
 import { cn } from './ui/utils';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
+import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -462,6 +468,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
   // Attachments
   const [attachments, setAttachments] = useState<any[]>([]);
 
+  // KB Settings
+  const [showKBSettings, setShowKBSettings] = useState(false);
+  const [kbSettings, setKbSettings] = useState({ kb_allow_guest_access: true });
+
   // Function to refetch the currently selected track
   const refetchSelectedTrack = async () => {
     if (selectedTrack?.id) {
@@ -622,6 +632,54 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
   useEffect(() => {
     fetchCategories();
   }, []);
+
+  // Fetch KB settings on mount
+  useEffect(() => {
+    const fetchKBSettings = async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('kb_allow_guest_access')
+          .eq('id', orgId)
+          .single();
+
+        if (org) {
+          setKbSettings({ kb_allow_guest_access: org.kb_allow_guest_access ?? true });
+        }
+      } catch (error) {
+        console.error('Error fetching KB settings:', error);
+      }
+    };
+
+    fetchKBSettings();
+  }, []);
+
+  const handleToggleGuestAccess = (checked: boolean) => {
+    setKbSettings(prev => ({ ...prev, kb_allow_guest_access: checked }));
+  };
+
+  const handleSaveKBSettings = async () => {
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('Organization not found');
+
+      const { error } = await supabase
+        .from('organizations')
+        .update({ kb_allow_guest_access: kbSettings.kb_allow_guest_access })
+        .eq('id', orgId);
+
+      if (error) throw error;
+
+      toast.success('KB settings saved successfully');
+      setShowKBSettings(false);
+    } catch (error: any) {
+      console.error('Error saving KB settings:', error);
+      toast.error('Failed to save KB settings', { description: error.message });
+    }
+  };
 
   const refetchCats = fetchCategories;
   
@@ -1256,7 +1314,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
           <div className="flex items-center gap-3">
              {currentRole === 'admin' && (
-               <Button 
+               <Button
                  className="hidden sm:flex bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90 transition-opacity border-0"
                  onClick={onCreateArticle}
                >
@@ -1264,6 +1322,15 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                  Create Article
                </Button>
              )}
+             <Button
+               variant="outline"
+               size="icon"
+               onClick={() => setShowKBSettings(true)}
+               className="hover:bg-accent"
+               title="KB Settings"
+             >
+               <Settings className="h-4 w-4" />
+             </Button>
           </div>
         </div>
 
@@ -1966,6 +2033,63 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* KB Settings Dialog */}
+      <Dialog open={showKBSettings} onOpenChange={setShowKBSettings}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Knowledge Base Settings</DialogTitle>
+            <DialogDescription>
+              Configure privacy and access settings for your KB articles
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Privacy Section */}
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-semibold mb-1">Article Privacy</h3>
+                <p className="text-sm text-muted-foreground">
+                  Control how employees access KB articles via QR codes
+                </p>
+              </div>
+
+              <div className="flex items-start space-x-3 p-4 bg-accent/30 rounded-lg">
+                <Info className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
+                <p className="text-sm">
+                  All KB articles require employee PIN authentication for activity tracking
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between p-4 border-2 border-border rounded-lg hover:border-primary/50 transition-colors">
+                <div>
+                  <Label htmlFor="guestAccess" className="font-medium">Allow Guest Access</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    If enabled, viewers can skip PIN and browse as guest (no activity tracking). If disabled, PIN is required.
+                  </p>
+                </div>
+                <Switch
+                  id="guestAccess"
+                  checked={kbSettings.kb_allow_guest_access}
+                  onCheckedChange={handleToggleGuestAccess}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowKBSettings(false)}>
+              Cancel
+            </Button>
+            <Button 
+              className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90 border-0"
+              onClick={handleSaveKBSettings}
+            >
+              Save Changes
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

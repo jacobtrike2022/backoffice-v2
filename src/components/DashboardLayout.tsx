@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { signOut } from '../lib/hooks/useAuth';
 import { Button } from './ui/button';
 import { 
@@ -34,6 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
+import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -184,12 +185,47 @@ export function DashboardLayout({
   onNavigate
 }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState(currentView);
+  const [organizationName, setOrganizationName] = useState<string>('');
 
   // Update activeTab when currentView changes
   React.useEffect(() => {
     setActiveTab(currentView);
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Fetch organization name
+  useEffect(() => {
+    const fetchOrganizationName = async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', orgId)
+          .single();
+
+        if (org?.name) {
+          setOrganizationName(org.name);
+        }
+      } catch (error) {
+        console.error('Error fetching organization name:', error);
+      }
+    };
+
+    fetchOrganizationName();
+
+    // Listen for organization updates
+    const handleOrgUpdate = () => {
+      fetchOrganizationName();
+    };
+    window.addEventListener('organization-updated', handleOrgUpdate);
+    
+    return () => {
+      window.removeEventListener('organization-updated', handleOrgUpdate);
+    };
+  }, []);
 
   const roleLabels = {
     'admin': 'Administrator',
@@ -248,7 +284,9 @@ export function DashboardLayout({
                   <img src={trikeLogo} alt="Trike Logo" className="w-10 h-10 object-contain" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-sidebar-foreground text-lg">Trike.co</h2>
+                  <h2 className="font-bold text-sidebar-foreground text-lg">
+                    {organizationName || 'Trike.co'}
+                  </h2>
                   <p className="text-xs text-muted-foreground">Backoffice</p>
                 </div>
               </div>

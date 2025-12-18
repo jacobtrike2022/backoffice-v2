@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -30,9 +30,13 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Image,
+  Upload,
+  ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
 interface Invoice {
   id: string;
@@ -148,6 +152,19 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
   const [companyPassword, setCompanyPassword] = useState('');
   const [isPasswordMasked, setIsPasswordMasked] = useState(true);
 
+  // Logo state
+  const [organizationId, setOrganizationId] = useState<string>('');
+  const [orgLogoState, setOrgLogoState] = useState<{
+    logo_dark_url: string | null;
+    logo_light_url: string | null;
+  }>({
+    logo_dark_url: null,
+    logo_light_url: null
+  });
+  const [logoDarkFile, setLogoDarkFile] = useState<File | null>(null);
+  const [logoLightFile, setLogoLightFile] = useState<File | null>(null);
+  const [savingLogos, setSavingLogos] = useState(false);
+
   const filteredHRIS = hrisIntegrations.filter(hris =>
     hris.name.toLowerCase().includes(hrisSearchQuery.toLowerCase())
   );
@@ -157,8 +174,35 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
     setShowSandboxModal(true);
   };
 
-  const handleSaveCompanyInfo = () => {
-    toast.success('Company information updated successfully');
+  const handleSaveCompanyInfo = async () => {
+    try {
+      if (!organizationId) {
+        toast.error('Organization not found');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('organizations')
+        .update({ 
+          name: companyInfo.name
+          // Note: Other fields (address, city, etc.) are not in organizations table
+          // Only update the name field for now
+        })
+        .eq('id', organizationId);
+
+      if (error) throw error;
+
+      toast.success('Company information updated successfully');
+      
+      // Trigger header update by reloading (or use a context/event system)
+      // For now, the header will update on next page navigation
+      window.dispatchEvent(new Event('organization-updated'));
+    } catch (error: any) {
+      console.error('Error saving company info:', error);
+      toast.error('Failed to update company information', { 
+        description: error.message 
+      });
+    }
   };
 
   const handleUpdatePaymentMethod = () => {
@@ -180,6 +224,196 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
   const handlePasswordBlur = () => {
     if (companyPassword && !isPasswordMasked) {
       setIsPasswordMasked(true);
+    }
+  };
+
+  // Fetch organization data (name and logos) on mount
+  useEffect(() => {
+    const fetchOrgData = async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+
+        setOrganizationId(orgId);
+
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name, logo_dark_url, logo_light_url')
+          .eq('id', orgId)
+          .single();
+
+        if (org) {
+          setOrgLogoState({
+            logo_dark_url: org.logo_dark_url,
+            logo_light_url: org.logo_light_url
+          });
+          
+          // Update company info state with org name
+          if (org.name) {
+            setCompanyInfo(prev => ({
+              ...prev,
+              name: org.name
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching org data:', error);
+      }
+    };
+
+    fetchOrgData();
+  }, []);
+
+  // Logo upload handlers
+  const handleDarkLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File too large', { description: 'Maximum file size is 5MB' });
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Invalid file type', { description: 'Please upload an image file' });
+      return;
+    }
+
+    setLogoDarkFile(file);
+    
+    // Create preview
+    const url = URL.createObjectURL(file);
+    setOrgLogoState(prev => ({ ...prev, logo_dark_url: url }));
+  };
+
+  const handleLightLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File too large', { description: 'Maximum file size is 5MB' });
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Invalid file type', { description: 'Please upload an image file' });
+      return;
+    }
+
+    setLogoLightFile(file);
+    
+    // Create preview
+    const url = URL.createObjectURL(file);
+    setOrgLogoState(prev => ({ ...prev, logo_light_url: url }));
+  };
+
+  const handleRemoveLogo = async (mode: 'dark' | 'light') => {
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('Organization not found');
+
+      const column = mode === 'dark' ? 'logo_dark_url' : 'logo_light_url';
+
+      const { error } = await supabase
+        .from('organizations')
+        .update({ [column]: null })
+        .eq('id', orgId);
+
+      if (error) throw error;
+
+      setOrgLogoState(prev => ({ ...prev, [column]: null }));
+      if (mode === 'dark') {
+        setLogoDarkFile(null);
+      } else {
+        setLogoLightFile(null);
+      }
+      toast.success(`${mode === 'dark' ? 'Dark' : 'Light'} mode logo removed`);
+    } catch (error: any) {
+      toast.error('Failed to remove logo', { description: error.message });
+    }
+  };
+
+  const handleSaveLogos = async () => {
+    try {
+      setSavingLogos(true);
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('Organization not found');
+
+      let logoDarkUrl = orgLogoState.logo_dark_url;
+      let logoLightUrl = orgLogoState.logo_light_url;
+
+      // Upload dark logo if file selected
+      if (logoDarkFile) {
+        const timestamp = Date.now();
+        const ext = logoDarkFile.name.split('.').pop();
+        const filename = `${orgId}-dark-${timestamp}.${ext}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('organization-logos')
+          .upload(filename, logoDarkFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('organization-logos')
+          .getPublicUrl(filename);
+
+        logoDarkUrl = urlData.publicUrl;
+      }
+
+      // Upload light logo if file selected
+      if (logoLightFile) {
+        const timestamp = Date.now();
+        const ext = logoLightFile.name.split('.').pop();
+        const filename = `${orgId}-light-${timestamp}.${ext}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('organization-logos')
+          .upload(filename, logoLightFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('organization-logos')
+          .getPublicUrl(filename);
+
+        logoLightUrl = urlData.publicUrl;
+      }
+
+      // Update organization record
+      const { error: updateError } = await supabase
+        .from('organizations')
+        .update({
+          logo_dark_url: logoDarkUrl,
+          logo_light_url: logoLightUrl
+        })
+        .eq('id', orgId);
+
+      if (updateError) throw updateError;
+
+      setLogoDarkFile(null);
+      setLogoLightFile(null);
+      setOrgLogoState({
+        logo_dark_url: logoDarkUrl,
+        logo_light_url: logoLightUrl
+      });
+
+      toast.success('Logos saved successfully');
+    } catch (error: any) {
+      console.error('Error saving logos:', error);
+      toast.error('Failed to save logos', { description: error.message || 'Please try again' });
+    } finally {
+      setSavingLogos(false);
     }
   };
 
@@ -440,6 +674,159 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   onClick={handleSaveCompanyInfo}
                 >
                   Save Changes
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Company Logos */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Image className="h-5 w-5 text-primary" />
+                <span>Company Logos</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Logos used throughout the platform including dashboard, KB viewer, and learner app
+              </p>
+
+              {/* Dark Mode Logo Section */}
+              <div className="space-y-3">
+                <div>
+                  <Label>Dark Mode Logo</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recommended: White or light-colored logo on transparent background
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  {/* Logo Preview */}
+                  <div className="w-48 h-32 rounded-lg border-2 border-border bg-[#0f172a] flex items-center justify-center p-4">
+                    {orgLogoState.logo_dark_url ? (
+                      <img 
+                        src={orgLogoState.logo_dark_url} 
+                        alt="Dark mode logo preview"
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    ) : (
+                      <div className="text-center">
+                        <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">No logo uploaded</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload Button */}
+                  <div>
+                    <input
+                      type="file"
+                      id="darkLogoInput"
+                      accept="image/*"
+                      onChange={handleDarkLogoUpload}
+                      className="hidden"
+                    />
+                    <label htmlFor="darkLogoInput">
+                      <Button 
+                        variant="outline" 
+                        className="cursor-pointer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          document.getElementById('darkLogoInput')?.click();
+                        }}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Dark Logo
+                      </Button>
+                    </label>
+                    {orgLogoState.logo_dark_url && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-2 text-red-600 hover:text-red-700"
+                        onClick={() => handleRemoveLogo('dark')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Light Mode Logo Section */}
+              <div className="space-y-3">
+                <div>
+                  <Label>Light Mode Logo</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recommended: Dark-colored logo on transparent background
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-4">
+                  {/* Logo Preview */}
+                  <div className="w-48 h-32 rounded-lg border-2 border-border bg-white flex items-center justify-center p-4">
+                    {orgLogoState.logo_light_url ? (
+                      <img 
+                        src={orgLogoState.logo_light_url} 
+                        alt="Light mode logo preview"
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    ) : (
+                      <div className="text-center">
+                        <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-xs text-gray-500">No logo uploaded</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Upload Button */}
+                  <div>
+                    <input
+                      type="file"
+                      id="lightLogoInput"
+                      accept="image/*"
+                      onChange={handleLightLogoUpload}
+                      className="hidden"
+                    />
+                    <label htmlFor="lightLogoInput">
+                      <Button 
+                        variant="outline"
+                        className="cursor-pointer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          document.getElementById('lightLogoInput')?.click();
+                        }}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Light Logo
+                      </Button>
+                    </label>
+                    {orgLogoState.logo_light_url && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-2 text-red-600 hover:text-red-700"
+                        onClick={() => handleRemoveLogo('light')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-end">
+                <Button 
+                  className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
+                  onClick={handleSaveLogos}
+                  disabled={savingLogos}
+                >
+                  {savingLogos ? 'Saving...' : 'Save Changes'}
                 </Button>
               </div>
             </CardContent>

@@ -5,47 +5,40 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
+import { Switch } from './ui/switch';
 import { 
-  Lock, 
-  Globe, 
-  Users, 
-  Eye, 
-  EyeOff, 
   Upload, 
   X,
   CheckCircle2,
   AlertCircle,
   Image as ImageIcon,
   Sun,
-  Moon
+  Moon,
+  Info
 } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
+import { toast } from 'sonner@2.0.3';
 import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
-type PrivacyMode = 'public' | 'password' | 'employee_login';
-
 interface OrgSettings {
-  kb_privacy_mode: PrivacyMode;
-  kb_shared_password: string;
-  kb_logo_dark: string;
-  kb_logo_light: string;
+  logo_dark_url: string | null;
+  logo_light_url: string | null;
+  kb_allow_guest_access: boolean;
 }
 
 export function KBSettings() {
   const [settings, setSettings] = useState<OrgSettings>({
-    kb_privacy_mode: 'public',
-    kb_shared_password: '',
-    kb_logo_dark: trikeLogoDark,
-    kb_logo_light: trikeLogoDark
+    logo_dark_url: null,
+    logo_light_url: null,
+    kb_allow_guest_access: true
   });
   const [originalSettings, setOriginalSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [logoDarkFile, setLogoDarkFile] = useState<File | null>(null);
   const [logoLightFile, setLogoLightFile] = useState<File | null>(null);
-  const [logoDarkPreview, setLogoDarkPreview] = useState<string>(trikeLogoDark);
-  const [logoLightPreview, setLogoLightPreview] = useState<string>(trikeLogoDark);
+  const [logoDarkPreview, setLogoDarkPreview] = useState<string | null>(null);
+  const [logoLightPreview, setLogoLightPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -54,51 +47,17 @@ export function KBSettings() {
 
   // Update dark logo preview when settings change from database
   useEffect(() => {
-    console.log('🔍 DARK LOGO DEBUG:', {
-      logoDarkFile,
-      'settings.kb_logo_dark': settings.kb_logo_dark,
-      'trikeLogoDark': trikeLogoDark,
-      'typeof settings.kb_logo_dark': typeof settings.kb_logo_dark,
-      'settings.kb_logo_dark?.trim().length': settings.kb_logo_dark?.trim?.().length,
-      'darkLogoPreview will be set to': !logoDarkFile ? (settings.kb_logo_dark && 
-                             typeof settings.kb_logo_dark === 'string' && 
-                             settings.kb_logo_dark.trim().length > 0 ? settings.kb_logo_dark : trikeLogoDark) : 'blob URL'
-    });
-    
     if (!logoDarkFile) {
-      const hasValidDarkLogo = settings.kb_logo_dark && 
-                               typeof settings.kb_logo_dark === 'string' && 
-                               settings.kb_logo_dark.trim().length > 0;
-      
-      const newPreview = hasValidDarkLogo ? settings.kb_logo_dark : trikeLogoDark;
-      console.log('✅ Setting darkLogoPreview to:', newPreview);
-      setLogoDarkPreview(newPreview);
+      setLogoDarkPreview(settings.logo_dark_url || null);
     }
-  }, [settings.kb_logo_dark, logoDarkFile]);
+  }, [settings.logo_dark_url, logoDarkFile]);
 
   // Update light logo preview when settings change from database
   useEffect(() => {
-    console.log('🔍 LIGHT LOGO DEBUG:', {
-      logoLightFile,
-      'settings.kb_logo_light': settings.kb_logo_light,
-      'trikeLogoDark (fallback)': trikeLogoDark,
-      'typeof settings.kb_logo_light': typeof settings.kb_logo_light,
-      'settings.kb_logo_light?.trim().length': settings.kb_logo_light?.trim?.().length,
-      'lightLogoPreview will be set to': !logoLightFile ? (settings.kb_logo_light && 
-                                typeof settings.kb_logo_light === 'string' && 
-                                settings.kb_logo_light.trim().length > 0 ? settings.kb_logo_light : trikeLogoDark) : 'blob URL'
-    });
-    
     if (!logoLightFile) {
-      const hasValidLightLogo = settings.kb_logo_light && 
-                                typeof settings.kb_logo_light === 'string' && 
-                                settings.kb_logo_light.trim().length > 0;
-      
-      const newPreview = hasValidLightLogo ? settings.kb_logo_light : trikeLogoDark;
-      console.log('✅ Setting lightLogoPreview to:', newPreview);
-      setLogoLightPreview(newPreview);
+      setLogoLightPreview(settings.logo_light_url || null);
     }
-  }, [settings.kb_logo_light, logoLightFile]);
+  }, [settings.logo_light_url, logoLightFile]);
 
   // Update dark logo preview when file is selected
   useEffect(() => {
@@ -125,7 +84,7 @@ export function KBSettings() {
 
       const { data, error } = await supabase
         .from('organizations')
-        .select('kb_privacy_mode, kb_shared_password, kb_logo_dark, kb_logo_light')
+        .select('logo_dark_url, logo_light_url, kb_allow_guest_access')
         .eq('id', orgId)
         .single();
 
@@ -133,95 +92,105 @@ export function KBSettings() {
         console.warn('Error loading KB settings (columns may not exist yet):', error);
         // Set defaults even if columns don't exist
         const defaultSettings = {
-          kb_privacy_mode: 'public' as PrivacyMode,
-          kb_shared_password: '',
-          kb_logo_dark: trikeLogoDark,
-          kb_logo_light: trikeLogoDark
+          logo_dark_url: null,
+          logo_light_url: null,
+          kb_allow_guest_access: true
         };
         setSettings(defaultSettings);
         setOriginalSettings(defaultSettings);
-        setLogoDarkPreview(trikeLogoDark);
-        setLogoLightPreview(trikeLogoDark);
+        setLogoDarkPreview(null);
+        setLogoLightPreview(null);
         setLoading(false);
         return;
       }
 
       const loadedSettings = {
-        kb_privacy_mode: (data?.kb_privacy_mode || 'public') as PrivacyMode,
-        kb_shared_password: data?.kb_shared_password || '',
-        kb_logo_dark: data?.kb_logo_dark || trikeLogoDark,
-        kb_logo_light: data?.kb_logo_light || trikeLogoDark
+        logo_dark_url: data?.logo_dark_url || null,
+        logo_light_url: data?.logo_light_url || null,
+        kb_allow_guest_access: data?.kb_allow_guest_access ?? true
       };
 
       setSettings(loadedSettings);
       setOriginalSettings(loadedSettings);
-      setLogoDarkPreview(loadedSettings.kb_logo_dark);
-      setLogoLightPreview(loadedSettings.kb_logo_light);
+      setLogoDarkPreview(loadedSettings.logo_dark_url);
+      setLogoLightPreview(loadedSettings.logo_light_url);
     } catch (error) {
       console.error('Error loading KB settings:', error);
       // Don't show error message, just use defaults
       const defaultSettings = {
-        kb_privacy_mode: 'public' as PrivacyMode,
-        kb_shared_password: '',
-        kb_logo_dark: trikeLogoDark,
-        kb_logo_light: trikeLogoDark
+        logo_dark_url: null,
+        logo_light_url: null,
+        kb_allow_guest_access: true
       };
       setSettings(defaultSettings);
       setOriginalSettings(defaultSettings);
-      setLogoDarkPreview(trikeLogoDark);
-      setLogoLightPreview(trikeLogoDark);
+      setLogoDarkPreview(null);
+      setLogoLightPreview(null);
     } finally {
       setLoading(false);
     }
   }
 
+  async function uploadLogo(file: File, orgId: string, logoType: 'dark' | 'light'): Promise<string> {
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      throw new Error('File size must be less than 5MB');
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      throw new Error('File must be an image');
+    }
+
+    // Generate unique filename
+    const fileExt = file.name.split('.').pop();
+    const timestamp = Date.now();
+    const fileName = `${orgId}-${logoType}-${timestamp}.${fileExt}`;
+    const filePath = fileName;
+
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('organization-logos')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: file.type
+      });
+
+    if (uploadError) {
+      console.error('Supabase storage upload error:', uploadError);
+      throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('organization-logos')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  }
+
   async function handleSave() {
-    console.log('🚀 Starting save operation...');
-    
     try {
       setSaving(true);
       setMessage(null);
       
-      console.log('📋 Getting org ID...');
       const orgId = await getCurrentUserOrgId();
-      console.log('✅ Org ID:', orgId);
+      if (!orgId) {
+        throw new Error('Organization ID not found');
+      }
 
-      let logoDarkUrl = settings.kb_logo_dark;
-      let logoLightUrl = settings.kb_logo_light;
+      let logoDarkUrl = settings.logo_dark_url;
+      let logoLightUrl = settings.logo_light_url;
 
       // Upload dark logo if file selected
       if (logoDarkFile) {
         try {
-          console.log('📤 Uploading dark logo...');
-          const formData = new FormData();
-          formData.append('file', logoDarkFile);
-          formData.append('orgId', orgId);
-          formData.append('logoType', 'dark');
-
-          const uploadResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-kb-logo`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${publicAnonKey}`,
-              },
-              body: formData,
-            }
-          );
-
-          console.log('📥 Dark logo upload response status:', uploadResponse.status);
-
-          if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            console.error('❌ Dark logo upload failed:', errorData);
-            throw new Error(`Failed to upload dark logo: ${errorData.error}`);
-          }
-
-          const uploadData = await uploadResponse.json();
-          logoDarkUrl = uploadData.url;
-          console.log('✅ Dark logo uploaded:', logoDarkUrl);
+          logoDarkUrl = await uploadLogo(logoDarkFile, orgId, 'dark');
+          toast.success('Dark mode logo uploaded successfully');
         } catch (error: any) {
-          console.error('💥 Exception during dark logo upload:', error);
+          toast.error(`Failed to upload dark logo: ${error.message}`);
           throw error;
         }
       }
@@ -229,92 +198,33 @@ export function KBSettings() {
       // Upload light logo if file selected
       if (logoLightFile) {
         try {
-          console.log('📤 Uploading light logo...');
-          const formData = new FormData();
-          formData.append('file', logoLightFile);
-          formData.append('orgId', orgId);
-          formData.append('logoType', 'light');
-
-          const uploadResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-kb-logo`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${publicAnonKey}`,
-              },
-              body: formData,
-            }
-          );
-
-          console.log('📥 Light logo upload response status:', uploadResponse.status);
-
-          if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            console.error('❌ Light logo upload failed:', errorData);
-            throw new Error(`Failed to upload light logo: ${errorData.error}`);
-          }
-
-          const uploadData = await uploadResponse.json();
-          logoLightUrl = uploadData.url;
-          console.log('✅ Light logo uploaded:', logoLightUrl);
+          logoLightUrl = await uploadLogo(logoLightFile, orgId, 'light');
+          toast.success('Light mode logo uploaded successfully');
         } catch (error: any) {
-          console.error('💥 Exception during light logo upload:', error);
+          toast.error(`Failed to upload light logo: ${error.message}`);
           throw error;
         }
       }
 
-      // Save settings via backend endpoint (bypasses RLS)
-      try {
-        console.log('💾 Saving KB settings to database...');
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token || publicAnonKey;
+      // Save settings to database
+      const { error: updateError } = await supabase
+        .from('organizations')
+        .update({
+          logo_dark_url: logoDarkUrl,
+          logo_light_url: logoLightUrl,
+          kb_allow_guest_access: settings.kb_allow_guest_access
+        })
+        .eq('id', orgId);
 
-        const payload = {
-          organizationId: orgId,
-          kb_privacy_mode: settings.kb_privacy_mode,
-          kb_shared_password: settings.kb_shared_password,
-          kb_logo_dark: logoDarkUrl,
-          kb_logo_light: logoLightUrl
-        };
-        
-        console.log('📤 Sending payload:', payload);
-
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/organization/kb-settings`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-
-        console.log('📥 KB settings response status:', response.status);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ Backend response error:', errorText);
-          let errorData;
-          try {
-            errorData = JSON.parse(errorText);
-          } catch (e) {
-            errorData = { error: errorText };
-          }
-          throw new Error(errorData.error || `Server error: ${response.status}`);
-        }
-
-        const result = await response.json();
-        console.log('✅ KB settings saved successfully:', result);
-      } catch (error: any) {
-        console.error('💥 Exception during settings save:', error);
-        throw error;
+      if (updateError) {
+        throw new Error(`Failed to save settings: ${updateError.message}`);
       }
 
       // Update state with new values
-      console.log('🔄 Updating local state...');
       const newSettings = { 
         ...settings, 
-        kb_logo_dark: logoDarkUrl,
-        kb_logo_light: logoLightUrl
+        logo_dark_url: logoDarkUrl,
+        logo_light_url: logoLightUrl
       };
       
       setOriginalSettings(newSettings);
@@ -323,62 +233,80 @@ export function KBSettings() {
       setLogoLightFile(null);
       setLogoDarkPreview(logoDarkUrl);
       setLogoLightPreview(logoLightUrl);
-      console.log('✅ Local state updated');
       
-      // Reset saving state FIRST before showing message
-      console.log('🏁 Resetting saving state to false...');
-      setSaving(false);
-      console.log('✅ Saving state reset');
+      toast.success('Settings saved successfully!');
+      setMessage({ type: 'success', text: 'Settings saved successfully!' });
       
-      // Use setTimeout to ensure state update completes before showing message
+      // Auto-hide success message after 3 seconds
       setTimeout(() => {
-        console.log('📢 Setting success message...');
-        setMessage({ type: 'success', text: '✅ Settings saved successfully!' });
-        console.log('✅ Success message set');
-        
-        // Auto-hide success message after 3 seconds
-        setTimeout(() => {
-          console.log('⏰ Auto-hiding success message...');
-          setMessage(null);
-        }, 3000);
-      }, 0);
+        setMessage(null);
+      }, 3000);
       
     } catch (error: any) {
-      console.error('❌❌❌ Error in handleSave:', error);
-      console.error('Error stack:', error.stack);
-      setSaving(false);
+      console.error('Error in handleSave:', error);
+      toast.error(error.message || 'Failed to save settings');
       setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
+    } finally {
+      setSaving(false);
     }
-    // Remove the finally block since we're handling setSaving in try/catch
   }
 
   function handleLogoDarkUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      setLogoDarkFile(file);
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('File must be an image');
+      return;
     }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setLogoDarkFile(file);
   }
 
   function handleLogoLightUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      setLogoLightFile(file);
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('File must be an image');
+      return;
     }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setLogoLightFile(file);
   }
 
   function removeLogoDark() {
     setLogoDarkFile(null);
-    setLogoDarkPreview(trikeLogoDark);
-    setSettings({ ...settings, kb_logo_dark: trikeLogoDark });
+    setLogoDarkPreview(null);
+    setSettings({ ...settings, logo_dark_url: null });
   }
 
   function removeLogoLight() {
     setLogoLightFile(null);
-    setLogoLightPreview(trikeLogoDark);
-    setSettings({ ...settings, kb_logo_light: trikeLogoDark });
+    setLogoLightPreview(null);
+    setSettings({ ...settings, logo_light_url: null });
   }
 
-  const hasChanges = JSON.stringify(settings) !== JSON.stringify(originalSettings) || logoDarkFile !== null || logoLightFile !== null;
+  const hasChanges = 
+    JSON.stringify(settings) !== JSON.stringify(originalSettings) || 
+    logoDarkFile !== null || 
+    logoLightFile !== null;
 
   if (loading) {
     return (
@@ -404,233 +332,165 @@ export function KBSettings() {
         </Alert>
       )}
 
-      {/* Privacy Mode */}
+      {/* Company Logos Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Company Logos</CardTitle>
+          <CardDescription>
+            Logos used throughout the platform including dashboard, KB viewer, and learner app
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Dark Mode Logo */}
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="logo-dark-upload">Dark Mode Logo</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                Recommended: White or light-colored logo on transparent background
+              </p>
+            </div>
+            
+            <div className="flex items-start gap-4">
+              <div className="relative">
+                <div className="border rounded-lg p-4 bg-gray-900 min-w-[200px] flex items-center justify-center">
+                  {logoDarkPreview ? (
+                    <img
+                      src={logoDarkPreview}
+                      alt="Dark Mode Logo Preview"
+                      className="max-w-[200px] max-h-[100px] object-contain"
+                      onError={() => {
+                        console.error('Dark logo failed to load');
+                        setLogoDarkPreview(null);
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center text-muted-foreground">
+                      <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-xs">No logo uploaded</p>
+                    </div>
+                  )}
+                </div>
+                {logoDarkPreview && (
+                  <button
+                    onClick={removeLogoDark}
+                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+                    type="button"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1">
+                <Label htmlFor="logo-dark-upload" className="cursor-pointer">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
+                    <Upload className="w-4 h-4" />
+                    <span className="text-sm">Upload Dark Logo</span>
+                  </div>
+                </Label>
+                <Input
+                  id="logo-dark-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoDarkUpload}
+                  className="hidden"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Light Mode Logo */}
+          <div className="space-y-4 pt-4 border-t">
+            <div>
+              <Label htmlFor="logo-light-upload">Light Mode Logo</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                Recommended: Dark-colored logo on transparent background
+              </p>
+            </div>
+            
+            <div className="flex items-start gap-4">
+              <div className="relative">
+                <div className="border rounded-lg p-4 bg-white min-w-[200px] flex items-center justify-center">
+                  {logoLightPreview ? (
+                    <img
+                      src={logoLightPreview}
+                      alt="Light Mode Logo Preview"
+                      className="max-w-[200px] max-h-[100px] object-contain"
+                      onError={() => {
+                        console.error('Light logo failed to load');
+                        setLogoLightPreview(null);
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center text-muted-foreground">
+                      <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-xs">No logo uploaded</p>
+                    </div>
+                  )}
+                </div>
+                {logoLightPreview && (
+                  <button
+                    onClick={removeLogoLight}
+                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+                    type="button"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1">
+                <Label htmlFor="logo-light-upload" className="cursor-pointer">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
+                    <Upload className="w-4 h-4" />
+                    <span className="text-sm">Upload Light Logo</span>
+                  </div>
+                </Label>
+                <Input
+                  id="logo-light-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoLightUpload}
+                  className="hidden"
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* KB Privacy Section */}
       <Card>
         <CardHeader>
           <CardTitle>Knowledge Base Privacy</CardTitle>
           <CardDescription>
-            Control who can access your public Knowledge Base articles via QR codes and links
+            Control how employees access KB articles via QR codes
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-3">
-            {/* Public Option */}
-            <label
-              className={`flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
-                settings.kb_privacy_mode === 'public'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <input
-                type="radio"
-                name="privacy"
-                value="public"
-                checked={settings.kb_privacy_mode === 'public'}
-                onChange={(e) => setSettings({ ...settings, kb_privacy_mode: e.target.value as PrivacyMode })}
-                className="mt-0.5"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Globe className="w-4 h-4 text-green-600" />
-                  <span className="font-medium">Public Access</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Anyone with the QR code or link can view articles. No login required.
-                </p>
-              </div>
-            </label>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              All KB articles require employee PIN authentication for activity tracking
+            </AlertDescription>
+          </Alert>
 
-            {/* Password Option */}
-            <label
-              className={`flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
-                settings.kb_privacy_mode === 'password'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <input
-                type="radio"
-                name="privacy"
-                value="password"
-                checked={settings.kb_privacy_mode === 'password'}
-                onChange={(e) => setSettings({ ...settings, kb_privacy_mode: e.target.value as PrivacyMode })}
-                className="mt-0.5"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Lock className="w-4 h-4 text-orange-600" />
-                  <span className="font-medium">Password Protected</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Viewers must enter a shared password to access articles.
-                </p>
-              </div>
-            </label>
-
-            {/* Employee Login Option */}
-            <label
-              className={`flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
-                settings.kb_privacy_mode === 'employee_login'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <input
-                type="radio"
-                name="privacy"
-                value="employee_login"
-                checked={settings.kb_privacy_mode === 'employee_login'}
-                onChange={(e) => setSettings({ ...settings, kb_privacy_mode: e.target.value as PrivacyMode })}
-                className="mt-0.5"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Users className="w-4 h-4 text-red-600" />
-                  <span className="font-medium">Employee Login Required</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Only authenticated employees can view articles. Requires login.
-                </p>
-              </div>
-            </label>
-          </div>
-
-          {/* Password Input (shown when password mode selected) */}
-          {settings.kb_privacy_mode === 'password' && (
-            <div className="pt-4 border-t">
-              <Label htmlFor="shared-password">Shared Password</Label>
-              <div className="relative mt-2">
-                <Input
-                  id="shared-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={settings.kb_shared_password}
-                  onChange={(e) => setSettings({ ...settings, kb_shared_password: e.target.value })}
-                  placeholder="Enter password..."
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                This password will be shared with viewers who scan QR codes.
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="flex-1">
+              <Label htmlFor="guest-access" className="text-base font-medium cursor-pointer">
+                Allow Guest Access
+              </Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                If enabled, viewers can skip PIN and browse as guest (no activity tracking). If disabled, PIN is required.
               </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Logo Upload - Dark Mode */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Moon className="w-5 h-5" />
-            Dark Mode Logo
-          </CardTitle>
-          <CardDescription>
-            Logo shown when viewers have dark mode enabled
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="relative inline-block">
-            <div className="border rounded-lg p-4 bg-gray-900">
-              <img
-                src={logoDarkPreview}
-                alt="KB Logo Dark Mode Preview"
-                className="h-16 object-contain"
-                onError={(e) => {
-                  console.error('🚨 DARK LOGO FAILED TO LOAD:', {
-                    src: e.currentTarget.src,
-                    logoDarkPreview,
-                    trikeLogoDark,
-                    'settings.kb_logo_dark': settings.kb_logo_dark
-                  });
-                }}
-              />
-            </div>
-            {logoDarkPreview !== trikeLogoDark && (
-              <button
-                onClick={removeLogoDark}
-                className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="logo-dark-upload" className="cursor-pointer">
-              <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
-                <Upload className="w-4 h-4" />
-                <span className="text-sm">Upload Dark Logo</span>
-              </div>
-            </Label>
-            <Input
-              id="logo-dark-upload"
-              type="file"
-              accept="image/*"
-              onChange={handleLogoDarkUpload}
-              className="hidden"
+            <Switch
+              id="guest-access"
+              checked={settings.kb_allow_guest_access}
+              onCheckedChange={(checked) => 
+                setSettings({ ...settings, kb_allow_guest_access: checked })
+              }
             />
-            <p className="text-xs text-muted-foreground mt-2">
-              Recommended: White or light-colored logo on transparent background
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Logo Upload - Light Mode */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sun className="w-5 h-5" />
-            Light Mode Logo
-          </CardTitle>
-          <CardDescription>
-            Logo shown when viewers have light mode enabled
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="relative inline-block">
-            <div className="border rounded-lg p-4 bg-white">
-              <img
-                src={logoLightPreview}
-                alt="KB Logo Light Mode Preview"
-                className="h-16 object-contain"
-              />
-            </div>
-            {logoLightPreview !== trikeLogoDark && (
-              <button
-                onClick={removeLogoLight}
-                className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="logo-light-upload" className="cursor-pointer">
-              <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
-                <Upload className="w-4 h-4" />
-                <span className="text-sm">Upload Light Logo</span>
-              </div>
-            </Label>
-            <Input
-              id="logo-light-upload"
-              type="file"
-              accept="image/*"
-              onChange={handleLogoLightUpload}
-              className="hidden"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Recommended: Dark-colored logo on transparent background
-            </p>
           </div>
         </CardContent>
       </Card>

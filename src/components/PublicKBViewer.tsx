@@ -80,8 +80,11 @@ interface Organization {
   kb_logo_url?: string;
   kb_logo_dark?: string;
   kb_logo_light?: string;
+  logo_dark_url?: string;
+  logo_light_url?: string;
   kb_privacy_mode?: 'public' | 'password' | 'employee_login';
   kb_shared_password?: string;
+  kb_allow_guest_access?: boolean;
 }
 
 export function PublicKBViewer() {
@@ -100,6 +103,7 @@ export function PublicKBViewer() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [loggedInUser, setLoggedInUser] = useState<{ id: string; name: string } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState<string>('');
   
   // UI state
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
@@ -214,6 +218,21 @@ export function PublicKBViewer() {
       setAttachments(data.attachments || []);
       setRelated(data.related || []);
 
+      // Set organizationId for PIN modal
+      const orgId = data.track?.organization_id || data.org?.id || '';
+      setOrganizationId(orgId);
+
+      // Debug logo fields and guest access setting
+      console.log('🖼️ Organization data:', {
+        'logo_dark_url': data.org?.logo_dark_url,
+        'logo_light_url': data.org?.logo_light_url,
+        'kb_logo_dark (deprecated)': data.org?.kb_logo_dark,
+        'kb_logo_light (deprecated)': data.org?.kb_logo_light,
+        'org name': data.org?.name,
+        'organizationId': orgId,
+        'kb_allow_guest_access': data.org?.kb_allow_guest_access
+      });
+
       // Auto-expand transcript for stories and videos
       if (data.track && (data.track.type === 'story' || data.track.type === 'video') && data.track.transcript) {
         setShowTranscript(true);
@@ -238,21 +257,47 @@ export function PublicKBViewer() {
       } else {
         console.log('✅ Public mode - no password required');
         
-        // Show PIN login modal if no session exists (only for public mode)
-        // Don't show if password prompt is needed or if already logged in
+        // Check for existing PIN session
         const existingSession = getPinSession();
-        if (!existingSession && !showPasswordPrompt) {
-          // Small delay to ensure UI is ready
-          setTimeout(() => {
-            setShowPinModal(true);
-          }, 300);
-        } else if (existingSession) {
+        
+        if (existingSession) {
           // Restore logged in user from session
           setLoggedInUser({
             id: existingSession.userId,
             name: `${existingSession.firstName} ${existingSession.lastName}`.trim()
           });
           setUserId(existingSession.userId);
+        } else {
+          // No PIN session exists - ALWAYS show PIN modal
+          // If kb_allow_guest_access is false, PIN is required (no guest option)
+          // If kb_allow_guest_access is true, PIN is optional (guest option available)
+          
+          // If guest access is disabled, clear any anonymous session markers
+          if (data.org && data.org.kb_allow_guest_access === false) {
+            localStorage.removeItem('kb_anonymous_session');
+            console.log('🔒 Guest access disabled - PIN required, clearing anonymous session');
+          }
+          
+          // Always show PIN modal if no password prompt is needed
+          if (!showPasswordPrompt) {
+            const orgId = data.track?.organization_id || data.org?.id || '';
+            console.log('🔒 Showing PIN modal - no PIN session found', {
+              'kb_allow_guest_access': data.org?.kb_allow_guest_access,
+              'organizationId': orgId,
+              'hasOrgId': !!orgId
+            });
+            
+            // Ensure organizationId is set before showing modal
+            if (orgId) {
+              setOrganizationId(orgId);
+              // Small delay to ensure UI is ready
+              setTimeout(() => {
+                setShowPinModal(true);
+              }, 300);
+            } else {
+              console.warn('⚠️ Cannot show PIN modal - organizationId not available');
+            }
+          }
         }
       }
 
@@ -367,9 +412,6 @@ export function PublicKBViewer() {
     // Store anonymous session marker
     localStorage.setItem('kb_anonymous_session', 'true');
   }
-
-  // Get organizationId from track or org
-  const organizationId = track?.organization_id || org?.id || '';
 
   function getTagColor(tag: Tag) {
     const colorMap: Record<string, string> = {
@@ -529,6 +571,7 @@ export function PublicKBViewer() {
           onLoginSuccess={handlePinLoginSuccess}
           onContinueAsGuest={handleContinueAsGuest}
           organizationId={organizationId}
+          allowGuestAccess={org?.kb_allow_guest_access ?? true}
         />
       )}
 
@@ -539,16 +582,25 @@ export function PublicKBViewer() {
             {/* Logo */}
             <div className="flex-shrink-0">
               <img
-                src={darkMode ? (org?.kb_logo_dark || trikeLogoDark) : (org?.kb_logo_light || trikeLogoDark)}
+                src={darkMode 
+                  ? (org?.logo_dark_url || trikeLogoDark) 
+                  : (org?.logo_light_url || trikeLogoDark)}
                 alt={org?.name || 'Trike'}
                 className="h-8 object-contain"
                 onError={(e) => {
                   console.error('❌ Logo failed to load:', e.currentTarget.src);
-                  console.log('🔍 trikeLogoDark value:', trikeLogoDark);
-                  console.log('🔍 org data:', org);
+                  console.log('🖼️ Logo debug:', {
+                    darkMode,
+                    'org?.logo_dark_url': org?.logo_dark_url,
+                    'org?.logo_light_url': org?.logo_light_url,
+                    'org name': org?.name
+                  });
                 }}
                 onLoad={() => {
-                  console.log('✅ Logo loaded successfully');
+                  const logoUrl = darkMode 
+                    ? (org?.logo_dark_url || trikeLogoDark) 
+                    : (org?.logo_light_url || trikeLogoDark);
+                  console.log('✅ Logo loaded:', logoUrl === trikeLogoDark ? 'Default Trike logo' : 'Custom org logo');
                 }}
               />
             </div>

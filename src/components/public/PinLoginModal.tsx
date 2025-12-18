@@ -15,6 +15,7 @@ interface PinLoginModalProps {
   onLoginSuccess: (userId: string, userName: string) => void;
   onContinueAsGuest: () => void;
   organizationId: string;
+  allowGuestAccess?: boolean;
 }
 
 export function PinLoginModal({
@@ -22,7 +23,8 @@ export function PinLoginModal({
   onClose,
   onLoginSuccess,
   onContinueAsGuest,
-  organizationId
+  organizationId,
+  allowGuestAccess = true
 }: PinLoginModalProps) {
   const [pin, setPin] = useState<string[]>(['', '', '', '']);
   const [error, setError] = useState<string | null>(null);
@@ -229,16 +231,18 @@ export function PinLoginModal({
                 {isSubmitting ? 'Verifying...' : 'Continue'}
               </Button>
 
-              {/* Continue as Guest */}
-              <Button
-                onClick={onContinueAsGuest}
-                variant="outline"
-                className="w-full mb-4"
-                size="lg"
-              >
-                <User className="h-4 w-4 mr-2" />
-                Continue as Guest
-              </Button>
+              {/* Continue as Guest - Only show if allowed */}
+              {allowGuestAccess && (
+                <Button
+                  onClick={onContinueAsGuest}
+                  variant="outline"
+                  className="w-full mb-4"
+                  size="lg"
+                >
+                  <User className="h-4 w-4 mr-2" />
+                  Continue as Guest
+                </Button>
+              )}
 
               {/* Forgot PIN */}
               <div className="text-center">
