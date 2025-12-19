@@ -92,7 +92,7 @@ export async function getOrganizationStats(organizationId: string) {
       .from('user_certifications')
       .select('id', { count: 'exact', head: true })
       .in('user_id', userIds)
-      .eq('status', 'valid');
+      .eq('status', 'active');
 
     // Get stores with low performance - count stores with 'at-risk' status
     const storePerformance = await getStorePerformanceData(organizationId);

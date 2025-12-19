@@ -298,33 +298,64 @@ export async function getStorePerformanceData(organizationId: string) {
         const assignmentCount = activeAssignments?.length || 0;
 
         // Get progress data from track_completions (source of truth)
-        // Get all assignments for these employees (for progress calculation)
-        const { data: allAssignments } = await supabase
-          .from('assignments')
-          .select('id, user_id, playlist_id')
-          .in('user_id', employeeIds);
-
-        // Get all track completions for these employees
-        const { data: completions } = await supabase
-          .from('track_completions')
-          .select('track_id, user_id')
-          .in('user_id', employeeIds);
-
-        // Calculate WEIGHTED average progress (completed tracks / total tracks in assignments)
+        // Calculate average progress by averaging individual employee progress percentages
         let avgProgress = 0;
-        if (allAssignments && allAssignments.length > 0) {
-          const playlistIds = [...new Set(allAssignments.map(a => a.playlist_id).filter(Boolean))];
-          if (playlistIds.length > 0) {
-            const { data: playlistTracks } = await supabase
-              .from('playlist_tracks')
-              .select('track_id, playlist_id')
-              .in('playlist_id', playlistIds);
+        
+        if (employeeIds.length > 0) {
+          // Get all assignments for these employees
+          const { data: allAssignments } = await supabase
+            .from('assignments')
+            .select('id, user_id, playlist_id')
+            .in('user_id', employeeIds);
 
-            const totalTracks = playlistTracks?.length || 0;
-            const completedTracks = completions?.length || 0;
-            
-            if (totalTracks > 0) {
-              avgProgress = Math.round((completedTracks / totalTracks) * 100);
+          // Get all track completions for these employees
+          const { data: completions } = await supabase
+            .from('track_completions')
+            .select('track_id, user_id')
+            .in('user_id', employeeIds);
+
+          if (allAssignments && allAssignments.length > 0) {
+            const playlistIds = [...new Set(allAssignments.map(a => a.playlist_id).filter(Boolean))];
+            if (playlistIds.length > 0) {
+              const { data: playlistTracks } = await supabase
+                .from('playlist_tracks')
+                .select('track_id, playlist_id')
+                .in('playlist_id', playlistIds);
+
+              // Build track assignment map per user
+              const tracksByUser: Record<string, Set<string>> = {};
+              allAssignments.forEach(assignment => {
+                if (!tracksByUser[assignment.user_id]) {
+                  tracksByUser[assignment.user_id] = new Set();
+                }
+                playlistTracks?.forEach(pt => {
+                  if (pt.playlist_id === assignment.playlist_id) {
+                    tracksByUser[assignment.user_id].add(pt.track_id);
+                  }
+                });
+              });
+
+              // Calculate progress percentage for each employee
+              const employeeProgresses: number[] = [];
+              employeeIds.forEach(employeeId => {
+                const assignedTracks = tracksByUser[employeeId] || new Set();
+                const userCompletions = completions?.filter(tc => tc.user_id === employeeId) || [];
+                const completedTracks = userCompletions.filter(tc => assignedTracks.has(tc.track_id));
+                
+                if (assignedTracks.size > 0) {
+                  const employeeProgress = Math.round((completedTracks.length / assignedTracks.size) * 100);
+                  employeeProgresses.push(employeeProgress);
+                } else {
+                  // Employee with no assignments has 0% progress
+                  employeeProgresses.push(0);
+                }
+              });
+
+              // Average the individual employee progress percentages
+              if (employeeProgresses.length > 0) {
+                const sum = employeeProgresses.reduce((acc, p) => acc + p, 0);
+                avgProgress = Math.round(sum / employeeProgresses.length);
+              }
             }
           }
         }
@@ -447,36 +478,66 @@ export async function getStores(filters?: {
         // Get progress data from track_completions (source of truth)
         const employeeIds = employees?.map(e => e.id) || [];
         
-        // Get all assignments for these employees
-        const { data: assignments } = await supabase
-          .from('assignments')
-          .select('id, user_id, playlist_id')
-          .in('user_id', employeeIds);
-
-        // Get all track completions for these employees
-        const { data: completions } = await supabase
-          .from('track_completions')
-          .select('track_id, user_id')
-          .in('user_id', employeeIds);
-
-        // Calculate avgProgress: completed tracks / total tracks in assignments
+        // Calculate average progress by averaging individual employee progress percentages
         let avgProgress = 0;
         let compliance = 0;
         
-        if (assignments && assignments.length > 0) {
-          // Get all unique tracks from assignments
-          const playlistIds = [...new Set(assignments.map(a => a.playlist_id).filter(Boolean))];
-          const { data: playlistTracks } = await supabase
-            .from('playlist_tracks')
-            .select('track_id, playlist_id')
-            .in('playlist_id', playlistIds);
+        if (employeeIds.length > 0) {
+          // Get all assignments for these employees
+          const { data: assignments } = await supabase
+            .from('assignments')
+            .select('id, user_id, playlist_id')
+            .in('user_id', employeeIds);
 
-          const totalTracks = playlistTracks?.length || 0;
-          const completedTracks = completions?.length || 0;
-          
-          if (totalTracks > 0) {
-            avgProgress = Math.round((completedTracks / totalTracks) * 100);
-            compliance = avgProgress; // Use same calculation for compliance
+          // Get all track completions for these employees
+          const { data: completions } = await supabase
+            .from('track_completions')
+            .select('track_id, user_id')
+            .in('user_id', employeeIds);
+
+          if (assignments && assignments.length > 0) {
+            // Get all unique tracks from assignments
+            const playlistIds = [...new Set(assignments.map(a => a.playlist_id).filter(Boolean))];
+            const { data: playlistTracks } = await supabase
+              .from('playlist_tracks')
+              .select('track_id, playlist_id')
+              .in('playlist_id', playlistIds);
+
+            // Build track assignment map per user
+            const tracksByUser: Record<string, Set<string>> = {};
+            assignments.forEach(assignment => {
+              if (!tracksByUser[assignment.user_id]) {
+                tracksByUser[assignment.user_id] = new Set();
+              }
+              playlistTracks?.forEach(pt => {
+                if (pt.playlist_id === assignment.playlist_id) {
+                  tracksByUser[assignment.user_id].add(pt.track_id);
+                }
+              });
+            });
+
+            // Calculate progress percentage for each employee
+            const employeeProgresses: number[] = [];
+            employeeIds.forEach(employeeId => {
+              const assignedTracks = tracksByUser[employeeId] || new Set();
+              const userCompletions = completions?.filter(tc => tc.user_id === employeeId) || [];
+              const completedTracks = userCompletions.filter(tc => assignedTracks.has(tc.track_id));
+              
+              if (assignedTracks.size > 0) {
+                const employeeProgress = Math.round((completedTracks.length / assignedTracks.size) * 100);
+                employeeProgresses.push(employeeProgress);
+              } else {
+                // Employee with no assignments has 0% progress
+                employeeProgresses.push(0);
+              }
+            });
+
+            // Average the individual employee progress percentages
+            if (employeeProgresses.length > 0) {
+              const sum = employeeProgresses.reduce((acc, p) => acc + p, 0);
+              avgProgress = Math.round(sum / employeeProgresses.length);
+              compliance = avgProgress; // Use same calculation for compliance
+            }
           }
         }
 

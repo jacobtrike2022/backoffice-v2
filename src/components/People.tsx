@@ -34,7 +34,6 @@ import { EmployeeProfile } from './EmployeeProfile';
 import { EditPeopleDialog } from './EditPeopleDialog';
 import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
-import { calculateUserOverallProgress } from '../lib/crud/progressCalculations';
 import { toast } from 'sonner@2.0.3';
 import { Edit } from 'lucide-react';
 
@@ -88,43 +87,19 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   // State for users with calculated progress
   const [users, setUsers] = useState<any[]>([]);
 
-  // Calculate overall progress for each user
+  // Use training_progress from getUsers() instead of recalculating
+  // getUsers() already calculates progress correctly using track_completions
   useEffect(() => {
-    async function calculateProgresses() {
-      if (fetchedUsers.length === 0) {
-        setUsers([]);
-        return;
-      }
-
-      try {
-        const usersWithProgress = await Promise.all(
-          fetchedUsers.map(async (user) => {
-            try {
-              const overallProgress = await calculateUserOverallProgress(user.id);
-              return {
-                ...user,
-                overallProgress
-              };
-            } catch (error) {
-              console.error(`Error calculating progress for user ${user.id}:`, error);
-              // Return user with 0 progress on error
-              return {
-                ...user,
-                overallProgress: 0
-              };
-            }
-          })
-        );
-
-        setUsers(usersWithProgress);
-      } catch (error) {
-        console.error('Error calculating user progresses:', error);
-        // Fallback to users without progress calculation
-        setUsers(fetchedUsers.map(user => ({ ...user, overallProgress: 0 })));
-      }
+    if (fetchedUsers.length === 0) {
+      setUsers([]);
+      return;
     }
 
-    calculateProgresses();
+    // Use training_progress from fetchedUsers (already calculated correctly in getUsers)
+    setUsers(fetchedUsers.map(user => ({
+      ...user,
+      overallProgress: user.training_progress || 0
+    })));
   }, [fetchedUsers]);
 
   // Get unique values for filters from loaded data

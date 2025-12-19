@@ -216,18 +216,23 @@ export async function getUsers(filters: {
     }
   }
 
-  // Build progress stats from track_completions
-  const progressStats = userIds.map(userId => {
+  // Calculate progress for each user: completed tracks / assigned tracks
+  const progressByUser: Record<string, { completed: number; total: number; scores: number[] }> = {};
+  
+  userIds.forEach(userId => {
     const assignedTracks = tracksByUser[userId] || new Set();
     const userCompletions = trackCompletions?.filter(tc => tc.user_id === userId) || [];
     const completedTracks = userCompletions.filter(tc => assignedTracks.has(tc.track_id));
     
-    return {
-      user_id: userId,
-      status: completedTracks.length > 0 ? 'completed' : 'in_progress',
-      score: completedTracks.length > 0 
-        ? Math.round(completedTracks.reduce((sum, tc) => sum + (tc.score || 0), 0) / completedTracks.length)
-        : null
+    // Calculate average score from completed tracks
+    const scores = completedTracks
+      .map(tc => tc.score)
+      .filter((score): score is number => score !== null && score !== undefined);
+    
+    progressByUser[userId] = {
+      completed: completedTracks.length,
+      total: assignedTracks.size,
+      scores
     };
   });
 
@@ -243,21 +248,6 @@ export async function getUsers(filters: {
     .select('user_id')
     .in('user_id', userIds)
     .eq('status', 'active');
-
-  // Build lookup maps from aggregated data
-  const progressByUser: Record<string, { completed: number; total: number; scores: number[] }> = {};
-  progressStats?.forEach(p => {
-    if (!progressByUser[p.user_id]) {
-      progressByUser[p.user_id] = { completed: 0, total: 0, scores: [] };
-    }
-    progressByUser[p.user_id].total++;
-    if (p.status === 'completed') {
-      progressByUser[p.user_id].completed++;
-    }
-    if (p.score !== null && p.score !== undefined) {
-      progressByUser[p.user_id].scores.push(p.score);
-    }
-  });
 
   const assignmentsByUser: Record<string, number> = {};
   assignmentStats?.forEach(a => {
