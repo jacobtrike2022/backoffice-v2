@@ -188,7 +188,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
   };
 
   const handleAssignContent = () => {
-    if (onNavigateToPlaylists) {
+    if (onNavigate) {
+      onNavigate('assignments');
+    } else if (onNavigateToPlaylists) {
       onNavigateToPlaylists();
     } else {
       toast.success('Opening Playlists page...');
