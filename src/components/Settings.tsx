@@ -184,9 +184,14 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       const { error } = await supabase
         .from('organizations')
         .update({ 
-          name: companyInfo.name
-          // Note: Other fields (address, city, etc.) are not in organizations table
-          // Only update the name field for now
+          name: companyInfo.name,
+          street_address: companyInfo.address,
+          city: companyInfo.city,
+          state: companyInfo.state,
+          zip_code: companyInfo.zip,
+          phone: companyInfo.phone,
+          email: companyInfo.email,
+          website: companyInfo.website
         })
         .eq('id', organizationId);
 
@@ -194,8 +199,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
       toast.success('Company information updated successfully');
       
-      // Trigger header update by reloading (or use a context/event system)
-      // For now, the header will update on next page navigation
+      // Trigger header update
       window.dispatchEvent(new Event('organization-updated'));
     } catch (error: any) {
       console.error('Error saving company info:', error);
@@ -238,7 +242,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, logo_dark_url, logo_light_url')
+          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url')
           .eq('id', orgId)
           .single();
 
@@ -248,13 +252,17 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             logo_light_url: org.logo_light_url
           });
           
-          // Update company info state with org name
-          if (org.name) {
-            setCompanyInfo(prev => ({
-              ...prev,
-              name: org.name
-            }));
-          }
+          // Update company info state with all org data
+          setCompanyInfo({
+            name: org.name || '',
+            address: org.street_address || '',
+            city: org.city || '',
+            state: org.state || '',
+            zip: org.zip_code || '',
+            phone: org.phone || '',
+            email: org.email || '',
+            website: org.website || ''
+          });
         }
       } catch (error) {
         console.error('Error fetching org data:', error);
