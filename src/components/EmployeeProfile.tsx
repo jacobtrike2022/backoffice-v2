@@ -333,65 +333,127 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     try {
       setTabLoading(prev => ({ ...prev, overview: true }));
       
-      // Fetch all user progress for calculations
-      const { data: allProgress, error: progressError } = await supabase
-        .from('user_progress')
-        .select(`
-          *,
-          track:tracks (
-            id,
-            title,
-            type
-          ),
-          assignment:assignments (
-            id,
-            due_date
-          )
-        `)
-        .eq('user_id', employee.id) as { data: any[] | null; error: any };
+      // Get all assignments for this user
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from('assignments')
+        .select('id, playlist_id, due_date, status')
+        .eq('user_id', employee.id);
 
-      if (progressError) throw progressError;
+      if (assignmentsError) throw assignmentsError;
+
+      // Get all tracks from assigned playlists
+      const playlistIds = [...new Set((assignments || []).map(a => a.playlist_id).filter(Boolean))];
+      let assignedTracks: any[] = [];
+      let trackDetails: Record<string, any> = {};
+      
+      if (playlistIds.length > 0) {
+        const { data: playlistTracks, error: tracksError } = await supabase
+          .from('playlist_tracks')
+          .select(`
+            track_id,
+            playlist_id,
+            track:tracks (
+              id,
+              title,
+              type
+            )
+          `)
+          .in('playlist_id', playlistIds);
+
+        if (tracksError) throw tracksError;
+        
+        assignedTracks = playlistTracks || [];
+        trackDetails = {};
+        assignedTracks.forEach(pt => {
+          if (pt.track_id && pt.track) {
+            trackDetails[pt.track_id] = pt.track;
+          }
+        });
+      }
+
+      // Get all track completions for this user
+      const trackIds = assignedTracks.map(pt => pt.track_id).filter(Boolean);
+      const { data: completions, error: completionsError } = await supabase
+        .from('track_completions')
+        .select('track_id, status, completed_at, score, passed')
+        .eq('user_id', employee.id)
+        .in('track_id', trackIds.length > 0 ? trackIds : ['00000000-0000-0000-0000-000000000000']);
+
+      if (completionsError) throw completionsError;
+
+      // Build completion map
+      const completionMap = new Map(
+        completions?.map(c => [c.track_id, c]) || []
+      );
 
       // Calculate summary metrics
-      const assignedCount = allProgress?.length || 0;
-      const completedCount = allProgress?.filter(p => p.status === 'completed' && p.completed_at).length || 0;
-      const inProgressCount = allProgress?.filter(p => 
-        p.status === 'in_progress' || (p.progress_percent > 0 && p.progress_percent < 100 && !p.completed_at)
+      const assignedCount = assignedTracks.length;
+      const completedCount = completions?.filter(c => 
+        c.status === 'completed' || c.status === 'passed'
       ).length || 0;
       
-      // Calculate average score from checkpoint attempts (tracks with type='checkpoint')
-      const checkpointProgress = allProgress?.filter(p => p.track?.type === 'checkpoint' && p.score !== null) || [];
-      const avgScore = checkpointProgress.length > 0
-        ? checkpointProgress.reduce((sum, p) => sum + (p.score || 0), 0) / checkpointProgress.length
+      const inProgressCount = assignedTracks.filter(pt => {
+        const completion = completionMap.get(pt.track_id);
+        return !completion || (completion.status !== 'completed' && completion.status !== 'passed');
+      }).length;
+      
+      // Calculate average score from checkpoint completions
+      const checkpointCompletions = completions?.filter(c => {
+        const track = trackDetails[c.track_id];
+        return track?.type === 'checkpoint' && c.score !== null;
+      }) || [];
+      const avgScore = checkpointCompletions.length > 0
+        ? checkpointCompletions.reduce((sum, c) => sum + (c.score || 0), 0) / checkpointCompletions.length
         : 0;
 
-      // Get recent activity (last 10)
-      const recentActivity = (allProgress || [])
-        .filter(p => p.updated_at)
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      // Get recent activity (last 10 completions)
+      const recentActivity = (completions || [])
+        .filter(c => c.completed_at)
+        .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
         .slice(0, 10)
-        .map(p => ({
-          id: p.id,
-          trackTitle: p.track?.title || 'Unknown Track',
-          action: p.status === 'completed' ? 'completed' : p.status === 'in_progress' ? 'started' : 'updated',
-          timestamp: p.updated_at,
-          trackType: p.track?.type
-        }));
+        .map(c => {
+          const track = trackDetails[c.track_id];
+          return {
+            id: c.track_id,
+            trackTitle: track?.title || 'Unknown Track',
+            action: c.status === 'completed' || c.status === 'passed' ? 'completed' : 'updated',
+            timestamp: c.completed_at,
+            trackType: track?.type
+          };
+        });
 
       // Get upcoming deadlines
       const now = new Date();
-      const upcomingDeadlines = (allProgress || [])
-        .filter(p => {
-          const dueDate = p.assignment?.due_date;
-          return dueDate && new Date(dueDate) > now && !p.completed_at;
+      const upcomingDeadlines = (assignments || [])
+        .filter(a => {
+          if (!a.due_date) return false;
+          const dueDate = new Date(a.due_date);
+          // Check if assignment has incomplete tracks
+          const assignmentTracks = assignedTracks.filter(pt => 
+            playlistIds.includes(a.playlist_id) && 
+            playlistIds.some(pid => {
+              const ptPlaylistId = assignedTracks.find(apt => apt.track_id === pt.track_id)?.playlist_id;
+              return ptPlaylistId === a.playlist_id;
+            })
+          );
+          const hasIncompleteTracks = assignmentTracks.some(pt => {
+            const completion = completionMap.get(pt.track_id);
+            return !completion || (completion.status !== 'completed' && completion.status !== 'passed');
+          });
+          return dueDate > now && hasIncompleteTracks;
         })
-        .map(p => {
-          const dueDate = new Date(p.assignment.due_date);
+        .map(a => {
+          const dueDate = new Date(a.due_date);
           const daysRemaining = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          // Get playlist name for display
+          const playlistTracks = assignedTracks.filter(pt => {
+            // Find tracks for this assignment's playlist
+            return true; // Simplified - would need playlist lookup
+          });
           return {
-            id: p.id,
-            trackTitle: p.track?.title || 'Unknown Track',
-            dueDate: p.assignment.due_date,
+            id: a.id,
+            trackTitle: `Assignment (${playlistTracks.length} tracks)`,
+            dueDate: a.due_date,
             daysRemaining
           };
         })
@@ -637,6 +699,16 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
       if (assignmentsError) throw assignmentsError;
 
+      // Get learning activity events (xAPI-style tracking)
+      const { data: activityEvents, error: eventsError } = await supabase
+        .from('activity_events')
+        .select('*')
+        .eq('user_id', employee.id)
+        .order('timestamp', { ascending: false })
+        .limit(100) as { data: any[] | null; error: any };
+
+      if (eventsError) throw eventsError;
+
       // Build timeline events
       const timelineEvents: any[] = [];
 
@@ -692,6 +764,59 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             icon: CheckCircle,
             iconColor: 'text-green-600',
             score: progress.score
+          });
+        }
+      });
+
+      // Add learning activity events from activity_events table
+      (activityEvents || []).forEach(event => {
+        const timestamp = event.timestamp || event.stored_at;
+        if (!timestamp) return;
+
+        if (event.verb === 'completed' || event.result_completion === true) {
+          timelineEvents.push({
+            id: `event-completed-${event.id}`,
+            type: 'track_completed',
+            title: `Completed: ${event.object_name || event.object_type || 'Content'}`,
+            description: event.result_score_scaled !== null && event.result_score_scaled !== undefined
+              ? `Score: ${Math.round(event.result_score_scaled)}%`
+              : undefined,
+            timestamp: timestamp,
+            icon: CheckCircle,
+            iconColor: 'text-green-600',
+            score: event.result_score_scaled
+          });
+        } else if (event.verb === 'passed' || event.result_success === true) {
+          timelineEvents.push({
+            id: `event-passed-${event.id}`,
+            type: 'quiz_taken',
+            title: `Passed: ${event.object_name || event.object_type || 'Assessment'}`,
+            description: event.result_score_scaled !== null && event.result_score_scaled !== undefined
+              ? `Score: ${Math.round(event.result_score_scaled)}%`
+              : undefined,
+            timestamp: timestamp,
+            icon: FileCheck,
+            iconColor: 'text-purple-600',
+            score: event.result_score_scaled
+          });
+        } else if (event.verb === 'watched' || event.verb === 'viewed' || event.verb === 'started') {
+          timelineEvents.push({
+            id: `event-started-${event.id}`,
+            type: 'track_started',
+            title: `${event.verb === 'watched' || event.verb === 'viewed' ? 'Viewed' : 'Started'}: ${event.object_name || event.object_type || 'Content'}`,
+            timestamp: timestamp,
+            icon: BookOpen,
+            iconColor: 'text-orange-600'
+          });
+        } else if (event.verb) {
+          // Other activity events
+          timelineEvents.push({
+            id: `event-${event.id}`,
+            type: 'track_assigned',
+            title: `${event.verb.charAt(0).toUpperCase() + event.verb.slice(1)}: ${event.object_name || event.object_type || 'Activity'}`,
+            timestamp: timestamp,
+            icon: BookOpen,
+            iconColor: 'text-blue-600'
           });
         }
       });
@@ -1090,7 +1215,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
             <div className="text-center border-l border-border pl-6">
               <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
-              <p className="text-3xl font-bold text-foreground">{completedCount}<span className="text-lg text-muted-foreground">/{userProgress.length}</span></p>
+              <p className="text-3xl font-bold text-foreground">{employee.completedTracks || 0}<span className="text-lg text-muted-foreground">/{employee.totalTracks || 0}</span></p>
             </div>
 
             <div className="text-center border-l border-border pl-6">

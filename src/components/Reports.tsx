@@ -40,6 +40,8 @@ import {
   Info
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { getLearnerRecords, type LearnerRecord as LearnerRecordType } from '../lib/crud/reports';
+import { useEffect, useState } from 'react';
 
 // Mock date formatting function since date-fns is not available
 const format = (date: Date, formatStr: string) => {
@@ -568,6 +570,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   const [activeFilterProperty, setActiveFilterProperty] = useState<string | null>(null);
   const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
+  const [learnerData, setLearnerData] = useState<LearnerRecordType[]>([]);
+  const [loading, setLoading] = useState(true);
   
   const [filters, setFilters] = useState<FilterState>({
     progress: { min: 0, max: 100 },
@@ -638,9 +642,27 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     return active;
   }, [filters]);
 
+  // Fetch learner records on mount and when storeFilter changes
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        const data = await getLearnerRecords(storeFilter);
+        setLearnerData(data);
+      } catch (error) {
+        console.error('Error fetching learner records:', error);
+        toast.error('Failed to load learner records');
+        setLearnerData([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [storeFilter]);
+
   // Filtered and sorted data
   const filteredData = useMemo(() => {
-    let filtered = mockLearnerData.filter(record => {
+    let filtered = learnerData.filter(record => {
       // Store filter (from StoreDetail component)
       if (storeFilter) {
         if (record.store !== storeFilter) {
@@ -744,7 +766,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     });
 
     return filtered;
-  }, [searchTerm, filters, sortField, sortDirection, storeFilter]);
+  }, [searchTerm, filters, sortField, sortDirection, storeFilter, learnerData]);
 
   const handleSort = (field: keyof LearnerRecord) => {
     if (sortField === field) {
@@ -1097,7 +1119,27 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredData.map((record, index) => {
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-12">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                      <p className="text-sm text-muted-foreground">Loading learner records...</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : filteredData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-12">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
+                      <p className="text-sm font-medium text-foreground">No records found</p>
+                      <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredData.map((record, index) => {
                 const isExpanded = expandedRows.includes(record.id);
                 return (
                   <React.Fragment key={record.id}>
@@ -1224,7 +1266,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     )}
                   </React.Fragment>
                 );
-              })}
+              }))}
             </TableBody>
           </Table>
         </div>

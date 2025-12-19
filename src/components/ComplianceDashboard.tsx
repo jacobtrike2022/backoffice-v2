@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -125,6 +127,97 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
     return null;
   }
 
+  const { user } = useCurrentUser();
+  const [compliantEmployees, setCompliantEmployees] = useState<number>(0);
+  const [totalEmployees, setTotalEmployees] = useState<number>(0);
+
+  // Fetch compliant employees count
+  useEffect(() => {
+    async function fetchCompliantCount() {
+      if (!user?.organization_id) return;
+
+      try {
+        // Get all active employees
+        const { data: employees, error: empError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', user.organization_id)
+          .eq('status', 'active');
+
+        if (empError) throw empError;
+        if (!employees || employees.length === 0) {
+          setTotalEmployees(0);
+          setCompliantEmployees(0);
+          return;
+        }
+
+        setTotalEmployees(employees.length);
+        const userIds = employees.map(e => e.id);
+
+        // Get all assignments
+        const { data: assignments } = await supabase
+          .from('assignments')
+          .select('id, user_id, playlist_id')
+          .in('user_id', userIds);
+
+        // Get all playlist tracks
+        const playlistIds = [...new Set((assignments || []).map(a => a.playlist_id).filter(Boolean))];
+        const { data: playlistTracks } = await supabase
+          .from('playlist_tracks')
+          .select('track_id, playlist_id')
+          .in('playlist_id', playlistIds.length > 0 ? playlistIds : ['00000000-0000-0000-0000-000000000000']);
+
+        // Get all track completions
+        const trackIds = [...new Set((playlistTracks || []).map(pt => pt.track_id).filter(Boolean))];
+        const { data: completions } = await supabase
+          .from('track_completions')
+          .select('track_id, user_id, status')
+          .in('user_id', userIds)
+          .in('track_id', trackIds.length > 0 ? trackIds : ['00000000-0000-0000-0000-000000000000'])
+          .in('status', ['completed', 'passed']);
+
+        // Build track assignment map per user
+        const tracksByUser: Record<string, Set<string>> = {};
+        (assignments || []).forEach(assignment => {
+          if (!tracksByUser[assignment.user_id]) {
+            tracksByUser[assignment.user_id] = new Set();
+          }
+          (playlistTracks || []).forEach(pt => {
+            if (pt.playlist_id === assignment.playlist_id) {
+              tracksByUser[assignment.user_id].add(pt.track_id);
+            }
+          });
+        });
+
+        // Count compliant employees (those who completed all assigned tracks)
+        let compliantCount = 0;
+        userIds.forEach(userId => {
+          const assignedTracks = tracksByUser[userId] || new Set();
+          if (assignedTracks.size === 0) {
+            // No assignments = compliant (nothing required)
+            compliantCount++;
+            return;
+          }
+          
+          const userCompletions = (completions || []).filter(c => c.user_id === userId);
+          const completedTrackIds = new Set(userCompletions.map(c => c.track_id));
+          
+          // Check if all assigned tracks are completed
+          const allCompleted = Array.from(assignedTracks).every(trackId => completedTrackIds.has(trackId));
+          if (allCompleted) {
+            compliantCount++;
+          }
+        });
+
+        setCompliantEmployees(compliantCount);
+      } catch (error) {
+        console.error('Error fetching compliant employees:', error);
+      }
+    }
+
+    fetchCompliantCount();
+  }, [user?.organization_id]);
+
   return (
     <div className="space-y-6">
       {/* Page Header - Only show on standalone page */}
@@ -188,9 +281,9 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               </div>
             </div>
             <div className="space-y-1">
-              <div className="text-3xl font-bold text-foreground leading-none">134</div>
+              <div className="text-3xl font-bold text-foreground leading-none">{compliantEmployees}</div>
               <h3 className="text-sm font-medium text-muted-foreground mt-2">Employees Compliant</h3>
-              <p className="text-xs text-muted-foreground/80">of 142 total</p>
+              <p className="text-xs text-muted-foreground/80">of {totalEmployees} total</p>
             </div>
           </CardContent>
         </Card>

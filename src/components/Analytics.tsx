@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { getOrganizationStats } from '../lib/crud/dashboard';
+import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -120,6 +123,54 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [activeLearners, setActiveLearners] = useState<number>(0);
+  const { user } = useCurrentUser();
+
+  // Fetch active learners count (users with recent activity or active assignments)
+  useEffect(() => {
+    async function fetchActiveLearners() {
+      if (!user?.organization_id) return;
+      
+      try {
+        // Get users with active assignments or recent track completions (last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        // Get users with active assignments
+        const { data: usersWithAssignments } = await supabase
+          .from('assignments')
+          .select('user_id')
+          .eq('organization_id', user.organization_id)
+          .in('status', ['assigned', 'in_progress', 'completed']);
+
+        // Get users with recent completions
+        const { data: orgUsers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', user.organization_id)
+          .eq('status', 'active');
+
+        const userIds = orgUsers?.map(u => u.id) || [];
+        const { data: recentCompletions } = await supabase
+          .from('track_completions')
+          .select('user_id')
+          .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000'])
+          .gte('completed_at', thirtyDaysAgo.toISOString());
+
+        // Combine unique user IDs
+        const activeUserIds = new Set([
+          ...(usersWithAssignments || []).map(a => a.user_id),
+          ...(recentCompletions || []).map(c => c.user_id)
+        ]);
+
+        setActiveLearners(activeUserIds.size);
+      } catch (error) {
+        console.error('Error fetching active learners:', error);
+      }
+    }
+
+    fetchActiveLearners();
+  }, [user?.organization_id]);
 
   const handleExport = (format: 'pdf' | 'excel' | 'csv') => {
     toast.success(`Exporting analytics as ${format.toUpperCase()}...`, {
@@ -337,7 +388,7 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Active Learners</p>
-                    <p className="text-2xl font-bold text-foreground">1,247</p>
+                    <p className="text-2xl font-bold text-foreground">{activeLearners.toLocaleString()}</p>
                     <div className="flex items-center mt-1">
                       <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
                       <span className="text-sm text-green-600">+156</span>

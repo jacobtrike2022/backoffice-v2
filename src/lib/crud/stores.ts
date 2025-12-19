@@ -753,8 +753,8 @@ export async function getStoreActivity(storeId: string, limit: number = 20) {
     const employeeIds = employees.map(e => e.id);
     const employeeMap = new Map(employees.map(e => [e.id, `${e.first_name} ${e.last_name}`]));
 
-    // Get recent activity logs for these employees
-    const { data: activities, error: activityError } = await supabase
+    // Get recent activity logs (admin actions) for these employees
+    const { data: activityLogs, error: logsError } = await supabase
       .from('activity_logs')
       .select(`
         *,
@@ -764,13 +764,64 @@ export async function getStoreActivity(storeId: string, limit: number = 20) {
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    if (activityError) throw activityError;
+    if (logsError) throw logsError;
+
+    // Get recent activity events (learning activity) for these employees
+    const { data: activityEvents, error: eventsError } = await supabase
+      .from('activity_events')
+      .select('*')
+      .in('user_id', employeeIds)
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+    if (eventsError) throw eventsError;
+
+    // Combine and format both activity types
+    const allActivities: any[] = [];
+
+    // Format activity_logs
+    (activityLogs || []).forEach((activity: any) => {
+      allActivities.push({
+        id: activity.id,
+        source: 'activity_logs',
+        user_id: activity.user_id,
+        created_at: activity.created_at,
+        action: activity.action,
+        entity_type: activity.entity_type,
+        details: activity.details,
+        user: activity.user
+      });
+    });
+
+    // Format activity_events (learning activity)
+    (activityEvents || []).forEach((event: any) => {
+      allActivities.push({
+        id: event.id,
+        source: 'activity_events',
+        user_id: event.user_id,
+        created_at: event.timestamp || event.stored_at,
+        verb: event.verb,
+        object_type: event.object_type,
+        object_name: event.object_name,
+        result_success: event.result_success,
+        result_score_scaled: event.result_score_scaled,
+        result_completion: event.result_completion,
+        metadata: event.metadata
+      });
+    });
+
+    // Sort by created_at/timestamp descending and limit
+    allActivities.sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const limitedActivities = allActivities.slice(0, limit);
 
     // Format activities for display
-    return (activities || []).map((activity: any) => {
+    return limitedActivities.map((activity: any) => {
+      // Get employee name
       const employeeName = activity.user 
         ? `${activity.user.first_name} ${activity.user.last_name}`
-        : 'Unknown';
+        : employeeMap.get(activity.user_id) || 'Unknown';
       
       // Format timestamp
       const timestamp = new Date(activity.created_at);
@@ -790,25 +841,56 @@ export async function getStoreActivity(storeId: string, limit: number = 20) {
         timeAgo = timestamp.toLocaleDateString();
       }
 
-      // Determine activity type and icon
+      // Determine activity type and icon based on source
       let type: 'completion' | 'certification' | 'assignment' | 'alert' = 'assignment';
-      let title = activity.action || 'Activity';
-      let description = activity.details?.description || activity.action || '';
+      let title = 'Activity';
+      let description = '';
 
-      if (activity.action === 'completion') {
-        type = 'completion';
-        title = 'Training Module Completed';
-        const trackTitle = activity.details?.track_title || 'Training';
-        const score = activity.details?.score;
-        description = `${trackTitle}${score ? ` - Score: ${score}%` : ''}`;
-      } else if (activity.action === 'certification') {
-        type = 'certification';
-        title = 'New Certification Earned';
-        description = activity.details?.certification_name || 'Certification';
-      } else if (activity.action === 'assignment') {
-        type = 'assignment';
-        title = 'New Content Assigned';
-        description = activity.details?.playlist_title || 'Content';
+      if (activity.source === 'activity_events') {
+        // Learning activity from activity_events
+        if (activity.verb === 'completed' || activity.result_completion === true) {
+          type = 'completion';
+          title = 'Training Completed';
+          description = activity.object_name || `${activity.object_type} completed`;
+          if (activity.result_score_scaled !== null && activity.result_score_scaled !== undefined) {
+            description += ` - Score: ${Math.round(activity.result_score_scaled)}%`;
+          }
+        } else if (activity.verb === 'passed' || activity.result_success === true) {
+          type = 'completion';
+          title = 'Assessment Passed';
+          description = activity.object_name || 'Assessment';
+          if (activity.result_score_scaled !== null && activity.result_score_scaled !== undefined) {
+            description += ` - Score: ${Math.round(activity.result_score_scaled)}%`;
+          }
+        } else if (activity.verb === 'watched' || activity.verb === 'viewed') {
+          type = 'assignment';
+          title = 'Content Viewed';
+          description = activity.object_name || activity.object_type;
+        } else {
+          type = 'assignment';
+          title = activity.verb ? activity.verb.charAt(0).toUpperCase() + activity.verb.slice(1) : 'Activity';
+          description = activity.object_name || activity.object_type;
+        }
+      } else {
+        // Admin activity from activity_logs
+        title = activity.action || 'Activity';
+        description = activity.details?.description || activity.action || '';
+
+        if (activity.action === 'completion') {
+          type = 'completion';
+          title = 'Training Module Completed';
+          const trackTitle = activity.details?.track_title || 'Training';
+          const score = activity.details?.score;
+          description = `${trackTitle}${score ? ` - Score: ${score}%` : ''}`;
+        } else if (activity.action === 'certification') {
+          type = 'certification';
+          title = 'New Certification Earned';
+          description = activity.details?.certification_name || 'Certification';
+        } else if (activity.action === 'assignment') {
+          type = 'assignment';
+          title = 'New Content Assigned';
+          description = activity.details?.playlist_title || 'Content';
+        }
       }
 
       return {
