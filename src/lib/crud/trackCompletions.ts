@@ -7,6 +7,7 @@
 import { supabase } from '../supabase';
 import { createNotification } from './notifications';
 import { logActivity } from './activity';
+import { updateAssignmentProgress } from './progressCalculations';
 
 // ============================================================================
 // TYPES
@@ -187,7 +188,13 @@ export async function recordTrackCompletion(input: TrackCompletionInput): Promis
 
   // 5. Update assignment progress & check certifications
   if (assignmentId) {
-    updateAssignmentProgressAsync(assignmentId, userId);
+    // Use the new progress calculation system
+    updateAssignmentProgress(assignmentId).catch(error => {
+      console.error('Failed to update assignment progress:', error);
+    });
+  } else {
+    // If no assignmentId, check all assignments for this user that include this track
+    updateAllRelevantAssignmentsAsync(userId, trackId);
   }
 
   if (status === 'passed' || status === 'completed') {
@@ -198,39 +205,35 @@ export async function recordTrackCompletion(input: TrackCompletionInput): Promis
   return completion;
 }
 
-// Async helpers (don't block main function)
-async function updateAssignmentProgressAsync(assignmentId: string, userId: string) {
+// Async helper: Update all assignments for a user that include this track
+async function updateAllRelevantAssignmentsAsync(userId: string, trackId: string) {
   try {
-    const { data: assignment } = await supabase
+    // Find assignments for this user that include this track
+    const { data: userAssignments } = await supabase
       .from('assignments')
-      .select('id, user_id, playlist_id, playlists!inner(id, playlist_tracks(track_id))')
-      .eq('id', assignmentId)
-      .single();
+      .select('id, playlist_id')
+      .eq('user_id', userId);
 
-    if (!assignment) return;
+    if (!userAssignments) return;
 
-    const playlistTracks = (assignment.playlists as any).playlist_tracks || [];
-    const totalTracks = playlistTracks.length;
-    if (totalTracks === 0) return;
+    for (const assignment of userAssignments) {
+      // Check if this track is in the assignment's playlist
+      const { data: playlistTrack } = await supabase
+        .from('playlist_tracks')
+        .select('id')
+        .eq('playlist_id', assignment.playlist_id)
+        .eq('track_id', trackId)
+        .maybeSingle();
 
-    const trackIds = playlistTracks.map((pt: any) => pt.track_id);
-    const { count } = await supabase
-      .from('track_completions')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .in('track_id', trackIds);
-
-    const progressPercent = Math.round(((count || 0) / totalTracks) * 100);
-    await supabase
-      .from('assignments')
-      .update({
-        progress_percent: progressPercent,
-        status: progressPercent === 100 ? 'completed' : progressPercent > 0 ? 'in_progress' : 'assigned',
-        completed_at: progressPercent === 100 ? new Date().toISOString() : null
-      })
-      .eq('id', assignmentId);
+      if (playlistTrack) {
+        // This track is part of this assignment - update progress
+        await updateAssignmentProgress(assignment.id);
+        console.log(`✅ Updated progress for assignment ${assignment.id}`);
+      }
+    }
   } catch (error) {
-    console.error('Failed to update assignment progress:', error);
+    console.error('Error updating relevant assignments:', error);
+    // Don't throw - completion was successful, progress update is secondary
   }
 }
 

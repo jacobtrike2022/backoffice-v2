@@ -284,8 +284,8 @@ export async function getStorePerformanceData(organizationId: string) {
         const employeeIds = employees?.map(e => e.id) || [];
         const employeeCount = employeeIds.length;
 
-        // Get active assignments for these employees
-        const { data: assignments, error: assignError } = await supabase
+        // Get active assignments for these employees (for count)
+        const { data: activeAssignments, error: assignError } = await supabase
           .from('assignments')
           .select('id, status')
           .in('user_id', employeeIds)
@@ -295,23 +295,38 @@ export async function getStorePerformanceData(organizationId: string) {
           console.error('Error fetching assignments:', assignError);
         }
 
-        const assignmentCount = assignments?.length || 0;
+        const assignmentCount = activeAssignments?.length || 0;
 
-        // Get progress data for these employees
-        const { data: progressData, error: progressError } = await supabase
-          .from('user_progress')
-          .select('user_id, progress_percent, status')
+        // Get progress data from track_completions (source of truth)
+        // Get all assignments for these employees (for progress calculation)
+        const { data: allAssignments } = await supabase
+          .from('assignments')
+          .select('id, user_id, playlist_id')
           .in('user_id', employeeIds);
 
-        if (progressError) {
-          console.error('Error fetching progress:', progressError);
-        }
+        // Get all track completions for these employees
+        const { data: completions } = await supabase
+          .from('track_completions')
+          .select('track_id, user_id')
+          .in('user_id', employeeIds);
 
-        // Calculate WEIGHTED average progress (total completed / total assigned)
+        // Calculate WEIGHTED average progress (completed tracks / total tracks in assignments)
         let avgProgress = 0;
-        if (progressData && progressData.length > 0) {
-          const completedCount = progressData.filter(p => p.status === 'completed').length;
-          avgProgress = Math.round((completedCount / progressData.length) * 100);
+        if (allAssignments && allAssignments.length > 0) {
+          const playlistIds = [...new Set(allAssignments.map(a => a.playlist_id).filter(Boolean))];
+          if (playlistIds.length > 0) {
+            const { data: playlistTracks } = await supabase
+              .from('playlist_tracks')
+              .select('track_id, playlist_id')
+              .in('playlist_id', playlistIds);
+
+            const totalTracks = playlistTracks?.length || 0;
+            const completedTracks = completions?.length || 0;
+            
+            if (totalTracks > 0) {
+              avgProgress = Math.round((completedTracks / totalTracks) * 100);
+            }
+          }
         }
 
         // Determine status based on avgProgress
@@ -429,28 +444,40 @@ export async function getStores(filters?: {
 
         const employeeCount = employees?.length || 0;
 
-        // Get progress data for employees at this store
-        const { data: progressData, error: progressError } = await supabase
-          .from('user_progress')
-          .select('user_id, progress_percent, status')
-          .in('user_id', employees?.map(e => e.id) || []);
+        // Get progress data from track_completions (source of truth)
+        const employeeIds = employees?.map(e => e.id) || [];
+        
+        // Get all assignments for these employees
+        const { data: assignments } = await supabase
+          .from('assignments')
+          .select('id, user_id, playlist_id')
+          .in('user_id', employeeIds);
 
-        if (progressError) {
-          console.error('Error fetching progress:', progressError);
-        }
+        // Get all track completions for these employees
+        const { data: completions } = await supabase
+          .from('track_completions')
+          .select('track_id, user_id')
+          .in('user_id', employeeIds);
 
-        // Calculate WEIGHTED average progress (total completed / total assigned)
+        // Calculate avgProgress: completed tracks / total tracks in assignments
         let avgProgress = 0;
-        if (progressData && progressData.length > 0) {
-          const completedCount = progressData.filter(p => p.status === 'completed').length;
-          avgProgress = Math.round((completedCount / progressData.length) * 100);
-        }
-
-        // Calculate compliance (percentage of completed assignments)
         let compliance = 0;
-        if (progressData && progressData.length > 0) {
-          const completedCount = progressData.filter(p => p.status === 'completed').length;
-          compliance = Math.round((completedCount / progressData.length) * 100);
+        
+        if (assignments && assignments.length > 0) {
+          // Get all unique tracks from assignments
+          const playlistIds = [...new Set(assignments.map(a => a.playlist_id).filter(Boolean))];
+          const { data: playlistTracks } = await supabase
+            .from('playlist_tracks')
+            .select('track_id, playlist_id')
+            .in('playlist_id', playlistIds);
+
+          const totalTracks = playlistTracks?.length || 0;
+          const completedTracks = completions?.length || 0;
+          
+          if (totalTracks > 0) {
+            avgProgress = Math.round((completedTracks / totalTracks) * 100);
+            compliance = avgProgress; // Use same calculation for compliance
+          }
         }
 
         // Determine performance level based on avgProgress

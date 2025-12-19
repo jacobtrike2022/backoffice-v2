@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -34,6 +34,7 @@ import { EmployeeProfile } from './EmployeeProfile';
 import { EditPeopleDialog } from './EditPeopleDialog';
 import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
+import { calculateUserOverallProgress } from '../lib/crud/progressCalculations';
 import { toast } from 'sonner@2.0.3';
 import { Edit } from 'lucide-react';
 
@@ -77,12 +78,54 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   const { stores } = useStores({ organization_id: currentUser?.organization_id });
 
   // Fetch users from Supabase
-  const { users, loading, error, refetch } = useUsers({
+  const { users: fetchedUsers, loading, error, refetch } = useUsers({
     search: searchQuery || undefined,
     role_id: selectedRoles.length > 0 ? selectedRoles[0] : undefined,
     store_id: selectedStores.length > 0 ? selectedStores[0] : undefined,
     status: selectedStatus.length > 0 ? selectedStatus[0] as any : 'active'
   });
+
+  // State for users with calculated progress
+  const [users, setUsers] = useState<any[]>([]);
+
+  // Calculate overall progress for each user
+  useEffect(() => {
+    async function calculateProgresses() {
+      if (fetchedUsers.length === 0) {
+        setUsers([]);
+        return;
+      }
+
+      try {
+        const usersWithProgress = await Promise.all(
+          fetchedUsers.map(async (user) => {
+            try {
+              const overallProgress = await calculateUserOverallProgress(user.id);
+              return {
+                ...user,
+                overallProgress
+              };
+            } catch (error) {
+              console.error(`Error calculating progress for user ${user.id}:`, error);
+              // Return user with 0 progress on error
+              return {
+                ...user,
+                overallProgress: 0
+              };
+            }
+          })
+        );
+
+        setUsers(usersWithProgress);
+      } catch (error) {
+        console.error('Error calculating user progresses:', error);
+        // Fallback to users without progress calculation
+        setUsers(fetchedUsers.map(user => ({ ...user, overallProgress: 0 })));
+      }
+    }
+
+    calculateProgresses();
+  }, [fetchedUsers]);
 
   // Get unique values for filters from loaded data
   const uniqueRoles = Array.from(new Set(users.map(emp => emp.role?.name).filter(Boolean)));
@@ -522,18 +565,15 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
                       <div className="flex items-center space-x-6">
                         <div className="text-right">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Training Progress</p>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Overall Progress</p>
                           <div className="flex items-center space-x-2">
-                            <div className="w-24">
-                              <Progress 
-                                value={progress} 
-                                className="h-1.5"
-                                indicatorClassName={getProgressColor(progress)}
+                            <span className="text-sm font-medium">{employee.overallProgress || 0}%</span>
+                            <div className="w-24 h-2 bg-accent rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-primary transition-all"
+                                style={{ width: `${employee.overallProgress || 0}%` }}
                               />
                             </div>
-                            <span className="text-xs font-semibold text-foreground w-10 text-right">
-                              {progress}%
-                            </span>
                           </div>
                         </div>
 

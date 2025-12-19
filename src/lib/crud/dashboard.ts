@@ -49,23 +49,35 @@ export async function getOrganizationStats(organizationId: string) {
       };
     }
 
-    // Calculate WEIGHTED average completion using user_progress (TRACKS, not playlists)
+    // Calculate WEIGHTED average completion using track_completions (source of truth)
     // Company completion = Total completed tracks / Total assigned tracks
-    const { count: completedTracks } = await supabase
-      .from('user_progress')
-      .select('id', { count: 'exact', head: true })
-      .in('user_id', userIds)
-      .eq('status', 'completed');
+    
+    // Get all assignments to know which tracks are assigned
+    const { data: assignments } = await supabase
+      .from('assignments')
+      .select('playlist_id')
+      .in('user_id', userIds);
 
-    // Get total track progress records (all assigned tracks)
-    const { count: totalProgressRecords } = await supabase
-      .from('user_progress')
+    // Get all unique tracks from assignments
+    const playlistIds = [...new Set(assignments?.map(a => a.playlist_id).filter(Boolean) || [])];
+    let totalTracks = 0;
+    if (playlistIds.length > 0) {
+      const { count: trackCount } = await supabase
+        .from('playlist_tracks')
+        .select('id', { count: 'exact', head: true })
+        .in('playlist_id', playlistIds);
+      totalTracks = trackCount || 0;
+    }
+
+    // Get completed tracks from track_completions
+    const { count: completedTracks } = await supabase
+      .from('track_completions')
       .select('id', { count: 'exact', head: true })
       .in('user_id', userIds);
 
     // Calculate weighted average completion
-    const avgCompletion = totalProgressRecords && totalProgressRecords > 0
-      ? Math.round(((completedTracks || 0) / totalProgressRecords) * 100)
+    const avgCompletion = totalTracks > 0
+      ? Math.round(((completedTracks || 0) / totalTracks) * 100)
       : 0;
 
     // Get active assignments count

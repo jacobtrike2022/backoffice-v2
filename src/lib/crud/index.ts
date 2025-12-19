@@ -12,6 +12,7 @@ export * from './assignments';
 // Progress Tracking
 export * from './progress';
 export * from './trackCompletions'; // NEW: Dual-write system
+export * from './progressCalculations'; // Real-time progress calculation
 
 // PIN Authentication
 export * from './pinAuth'; // Quick login for QR codes

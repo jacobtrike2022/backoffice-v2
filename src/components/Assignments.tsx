@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -12,7 +12,8 @@ import {
   Clock,
   AlertCircle,
   PlaySquare,
-  MoreVertical
+  MoreVertical,
+  RefreshCw
 } from 'lucide-react';
 import { Input } from './ui/input';
 import {
@@ -28,76 +29,34 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { recalculateAllProgress } from '../lib/crud/progressCalculations';
+import { toast } from 'sonner@2.0.3';
 
 interface Assignment {
   id: string;
-  title: string;
-  type: 'playlist' | 'album' | 'track';
-  assignedTo: string;
-  dueDate: string;
-  status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
-  completionRate: number;
-  assignedBy: string;
-  createdDate: string;
+  organization_id: string;
+  user_id: string;
+  playlist_id: string;
+  assigned_by: string;
+  assigned_at: string;
+  due_date: string | null;
+  status: string;
+  progress_percent: number;
+  // Joined data
+  playlist?: {
+    title: string;
+    type: string;
+  };
+  user?: {
+    first_name: string;
+    last_name: string;
+  };
+  assigner?: {
+    first_name: string;
+    last_name: string;
+  };
 }
-
-const mockAssignments: Assignment[] = [
-  {
-    id: '1',
-    title: 'Q1 Mandatory Training',
-    type: 'playlist',
-    assignedTo: 'All Employees',
-    dueDate: '2024-03-31',
-    status: 'in-progress',
-    completionRate: 67,
-    assignedBy: 'Sarah Johnson',
-    createdDate: '2024-01-15'
-  },
-  {
-    id: '2',
-    title: 'Food Safety Certification',
-    type: 'album',
-    assignedTo: 'Kitchen Staff',
-    dueDate: '2024-02-15',
-    status: 'completed',
-    completionRate: 100,
-    assignedBy: 'Mike Chen',
-    createdDate: '2024-01-10'
-  },
-  {
-    id: '3',
-    title: 'New Manager Onboarding',
-    type: 'playlist',
-    assignedTo: 'James Wilson',
-    dueDate: '2024-02-28',
-    status: 'in-progress',
-    completionRate: 45,
-    assignedBy: 'Sarah Johnson',
-    createdDate: '2024-02-01'
-  },
-  {
-    id: '4',
-    title: 'Cash Handling Best Practices',
-    type: 'track',
-    assignedTo: 'Front of House',
-    dueDate: '2024-02-10',
-    status: 'overdue',
-    completionRate: 34,
-    assignedBy: 'Sarah Johnson',
-    createdDate: '2024-01-20'
-  },
-  {
-    id: '5',
-    title: 'Allergen Management Protocol',
-    type: 'album',
-    assignedTo: 'All Stores - District 5',
-    dueDate: '2024-03-15',
-    status: 'not-started',
-    completionRate: 0,
-    assignedBy: 'Regional Manager',
-    createdDate: '2024-02-05'
-  }
-];
 
 interface AssignmentsProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
@@ -107,17 +66,81 @@ interface AssignmentsProps {
 export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: AssignmentsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterType, setFilterType] = useState<string>('all');
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [recalculating, setRecalculating] = useState(false);
 
-  const filteredAssignments = mockAssignments.filter(assignment => {
+  const fetchAssignments = async () => {
+    try {
+      setLoading(true);
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) return;
+
+      const { data, error } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          playlist:playlists(title, type),
+          user:users!user_id(first_name, last_name),
+          assigner:users!assigned_by(first_name, last_name)
+        `)
+        .eq('organization_id', orgId)
+        .order('assigned_at', { ascending: false });
+
+      if (error) throw error;
+      setAssignments(data || []);
+    } catch (error) {
+      console.error('Error fetching assignments:', error);
+      toast.error('Failed to load assignments');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAssignments();
+  }, []);
+
+  const handleRecalculateProgress = async () => {
+    try {
+      setRecalculating(true);
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) {
+        toast.error('Organization not found');
+        return;
+      }
+
+      toast.info('Recalculating progress for all assignments...');
+      const result = await recalculateAllProgress(orgId);
+      
+      if (result.success) {
+        toast.success(`Progress recalculated: ${result.processed} assignments updated`);
+        if (result.errors > 0) {
+          toast.warning(`${result.errors} assignments had errors`);
+        }
+        await fetchAssignments();
+      } else {
+        toast.error('Failed to recalculate progress');
+      }
+    } catch (error) {
+      console.error('Error recalculating progress:', error);
+      toast.error('Failed to recalculate progress');
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  const filteredAssignments = assignments.filter(assignment => {
+    const playlistTitle = assignment.playlist?.title || '';
+    const userName = assignment.user ? 
+      `${assignment.user.first_name} ${assignment.user.last_name}` : '';
     const matchesSearch = searchQuery === '' || 
-      assignment.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      assignment.assignedTo.toLowerCase().includes(searchQuery.toLowerCase());
+      playlistTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      userName.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = filterStatus === 'all' || assignment.status === filterStatus;
-    const matchesType = filterType === 'all' || assignment.type === filterType;
     
-    return matchesSearch && matchesStatus && matchesType;
+    return matchesSearch && matchesStatus;
   });
 
   const getStatusBadge = (status: string) => {
@@ -127,7 +150,7 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
           <CheckCircle className="h-3 w-3 mr-1" />
           Completed
         </Badge>;
-      case 'in-progress':
+      case 'in_progress':
         return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0">
           <Clock className="h-3 w-3 mr-1" />
           In Progress
@@ -139,44 +162,35 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
         </Badge>;
       default:
         return <Badge variant="outline">
-          Not Started
+          Assigned
         </Badge>;
     }
-  };
-
-  const getTypeBadge = (type: string) => {
-    const colors = {
-      playlist: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      album: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-      track: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-    };
-    return <Badge className={`${colors[type as keyof typeof colors]} border-0 capitalize`}>
-      {type}
-    </Badge>;
   };
 
   const stats = [
     {
       label: 'Active Assignments',
-      value: mockAssignments.filter(a => a.status === 'in-progress').length,
+      value: assignments.filter(a => a.status === 'in_progress').length,
       icon: Clock,
       color: 'text-blue-600 dark:text-blue-400'
     },
     {
       label: 'Completed',
-      value: mockAssignments.filter(a => a.status === 'completed').length,
+      value: assignments.filter(a => a.status === 'completed').length,
       icon: CheckCircle,
       color: 'text-green-600 dark:text-green-400'
     },
     {
-      label: 'Overdue',
-      value: mockAssignments.filter(a => a.status === 'overdue').length,
-      icon: AlertCircle,
-      color: 'text-red-600 dark:text-red-400'
+      label: 'Total Assignments',
+      value: assignments.length,
+      icon: PlaySquare,
+      color: 'text-primary'
     },
     {
       label: 'Average Completion',
-      value: `${Math.round(mockAssignments.reduce((acc, a) => acc + a.completionRate, 0) / mockAssignments.length)}%`,
+      value: assignments.length > 0 
+        ? `${Math.round(assignments.reduce((acc, a) => acc + (a.progress_percent || 0), 0) / assignments.length)}%`
+        : '0%',
       icon: Users,
       color: 'text-primary'
     }
@@ -192,15 +206,25 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
             Manage and track training assignments across your organization
           </p>
         </div>
-        {currentRole === 'admin' && (
+        <div className="flex items-center gap-2">
           <Button 
-            className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-            onClick={onOpenAssignmentWizard}
+            variant="outline"
+            onClick={handleRecalculateProgress}
+            disabled={recalculating || loading}
           >
-            <Plus className="h-4 w-4 mr-2" />
-            New Assignment
+            <RefreshCw className={`h-4 w-4 mr-2 ${recalculating ? 'animate-spin' : ''}`} />
+            Recalculate Progress
           </Button>
-        )}
+          {currentRole === 'admin' && (
+            <Button 
+              className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
+              onClick={onOpenAssignmentWizard}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Assignment
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -244,21 +268,9 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="in-progress">In Progress</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-                <SelectItem value="not-started">Not Started</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterType} onValueChange={setFilterType}>
-              <SelectTrigger className="w-full lg:w-[180px]">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="playlist">Playlists</SelectItem>
-                <SelectItem value="album">Albums</SelectItem>
-                <SelectItem value="track">Tracks</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -266,72 +278,77 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       </Card>
 
       {/* Assignments List */}
-      <div className="space-y-4">
-        {filteredAssignments.map((assignment) => (
-          <Card key={assignment.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="font-semibold">{assignment.title}</h3>
-                    {getTypeBadge(assignment.type)}
-                    {getStatusBadge(assignment.status)}
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading assignments...</p>
+        </div>
+      ) : assignments.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No assignments found</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredAssignments.map((assignment) => (
+            <Card key={assignment.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  {/* Playlist title */}
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg">
+                      {assignment.playlist?.title || 'Unknown Playlist'}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Assigned to: {assignment.user ? 
+                        `${assignment.user.first_name} ${assignment.user.last_name}` : 
+                        'Unknown User'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Assigned: {new Date(assignment.assigned_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-muted-foreground mb-4">
-                    <div className="flex items-center space-x-2">
-                      <Users className="h-4 w-4" />
-                      <span>Assigned to: <strong>{assignment.assignedTo}</strong></span>
+
+                  {/* Progress bar */}
+                  <div className="flex items-center gap-4">
+                    <div className="text-right min-w-[120px]">
+                      <p className="text-sm font-medium mb-1">
+                        Progress: {assignment.progress_percent}%
+                      </p>
+                      <div className="w-32 h-2.5 bg-accent rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary transition-all duration-300"
+                          style={{ width: `${assignment.progress_percent}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="h-4 w-4" />
-                      <span>Due: <strong>{new Date(assignment.dueDate).toLocaleDateString()}</strong></span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <PlaySquare className="h-4 w-4" />
-                      <span>Created by: <strong>{assignment.assignedBy}</strong></span>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-muted-foreground">Completion Progress</span>
-                      <span className="text-sm font-semibold">{assignment.completionRate}%</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full transition-all ${
-                          assignment.status === 'completed' ? 'bg-green-500' :
-                          assignment.status === 'overdue' ? 'bg-red-500' :
-                          'bg-brand-gradient'
-                        }`}
-                        style={{ width: `${assignment.completionRate}%` }}
-                      />
-                    </div>
+
+                    {/* Status badge */}
+                    <Badge 
+                      variant={
+                        assignment.status === 'completed' ? 'default' :
+                        assignment.status === 'in_progress' ? 'secondary' :
+                        'outline'
+                      }
+                      className="min-w-[100px] justify-center"
+                    >
+                      {assignment.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </Badge>
+
+                    {/* Due date */}
+                    {assignment.due_date && (
+                      <div className="text-sm text-muted-foreground min-w-[100px] text-right">
+                        Due: {new Date(assignment.due_date).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>View Details</DropdownMenuItem>
-                    <DropdownMenuItem>View Progress</DropdownMenuItem>
-                    {currentRole === 'admin' && (
-                      <>
-                        <DropdownMenuItem>Edit Assignment</DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">Remove Assignment</DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {filteredAssignments.length === 0 && (
+      {!loading && filteredAssignments.length === 0 && assignments.length > 0 && (
         <Card>
           <CardContent className="p-12 text-center">
             <Search className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
@@ -344,7 +361,6 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
               onClick={() => {
                 setSearchQuery('');
                 setFilterStatus('all');
-                setFilterType('all');
               }}
             >
               Clear all filters

@@ -180,11 +180,56 @@ export async function getUsers(filters: {
   const userIds = users.map(u => u.id);
 
   // Use database aggregations instead of fetching all records
-  // Get progress stats aggregated by user
-  const { data: progressStats } = await supabase
-    .from('user_progress')
-    .select('user_id, status, score')
+  // Get progress stats from track_completions (source of truth)
+  // Get all assignments to know which tracks are assigned
+  const { data: assignments } = await supabase
+    .from('assignments')
+    .select('id, user_id, playlist_id')
     .in('user_id', userIds);
+
+  // Get all track completions
+  const { data: trackCompletions } = await supabase
+    .from('track_completions')
+    .select('track_id, user_id, score, passed')
+    .in('user_id', userIds);
+
+  // Build track assignment map: user_id -> set of track_ids from their assignments
+  const tracksByUser: Record<string, Set<string>> = {};
+  if (assignments) {
+    const playlistIds = [...new Set(assignments.map(a => a.playlist_id).filter(Boolean))];
+    if (playlistIds.length > 0) {
+      const { data: playlistTracks } = await supabase
+        .from('playlist_tracks')
+        .select('track_id, playlist_id')
+        .in('playlist_id', playlistIds);
+
+      assignments.forEach(assignment => {
+        if (!tracksByUser[assignment.user_id]) {
+          tracksByUser[assignment.user_id] = new Set();
+        }
+        playlistTracks?.forEach(pt => {
+          if (pt.playlist_id === assignment.playlist_id) {
+            tracksByUser[assignment.user_id].add(pt.track_id);
+          }
+        });
+      });
+    }
+  }
+
+  // Build progress stats from track_completions
+  const progressStats = userIds.map(userId => {
+    const assignedTracks = tracksByUser[userId] || new Set();
+    const userCompletions = trackCompletions?.filter(tc => tc.user_id === userId) || [];
+    const completedTracks = userCompletions.filter(tc => assignedTracks.has(tc.track_id));
+    
+    return {
+      user_id: userId,
+      status: completedTracks.length > 0 ? 'completed' : 'in_progress',
+      score: completedTracks.length > 0 
+        ? Math.round(completedTracks.reduce((sum, tc) => sum + (tc.score || 0), 0) / completedTracks.length)
+        : null
+    };
+  });
 
   // Get assignment counts aggregated by user
   const { data: assignmentStats } = await supabase
