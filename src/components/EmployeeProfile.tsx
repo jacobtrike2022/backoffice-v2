@@ -428,31 +428,25 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
         .filter(a => {
           if (!a.due_date) return false;
           const dueDate = new Date(a.due_date);
+          if (dueDate <= now) return false;
+          
           // Check if assignment has incomplete tracks
-          const assignmentTracks = assignedTracks.filter(pt => 
-            playlistIds.includes(a.playlist_id) && 
-            playlistIds.some(pid => {
-              const ptPlaylistId = assignedTracks.find(apt => apt.track_id === pt.track_id)?.playlist_id;
-              return ptPlaylistId === a.playlist_id;
-            })
-          );
+          const assignmentTracks = assignedTracks.filter(pt => pt.playlist_id === a.playlist_id);
+          if (assignmentTracks.length === 0) return false;
+          
           const hasIncompleteTracks = assignmentTracks.some(pt => {
             const completion = completionMap.get(pt.track_id);
             return !completion || (completion.status !== 'completed' && completion.status !== 'passed');
           });
-          return dueDate > now && hasIncompleteTracks;
+          return hasIncompleteTracks;
         })
         .map(a => {
           const dueDate = new Date(a.due_date);
           const daysRemaining = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          // Get playlist name for display
-          const playlistTracks = assignedTracks.filter(pt => {
-            // Find tracks for this assignment's playlist
-            return true; // Simplified - would need playlist lookup
-          });
+          const assignmentTracks = assignedTracks.filter(pt => pt.playlist_id === a.playlist_id);
           return {
             id: a.id,
-            trackTitle: `Assignment (${playlistTracks.length} tracks)`,
+            trackTitle: `Assignment (${assignmentTracks.length} tracks)`,
             dueDate: a.due_date,
             daysRemaining
           };

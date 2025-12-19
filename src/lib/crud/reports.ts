@@ -92,10 +92,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
         status,
         playlist:playlists(
           id,
-          title,
-          album:playlist_albums(
-            album:albums(title)
-          )
+          title
         )
       `)
       .in('user_id', userIds);
@@ -104,6 +101,25 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
 
     // Get all playlist tracks
     const playlistIds = [...new Set((assignments || []).map(a => a.playlist_id).filter(Boolean))];
+    
+    // Get albums for playlists separately
+    const { data: playlistAlbums, error: albumsError } = await supabase
+      .from('playlist_albums')
+      .select(`
+        playlist_id,
+        album:albums(title)
+      `)
+      .in('playlist_id', playlistIds.length > 0 ? playlistIds : ['00000000-0000-0000-0000-000000000000']);
+
+    if (albumsError) throw albumsError;
+    
+    // Build album map: playlist_id -> album title
+    const albumMap = new Map<string, string>();
+    (playlistAlbums || []).forEach((pa: any) => {
+      if (pa.album && pa.album.title) {
+        albumMap.set(pa.playlist_id, pa.album.title);
+      }
+    });
     const { data: playlistTracks, error: tracksError } = await supabase
       .from('playlist_tracks')
       .select(`
@@ -187,7 +203,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
           }
 
           // Get album name (if any)
-          const album = assignment.playlist?.album?.[0]?.album?.title || 'N/A';
+          const album = albumMap.get(assignment.playlist_id) || 'N/A';
 
           records.push({
             id: `${user.id}-${assignment.id}-${pt.track_id}`,

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -41,7 +41,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { getLearnerRecords, type LearnerRecord as LearnerRecordType } from '../lib/crud/reports';
-import { useEffect, useState } from 'react';
 
 // Mock date formatting function since date-fns is not available
 const format = (date: Date, formatStr: string) => {
