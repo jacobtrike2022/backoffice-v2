@@ -84,12 +84,19 @@ export async function getPlaylists(filters: {
     .in('playlist_id', playlistIds)
     .order('display_order', { ascending: true });
 
-  // Batch query 3: Get all assignment counts for all playlists at once
+  // Batch query 3: Get all assignments for all playlists at once
   const { data: allAssignments } = await supabase
     .from('assignments')
-    .select('playlist_id, progress_percent, status')
+    .select('id, playlist_id, user_id, progress_percent, status')
     .in('playlist_id', playlistIds)
     .in('status', ['assigned', 'in_progress', 'completed']);
+
+  // Batch query 4: Get all track completions for users with assignments
+  const userIds = [...new Set((allAssignments || []).map((a: any) => a.user_id).filter(Boolean))];
+  const { data: allCompletions } = await supabase
+    .from('track_completions')
+    .select('track_id, user_id, status')
+    .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000']);
 
   // Build lookup maps
   const albumCountByPlaylist: Record<string, number> = {};
@@ -120,12 +127,13 @@ export async function getPlaylists(filters: {
     trackCountByPlaylist[playlistId] = tracksByPlaylist[playlistId].length;
   });
 
-  const assignmentsByPlaylist: Record<string, { progress_percent: number; status: string }[]> = {};
+  const assignmentsByPlaylist: Record<string, { user_id: string; progress_percent: number; status: string }[]> = {};
   (allAssignments as any[])?.forEach((a: any) => {
     if (!assignmentsByPlaylist[a.playlist_id]) {
       assignmentsByPlaylist[a.playlist_id] = [];
     }
     assignmentsByPlaylist[a.playlist_id].push({
+      user_id: a.user_id,
       progress_percent: a.progress_percent || 0,
       status: a.status,
     });
@@ -136,16 +144,41 @@ export async function getPlaylists(filters: {
     assignmentCountByPlaylist[playlistId] = assignmentsByPlaylist[playlistId].length;
   });
 
+  // Build completion map: user_id -> set of completed track_ids
+  const completionsByUser: Record<string, Set<string>> = {};
+  (allCompletions || []).forEach((c: any) => {
+    if (!completionsByUser[c.user_id]) {
+      completionsByUser[c.user_id] = new Set();
+    }
+    if (c.status === 'completed' || c.status === 'passed') {
+      completionsByUser[c.user_id].add(c.track_id);
+    }
+  });
+
   // Enrich each playlist with data from lookup maps
   const enrichedPlaylists = playlists.map((playlist: any) => {
     const playlistTracks = tracksByPlaylist[playlist.id] || [];
     const track_ids = playlistTracks.map((pt: any) => pt.track_id).filter(Boolean);
+    const requiredTrackIds = new Set(track_ids);
     
     const assignments = assignmentsByPlaylist[playlist.id] || [];
-    const completedCount = assignments.filter((a: any) => a.status === 'completed').length;
     const totalAssignments = assignments.length;
+    
+    // Calculate completion rate based on track_completions
+    // A user has "completed" the playlist if they've completed all tracks in it
+    let completedUsers = 0;
+    assignments.forEach((assignment: any) => {
+      const userCompletions = completionsByUser[assignment.user_id] || new Set();
+      // Check if user has completed all required tracks
+      const hasCompletedAll = track_ids.length > 0 && 
+        track_ids.every(trackId => userCompletions.has(trackId));
+      if (hasCompletedAll) {
+        completedUsers++;
+      }
+    });
+    
     const completionRate = totalAssignments > 0 
-      ? Math.round((completedCount / totalAssignments) * 100)
+      ? Math.round((completedUsers / totalAssignments) * 100)
       : 0;
 
     const avgProgress = totalAssignments > 0

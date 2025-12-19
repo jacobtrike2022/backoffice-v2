@@ -419,30 +419,85 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     try {
       setTabLoading(prev => ({ ...prev, progress: true }));
       
-      const { data: progressData, error: progressError } = await supabase
-        .from('user_progress')
+      // Get all assignments for this user
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from('assignments')
+        .select('id, playlist_id, due_date, status')
+        .eq('user_id', employee.id);
+
+      if (assignmentsError) throw assignmentsError;
+
+      if (!assignments || assignments.length === 0) {
+        setProgressData([]);
+        return;
+      }
+
+      // Get all tracks from assigned playlists
+      const playlistIds = [...new Set(assignments.map(a => a.playlist_id).filter(Boolean))];
+      const { data: playlistTracks, error: tracksError } = await supabase
+        .from('playlist_tracks')
         .select(`
-          *,
+          track_id,
+          playlist_id,
+          display_order,
           track:tracks (
             id,
             title,
             type,
             duration_minutes
-          ),
-          assignment:assignments (
-            id,
-            due_date
           )
         `)
+        .in('playlist_id', playlistIds);
+
+      if (tracksError) throw tracksError;
+
+      // Get all track completions for this user
+      const trackIds = playlistTracks?.map(pt => pt.track_id).filter(Boolean) || [];
+      const { data: completions, error: completionsError } = await supabase
+        .from('track_completions')
+        .select('track_id, status, completed_at, score, passed')
         .eq('user_id', employee.id)
-        .order('updated_at', { ascending: false }) as { data: any[] | null; error: any };
+        .in('track_id', trackIds);
 
-      if (progressError) throw progressError;
+      if (completionsError) throw completionsError;
 
-      setProgressData((progressData || []) as any[]);
+      // Build completion map
+      const completionMap = new Map(
+        completions?.map(c => [c.track_id, c]) || []
+      );
+
+      // Build assignment map for due dates
+      const assignmentMap = new Map(
+        assignments.map(a => [a.playlist_id, a])
+      );
+
+      // Combine data: for each track, show progress based on completion
+      const progressData = (playlistTracks || []).map((pt: any) => {
+        const track = pt.track;
+        const completion = completionMap.get(pt.track_id);
+        const assignment = assignmentMap.get(pt.playlist_id);
+        
+        return {
+          id: `${assignment?.id}-${pt.track_id}`,
+          track_id: pt.track_id,
+          assignment_id: assignment?.id,
+          track: track,
+          assignment: assignment,
+          status: completion?.status || 'not_started',
+          progress_percent: completion ? 100 : 0,
+          completed_at: completion?.completed_at,
+          score: completion?.score,
+          passed: completion?.passed,
+          due_date: assignment?.due_date,
+          updated_at: completion?.completed_at || assignment?.created_at
+        };
+      });
+
+      setProgressData(progressData);
     } catch (err) {
       console.error('Error fetching progress data:', err);
       toast.error('Failed to load progress data');
+      setProgressData([]);
     } finally {
       setTabLoading(prev => ({ ...prev, progress: false }));
     }

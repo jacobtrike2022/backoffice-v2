@@ -69,11 +69,12 @@ export async function getOrganizationStats(organizationId: string) {
       totalTracks = trackCount || 0;
     }
 
-    // Get completed tracks from track_completions
+    // Get completed tracks from track_completions (filter by status='completed' or 'passed')
     const { count: completedTracks } = await supabase
       .from('track_completions')
       .select('id', { count: 'exact', head: true })
-      .in('user_id', userIds);
+      .in('user_id', userIds)
+      .in('status', ['completed', 'passed']);
 
     // Calculate weighted average completion
     const avgCompletion = totalTracks > 0
