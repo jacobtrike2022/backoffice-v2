@@ -6,7 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogOverlay, DialogPortal } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { loginWithPin, getPinSession } from '@/lib/crud';
+import { loginWithPin, getPinSession } from '../../lib/crud/pinAuth';
 import { Lock, User, X } from 'lucide-react';
 
 interface PinLoginModalProps {
