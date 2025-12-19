@@ -45,9 +45,10 @@ interface DashboardProps {
   onNavigateToUnits?: () => void;
   onNavigateToStore?: (storeId: string) => void;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  onNavigate?: (view: string) => void;
 }
 
-export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist }: DashboardProps) {
+export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist, onNavigate }: DashboardProps) {
   const [activeView, setActiveView] = useState('overview');
   const { user, loading: userLoading } = useCurrentUser();
   const { assignments, loading: assignmentsLoading } = useAssignments(); // Shows 5 most recent active assignments with live learner counts
@@ -195,7 +196,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
   };
 
   const handleViewReports = () => {
-    if (onViewReports) {
+    if (onNavigate) {
+      onNavigate('reports');
+    } else if (onViewReports) {
       onViewReports();
     } else {
       toast.info('Reports view will be available soon');

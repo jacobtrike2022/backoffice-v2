@@ -355,9 +355,8 @@ export default function App() {
       case "dashboard":
         return (
           <Dashboard
-            role={currentRole}
+            currentRole={currentRole}
             onNavigate={requestNavigate}
-            onEditTrack={handleEditTrack}
           />
         );
       case "reports":
@@ -475,9 +474,8 @@ export default function App() {
       default:
         return (
           <Dashboard
-            role={currentRole}
+            currentRole={currentRole}
             onNavigate={requestNavigate}
-            onEditTrack={handleEditTrack}
           />
         );
     }
