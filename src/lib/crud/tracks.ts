@@ -104,7 +104,7 @@ export async function updateTrack(input: UpdateTrackInput) {
   // Also get status for brain indexing
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id, status, type, track_type')
+    .select('id, created_by, organization_id, status, type')
     .eq('id', id)
     .single();
 
