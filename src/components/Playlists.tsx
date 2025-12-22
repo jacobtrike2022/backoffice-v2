@@ -689,6 +689,90 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         </Button>
       </div>
 
+      {/* Hero Stats Header Section */}
+      {currentRole === 'admin' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Total Assignments</p>
+                  <p className="text-3xl font-bold mt-2">{playlists.reduce((sum, p) => sum + (p.assignedTo || 0), 0)}</p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center">
+                  <Library className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Completed</p>
+                  <p className="text-3xl font-bold mt-2">
+                    {playlists.reduce((sum, p) => {
+                      const completed = Math.round((p.completionRate / 100) * (p.assignedTo || 0));
+                      return sum + completed;
+                    }, 0)}
+                  </p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center">
+                  <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">In Progress</p>
+                  <p className="text-3xl font-bold mt-2">
+                    {playlists.reduce((sum, p) => {
+                      const completed = Math.round((p.completionRate / 100) * (p.assignedTo || 0));
+                      const inProgress = (p.assignedTo || 0) - completed;
+                      return sum + Math.max(0, inProgress);
+                    }, 0)}
+                  </p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+                  <Clock className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Avg Completion</p>
+                  <p className="text-3xl font-bold mt-2">
+                    {playlists.length > 0
+                      ? Math.round(
+                          playlists.reduce((sum, p) => sum + (p.completionRate || 0), 0) / playlists.length
+                        )
+                      : 0}%
+                  </p>
+                </div>
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <span className="text-xl font-bold text-primary">
+                    {playlists.length > 0
+                      ? Math.round(
+                          playlists.reduce((sum, p) => sum + (p.completionRate || 0), 0) / playlists.length
+                        )
+                      : 0}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Filters */}
       <Card>
         <CardContent className="p-4">
