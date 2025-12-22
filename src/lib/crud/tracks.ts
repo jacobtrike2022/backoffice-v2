@@ -7,6 +7,7 @@ import { getHealthStatus } from '../serverHealth';
 import { supabase, getCurrentUserOrgId } from '../supabase';
 import { compressImage } from '../utils/imageCompression';
 import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
+import { generateKeyFacts } from './facts';
 
 export interface CreateTrackInput {
   title: string;
@@ -35,6 +36,90 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
 
 // Default thumbnail URL (served from public folder)
 const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+
+/**
+ * Automate video workflow: transcribe → save transcript → generate key facts
+ * Fire-and-forget: errors are logged but don't throw
+ */
+async function automateVideoWorkflow(track: { id: string; title?: string; description?: string; content_url?: string; organization_id?: string }): Promise<void> {
+  if (!track.content_url) {
+    console.log('[Video Workflow] No content_url, skipping automation');
+    return;
+  }
+
+  try {
+    console.log(`[Video Workflow] Starting automation for track ${track.id}...`);
+
+    // Step 1: Transcribe the video
+    console.log('[Video Workflow] Step 1: Transcribing video...');
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || publicAnonKey;
+
+    const transcribeResponse = await fetch(`${getServerUrl()}/transcribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': publicAnonKey,
+      },
+      body: JSON.stringify({
+        audioUrl: track.content_url,
+        mediaType: 'video',
+        trackId: track.id,
+        forceRefresh: false,
+      }),
+    });
+
+    if (!transcribeResponse.ok) {
+      const error = await transcribeResponse.json().catch(() => ({}));
+      throw new Error(error.error || `Transcription failed: ${transcribeResponse.status}`);
+    }
+
+    const transcribeData = await transcribeResponse.json();
+    const transcriptText = transcribeData.transcript?.transcript_text || transcribeData.transcript?.text || '';
+    
+    if (!transcriptText) {
+      console.warn('[Video Workflow] No transcript text received');
+      return;
+    }
+
+    console.log(`[Video Workflow] ✓ Transcript generated (${transcriptText.length} chars)`);
+
+    // Step 2: Update track with transcript
+    console.log('[Video Workflow] Step 2: Saving transcript to track...');
+    const { error: updateError } = await supabase
+      .from('tracks')
+      .update({ transcript: transcriptText })
+      .eq('id', track.id);
+
+    if (updateError) {
+      console.error('[Video Workflow] Failed to save transcript:', updateError);
+      // Continue anyway - transcript is cached in media_transcripts
+    } else {
+      console.log('[Video Workflow] ✓ Transcript saved to track');
+    }
+
+    // Step 3: Generate key facts
+    console.log('[Video Workflow] Step 3: Generating key facts...');
+    const orgId = track.organization_id || await getCurrentUserOrgId();
+    
+    await generateKeyFacts({
+      title: track.title || 'Untitled Video',
+      description: track.description || '',
+      transcript: transcriptText,
+      trackType: 'video',
+      trackId: track.id,
+      companyId: orgId || undefined,
+    });
+
+    console.log(`[Video Workflow] ✓ Key facts generated for track ${track.id}`);
+    console.log('[Video Workflow] Automation complete!');
+
+  } catch (error) {
+    // Log but don't throw - automation failure shouldn't break track creation
+    console.error(`[Video Workflow] ✗ Automation failed for track ${track.id}:`, error);
+  }
+}
 
 /**
  * Create a new track (defaults to draft)
@@ -74,6 +159,11 @@ export async function createTrack(input: CreateTrackInput) {
 
   if (error) throw error;
 
+  // Automate video workflow: transcribe → save transcript → generate key facts
+  if (track.type === 'video' && track.content_url) {
+    automateVideoWorkflow(track).catch(() => {});
+  }
+
   // Index to Brain if published (fire-and-forget)
   if (track.status === 'published') {
     const trackType = track.type || 'article';
@@ -101,10 +191,10 @@ export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
   // First, check if track exists and user has permission
-  // Also get status for brain indexing
+  // Also get status for brain indexing and check if it's a video
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id, status, type')
+    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description')
     .eq('id', id)
     .single();
 
@@ -198,12 +288,33 @@ export async function updateTrack(input: UpdateTrackInput) {
         }
       })
       .catch(err => console.error('Failed to regenerate facts:', err.message));
-    })      .catch(err => console.error('Failed to import hash utilities:', err));
+    }).catch(err => console.error('Failed to import hash utilities:', err));
   }
   
+  // Automate video workflow if:
+  // 1. It's a video track
+  // 2. Content URL was added or changed
+  // 3. Transcript doesn't exist yet (or was cleared)
+  const isVideo = (track.type || existingTrack?.type) === 'video';
+  const newContentUrl = updateData.content_url || track.content_url;
+  const contentUrlChanged = newContentUrl && newContentUrl !== existingTrack?.content_url;
+  const hasNoTranscript = !track.transcript && !existingTrack?.transcript;
+  
+  if (isVideo && newContentUrl && (contentUrlChanged || hasNoTranscript)) {
+    // Get full track data for automation
+    const fullTrack = {
+      id: track.id,
+      title: track.title || existingTrack?.title,
+      description: track.description || existingTrack?.description,
+      content_url: newContentUrl,
+      organization_id: track.organization_id || existingTrack?.organization_id,
+    };
+    automateVideoWorkflow(fullTrack).catch(() => {});
+  }
+
   // Handle Brain indexing based on status change
   const previousStatus = existingTrack?.status;
-  const trackType = track.type || track.track_type || 'article';
+  const trackType = track.type || existingTrack?.type || 'article';
   
   // Get transcript for videos if needed
   if (trackType === 'video' && track.status === 'published') {

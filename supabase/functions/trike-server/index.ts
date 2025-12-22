@@ -465,6 +465,78 @@ async function handleTranscribe(req: Request): Promise<Response> {
           })
           .eq("id", cached.id);
 
+        // If trackId is provided, auto-update track and generate facts (fire-and-forget)
+        if (trackId) {
+          console.log(`🔄 Auto-updating track ${trackId} with cached transcript and generating facts...`);
+          
+          // Update track with transcript
+          supabase
+            .from("tracks")
+            .update({ transcript: cached.transcript_text || "" })
+            .eq("id", trackId)
+            .then(({ error: updateError }) => {
+              if (updateError) {
+                console.error("Failed to update track with cached transcript:", updateError);
+              } else {
+                console.log("✅ Track updated with cached transcript");
+              }
+            })
+            .catch(err => console.error("Error updating track:", err));
+
+          // Generate key facts
+          supabase
+            .from("tracks")
+            .select("title, description, organization_id, transcript")
+            .eq("id", trackId)
+            .single()
+            .then(async ({ data: trackData, error: trackError }) => {
+              if (trackError || !trackData) {
+                console.error("Failed to fetch track for fact generation:", trackError);
+                return;
+              }
+
+              // Only generate facts if track doesn't already have them
+              const { count: factCount } = await supabase
+                .from("fact_usage")
+                .select("*", { count: "exact", head: true })
+                .eq("track_id", trackId);
+
+              if (factCount && factCount > 0) {
+                console.log(`ℹ️ Track already has ${factCount} facts, skipping generation`);
+                return;
+              }
+
+              try {
+                const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+                  method: "POST",
+                  headers: {
+                    "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    title: trackData.title || "Untitled Video",
+                    description: trackData.description || "",
+                    transcript: cached.transcript_text || trackData.transcript || "",
+                    trackType: "video",
+                    trackId: trackId,
+                    companyId: trackData.organization_id,
+                  }),
+                });
+
+                if (factsResponse.ok) {
+                  const factsData = await factsResponse.json();
+                  console.log(`✅ Generated ${factsData.factIds?.length || 0} key facts from cached transcript`);
+                } else {
+                  const error = await factsResponse.json().catch(() => ({}));
+                  console.error("Failed to generate key facts:", error);
+                }
+              } catch (err) {
+                console.error("Error generating key facts:", err);
+              }
+            })
+            .catch(err => console.error("Error fetching track:", err));
+        }
+
         return jsonResponse({
           transcript: cached,
           cached: true,
@@ -609,6 +681,69 @@ async function handleTranscribe(req: Request): Promise<Response> {
         cached: false,
         message: "Transcription complete (failed to cache)",
       });
+    }
+
+    // If trackId is provided, automatically update the track and generate key facts
+    if (trackId) {
+      console.log(`🔄 Auto-updating track ${trackId} with transcript and generating facts...`);
+      
+      // Update track with transcript (fire-and-forget)
+      supabase
+        .from("tracks")
+        .update({ transcript: transcript.text || "" })
+        .eq("id", trackId)
+        .then(({ error: updateError }) => {
+          if (updateError) {
+            console.error("Failed to update track with transcript:", updateError);
+          } else {
+            console.log("✅ Track updated with transcript");
+          }
+        })
+        .catch(err => console.error("Error updating track:", err));
+
+      // Generate key facts (fire-and-forget)
+      // Get track info for fact generation
+      supabase
+        .from("tracks")
+        .select("title, description, organization_id")
+        .eq("id", trackId)
+        .single()
+        .then(async ({ data: trackData, error: trackError }) => {
+          if (trackError || !trackData) {
+            console.error("Failed to fetch track for fact generation:", trackError);
+            return;
+          }
+
+          try {
+            // Call generate-key-facts endpoint
+            const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                title: trackData.title || "Untitled Video",
+                description: trackData.description || "",
+                transcript: transcript.text || "",
+                trackType: "video",
+                trackId: trackId,
+                companyId: trackData.organization_id,
+              }),
+            });
+
+            if (factsResponse.ok) {
+              const factsData = await factsResponse.json();
+              console.log(`✅ Generated ${factsData.factIds?.length || 0} key facts`);
+            } else {
+              const error = await factsResponse.json().catch(() => ({}));
+              console.error("Failed to generate key facts:", error);
+            }
+          } catch (err) {
+            console.error("Error generating key facts:", err);
+          }
+        })
+        .catch(err => console.error("Error fetching track:", err));
     }
 
     return jsonResponse({
