@@ -1493,9 +1493,12 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
       return jsonResponse({ error: "contentType, contentId, and text are required" }, 400);
     }
 
+    // Extract is_system_template from metadata
+    const isSystemTemplate = metadata.isSystemTemplate || false;
+
     // Chunk the text
     const chunks = chunkText(text);
-    console.log(`📚 Indexing ${chunks.length} chunks for ${contentType}:${contentId}`);
+    console.log(`📚 Indexing ${chunks.length} chunks for ${contentType}:${contentId} (system: ${isSystemTemplate})`);
 
     // Generate embeddings and store
     const embeddings = [];
@@ -1513,6 +1516,7 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
           chunk_text: chunk,
           embedding: embedding,
           metadata: metadata,
+          is_system_template: isSystemTemplate,
         })
         .select()
         .single();
@@ -1613,12 +1617,14 @@ async function handleBrainChat(req: Request): Promise<Response> {
     const queryEmbedding = await generateEmbedding(message);
 
     // Find similar content using cosine similarity
+    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
+    // For now, this only searches the user's org content
     const { data: embeddings, error: searchError } = await supabase.rpc(
       "match_brain_embeddings",
       {
         query_embedding: queryEmbedding,
-        match_threshold: 0.7,
-        match_count: 5,
+        match_threshold: 0.6, // Lowered from 0.7 for better recall
+        match_count: 8,       // Increased to get more context
         org_id: orgId,
       }
     );
@@ -1630,7 +1636,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
         .from("brain_embeddings")
         .select("chunk_text, content_type, content_id, metadata")
         .eq("organization_id", orgId)
-        .limit(5);
+        .limit(8);
 
       const context = (fallbackResults || [])
         .map((e) => e.chunk_text)
@@ -1774,9 +1780,11 @@ async function handleBrainSearch(req: Request): Promise<Response> {
     const queryEmbedding = await generateEmbedding(query);
 
     // Build query
+    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
+    // For now, this only searches the user's org content
     let dbQuery = supabase.rpc("match_brain_embeddings", {
       query_embedding: queryEmbedding,
-      match_threshold: 0.7,
+      match_threshold: 0.6, // Lowered from 0.7 for better recall
       match_count: limit,
       org_id: orgId,
     });

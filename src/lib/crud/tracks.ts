@@ -6,6 +6,7 @@ import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/inf
 import { getHealthStatus } from '../serverHealth';
 import { supabase, getCurrentUserOrgId } from '../supabase';
 import { compressImage } from '../utils/imageCompression';
+import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
 
 export interface CreateTrackInput {
   title: string;
@@ -73,6 +74,22 @@ export async function createTrack(input: CreateTrackInput) {
 
   if (error) throw error;
 
+  // Index to Brain if published (fire-and-forget)
+  if (track.status === 'published') {
+    const trackType = track.type || 'article';
+    if (trackType === 'video') {
+      // Get transcript for videos
+      getTrackTranscript(track.id).then(transcript => {
+        indexTrackToBrain(track, transcript).catch(() => {});
+      }).catch(() => {
+        // If transcript fetch fails, index without it
+        indexTrackToBrain(track).catch(() => {});
+      });
+    } else {
+      indexTrackToBrain(track).catch(() => {});
+    }
+  }
+
   return track;
 }
 
@@ -84,9 +101,10 @@ export async function updateTrack(input: UpdateTrackInput) {
   const { id, ...updateData } = input;
 
   // First, check if track exists and user has permission
+  // Also get status for brain indexing
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id')
+    .select('id, created_by, organization_id, status, type, track_type')
     .eq('id', id)
     .single();
 
@@ -180,7 +198,23 @@ export async function updateTrack(input: UpdateTrackInput) {
         }
       })
       .catch(err => console.error('Failed to regenerate facts:', err.message));
-    }).catch(err => console.error('Failed to import hash utilities:', err));
+    })      .catch(err => console.error('Failed to import hash utilities:', err));
+  }
+  
+  // Handle Brain indexing based on status change
+  const previousStatus = existingTrack?.status;
+  const trackType = track.type || track.track_type || 'article';
+  
+  // Get transcript for videos if needed
+  if (trackType === 'video' && track.status === 'published') {
+    getTrackTranscript(track.id).then(transcript => {
+      handleTrackStatusChange(track, previousStatus, transcript).catch(() => {});
+    }).catch(() => {
+      // If transcript fetch fails, handle without it
+      handleTrackStatusChange(track, previousStatus).catch(() => {});
+    });
+  } else {
+    handleTrackStatusChange(track, previousStatus).catch(() => {});
   }
   
   return track;
@@ -190,13 +224,30 @@ export async function updateTrack(input: UpdateTrackInput) {
  * Publish a track (change status from draft to published)
  */
 export async function publishTrack(trackId: string) {
-  return updateTrack({ id: trackId, status: 'published' });
+  const track = await updateTrack({ id: trackId, status: 'published' });
+  
+  // Index to Brain after publishing (fire-and-forget)
+  const trackType = track.type || track.track_type || 'article';
+  if (trackType === 'video') {
+    getTrackTranscript(track.id).then(transcript => {
+      indexTrackToBrain(track, transcript).catch(() => {});
+    }).catch(() => {
+      indexTrackToBrain(track).catch(() => {});
+    });
+  } else {
+    indexTrackToBrain(track).catch(() => {});
+  }
+  
+  return track;
 }
 
 /**
  * Archive a track
  */
 export async function archiveTrack(trackId: string) {
+  // Remove from Brain index when archiving (fire-and-forget)
+  removeTrackFromBrain(trackId).catch(() => {});
+  
   return updateTrack({ id: trackId, status: 'archived' });
 }
 
@@ -204,6 +255,9 @@ export async function archiveTrack(trackId: string) {
  * Delete a track
  */
 export async function deleteTrack(trackId: string) {
+  // Remove from Brain index first (fire-and-forget)
+  removeTrackFromBrain(trackId).catch(() => {});
+  
   // Check if track has playlist history
   const hasHistory = await checkTrackHasPlaylistHistory(trackId);
   
