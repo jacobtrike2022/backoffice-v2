@@ -31,12 +31,19 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
   id: string;
 }
 
+// Default thumbnail URL (served from public folder)
+const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+
 /**
  * Create a new track (defaults to draft)
+ * Automatically assigns default thumbnail if none provided
  */
 export async function createTrack(input: CreateTrackInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
+
+  // Set default thumbnail if none provided
+  const thumbnailUrl = input.thumbnail_url || DEFAULT_THUMBNAIL_URL;
 
   const { data: track, error } = await supabase
     .from('tracks')
@@ -46,7 +53,7 @@ export async function createTrack(input: CreateTrackInput) {
       description: input.description,
       type: input.type,
       content_url: input.content_url,
-      thumbnail_url: input.thumbnail_url,
+      thumbnail_url: thumbnailUrl,
       duration_minutes: input.duration_minutes,
       transcript: input.transcript,
       summary: input.summary,

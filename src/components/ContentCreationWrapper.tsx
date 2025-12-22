@@ -30,6 +30,7 @@ export function ContentCreationWrapper({
     
     try {
       // Create a new draft track in the database
+      // Note: thumbnail_url is omitted (null) so frontend can use defaultThumbnail fallback
       const newTrack = await crud.createTrack({
         title: `Untitled ${contentType === 'article' ? 'Article' : 'Video'}`,
         description: '',
@@ -37,7 +38,7 @@ export function ContentCreationWrapper({
         status: 'draft',
         duration_minutes: 0,
         content_url: '',
-        thumbnail_url: '',
+        // thumbnail_url omitted - will be null, frontend uses defaultThumbnail fallback
         tags: [],
         learning_objectives: [],
         transcript: contentType === 'article' ? '' : undefined,

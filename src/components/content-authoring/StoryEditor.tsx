@@ -934,6 +934,58 @@ export function StoryEditor({
         } else {
           await loadStory();
         }
+
+        // Auto-generate key facts if this is the first save and no facts exist (for stories)
+        try {
+          const { getFactsForTrack } = await import('../../lib/crud/facts');
+          const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
+          const existingFacts = await getFactsForTrack(currentTrackId);
+          
+          // Extract text from story slides (notes and slide content)
+          let storyText = notes || '';
+          slides.forEach((slide: any) => {
+            if (slide.notes) storyText += ' ' + slide.notes;
+            if (slide.text) storyText += ' ' + slide.text;
+          });
+          storyText = storyText.trim();
+          
+          const hasContent = storyText && storyText.length > 150;
+          
+          // Check if no facts exist and there's content
+          if (existingFacts.length === 0 && hasContent) {
+            console.log('🤖 Auto-generating key facts for story first save...');
+            
+            const response = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${publicAnonKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  title: title || 'Untitled Story',
+                  content: storyText,
+                  description: description || '',
+                  trackType: 'story',
+                  trackId: currentTrackId,
+                  companyId: existingTrack?.company_id,
+                }),
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your story`);
+            } else {
+              console.error('Failed to auto-generate key facts:', await response.json());
+            }
+          }
+        } catch (factsError) {
+          console.error('Error auto-generating key facts:', factsError);
+          // Don't show error to user - this is a background operation
+        }
       } else {
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
         toast.success('Story created as draft!');

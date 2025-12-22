@@ -484,6 +484,63 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         console.error('Refetch error (non-fatal):', refetchError);
         // Don't fail the whole operation if refetch fails
       }
+
+      // Auto-generate key facts if this is the first save and no facts exist (for videos)
+      if (track.type === 'video') {
+        try {
+          const { getFactsForTrack } = await import('../lib/crud/facts');
+          const { projectId, publicAnonKey } = await import('../utils/supabase/info');
+          const existingFacts = await getFactsForTrack(track.id);
+          
+          // Extract transcript text
+          let transcriptText = '';
+          if (editFormData.transcript_data && editFormData.transcript_data.words) {
+            transcriptText = editFormData.transcript_data.words
+              .map((w: any) => w.word || w.text || '')
+              .join(' ')
+              .trim();
+          } else if (editFormData.transcript) {
+            transcriptText = editFormData.transcript;
+          }
+          
+          const hasContent = transcriptText && transcriptText.length > 150;
+          
+          // Check if no facts exist and there's transcript content
+          if (existingFacts.length === 0 && hasContent) {
+            console.log('🤖 Auto-generating key facts for video first save...');
+            
+            const response = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${publicAnonKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  title: editFormData.title || track.title || 'Untitled Video',
+                  transcript: transcriptText,
+                  description: editFormData.description || track.description || '',
+                  trackType: 'video',
+                  trackId: track.id,
+                  companyId: track.company_id,
+                }),
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from transcript`);
+            } else {
+              console.error('Failed to auto-generate key facts:', await response.json());
+            }
+          }
+        } catch (factsError) {
+          console.error('Error auto-generating key facts:', factsError);
+          // Don't show error to user - this is a background operation
+        }
+      }
     } catch (error: any) {
       console.error('Error updating track:', error);
       toast.error(`Failed to update track: ${error.message || 'Unknown error'}`);

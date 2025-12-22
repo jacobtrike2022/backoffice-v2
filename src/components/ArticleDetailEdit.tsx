@@ -502,6 +502,80 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       console.log('Calling onUpdate to refresh track data...');
       await onUpdate();
       console.log('onUpdate complete, track should be refreshed');
+
+      // Auto-generate key facts if this is the first save and no facts exist
+      try {
+        const existingFacts = await factsCrud.getFactsForTrack(track.id);
+        const hasContent = editFormData.article_body && editFormData.article_body.trim().length > 150;
+        
+        // Check if no facts exist and there's content to extract from
+        if (existingFacts.length === 0 && hasContent) {
+          console.log('🤖 Auto-generating key facts for first save...');
+          
+          // Strip HTML from article body to get clean text
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = editFormData.article_body;
+          const plainText = tempDiv.textContent || tempDiv.innerText || '';
+          
+          if (plainText.length >= 150) {
+            const response = await fetch(
+              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${publicAnonKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  title: editFormData.title || 'Untitled Article',
+                  content: plainText,
+                  description: editFormData.description || '',
+                  trackType: 'article',
+                  trackId: track.id,
+                  companyId: track.company_id,
+                }),
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
+              
+              // Reload facts to update the UI
+              const updatedFacts = await factsCrud.getFactsForTrack(track.id);
+              setEditFormData(prev => ({
+                ...prev,
+                learning_objectives: updatedFacts.map((f: any) => ({
+                  title: f.title,
+                  fact: f.content,
+                  content: f.content,
+                  type: f.type,
+                  steps: f.steps || [],
+                  contexts: [f.context?.specificity || 'universal'],
+                  _dbId: f.id,
+                  _extractedBy: f.extracted_by,
+                }))
+              }));
+              setOriginalFacts(updatedFacts.map((f: any) => ({
+                title: f.title,
+                fact: f.content,
+                content: f.content,
+                type: f.type,
+                steps: f.steps || [],
+                contexts: [f.context?.specificity || 'universal'],
+                _dbId: f.id,
+                _extractedBy: f.extracted_by,
+              })));
+            } else {
+              console.error('Failed to auto-generate key facts:', await response.json());
+            }
+          }
+        }
+      } catch (factsError) {
+        console.error('Error auto-generating key facts:', factsError);
+        // Don't show error to user - this is a background operation
+      }
     } catch (error: any) {
       console.error('❌ Error saving track:', error);
       toast.error(error.message || 'Failed to save article');
