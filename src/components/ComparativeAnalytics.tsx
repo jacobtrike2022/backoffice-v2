@@ -90,12 +90,6 @@ const unitComparisonData = [
   }
 ];
 
-const districtSummaryData = [
-  { district: 'North', avgCompletion: 88.5, units: 2, employees: 42, status: 'good' },
-  { district: 'South', avgCompletion: 75, units: 2, employees: 59, status: 'warning' },
-  { district: 'East', avgCompletion: 88, units: 1, employees: 22, status: 'good' },
-  { district: 'West', avgCompletion: 95, units: 1, employees: 16, status: 'excellent' }
-];
 
 const performanceTrendData = [
   { month: 'Jul', company: 85, district: 88, unit: 85 },
@@ -184,58 +178,9 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* District Summary (Admin only - shows DISTRICT performance) */}
-        {currentRole === 'admin' && (
-          <Card className="border-border/50 shadow-sm w-full">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">District Summary</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Performance overview by district
-              </p>
-            </CardHeader>
-            <CardContent className="pb-4">
-              <div className="space-y-4">
-                {districtSummaryData.map((district) => (
-                  <div key={district.district} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <h4 className="font-semibold text-sm">{district.district} District</h4>
-                        <Badge variant="outline" className={getStatusColor(district.status)}>
-                          {district.status}
-                        </Badge>
-                      </div>
-                      <span className="text-lg font-bold text-primary">
-                        {district.avgCompletion}%
-                      </span>
-                    </div>
-                    
-                    <Progress value={district.avgCompletion} className="h-2" />
-                    
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <div className="flex items-center space-x-3">
-                        <span className="flex items-center space-x-1">
-                          <Building className="h-3 w-3" />
-                          <span>{district.units} units</span>
-                        </span>
-                        <span className="flex items-center space-x-1">
-                          <Users className="h-3 w-3" />
-                          <span>{district.employees} employees</span>
-                        </span>
-                      </div>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs">
-                        View Details
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Top Performing Stores (District Manager only - shows STORE performance) */}
-        {currentRole === 'district-manager' && (
+      {/* Top Performing Stores (District Manager only - shows STORE performance) */}
+      {currentRole === 'district-manager' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card className="border-border/50 shadow-sm w-full">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Top Performing Stores</CardTitle>
@@ -280,10 +225,8 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
               </div>
             </CardContent>
           </Card>
-        )}
 
-        {/* Lowest Performing Stores (District Manager only - shows STORE performance) */}
-        {currentRole === 'district-manager' && (
+          {/* Lowest Performing Stores (District Manager only - shows STORE performance) */}
           <Card className="border-border/50 shadow-sm w-full">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Lowest Performing Stores</CardTitle>
@@ -332,8 +275,8 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
               </div>
             </CardContent>
           </Card>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

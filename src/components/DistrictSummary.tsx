@@ -185,7 +185,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
   }));
 
   return (
-    <Card className="border-border/50 shadow-sm w-full h-full flex flex-col">
+    <Card className="border-border/50 shadow-sm w-full flex flex-col">
       <CardHeader className="pb-3 flex-shrink-0">
         <CardTitle className="text-base">District Summary</CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
@@ -210,7 +210,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
         ) : (
           <>
             {/* Full Page Chart - Takes remaining space */}
-            <div className="mb-6 w-full flex-1 min-h-[400px]" style={{ height: 'calc(100vh - 350px)' }}>
+            <div className="mb-6 w-full" style={{ height: '500px' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
