@@ -120,6 +120,72 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     loadKBTags();
   }, []);
 
+  // Auto-refresh transcript for video tracks that don't have one yet
+  useEffect(() => {
+    // Only poll if:
+    // 1. It's a video track
+    // 2. Has a content URL
+    // 3. Doesn't have a transcript yet
+    // 4. Not in edit mode (to avoid conflicts)
+    const shouldPoll = 
+      track.type === 'video' && 
+      (track.content_url || editFormData.content_url) && 
+      !track.transcript && 
+      !isEditMode;
+
+    if (!shouldPoll) return;
+
+    console.log('[TrackDetailEdit] Starting transcript polling...');
+    
+    // Poll every 5 seconds for up to 2 minutes (24 attempts)
+    let attempts = 0;
+    const maxAttempts = 24;
+    const pollInterval = 5000; // 5 seconds
+
+    const pollForTranscript = async () => {
+      attempts++;
+      
+      try {
+        // Fetch fresh track data
+        const freshTrack = await crud.getTrackById(track.id);
+        
+        if (!freshTrack) {
+          console.error('[TrackDetailEdit] Track not found during polling');
+          // Stop polling if track doesn't exist
+          return;
+        }
+
+        // If transcript appeared, refresh the UI
+        if (freshTrack.transcript) {
+          console.log('[TrackDetailEdit] ✓ Transcript found! Refreshing UI...');
+          await onUpdate();
+          return; // Stop polling
+        }
+
+        // Continue polling if we haven't hit max attempts
+        if (attempts < maxAttempts) {
+          setTimeout(pollForTranscript, pollInterval);
+        } else {
+          console.log('[TrackDetailEdit] Polling timeout after 2 minutes - transcript may still be processing');
+        }
+      } catch (error: any) {
+        console.error('[TrackDetailEdit] Error in transcript polling:', error);
+        // Continue polling on error (might be transient network issue)
+        if (attempts < maxAttempts) {
+          setTimeout(pollForTranscript, pollInterval);
+        }
+      }
+    };
+
+    // Start polling after a short delay (give server time to start processing)
+    const timeoutId = setTimeout(pollForTranscript, 3000);
+
+    // Cleanup on unmount or when conditions change
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [track.id, track.type, track.content_url, track.transcript, editFormData.content_url, isEditMode, onUpdate]);
+
   // Helper function to detect and extract YouTube video ID
   const getYouTubeVideoId = (url: string): string | null => {
     if (!url) return null;

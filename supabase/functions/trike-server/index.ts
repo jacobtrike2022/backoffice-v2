@@ -483,15 +483,21 @@ async function handleTranscribe(req: Request): Promise<Response> {
             })
             .catch(err => console.error("Error updating track:", err));
 
-          // Generate key facts
+          // Generate key facts (only for video tracks, not stories)
           supabase
             .from("tracks")
-            .select("title, description, organization_id, transcript")
+            .select("title, description, organization_id, transcript, type")
             .eq("id", trackId)
             .single()
             .then(async ({ data: trackData, error: trackError }) => {
               if (trackError || !trackData) {
                 console.error("Failed to fetch track for fact generation:", trackError);
+                return;
+              }
+
+              // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+              if (trackData.type === "story") {
+                console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
                 return;
               }
 
@@ -517,7 +523,7 @@ async function handleTranscribe(req: Request): Promise<Response> {
                     title: trackData.title || "Untitled Video",
                     description: trackData.description || "",
                     transcript: cached.transcript_text || trackData.transcript || "",
-                    trackType: "video",
+                    trackType: trackData.type || "video",
                     trackId: trackId,
                     companyId: trackData.organization_id,
                   }),
@@ -701,16 +707,33 @@ async function handleTranscribe(req: Request): Promise<Response> {
         })
         .catch(err => console.error("Error updating track:", err));
 
-      // Generate key facts (fire-and-forget)
+      // Generate key facts (fire-and-forget, only for video tracks, not stories)
       // Get track info for fact generation
       supabase
         .from("tracks")
-        .select("title, description, organization_id")
+        .select("title, description, organization_id, type")
         .eq("id", trackId)
         .single()
         .then(async ({ data: trackData, error: trackError }) => {
           if (trackError || !trackData) {
             console.error("Failed to fetch track for fact generation:", trackError);
+            return;
+          }
+
+          // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+          if (trackData.type === "story") {
+            console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
+            return;
+          }
+
+          // Only generate facts if track doesn't already have them
+          const { count: factCount } = await supabase
+            .from("fact_usage")
+            .select("*", { count: "exact", head: true })
+            .eq("track_id", trackId);
+
+          if (factCount && factCount > 0) {
+            console.log(`ℹ️ Track already has ${factCount} facts, skipping generation`);
             return;
           }
 
@@ -726,7 +749,7 @@ async function handleTranscribe(req: Request): Promise<Response> {
                 title: trackData.title || "Untitled Video",
                 description: trackData.description || "",
                 transcript: transcript.text || "",
-                trackType: "video",
+                trackType: trackData.type || "video",
                 trackId: trackId,
                 companyId: trackData.organization_id,
               }),

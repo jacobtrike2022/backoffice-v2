@@ -38,6 +38,150 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
 const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
 
 /**
+ * Automate story workflow: transcribe all videos → update story JSON → generate key facts
+ * Fire-and-forget: errors are logged but don't throw
+ */
+async function automateStoryWorkflow(track: { id: string; title?: string; description?: string; transcript?: string; organization_id?: string }): Promise<void> {
+  if (!track.transcript) {
+    console.log('[Story Workflow] No transcript field (story data), skipping automation');
+    return;
+  }
+
+  try {
+    // Parse story data from transcript field
+    let storyData: any;
+    try {
+      storyData = typeof track.transcript === 'string' ? JSON.parse(track.transcript) : track.transcript;
+    } catch (e) {
+      console.log('[Story Workflow] Could not parse story data, skipping automation');
+      return;
+    }
+
+    if (!storyData.slides || !Array.isArray(storyData.slides)) {
+      console.log('[Story Workflow] No slides found in story data');
+      return;
+    }
+
+    // Find all video slides
+    const videoSlides = storyData.slides.filter((slide: any) => slide.type === 'video' && slide.url);
+    
+    if (videoSlides.length === 0) {
+      console.log('[Story Workflow] No video slides found, skipping automation');
+      return;
+    }
+
+    console.log(`[Story Workflow] Starting automation for track ${track.id} with ${videoSlides.length} video slides...`);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || publicAnonKey;
+    const allTranscripts: string[] = [];
+    let updatedSlides = [...storyData.slides];
+
+    // Step 1: Transcribe each video slide
+    for (let i = 0; i < videoSlides.length; i++) {
+      const slide = videoSlides[i];
+      console.log(`[Story Workflow] Transcribing video ${i + 1}/${videoSlides.length}: ${slide.name || 'Untitled'}`);
+
+      try {
+        const transcribeResponse = await fetch(`${getServerUrl()}/transcribe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'apikey': publicAnonKey,
+          },
+          body: JSON.stringify({
+            audioUrl: slide.url,
+            mediaType: 'video',
+            trackId: track.id,
+            forceRefresh: false,
+          }),
+        });
+
+        if (!transcribeResponse.ok) {
+          const error = await transcribeResponse.json().catch(() => ({}));
+          console.error(`[Story Workflow] Failed to transcribe slide ${i + 1}:`, error);
+          continue;
+        }
+
+        const transcribeData = await transcribeResponse.json();
+        const transcriptText = transcribeData.transcript?.transcript_text || transcribeData.transcript?.text || '';
+        
+        if (transcriptText) {
+          allTranscripts.push(transcriptText);
+          
+          // Update the slide with transcript
+          const slideIndex = updatedSlides.findIndex((s: any) => s.id === slide.id);
+          if (slideIndex !== -1) {
+            updatedSlides[slideIndex] = {
+              ...updatedSlides[slideIndex],
+              transcript: {
+                text: transcriptText,
+                words: transcribeData.transcript?.transcript_json?.words,
+                utterances: transcribeData.transcript?.transcript_json?.utterances,
+                confidence: transcribeData.transcript?.confidence_score,
+                audio_duration: transcribeData.transcript?.duration_seconds,
+              }
+            };
+          }
+          
+          console.log(`[Story Workflow] ✓ Slide ${i + 1} transcribed (${transcriptText.length} chars)`);
+        }
+      } catch (error) {
+        console.error(`[Story Workflow] Error transcribing slide ${i + 1}:`, error);
+        continue;
+      }
+    }
+
+    if (allTranscripts.length === 0) {
+      console.warn('[Story Workflow] No transcripts generated');
+      return;
+    }
+
+    console.log(`[Story Workflow] ✓ ${allTranscripts.length} videos transcribed`);
+
+    // Step 2: Update story with transcripts embedded in slides
+    console.log('[Story Workflow] Step 2: Updating story with transcripts...');
+    const updatedStoryData = {
+      ...storyData,
+      slides: updatedSlides,
+    };
+
+    const { error: updateError } = await supabase
+      .from('tracks')
+      .update({ transcript: JSON.stringify(updatedStoryData) })
+      .eq('id', track.id);
+
+    if (updateError) {
+      console.error('[Story Workflow] Failed to update story with transcripts:', updateError);
+      // Continue anyway - transcripts are cached in media_transcripts
+    } else {
+      console.log('[Story Workflow] ✓ Story updated with transcripts');
+    }
+
+    // Step 3: Generate key facts from combined transcripts
+    console.log('[Story Workflow] Step 3: Generating key facts from all transcripts...');
+    const orgId = track.organization_id || await getCurrentUserOrgId();
+    const combinedTranscript = allTranscripts.join('\n\n');
+    
+    await generateKeyFacts({
+      title: track.title || 'Untitled Story',
+      description: track.description || '',
+      transcript: combinedTranscript,
+      trackType: 'story',
+      trackId: track.id,
+      companyId: orgId || undefined,
+    });
+
+    console.log(`[Story Workflow] ✓ Key facts generated for track ${track.id}`);
+    console.log('[Story Workflow] Automation complete!');
+
+  } catch (error) {
+    console.error(`[Story Workflow] ✗ Automation failed for track ${track.id}:`, error);
+  }
+}
+
+/**
  * Automate video workflow: transcribe → save transcript → generate key facts
  * Fire-and-forget: errors are logged but don't throw
  */
@@ -162,6 +306,11 @@ export async function createTrack(input: CreateTrackInput) {
   // Automate video workflow: transcribe → save transcript → generate key facts
   if (track.type === 'video' && track.content_url) {
     automateVideoWorkflow(track).catch(() => {});
+  }
+
+  // Automate story workflow: transcribe all videos → update story JSON → generate key facts
+  if (track.type === 'story' && track.transcript) {
+    automateStoryWorkflow(track).catch(() => {});
   }
 
   // Index to Brain if published (fire-and-forget)
@@ -310,6 +459,35 @@ export async function updateTrack(input: UpdateTrackInput) {
       organization_id: track.organization_id || existingTrack?.organization_id,
     };
     automateVideoWorkflow(fullTrack).catch(() => {});
+  }
+
+  // Automate story workflow if:
+  // 1. It's a story track
+  // 2. Transcript (story data) was added or changed
+  // 3. Story data contains video slides
+  const isStory = (track.type || existingTrack?.type) === 'story';
+  const newTranscript = updateData.transcript || track.transcript;
+  const transcriptChanged = newTranscript && newTranscript !== existingTrack?.transcript;
+  
+  if (isStory && newTranscript && transcriptChanged) {
+    // Parse to check if there are video slides
+    try {
+      const storyData = typeof newTranscript === 'string' ? JSON.parse(newTranscript) : newTranscript;
+      const hasVideoSlides = storyData.slides?.some((s: any) => s.type === 'video' && s.url);
+      
+      if (hasVideoSlides) {
+        const fullTrack = {
+          id: track.id,
+          title: track.title || existingTrack?.title,
+          description: track.description || existingTrack?.description,
+          transcript: newTranscript,
+          organization_id: track.organization_id || existingTrack?.organization_id,
+        };
+        automateStoryWorkflow(fullTrack).catch(() => {});
+      }
+    } catch (e) {
+      // Not valid JSON, skip
+    }
   }
 
   // Handle Brain indexing based on status change

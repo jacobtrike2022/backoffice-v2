@@ -206,6 +206,100 @@ export function StoryEditor({
     }
   }, [trackId, track]);
 
+  // Auto-refresh transcripts for story videos that don't have them yet
+  useEffect(() => {
+    // Only poll if:
+    // 1. It's a story track
+    // 2. Has slides with videos
+    // 3. Not in edit mode (to avoid conflicts)
+    // 4. Has video slides without transcripts
+    const videoSlides = slides.filter(s => s.type === 'video' && s.url);
+    const slidesWithoutTranscripts = videoSlides.filter(s => !s.transcript?.text);
+    const shouldPoll = 
+      track?.type === 'story' && 
+      videoSlides.length > 0 &&
+      slidesWithoutTranscripts.length > 0 &&
+      !isEditMode &&
+      trackId;
+
+    if (!shouldPoll) return;
+
+    console.log(`[StoryEditor] Starting transcript polling for ${slidesWithoutTranscripts.length} video slides...`);
+    
+    // Poll every 5 seconds for up to 3 minutes (36 attempts - stories take longer)
+    let attempts = 0;
+    const maxAttempts = 36;
+    const pollInterval = 5000; // 5 seconds
+
+    const pollForTranscripts = async () => {
+      attempts++;
+      
+      try {
+        // Fetch fresh track data
+        const freshTrack = await crud.getTrackById(trackId!);
+        
+        if (!freshTrack || !freshTrack.transcript) {
+          // Continue polling if track doesn't exist yet or no transcript field
+          if (attempts < maxAttempts) {
+            setTimeout(pollForTranscripts, pollInterval);
+          }
+          return;
+        }
+
+        // Parse story data
+        let storyData: any;
+        try {
+          storyData = typeof freshTrack.transcript === 'string' 
+            ? JSON.parse(freshTrack.transcript) 
+            : freshTrack.transcript;
+        } catch (e) {
+          // Not valid JSON yet, continue polling
+          if (attempts < maxAttempts) {
+            setTimeout(pollForTranscripts, pollInterval);
+          }
+          return;
+        }
+
+        // Check if any video slides now have transcripts
+        const updatedVideoSlides = (storyData.slides || []).filter((s: any) => 
+          s.type === 'video' && s.url && s.transcript?.text
+        );
+
+        if (updatedVideoSlides.length > 0) {
+          console.log(`[StoryEditor] ✓ Found ${updatedVideoSlides.length} video transcripts! Refreshing UI...`);
+          // Reload story data to show transcripts
+          loadStoryData(freshTrack);
+          // Also trigger parent update if available
+          if (onUpdate) {
+            await onUpdate();
+          }
+          return; // Stop polling
+        }
+
+        // Continue polling if we haven't hit max attempts
+        if (attempts < maxAttempts) {
+          setTimeout(pollForTranscripts, pollInterval);
+        } else {
+          console.log('[StoryEditor] Polling timeout after 3 minutes - transcripts may still be processing');
+        }
+      } catch (error: any) {
+        console.error('[StoryEditor] Error in transcript polling:', error);
+        // Continue polling on error (might be transient network issue)
+        if (attempts < maxAttempts) {
+          setTimeout(pollForTranscripts, pollInterval);
+        }
+      }
+    };
+
+    // Start polling after a short delay (give server time to start processing)
+    const timeoutId = setTimeout(pollForTranscripts, 3000);
+
+    // Cleanup on unmount or when conditions change
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [trackId, track?.type, slides, isEditMode, onUpdate]);
+
   // Load facts for view mode
   useEffect(() => {
     if (!isEditMode && (track?.id || trackId)) {
