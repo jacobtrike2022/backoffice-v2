@@ -46,3 +46,6 @@ export * from './tags';
 
 // Attachments
 export * from './attachments';
+
+// Company Brain (RAG)
+export * from './brain';

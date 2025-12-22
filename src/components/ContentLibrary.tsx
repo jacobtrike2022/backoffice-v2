@@ -71,7 +71,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
-import defaultThumbnail from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';

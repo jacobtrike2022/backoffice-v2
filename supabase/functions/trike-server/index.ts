@@ -181,6 +181,35 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // COMPANY BRAIN (RAG)
+    // =========================================================================
+
+    // Index content for RAG
+    if (method === "POST" && path === "/brain/embed") {
+      return await handleBrainEmbed(req);
+    }
+
+    // Remove content from index
+    if (method === "POST" && path === "/brain/remove") {
+      return await handleBrainRemove(req);
+    }
+
+    // Chat with brain (RAG query)
+    if (method === "POST" && path === "/brain/chat") {
+      return await handleBrainChat(req);
+    }
+
+    // Search indexed content
+    if (method === "POST" && path === "/brain/search") {
+      return await handleBrainSearch(req);
+    }
+
+    // Get brain statistics
+    if (method === "GET" && path === "/brain/stats") {
+      return await handleBrainStats(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -206,7 +235,12 @@ Deno.serve(async (req: Request) => {
         "GET /track-relationships/stats/:trackId",
         "POST /track-relationships/create",
         "DELETE /track-relationships/:relationshipId",
-        "GET /track-versions/:trackId"
+        "GET /track-versions/:trackId",
+        "POST /brain/embed",
+        "POST /brain/remove",
+        "POST /brain/chat",
+        "POST /brain/search",
+        "GET /brain/stats"
       ]
     }, 404);
 
@@ -1373,5 +1407,479 @@ async function handleGetTrackVersions(trackId: string): Promise<Response> {
       success: true,
       versions: [],
     });
+  }
+}
+
+// =============================================================================
+// COMPANY BRAIN (RAG) HANDLERS
+// =============================================================================
+
+/**
+ * Chunk text into smaller pieces for embedding
+ */
+function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    const end = Math.min(start + chunkSize, text.length);
+    let chunk = text.slice(start, end);
+
+    // Try to break at sentence boundaries
+    if (end < text.length) {
+      const lastPeriod = chunk.lastIndexOf('.');
+      const lastNewline = chunk.lastIndexOf('\n');
+      const breakPoint = Math.max(lastPeriod, lastNewline);
+      
+      if (breakPoint > chunkSize * 0.5) {
+        chunk = chunk.slice(0, breakPoint + 1);
+        start += breakPoint + 1;
+      } else {
+        start += chunkSize - overlap;
+      }
+    } else {
+      start = text.length;
+    }
+
+    chunks.push(chunk.trim());
+  }
+
+  return chunks.filter(chunk => chunk.length > 0);
+}
+
+/**
+ * Generate embedding using OpenAI
+ */
+async function generateEmbedding(text: string): Promise<number[]> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OpenAI API key not configured");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-small",
+      input: text,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`OpenAI embedding error: ${error}`);
+  }
+
+  const data = await response.json();
+  return data.data[0].embedding;
+}
+
+/**
+ * Index content for RAG
+ */
+async function handleBrainEmbed(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json();
+    const { contentType, contentId, text, metadata = {} } = body;
+
+    if (!contentType || !contentId || !text) {
+      return jsonResponse({ error: "contentType, contentId, and text are required" }, 400);
+    }
+
+    // Chunk the text
+    const chunks = chunkText(text);
+    console.log(`📚 Indexing ${chunks.length} chunks for ${contentType}:${contentId}`);
+
+    // Generate embeddings and store
+    const embeddings = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const embedding = await generateEmbedding(chunk);
+
+      const { data, error } = await supabase
+        .from("brain_embeddings")
+        .insert({
+          organization_id: orgId,
+          content_type: contentType,
+          content_id: contentId,
+          chunk_index: i,
+          chunk_text: chunk,
+          embedding: embedding,
+          metadata: metadata,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`Error inserting chunk ${i}:`, error);
+        continue;
+      }
+
+      embeddings.push(data);
+    }
+
+    return jsonResponse({
+      success: true,
+      chunksIndexed: embeddings.length,
+      totalChunks: chunks.length,
+    });
+  } catch (error) {
+    console.error("Brain embed error:", error);
+    return jsonResponse({ error: error.message || "Failed to index content" }, 500);
+  }
+}
+
+/**
+ * Remove content from index
+ */
+async function handleBrainRemove(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json();
+    const { contentType, contentId } = body;
+
+    if (!contentType || !contentId) {
+      return jsonResponse({ error: "contentType and contentId are required" }, 400);
+    }
+
+    const { error } = await supabase
+      .from("brain_embeddings")
+      .delete()
+      .eq("organization_id", orgId)
+      .eq("content_type", contentType)
+      .eq("content_id", contentId);
+
+    if (error) {
+      console.error("Brain remove error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error) {
+    console.error("Brain remove error:", error);
+    return jsonResponse({ error: error.message || "Failed to remove content" }, 500);
+  }
+}
+
+/**
+ * Chat with brain (RAG query)
+ */
+async function handleBrainChat(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OpenAI API key not configured" }, 500);
+    }
+
+    const body = await req.json();
+    const { conversationId, message } = body;
+
+    if (!conversationId || !message) {
+      return jsonResponse({ error: "conversationId and message are required" }, 400);
+    }
+
+    // Save user message
+    const { data: userMessage, error: userMsgError } = await supabase
+      .from("brain_messages")
+      .insert({
+        conversation_id: conversationId,
+        role: "user",
+        content: message,
+      })
+      .select()
+      .single();
+
+    if (userMsgError) {
+      console.error("Error saving user message:", userMsgError);
+      return jsonResponse({ error: userMsgError.message }, 500);
+    }
+
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(message);
+
+    // Find similar content using cosine similarity
+    const { data: embeddings, error: searchError } = await supabase.rpc(
+      "match_brain_embeddings",
+      {
+        query_embedding: queryEmbedding,
+        match_threshold: 0.7,
+        match_count: 5,
+        org_id: orgId,
+      }
+    );
+
+    if (searchError) {
+      console.error("Error searching embeddings:", searchError);
+      // Fallback: use simple text search
+      const { data: fallbackResults } = await supabase
+        .from("brain_embeddings")
+        .select("chunk_text, content_type, content_id, metadata")
+        .eq("organization_id", orgId)
+        .limit(5);
+
+      const context = (fallbackResults || [])
+        .map((e) => e.chunk_text)
+        .join("\n\n");
+
+      // Generate response with context
+      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so.",
+            },
+            {
+              role: "user",
+              content: `Context:\n${context}\n\nQuestion: ${message}`,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!openaiResponse.ok) {
+        const error = await openaiResponse.text();
+        throw new Error(`OpenAI error: ${error}`);
+      }
+
+      const aiData = await openaiResponse.json();
+      const assistantMessage = aiData.choices[0].message.content;
+
+      // Save assistant message
+      const { data: savedMessage } = await supabase
+        .from("brain_messages")
+        .insert({
+          conversation_id: conversationId,
+          role: "assistant",
+          content: assistantMessage,
+        })
+        .select()
+        .single();
+
+      return jsonResponse({
+        message: savedMessage,
+        sources: fallbackResults || [],
+      });
+    }
+
+    // Build context from similar chunks
+    const context = (embeddings || [])
+      .map((e: any) => e.chunk_text)
+      .join("\n\n");
+
+    // Generate response with context
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so.",
+          },
+          {
+            role: "user",
+            content: `Context:\n${context}\n\nQuestion: ${message}`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
+
+    if (!openaiResponse.ok) {
+      const error = await openaiResponse.text();
+      throw new Error(`OpenAI error: ${error}`);
+    }
+
+    const aiData = await openaiResponse.json();
+    const assistantMessage = aiData.choices[0].message.content;
+
+    // Save assistant message
+    const { data: savedMessage, error: saveError } = await supabase
+      .from("brain_messages")
+      .insert({
+        conversation_id: conversationId,
+        role: "assistant",
+        content: assistantMessage,
+      })
+      .select()
+      .single();
+
+    if (saveError) {
+      console.error("Error saving assistant message:", saveError);
+    }
+
+    // Update conversation timestamp
+    await supabase
+      .from("brain_conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    return jsonResponse({
+      message: savedMessage,
+      sources: embeddings || [],
+    });
+  } catch (error) {
+    console.error("Brain chat error:", error);
+    return jsonResponse({ error: error.message || "Failed to process chat" }, 500);
+  }
+}
+
+/**
+ * Search indexed content
+ */
+async function handleBrainSearch(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json();
+    const { query, limit = 10, contentType } = body;
+
+    if (!query) {
+      return jsonResponse({ error: "query is required" }, 400);
+    }
+
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(query);
+
+    // Build query
+    let dbQuery = supabase.rpc("match_brain_embeddings", {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.7,
+      match_count: limit,
+      org_id: orgId,
+    });
+
+    // Execute search
+    const { data: results, error: searchError } = await dbQuery;
+
+    if (searchError) {
+      console.error("Error searching embeddings:", searchError);
+      // Fallback: simple text search
+      let fallbackQuery = supabase
+        .from("brain_embeddings")
+        .select("chunk_text, content_type, content_id, metadata")
+        .eq("organization_id", orgId)
+        .limit(limit);
+
+      if (contentType) {
+        fallbackQuery = fallbackQuery.eq("content_type", contentType);
+      }
+
+      const { data: fallbackResults } = await fallbackQuery;
+
+      return jsonResponse({
+        results: fallbackResults || [],
+        count: (fallbackResults || []).length,
+      });
+    }
+
+    // Filter by content type if specified
+    let filteredResults = results || [];
+    if (contentType) {
+      filteredResults = filteredResults.filter((r: any) => r.content_type === contentType);
+    }
+
+    return jsonResponse({
+      results: filteredResults,
+      count: filteredResults.length,
+    });
+  } catch (error) {
+    console.error("Brain search error:", error);
+    return jsonResponse({ error: error.message || "Failed to search content" }, 500);
+  }
+}
+
+/**
+ * Get brain statistics
+ */
+async function handleBrainStats(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Get total embeddings
+    const { count: totalEmbeddings, error: embeddingsError } = await supabase
+      .from("brain_embeddings")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", orgId);
+
+    // Get total conversations
+    const { count: totalConversations, error: conversationsError } = await supabase
+      .from("brain_conversations")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", orgId);
+
+    // Get conversation IDs first
+    const { data: conversations } = await supabase
+      .from("brain_conversations")
+      .select("id")
+      .eq("organization_id", orgId);
+
+    const conversationIds = (conversations || []).map((c: any) => c.id);
+
+    // Get total messages
+    let totalMessages = 0;
+    if (conversationIds.length > 0) {
+      const { count, error: messagesError } = await supabase
+        .from("brain_messages")
+        .select("*", { count: "exact", head: true })
+        .in("conversation_id", conversationIds);
+      totalMessages = count || 0;
+    }
+
+    // Get embeddings by type
+    const { data: embeddingsByType, error: typeError } = await supabase
+      .from("brain_embeddings")
+      .select("content_type")
+      .eq("organization_id", orgId);
+
+    const typeCounts: Record<string, number> = {};
+    (embeddingsByType || []).forEach((e: any) => {
+      typeCounts[e.content_type] = (typeCounts[e.content_type] || 0) + 1;
+    });
+
+    return jsonResponse({
+      totalEmbeddings: totalEmbeddings || 0,
+      totalConversations: totalConversations || 0,
+      totalMessages: totalMessages,
+      embeddingsByType: typeCounts,
+    });
+  } catch (error) {
+    console.error("Brain stats error:", error);
+    return jsonResponse({ error: error.message || "Failed to get stats" }, 500);
   }
 }
