@@ -46,7 +46,7 @@ import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
+import defaultThumbnail from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -212,7 +212,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           learning_objectives: facts,
           tags: track.tags || [],
           content_url: track.content_url || '',
-          thumbnail_url: track.thumbnail_url || '',
+          thumbnail_url: (track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png') ? track.thumbnail_url : '',
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
           show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,

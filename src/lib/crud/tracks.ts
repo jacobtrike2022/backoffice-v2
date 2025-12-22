@@ -650,28 +650,55 @@ export async function uploadTrackFile(trackId: string, file: File): Promise<{ ur
  * Increment track view count
  */
 export async function incrementTrackViews(trackId: string) {
-  const { error } = await supabase.rpc('increment_track_views', {
-    track_id: trackId
-  });
+  try {
+    const { error } = await supabase.rpc('increment_track_views', {
+      track_id: trackId
+    });
 
-  // If RPC doesn't exist, fall back to manual increment
-  if (error) {
-    // Only log if it's not a 404 (RPC doesn't exist) - that's expected
-    if (error.message && !error.message.includes('404') && !error.message.includes('function') && !error.message.includes('does not exist')) {
-      console.warn('Failed to increment track views via RPC:', error.message);
-    }
-    
-    const { data: track } = await supabase
-      .from('tracks')
-      .select('view_count')
-      .eq('id', trackId)
-      .single();
-
-    if (track) {
-      await supabase
+    // If RPC doesn't exist, fall back to manual increment
+    if (error) {
+      // Check if it's a 404 or function doesn't exist error
+      const isNotFoundError = error.code === 'P0001' || 
+                             error.message?.includes('function') || 
+                             error.message?.includes('does not exist') ||
+                             error.message?.includes('not found');
+      
+      if (!isNotFoundError) {
+        console.warn('Failed to increment track views via RPC:', error.message);
+      }
+      
+      // Fall back to manual increment
+      const { data: track } = await supabase
         .from('tracks')
-        .update({ view_count: (track.view_count || 0) + 1 })
-        .eq('id', trackId);
+        .select('view_count')
+        .eq('id', trackId)
+        .single();
+
+      if (track) {
+        await supabase
+          .from('tracks')
+          .update({ view_count: (track.view_count || 0) + 1 })
+          .eq('id', trackId);
+      }
+    }
+  } catch (err: any) {
+    // Catch network errors (like 404) and fall back silently
+    if (err?.status === 404 || err?.message?.includes('404')) {
+      // Silently fall back to manual increment
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('view_count')
+        .eq('id', trackId)
+        .single();
+
+      if (track) {
+        await supabase
+          .from('tracks')
+          .update({ view_count: (track.view_count || 0) + 1 })
+          .eq('id', trackId);
+      }
+    } else {
+      console.warn('Error incrementing track views:', err);
     }
   }
 }

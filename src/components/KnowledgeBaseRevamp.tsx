@@ -74,7 +74,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
-import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
+import defaultThumbnail from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
