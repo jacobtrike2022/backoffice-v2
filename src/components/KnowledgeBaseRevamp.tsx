@@ -74,6 +74,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -1692,18 +1693,16 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                           src={selectedTrack.content_url} 
                           controls 
                           className="w-full h-full object-contain" 
-                          poster={selectedTrack.thumbnail_url}
+                          poster={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail}
                         />
                       ) : selectedTrack.content_url.match(/\.(mp3|wav|ogg)$/i) ? (
                         // Audio file with visual wrapper
                         <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
-                          {selectedTrack.thumbnail_url && (
-                            <img 
-                              src={selectedTrack.thumbnail_url} 
-                              alt={selectedTrack.title}
-                              className="w-48 h-48 object-cover rounded-lg mb-4"
-                            />
-                          )}
+                          <img 
+                            src={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail} 
+                            alt={selectedTrack.title}
+                            className="w-48 h-48 object-cover rounded-lg mb-4"
+                          />
                           <audio
                             controls
                             className="w-full max-w-md"
@@ -1718,7 +1717,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                           src={selectedTrack.content_url} 
                           controls 
                           className="w-full h-full object-contain" 
-                          poster={selectedTrack.thumbnail_url}
+                          poster={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail}
                         />
                       )}
                     </div>

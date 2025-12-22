@@ -46,6 +46,7 @@ import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -1712,7 +1713,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <ImageIcon className="h-4 w-4" />
                     Header Image
                   </label>
-                  {editFormData.thumbnail_url ? (
+                  {editFormData.thumbnail_url && editFormData.thumbnail_url !== '/default-thumbnail.png' ? (
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
@@ -1735,14 +1736,21 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '' })}
+                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '/default-thumbnail.png' })}
                         >
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    <div className="relative">
+                    <div className="space-y-2">
+                      <div className="relative aspect-video rounded-lg overflow-hidden border">
+                        <img
+                          src={defaultThumbnail}
+                          alt="Default Header"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
                       <input
                         type="file"
                         id="header-image-upload"
@@ -1786,7 +1794,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               )}
               
               {/* Preview mode - show header image */}
-              {!isEditMode && track.thumbnail_url && (
+              {!isEditMode && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                     <ImageIcon className="h-4 w-4" />
@@ -1794,7 +1802,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </label>
                   <div className="relative aspect-video rounded-lg overflow-hidden border">
                     <img
-                      src={track.thumbnail_url}
+                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
                       alt="Header"
                       className="w-full h-full object-cover"
                     />

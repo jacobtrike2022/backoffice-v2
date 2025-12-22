@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { supabase } from '../supabase';
+import { compressImage } from '../utils/imageCompression';
 
 /**
  * Upload a store photo to Supabase Storage
@@ -18,21 +19,35 @@ export async function uploadStorePhoto(file: File, storeId: string): Promise<str
       throw new Error('File must be an image');
     }
 
-    // Validate file size (5MB max)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-      throw new Error('File size must be less than 5MB');
+    // Compress image automatically
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file, {
+        maxSizeMB: 2, // Target 2MB for store photos
+        maxWidth: 1920,
+        maxHeight: 1920,
+        quality: 0.8,
+      });
+    } catch (compressionError) {
+      console.warn('Image compression failed, using original file:', compressionError);
+      // Continue with original file if compression fails
+    }
+
+    // Validate file size after compression (3MB max after compression)
+    const maxSize = 3 * 1024 * 1024; // 3MB after compression
+    if (fileToUpload.size > maxSize) {
+      throw new Error('File size must be less than 3MB after compression');
     }
 
     // Create a unique file name
-    const fileExt = file.name.split('.').pop();
+    const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
     const fileName = `${storeId}-${Date.now()}.${fileExt}`;
     const filePath = `stores/${fileName}`;
 
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from('store-photos')
-      .upload(filePath, file, {
+      .upload(filePath, fileToUpload, {
         cacheControl: '3600',
         upsert: true
       });

@@ -5,6 +5,7 @@
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
 import { supabase, getCurrentUserOrgId } from '../supabase';
+import { compressImage } from '../utils/imageCompression';
 
 export interface CreateTrackInput {
   title: string;
@@ -493,61 +494,156 @@ export async function uploadTrackMedia(
   file: File,
   type: 'content' | 'thumbnail'
 ): Promise<string> {
-  // Upload through server to avoid RLS issues
-  const formData = new FormData();
-  formData.append('file', file);
+  try {
+    // Validate file type for thumbnails
+    if (type === 'thumbnail' && !file.type.startsWith('image/')) {
+      throw new Error('Thumbnail must be an image file');
+    }
 
-  const response = await fetch(`${getServerUrl()}/upload-media`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${publicAnonKey}`,
-    },
-    body: formData,
-  });
+    // Compress images automatically if they're thumbnails
+    let fileToUpload = file;
+    if (type === 'thumbnail' && file.type.startsWith('image/')) {
+      try {
+        fileToUpload = await compressImage(file, {
+          maxSizeMB: 1, // Target 1MB for thumbnails
+          maxWidth: 1920,
+          maxHeight: 1920,
+          quality: 0.8,
+        });
+      } catch (compressionError) {
+        console.warn('Image compression failed, using original file:', compressionError);
+        // Continue with original file if compression fails
+      }
+    }
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to upload file');
+    // Validate file size after compression (50MB max for content, 2MB for thumbnails after compression)
+    const maxSize = type === 'thumbnail' 
+      ? 2 * 1024 * 1024 // 2MB for thumbnails (after compression)
+      : 50 * 1024 * 1024; // 50MB for content
+    if (fileToUpload.size > maxSize) {
+      throw new Error(`File size must be less than ${maxSize / 1024 / 1024}MB after compression`);
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const fileExt = fileToUpload.name.split('.').pop() || 'bin';
+    const fileName = type === 'thumbnail' 
+      ? `thumbnails/${trackId}-${timestamp}.${fileExt}`
+      : `content/${trackId}-${timestamp}.${fileExt}`;
+
+    const BUCKET_NAME = 'make-2858cc8b-track-media';
+
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(fileName, fileToUpload, {
+        contentType: file.type,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Supabase storage upload error:', uploadError);
+      throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+
+    // Create signed URL (bucket is private, so we need signed URLs)
+    // 10 years expiration for long-term access
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(fileName, 315360000); // 10 years in seconds
+
+    if (signedUrlError) {
+      throw new Error(`Failed to create URL: ${signedUrlError.message}`);
+    }
+    
+    const url = signedUrlData.signedUrl;
+
+    // Update track with new URL
+    const updateData = type === 'content' 
+      ? { content_url: url }
+      : { thumbnail_url: url };
+
+    await updateTrack({ id: trackId, ...updateData });
+
+    return url;
+  } catch (err: any) {
+    console.error('Error uploading track media:', err);
+    throw err;
   }
-
-  const data = await response.json();
-  const url = data.url;
-
-  // Update track with new URL
-  const updateData = type === 'content' 
-    ? { content_url: url }
-    : { thumbnail_url: url };
-
-  await updateTrack({ id: trackId, ...updateData });
-
-  return url;
 }
 
 /**
- * Upload track file using server endpoint (for articles, PDFs, etc.)
+ * Upload track file (for articles thumbnails, PDFs, etc.)
  */
 export async function uploadTrackFile(trackId: string, file: File): Promise<{ url: string; fileName: string }> {
-  const formData = new FormData();
-  formData.append('file', file);
+  try {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      throw new Error('File must be an image');
+    }
 
-  const response = await fetch(`${getServerUrl()}/upload-media`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${publicAnonKey}`,
-    },
-    body: formData,
-  });
+    // Compress image automatically
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file, {
+        maxSizeMB: 1, // Target 1MB for thumbnails
+        maxWidth: 1920,
+        maxHeight: 1920,
+        quality: 0.8,
+      });
+    } catch (compressionError) {
+      console.warn('Image compression failed, using original file:', compressionError);
+      // Continue with original file if compression fails
+    }
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to upload file');
+    // Validate file size after compression (2MB max after compression)
+    const maxSize = 2 * 1024 * 1024; // 2MB after compression
+    if (fileToUpload.size > maxSize) {
+      throw new Error('File size must be less than 2MB after compression');
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
+    const fileName = `thumbnails/${trackId}-${timestamp}.${fileExt}`;
+
+    const BUCKET_NAME = 'make-2858cc8b-track-media';
+
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(fileName, fileToUpload, {
+        contentType: file.type,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Supabase storage upload error:', uploadError);
+      throw new Error(`Upload failed: ${uploadError.message}`);
+    }
+
+    // Create signed URL (bucket is private, so we need signed URLs)
+    // 10 years expiration for long-term access
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(fileName, 315360000); // 10 years in seconds
+
+    if (signedUrlError) {
+      throw new Error(`Failed to create URL: ${signedUrlError.message}`);
+    }
+    
+    const url = signedUrlData.signedUrl;
+
+    return {
+      url: url,
+      fileName: fileName
+    };
+  } catch (err: any) {
+    console.error('Error uploading track file:', err);
+    throw err;
   }
-
-  const data = await response.json();
-  return {
-    url: data.url,
-    fileName: data.fileName
-  };
 }
 
 /**
@@ -560,6 +656,11 @@ export async function incrementTrackViews(trackId: string) {
 
   // If RPC doesn't exist, fall back to manual increment
   if (error) {
+    // Only log if it's not a 404 (RPC doesn't exist) - that's expected
+    if (error.message && !error.message.includes('404') && !error.message.includes('function') && !error.message.includes('does not exist')) {
+      console.warn('Failed to increment track views via RPC:', error.message);
+    }
+    
     const { data: track } = await supabase
       .from('tracks')
       .select('view_count')

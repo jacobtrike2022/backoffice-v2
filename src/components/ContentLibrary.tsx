@@ -1001,7 +1001,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-muted overflow-hidden">
                   <img
-                    src={track.thumbnail_url || defaultThumbnail}
+                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
                     alt={track.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                   />
@@ -1276,7 +1276,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   {/* Thumbnail */}
                   <div className="w-48 h-28 flex-shrink-0 bg-muted rounded overflow-hidden">
                     <img
-                      src={track.thumbnail_url || defaultThumbnail}
+                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
                       alt={track.title}
                       className="w-full h-full object-cover"
                     />
