@@ -453,6 +453,7 @@ export default function App() {
             editingArticle={editingArticle}
             onClearEditingArticle={() => setEditingArticle(null)}
             initialTrackId={initialTrackId}
+            initialMode={initialMode}
             onBackClick={handleBackFromContentAuthoring}
             previousView={previousView}
             onRegisterUnsavedChangesCheck={(checkFn) =>
@@ -467,6 +468,11 @@ export default function App() {
           <KnowledgeBaseRevamp
             currentRole={currentRole}
             onEditTrack={handleEditTrack}
+            onCreateArticle={() => {
+              setPreviousView("knowledge-base");
+              setInitialMode("create-article");
+              setCurrentView("authoring");
+            }}
           />
         );
       case "settings":
