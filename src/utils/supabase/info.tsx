@@ -9,15 +9,29 @@
  * VITE_SUPABASE_FUNCTION_NAME=your-function-name (optional)
  * 
  * The .env file is gitignored and will not be committed to the repository.
+ * 
+ * See ENVIRONMENT_SETUP.md for detailed setup instructions.
  */
 
 // Get Supabase project ID from environment variable
-// Falls back to hardcoded value for backward compatibility (should be removed in production)
-export const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "kgzhlvxzdlexsrozbbxs";
+// Throws error if not set to ensure proper configuration
+export const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+if (!projectId) {
+  throw new Error(
+    'VITE_SUPABASE_PROJECT_ID is not set. Please create a .env file with your Supabase credentials. ' +
+    'See ENVIRONMENT_SETUP.md for instructions.'
+  );
+}
 
 // Get Supabase anonymous key from environment variable
-// Falls back to hardcoded value for backward compatibility (should be removed in production)
-export const publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtnemhsdnh6ZGxleHNyb3piYnhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTMxNTYsImV4cCI6MjA3OTA4OTE1Nn0.V8c1z6KO7Q3fmFgKpYkedlJOUuV-cm8Y1F123H-8hxU";
+// Throws error if not set to ensure proper configuration
+export const publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+if (!publicAnonKey) {
+  throw new Error(
+    'VITE_SUPABASE_ANON_KEY is not set. Please create a .env file with your Supabase credentials. ' +
+    'See ENVIRONMENT_SETUP.md for instructions.'
+  );
+}
 
 /**
  * Get the Supabase Edge Function server URL
