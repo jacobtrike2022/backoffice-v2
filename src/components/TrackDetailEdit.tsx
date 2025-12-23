@@ -34,7 +34,8 @@ import {
   Link as LinkIcon,
   Sparkles,
   History,
-  Zap
+  Zap,
+  ThumbsUp
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import * as factsCrud from '../lib/crud/facts';
@@ -1882,6 +1883,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   Views
                 </span>
                 <span className="font-semibold">{track.view_count || 0}</span>
+              </div>
+              <Separator />
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground flex items-center gap-2">
+                  <ThumbsUp className="h-4 w-4" />
+                  Likes
+                </span>
+                <span className="font-semibold">{track.likes_count || 0}</span>
               </div>
               <Separator />
               <div className="flex justify-between items-center">

@@ -38,7 +38,8 @@ import {
   Paperclip,
   ExternalLink,
   History,
-  Zap
+  Zap,
+  ThumbsUp
 } from 'lucide-react';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
@@ -1693,6 +1694,17 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 <div>
                   <p className="text-xs text-muted-foreground">Views</p>
                   <p className="font-semibold">{track.view_count || 0}</p>
+                </div>
+              </div>
+
+              {/* Likes */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center">
+                  <ThumbsUp className="h-5 w-5 text-gray-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Likes</p>
+                  <p className="font-semibold">{track.likes_count || 0}</p>
                 </div>
               </div>
 

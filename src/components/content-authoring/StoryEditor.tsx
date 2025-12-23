@@ -38,7 +38,9 @@ import {
   History,
   Sparkles,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  Eye,
+  ThumbsUp
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
@@ -2419,6 +2421,32 @@ export function StoryEditor({
               )}
             </CardContent>
           </Card>
+
+          {/* Performance Metrics */}
+          {currentTrackId && existingTrack && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Performance Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Eye className="h-4 w-4" />
+                    Views
+                  </span>
+                  <span className="font-semibold">{existingTrack.view_count || 0}</span>
+                </div>
+                <Separator />
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <ThumbsUp className="h-4 w-4" />
+                    Likes
+                  </span>
+                  <span className="font-semibold">{existingTrack.likes_count || 0}</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Tags */}
           <Card>
