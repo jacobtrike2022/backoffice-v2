@@ -853,9 +853,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     } else {
       // In view mode, update the track directly in the database
       try {
+        // Update tags array to include/remove the system tag
+        const currentTags = new Set<string>(track.tags || []);
+        if (checked) {
+          currentTags.add('system:show_in_knowledge_base');
+        } else {
+          currentTags.delete('system:show_in_knowledge_base');
+        }
+        
         await crud.updateTrack({
           id: track.id,
-          show_in_knowledge_base: checked
+          show_in_knowledge_base: checked,
+          tags: Array.from(currentTags)
         });
         
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');

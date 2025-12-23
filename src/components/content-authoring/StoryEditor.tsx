@@ -695,15 +695,25 @@ export function StoryEditor({
         const currentTrackId = track?.id || trackId;
         if (!currentTrackId) return;
         
+        // Update tags array to include/remove the system tag
+        const currentTags = new Set<string>(track?.tags || []);
+        if (checked) {
+          currentTags.add('system:show_in_knowledge_base');
+        } else {
+          currentTags.delete('system:show_in_knowledge_base');
+        }
+        
         await crud.updateTrack({
           id: currentTrackId,
-          show_in_knowledge_base: checked
+          show_in_knowledge_base: checked,
+          tags: Array.from(currentTags)
         });
         
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
         
         // Update local state to reflect the change
         setShowInKnowledgeBase(checked);
+        setTags(Array.from(currentTags));
         
         // Refresh the track data
         if (onUpdate) {
