@@ -273,21 +273,93 @@ kbApp.get('/public/:slug', async (c) => {
 // Record page view for public KB
 kbApp.post('/page-view', async (c) => {
   try {
-    const { trackId, referrer, userAgent } = await c.req.json();
+    const { trackId, userId, referrer, userAgent } = await c.req.json();
 
     if (!trackId) {
       return c.json({ error: 'Missing trackId' }, 400);
     }
 
-    const pageViewKey = `kb_page_view:${trackId}:${Date.now()}`;
+    // Always get latest version if trackId points to an old version
+    let finalTrackId = trackId;
+    const { data: trackById } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id, is_latest_version')
+      .eq('id', trackId)
+      .single();
+    
+    if (trackById && trackById.is_latest_version === false) {
+      const parentId = trackById.parent_track_id || trackId;
+      const { data: latestTrack } = await supabase
+        .from('tracks')
+        .select('id')
+        .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+        .eq('is_latest_version', true)
+        .single();
+      
+      if (latestTrack) {
+        finalTrackId = latestTrack.id;
+        console.log(`🔄 KB Page View: Redirected from old version ${trackId} to latest version ${finalTrackId}`);
+      }
+    }
+
+    // Store in KV for analytics
+    const pageViewKey = `kb_page_view:${finalTrackId}:${Date.now()}`;
     const pageViewData = {
-      trackId,
+      trackId: finalTrackId,
       referrer: referrer || 'direct_link',
       userAgent: userAgent || '',
       timestamp: new Date().toISOString()
     };
 
     await kv.set(pageViewKey, pageViewData);
+
+    // Record activity event if userId is provided (using service role key - bypasses RLS)
+    if (userId) {
+      try {
+        const { data: trackInfo } = await supabase
+          .from('tracks')
+          .select('title, type, version_number')
+          .eq('id', finalTrackId)
+          .single();
+        
+        if (trackInfo) {
+          const { error: activityInsertError } = await supabase
+            .from('activity_events')
+            .insert({
+              user_id: userId,
+              verb: 'Viewed', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
+              object_type: 'track',
+              object_id: finalTrackId,
+              object_name: trackInfo.title,
+              result_completion: false,
+              context_platform: 'web',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                track_type: trackInfo.type,
+                track_version: trackInfo.version_number || 1,
+                action_type: 'view',
+                verb_uri: 'http://activitystrea.ms/schema/1.0/view', // xAPI verb URI for LRS interoperability
+                referrer: referrer || 'direct_link'
+              }
+            });
+          
+          if (activityInsertError) {
+            console.error('❌ KB Page View: Failed to insert activity event:', {
+              userId,
+              trackId: finalTrackId,
+              error: activityInsertError.message,
+              code: activityInsertError.code,
+              details: activityInsertError.details,
+              hint: activityInsertError.hint
+            });
+          } else {
+            console.log('✅ KB Page View: Activity event recorded for userId:', userId);
+          }
+        }
+      } catch (activityError: any) {
+        console.warn('⚠️ KB Page View: Failed to record activity event (non-critical):', activityError.message);
+      }
+    }
 
     return c.json({ success: true });
   } catch (error: any) {

@@ -302,12 +302,17 @@ export function PublicKBViewer() {
         }
       }
 
-      // Track page view (with userId if logged in)
-      trackPageView(data.track.id, userId);
+      // Get userId from session directly (state might not be updated yet)
+      const currentSession = getPinSession();
+      const currentUserId = currentSession?.userId || userId || null;
       
-      // Increment view count in tracks table (with userId for activity tracking)
+      // Track page view (with userId if logged in) - this also records activity event via edge function
+      trackPageView(data.track.id, currentUserId);
+      
+      // Increment view count in tracks table (activity event is handled by trackPageView endpoint)
       try {
-        await crud.incrementTrackViews(data.track.id, userId || undefined);
+        console.log('📊 PublicKBViewer: Incrementing view count for track:', data.track.id);
+        await crud.incrementTrackViews(data.track.id); // Don't pass userId - activity event handled by edge function
       } catch (error) {
         // Log error but don't block page load
         console.warn('Failed to increment track view count:', error);
@@ -326,6 +331,12 @@ export function PublicKBViewer() {
 
   async function trackPageView(trackId: string, userId?: string | null) {
     try {
+      // Get userId from session directly (state might not be updated yet)
+      const currentSession = getPinSession();
+      const currentUserId = currentSession?.userId || userId || null;
+      
+      console.log('📊 PublicKBViewer: Tracking page view with userId:', currentUserId);
+      
       await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/page-view`,
         {
@@ -336,7 +347,7 @@ export function PublicKBViewer() {
           },
           body: JSON.stringify({
             trackId: trackId,
-            userId: userId || null,
+            userId: currentUserId || null,
             referrer: document.referrer.includes('qr') ? 'qr_scan' : 'direct_link',
             userAgent: navigator.userAgent,
           }),
@@ -367,7 +378,12 @@ export function PublicKBViewer() {
   async function handleLike() {
     if (!track || hasLiked) return;
     
+    // Get userId from session directly (state might not be updated yet)
+    const currentSession = getPinSession();
+    const currentUserId = currentSession?.userId || userId || null;
+    
     try {
+      console.log('📊 PublicKBViewer: Liking track with userId:', currentUserId);
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/like`,
         {
@@ -376,7 +392,7 @@ export function PublicKBViewer() {
             Authorization: `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ trackId: track.id, userId: userId || null }),
+          body: JSON.stringify({ trackId: track.id, userId: currentUserId || null }),
         }
       );
       const data = await response.json();

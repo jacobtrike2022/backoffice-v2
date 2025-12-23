@@ -1011,7 +1011,9 @@ export async function incrementTrackViews(trackId: string, userId?: string | nul
     if (!rpcError) {
       console.log('✅ incrementTrackViews: Successfully incremented via RPC for track:', trackId);
       
-      // Record activity event if userId is provided
+      // Note: Activity events for KB viewer views are now handled by the /kb/page-view edge function
+      // which has service role access and can bypass RLS. Client-side activity event recording
+      // is kept for Content Library views where the user is authenticated via Supabase Auth.
       if (userId) {
         recordViewActivityEvent(trackId, userId).catch(err => {
           console.warn('⚠️ incrementTrackViews: Failed to record activity event (non-critical):', err);
@@ -1084,7 +1086,9 @@ export async function incrementTrackViews(trackId: string, userId?: string | nul
         newCount
       });
       
-      // Record activity event if userId is provided
+      // Note: Activity events for KB viewer views are now handled by the /kb/page-view edge function
+      // which has service role access and can bypass RLS. Client-side activity event recording
+      // is kept for Content Library views where the user is authenticated via Supabase Auth.
       if (userId) {
         recordViewActivityEvent(trackId, userId).catch(err => {
           console.warn('⚠️ incrementTrackViews: Failed to record activity event (non-critical):', err);
@@ -1106,6 +1110,13 @@ export async function incrementTrackViews(trackId: string, userId?: string | nul
  */
 async function recordViewActivityEvent(trackId: string, userId: string) {
   try {
+    console.log('📝 recordViewActivityEvent: Starting for trackId:', trackId, 'userId:', userId);
+    
+    if (!userId) {
+      console.warn('⚠️ recordViewActivityEvent: userId is missing, skipping activity event');
+      return;
+    }
+
     // Get track info for activity event
     const { data: track, error: trackError } = await supabase
       .from('tracks')
@@ -1114,12 +1125,17 @@ async function recordViewActivityEvent(trackId: string, userId: string) {
       .single();
 
     if (trackError || !track) {
-      console.warn('⚠️ recordViewActivityEvent: Track not found:', trackId);
+      console.warn('⚠️ recordViewActivityEvent: Track not found:', {
+        trackId,
+        error: trackError?.message
+      });
       return;
     }
 
+    console.log('📝 recordViewActivityEvent: Track found, inserting activity event...');
+
     // Insert activity event with xAPI/Tin Can API standard verb
-    const { error: activityError } = await supabase
+    const { data: insertedEvent, error: activityError } = await supabase
       .from('activity_events')
       .insert({
         user_id: userId,
@@ -1136,25 +1152,32 @@ async function recordViewActivityEvent(trackId: string, userId: string) {
           action_type: 'view',
           verb_uri: 'http://activitystrea.ms/schema/1.0/view' // xAPI verb URI for LRS interoperability
         }
-      });
+      })
+      .select()
+      .single();
 
     if (activityError) {
       console.error('❌ recordViewActivityEvent: Failed to insert activity event:', {
         trackId,
         userId,
-        error: activityError.message
+        error: activityError.message,
+        code: activityError.code,
+        details: activityError.details,
+        hint: activityError.hint
       });
     } else {
-      console.log('✅ recordViewActivityEvent: Activity event recorded for view:', {
+      console.log('✅ recordViewActivityEvent: Activity event recorded successfully:', {
         trackId,
-        userId
+        userId,
+        eventId: insertedEvent?.id
       });
     }
   } catch (err: any) {
     console.error('❌ recordViewActivityEvent: Unexpected error:', {
       trackId,
       userId,
-      error: err?.message || err
+      error: err?.message || err,
+      stack: err?.stack
     });
   }
 }
@@ -1276,6 +1299,13 @@ export async function incrementTrackLikes(trackId: string, userId?: string | nul
  */
 async function recordLikeActivityEvent(trackId: string, userId: string) {
   try {
+    console.log('📝 recordLikeActivityEvent: Starting for trackId:', trackId, 'userId:', userId);
+    
+    if (!userId) {
+      console.warn('⚠️ recordLikeActivityEvent: userId is missing, skipping activity event');
+      return;
+    }
+
     // Get track info for activity event
     const { data: track, error: trackError } = await supabase
       .from('tracks')
@@ -1284,12 +1314,17 @@ async function recordLikeActivityEvent(trackId: string, userId: string) {
       .single();
 
     if (trackError || !track) {
-      console.warn('⚠️ recordLikeActivityEvent: Track not found:', trackId);
+      console.warn('⚠️ recordLikeActivityEvent: Track not found:', {
+        trackId,
+        error: trackError?.message
+      });
       return;
     }
 
+    console.log('📝 recordLikeActivityEvent: Track found, inserting activity event...');
+
     // Insert activity event with xAPI/Tin Can API standard verb
-    const { error: activityError } = await supabase
+    const { data: insertedEvent, error: activityError } = await supabase
       .from('activity_events')
       .insert({
         user_id: userId,
@@ -1306,25 +1341,32 @@ async function recordLikeActivityEvent(trackId: string, userId: string) {
           action_type: 'like',
           verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for interoperability
         }
-      });
+      })
+      .select()
+      .single();
 
     if (activityError) {
       console.error('❌ recordLikeActivityEvent: Failed to insert activity event:', {
         trackId,
         userId,
-        error: activityError.message
+        error: activityError.message,
+        code: activityError.code,
+        details: activityError.details,
+        hint: activityError.hint
       });
     } else {
-      console.log('✅ recordLikeActivityEvent: Activity event recorded for like:', {
+      console.log('✅ recordLikeActivityEvent: Activity event recorded successfully:', {
         trackId,
-        userId
+        userId,
+        eventId: insertedEvent?.id
       });
     }
   } catch (err: any) {
     console.error('❌ recordLikeActivityEvent: Unexpected error:', {
       trackId,
       userId,
-      error: err?.message || err
+      error: err?.message || err,
+      stack: err?.stack
     });
   }
 }
