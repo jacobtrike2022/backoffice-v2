@@ -93,15 +93,6 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
       return;
     }
 
-    // Check for common PINs
-    const commonPins = ['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234'];
-    if (commonPins.includes(newPin)) {
-      toast.error('PIN too common', {
-        description: 'Please choose a less common PIN'
-      });
-      return;
-    }
-
     setLoading(true);
     try {
       if (!organizationId) {

@@ -154,7 +154,6 @@ export async function generateUserPin(userId: string): Promise<string | null> {
     }
 
     // Generate a unique PIN within the organization
-    const commonPins = ['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234'];
     let attempts = 0;
     const maxAttempts = 100;
     let newPin: string | null = null;
@@ -163,12 +162,6 @@ export async function generateUserPin(userId: string): Promise<string | null> {
       // Generate random 4-digit PIN
       const randomPin = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
       
-      // Skip common PINs
-      if (commonPins.includes(randomPin)) {
-        attempts++;
-        continue;
-      }
-
       // Check uniqueness within organization
       const isUnique = await checkPinUniqueness(randomPin, organizationId, userId);
       if (isUnique) {
@@ -265,12 +258,6 @@ export async function setUserPin(userId: string, pin: string, organizationId?: s
   // Validate PIN format
   if (!/^\d{4}$/.test(pin)) {
     throw new Error('PIN must be 4 digits');
-  }
-
-  // Don't allow common PINs
-  const commonPins = ['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234'];
-  if (commonPins.includes(pin)) {
-    throw new Error('Please choose a less common PIN');
   }
 
   try {
