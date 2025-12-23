@@ -1,6 +1,16 @@
+// Deno/Supabase Edge Function - npm: imports are valid at runtime
+// @ts-expect-error - Deno npm: specifier (valid in Deno runtime)
 import { Hono } from 'npm:hono';
+// @ts-expect-error - Deno npm: specifier (valid in Deno runtime)
 import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import * as kv from './kv_store.tsx';
+
+// @ts-expect-error - Deno global is available at runtime
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined;
+  };
+};
 
 const kbApp = new Hono();
 
