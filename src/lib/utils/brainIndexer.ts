@@ -183,8 +183,8 @@ function buildTrackText(
       break;
 
     case 'article':
-      // Articles have direct content (may be HTML - strip tags)
-      const articleContent = track.content || track.content_text;
+      // Articles have direct content in transcript field (may be HTML - strip tags)
+      const articleContent = track.transcript || track.content || track.content_text;
       if (articleContent) {
         const cleanContent = stripHtmlTags(articleContent);
         parts.push(`Content: ${cleanContent}`);
