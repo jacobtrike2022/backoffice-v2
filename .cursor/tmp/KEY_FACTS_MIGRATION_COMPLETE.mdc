@@ -1,0 +1,23 @@
+---
+description: "Key Facts Migration Complete"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Key Facts Migration Complete
+
+## Summary
+
+Key Facts feature has been successfully migrated and is production ready.
+
+## What Was Done
+
+1. Facts table created with proper schema
+2. Fact usage tracking implemented
+3. AI fact extraction working
+4. Facts display in UI correctly
+5. Media source tracking added
+
+## Status
+
+COMPLETE - Key Facts feature is live.

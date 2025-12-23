@@ -1,0 +1,76 @@
+---
+description: "Transcript & Media Architecture"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Transcript & Media Architecture
+
+## Overview
+This document describes the architecture for storing transcripts separately from tracks, enabling deduplication, caching, and composability across all content types.
+
+## Proposed Architecture
+
+### Database Schema
+
+#### New Table: `media_transcripts`
+```sql
+CREATE TABLE media_transcripts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    media_url TEXT NOT NULL UNIQUE,
+    media_url_hash TEXT NOT NULL,
+    media_type TEXT NOT NULL CHECK (media_type IN ('video', 'audio')),
+    transcript_text TEXT NOT NULL,
+    transcript_json JSONB,
+    transcript_utterances JSONB,
+    duration_seconds INTEGER,
+    word_count INTEGER,
+    language TEXT DEFAULT 'en',
+    confidence_score DECIMAL(3,2),
+    transcribed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    transcription_service TEXT DEFAULT 'assemblyai',
+    transcription_model TEXT,
+    used_in_tracks TEXT[],
+    usage_count INTEGER DEFAULT 1,
+    last_used_at TIMESTAMPTZ DEFAULT NOW(),
+    needs_review BOOLEAN DEFAULT false,
+    reviewed_by UUID REFERENCES users(id),
+    reviewed_at TIMESTAMPTZ,
+    manual_corrections TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/transcribe-cached` | POST | Single video with caching |
+| `/transcribe-story-cached` | POST | Multi-video with caching |
+| `/transcript/:id` | GET | Retrieve cached transcript by ID |
+| `/transcript/by-url` | GET | Retrieve cached transcript by media URL |
+| `/transcript/:id` | PATCH | Update transcript (manual corrections) |
+
+## Benefits Summary
+
+### Cost Savings
+- Same video transcribed once across all tracks
+- Regenerating facts doesn't re-transcribe
+- Estimated 70-90% reduction in transcription costs for reused content
+
+### Performance
+- Instant transcript retrieval from cache
+- Faster fact generation (no transcription wait)
+- Better user experience
+
+### Data Integrity
+- Consistent transcripts for same media
+- Transcript history and versioning
+- Manual correction tracking
+- Quality review workflow
+
+### Feature Parity
+- Videos get same AI features as stories
+- Unified transcript architecture
+- Consistent UX across content types

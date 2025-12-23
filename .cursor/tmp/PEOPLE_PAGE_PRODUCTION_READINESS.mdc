@@ -1,0 +1,30 @@
+---
+description: "People Page Production Readiness"
+globs: "**/*"
+alwaysApply: false
+---
+
+# People Page Production Readiness
+
+## Status: PRODUCTION READY
+
+The People page has been fully converted to use real Supabase data.
+
+## What's Working
+
+- User list displays from database
+- Search and filtering
+- Role and store display
+- User creation
+- User editing
+- Status management
+
+## Components
+
+- `/components/People.tsx` - Main page
+- Uses `useUsers()` hook
+- Uses `createUser()`, `updateUser()` CRUD functions
+
+## Testing Verified
+
+All user management operations working correctly.

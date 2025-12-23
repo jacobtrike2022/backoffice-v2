@@ -1,0 +1,55 @@
+---
+description: "Component Conversion Guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Component Conversion Guide
+
+## Conversion Pattern
+
+Follow this pattern for every component:
+
+```typescript
+// 1. Import hooks and CRUD
+import { useCurrentUser, useTracks } from '../lib/hooks/useSupabase';
+import * as crud from '../lib/crud';
+import { Skeleton } from './ui/skeleton';
+import { toast } from 'sonner';
+
+// 2. Replace mock data with hooks
+function Component() {
+  const { tracks, loading, error, refetch } = useTracks({ status: 'published' });
+
+  // 3. Add mutations
+  const handleCreate = async (data) => {
+    try {
+      await crud.createTrack(data);
+      toast.success('Track created!');
+      refetch();
+    } catch (error) {
+      toast.error('Failed to create track');
+    }
+  };
+
+  // 4. Add loading state
+  if (loading) return <Skeleton className="h-screen" />;
+  
+  // 5. Add error handling
+  if (error) return <div>Error: {error.message}</div>;
+
+  // 6. Render with real data
+  return <div>{tracks.map(t => <div key={t.id}>{t.title}</div>)}</div>;
+}
+```
+
+## Checklist Per Component
+
+- [ ] Remove mock data imports
+- [ ] Add hook imports
+- [ ] Add CRUD imports
+- [ ] Replace mock data with hook
+- [ ] Add loading state
+- [ ] Add error handling
+- [ ] Add mutations for create/update/delete
+- [ ] Test thoroughly

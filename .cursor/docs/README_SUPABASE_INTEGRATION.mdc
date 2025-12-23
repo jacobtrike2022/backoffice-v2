@@ -1,0 +1,122 @@
+---
+description: "Trike Backoffice - Supabase Integration"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Trike Backoffice - Supabase Integration
+
+## Complete CRUD Operations & Component Conversion System
+
+## Overview
+
+This project now has a **complete, production-ready Supabase CRUD infrastructure** implementing all business rules for the Trike Backoffice application. All database operations are ready to use - components just need to be wired up.
+
+### What We Built
+
+- **10 CRUD Operation Files** covering all entities
+- **Custom React Hooks** for easy data fetching
+- **Comprehensive Documentation** with conversion guides
+- **Auto-generated Notifications** (9 types)
+- **Cascade Progress Updates** (track > album > playlist)
+- **Auto-certification Issuance** when tracks completed
+- **Form Approval Workflows**
+- **Auto-playlist Triggers**
+- **Activity Logging** throughout the system
+
+## Quick Start Guide
+
+### Using CRUD Functions
+
+```typescript
+import * as crud from '../lib/crud';
+
+// CREATE
+const newTrack = await crud.createTrack({
+  title: 'Safety Training',
+  type: 'video',
+  description: 'Learn safety protocols'
+});
+
+// READ
+const tracks = await crud.getTracks({ status: 'published', type: 'video' });
+const track = await crud.getTrackById('track-id');
+
+// UPDATE (autosave)
+await crud.updateTrack({ id: 'track-id', title: 'Updated Title' });
+
+// PUBLISH
+await crud.publishTrack('track-id');
+
+// DELETE
+await crud.deleteTrack('track-id');
+
+// UPLOAD MEDIA
+const url = await crud.uploadTrackMedia('track-id', file, 'content');
+```
+
+### Using React Hooks
+
+```typescript
+import { useCurrentUser, useTracks, useAssignments } from '../lib/hooks/useSupabase';
+
+function MyComponent() {
+  const { user, loading: userLoading } = useCurrentUser();
+  const { tracks, loading, error, refetch } = useTracks({
+    type: 'video',
+    status: 'published',
+    search: 'safety'
+  });
+  const { assignments, loading: assignLoading } = useAssignments({
+    status: 'active'
+  });
+
+  if (loading) return <Skeleton />;
+  if (error) return <div>Error: {error.message}</div>;
+
+  return (
+    <div>
+      {tracks.map(track => (
+        <div key={track.id}>{track.title}</div>
+      ))}
+    </div>
+  );
+}
+```
+
+## File Structure
+
+```
+/lib
+  /crud                         # All CRUD operations
+    - index.ts                  # Central exports
+    - tracks.ts                 # Track management
+    - assignments.ts            # Assignment management
+    - progress.ts               # Progress tracking
+    - forms.ts                  # Form builder
+    - certifications.ts         # Certification management
+    - users.ts                  # User management
+    - knowledge-base.ts         # KB articles
+    - notifications.ts          # Notification system
+    - activity.ts               # Activity logging
+  
+  /hooks                        # React hooks
+    - useSupabase.ts            # Core hooks
+    - useSupabaseData.ts        # Extended hooks
+  
+  - supabase.ts                 # Supabase client
+```
+
+## Business Rules Implementation
+
+All specified business rules are implemented:
+
+- **Content Authoring**: New content defaults to `draft` status, autosave, explicit publish
+- **Playlists & Auto-Assignment**: Triggers run via `runPlaylistTrigger()`
+- **Form Builder**: Blocks saved immediately, drag-drop reordering
+- **Assignments**: Can edit due dates, no hard delete (mark as `expired`)
+- **Users & Organization**: Admins can create users directly with invite emails
+- **Certifications**: Auto-issue when required tracks completed
+- **Progress Tracking**: Created at assignment creation, cascade updates
+- **Activity Logs & Notifications**: 9 auto-generated notification types
+- **Knowledge Base**: Attachments via Storage, auto-increment view counts

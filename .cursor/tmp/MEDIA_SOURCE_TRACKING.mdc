@@ -1,0 +1,27 @@
+---
+description: "Media Source Tracking"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Media Source Tracking
+
+## Overview
+
+Media source tracking enables linking facts to their original source media (videos, slides).
+
+## Database Changes
+
+Added to `fact_usage` table:
+- `source_media_id` - Slide ID within story
+- `source_media_url` - Actual video URL
+- `source_media_type` - 'image' | 'video'
+- `display_order` - Order within track
+- `media_transcript_id` - Link to transcript
+
+## Benefits
+
+1. Track which video generated which facts
+2. Enable fact reuse across tracks
+3. Support cleanup when slides deleted
+4. Enable media library features

@@ -1,0 +1,129 @@
+---
+description: "Track Versioning & Duplication - Implementation Guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Track Versioning & Duplication - Implementation Guide
+
+## What's Been Built
+
+### 1. Database Schema
+New columns added to `tracks` table:
+- `parent_track_id` - Links to original track (V1)
+- `version_number` - Sequential version (1, 2, 3...)
+- `version_notes` - Admin changelog
+- `is_latest_version` - Boolean flag for current version
+- `content_text` - Text content for articles/stories
+- `is_system_content` - Flag for Trike Library tracks
+- `summary` - Track summary
+
+### 2. Backend Functions (`/lib/crud/tracks.ts`)
+
+#### Duplication:
+- `duplicateTrack(trackId)` - Creates copy with "(Copy)" suffix
+- Automatically handles copy numbering (Copy 2, Copy 3, etc.)
+- Always creates as draft, resets assignments
+
+#### Versioning:
+- `getTrackVersions(trackId)` - Gets all versions of a track
+- `createTrackVersion(trackId, updates, versionNotes)` - Creates new version
+- `getPlaylistsForTrack(trackId)` - Lists playlists using track
+- `getTrackAssignmentStats(trackId)` - Returns pending/completed counts
+- `replaceTrackInPlaylists(oldId, newId)` - Updates playlist assignments
+- `reassignCompletedUsers(oldId, newId)` - Resets completions for reassignment
+
+#### Query Filtering:
+- `getTracks()` now defaults to showing only latest versions
+- Use `includeAllVersions: true` to see old versions
+
+### 3. UI Components
+
+#### Version Decision Modal
+Shows when saving edits to published track with assignments:
+- Displays current assignment stats (playlists, pending, completed)
+- 3 version strategies:
+  1. **Replace** - Pending get V2, completed keep credit
+  2. **Replace + Reassign** - Everyone must complete V2
+  3. **Keep V1** - V2 only for new playlists
+- Requires version notes input
+
+#### Version History Sidebar
+Displays in track view/edit:
+- Shows all versions in chronological order
+- "Current" badge on latest version
+- Version notes and creation dates
+- "Replaced by VX on DATE" for old versions
+- Click to view old versions (read-only)
+
+---
+
+## Integration Steps
+
+### Step 1: Add Duplicate Button to Content Library
+
+```tsx
+import { Copy } from 'lucide-react';
+import * as crud from '../lib/crud';
+
+<Button
+  variant="ghost"
+  size="sm"
+  onClick={async (e) => {
+    e.stopPropagation();
+    try {
+      const newTrack = await crud.duplicateTrack(track.id);
+      toast.success(`"${track.title}" duplicated successfully!`);
+      refetch();
+    } catch (error: any) {
+      toast.error(`Failed to duplicate: ${error.message}`);
+    }
+  }}
+>
+  <Copy className="h-4 w-4" />
+  Duplicate
+</Button>
+```
+
+### Step 2: Add Version Badge to Track Cards
+
+```tsx
+{track.version_number > 1 && (
+  <Badge variant="outline" className="text-xs">
+    V{track.version_number}
+  </Badge>
+)}
+```
+
+### Step 3: Add Version History to Track Editors
+
+```tsx
+import { VersionHistory } from './content-authoring/VersionHistory';
+import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+
+<VersionHistory 
+  trackId={track.id}
+  currentVersion={track.version_number}
+  onVersionClick={(versionTrackId) => {
+    // Navigate to that version (implement based on your routing)
+  }}
+/>
+```
+
+---
+
+## UX Best Practices
+
+### Version Numbering Display
+- **Learner-facing**: Never show version numbers
+- **Admin UI**: Show version badge subtly (V2, V3)
+- **Version History**: Prominent display with full chronology
+
+### Duplication vs Versioning
+- **Duplicate**: For creating a new related track
+- **Version**: For updating existing content while preserving history
+
+### Assignment Strategies
+- **Replace**: Minor updates (typo fixes, small improvements)
+- **Replace + Reassign**: Major changes or compliance requirements
+- **Keep V1**: Significant content changes where existing users shouldn't be affected

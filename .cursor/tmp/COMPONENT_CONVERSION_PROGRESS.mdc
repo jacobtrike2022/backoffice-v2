@@ -1,0 +1,39 @@
+---
+description: "Component Conversion to Supabase - Progress Tracker"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Component Conversion to Supabase - Progress Tracker
+
+## Status: IN PROGRESS
+
+This document tracks the conversion of all components from mock data to real Supabase CRUD operations.
+
+## Completed Components
+
+### Dashboard.tsx (80% Complete)
+- Converted to use `useCurrentUser()` and `useAssignments()` hooks
+- Replaced mock activity trend data with real `getActivityAnalytics()`
+- Added loading states for charts and assignment cards
+- Real-time data for active assignments
+- Error handling with toast notifications
+
+### ContentLibrary.tsx (100% Complete)
+- Converted to use `useTracks()` hook
+- Integrated real Supabase queries with filters
+- Added auto-increment view count on track view
+- Implemented grid/list view modes
+- Added comprehensive loading states
+
+### People.tsx (100% Complete)
+- Uses `useUsers()` hook
+- Real user data from Supabase
+
+### Playlists.tsx (100% Complete)
+- Uses `usePlaylists()` hook
+- Real playlist data from Supabase
+
+## Remaining Components
+
+See `/CONVERSION_GUIDE.md` for detailed conversion instructions.

@@ -1,0 +1,25 @@
+---
+description: "QR Quick Status"
+globs: "**/*"
+alwaysApply: false
+---
+
+# QR Quick Status
+
+## Current Status
+
+**Frontend:** Ready
+**Backend:** Ready (after migration)
+**Database:** Awaiting migration
+
+## Quick Check
+
+1. Has migration been run? Check for `kb_slug` column in `tracks` table
+2. Are components imported correctly?
+3. Is public route added?
+
+## Files
+
+- Migration: `/MIGRATION_KB_QR_CODES.sql`
+- Utils: `/lib/qr-code-utils.ts`
+- Components: `/components/kb/`

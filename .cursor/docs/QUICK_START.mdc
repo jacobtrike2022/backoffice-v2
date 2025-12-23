@@ -1,0 +1,134 @@
+---
+description: "Quick Start - Database Setup in 5 Minutes"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Quick Start - Database Setup in 5 Minutes
+
+## Goal
+Get from zero to a fully functional database with sample data in under 5 minutes.
+
+## Prerequisites
+
+- Supabase account (free tier works)
+- Supabase project created
+- Connection details handy
+
+## 3-Step Setup
+
+### Step 1: Open Supabase SQL Editor (1 min)
+
+1. Go to https://app.supabase.com
+2. Select your project
+3. Click **"SQL Editor"** in left sidebar
+4. Click **"New Query"**
+
+### Step 2: Run Migration (2 min)
+
+1. Open `/supabase/migrations/00001_initial_schema.sql`
+2. Copy ALL contents (Ctrl/Cmd + A, then Ctrl/Cmd + C)
+3. Paste into SQL Editor
+4. Click **"Run"** (or Ctrl/Cmd + Enter)
+5. Wait ~30 seconds
+6. Look for "Success. No rows returned"
+
+### Step 3: Run Seeds (2 min)
+
+1. Click **"New Query"** again
+2. Open `/supabase/seeds/00001_seed_data.sql`
+3. Copy ALL contents
+4. Paste into SQL Editor
+5. Click **"Run"**
+6. Wait ~15 seconds
+7. Look for success message with data summary
+
+## Verify It Worked
+
+Run this query in SQL Editor:
+
+```sql
+SELECT 
+    'organizations' as table_name, COUNT(*) FROM organizations
+UNION ALL
+SELECT 'users', COUNT(*) FROM users
+UNION ALL
+SELECT 'tracks', COUNT(*) FROM tracks
+UNION ALL
+SELECT 'playlists', COUNT(*) FROM playlists
+UNION ALL
+SELECT 'assignments', COUNT(*) FROM assignments;
+```
+
+**Expected Results:**
+```
+organizations | 1
+users         | 11
+tracks        | 7
+playlists     | 3
+assignments   | 3
+```
+
+If you see these numbers, **YOU'RE DONE!**
+
+## What You Now Have
+
+### Complete Database
+- 21 tables ready to use
+- 60+ performance indexes
+- Row Level Security configured
+- Auto-update triggers active
+
+### Sample Data
+- 1 Organization: "Trike Convenience Stores"
+- 11 Users (Admin, Managers, Employees)
+- 7 Training Tracks (various types)
+- 3 Playlists (auto + manual)
+- 3 Active assignments
+
+### Test Users
+| Name | Email | Role |
+|------|-------|------|
+| Sarah Johnson | sarah.johnson@trike.com | Admin |
+| David Thompson | david.thompson@trike.com | Store Manager |
+| Jessica Davis | jessica.davis@trike.com | CSR |
+
+## Connect Your App
+
+### Update Supabase Config
+
+1. Open `/utils/supabase/info.tsx`
+2. Find your project details:
+   - Go to Supabase Dashboard > Settings > API
+   - Copy **Project URL** and **anon public key**
+3. Update the file:
+
+```typescript
+export const projectId = 'your-project-id';
+export const publicAnonKey = 'your-anon-key';
+```
+
+### Test Connection
+
+```bash
+npm run dev
+```
+
+Visit your app - these components should work with REAL data:
+- Content Library
+- People Management
+- Playlists
+
+## Troubleshooting
+
+### Problem: "relation already exists"
+**Solution:** Your database already has tables. Either use a fresh Supabase project or drop existing tables first.
+
+### Problem: "permission denied"
+**Solution:** You need owner/admin access to the database.
+
+### Problem: "uuid-ossp extension not found"
+**Solution:** Enable it first:
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```

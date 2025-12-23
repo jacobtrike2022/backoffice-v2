@@ -1,0 +1,52 @@
+---
+description: "Database Setup - Critical Instructions"
+globs: "**/*"
+alwaysApply: false
+---
+
+# DATABASE SETUP - CRITICAL INSTRUCTIONS
+
+## EXTREMELY IMPORTANT
+
+**This is a REAL SaaS product with a REAL Supabase database.**
+
+### DO NOT USE KV STORE FOR PRODUCTION FEATURES
+
+- The `kv_store_2858cc8b` table is ONLY for prototyping/demos
+- **NEVER** migrate production features to KV store
+- We use **proper relational database tables** for all features
+
+### How Database Changes Work
+
+1. **AI provides SQL CREATE TABLE statements**
+2. **Human runs them in Supabase SQL Editor**
+3. **AI writes code that queries those tables**
+
+### When New Tables Are Needed
+
+1. Provide the SQL DDL statement in the response
+2. Wait for human to confirm they've run it in Supabase
+3. Then write the application code that uses the table
+
+---
+
+## Current Tables Created
+
+### `track_relationships`
+Track relationships for content derivation (checkpoints from articles, etc.)
+
+```sql
+CREATE TABLE track_relationships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL,
+  source_track_id UUID NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  derived_track_id UUID NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  relationship_type TEXT NOT NULL CHECK (relationship_type IN ('source', 'prerequisite', 'related')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE(source_track_id, derived_track_id, relationship_type)
+);
+
+CREATE INDEX idx_track_relationships_source ON track_relationships(source_track_id);
+CREATE INDEX idx_track_relationships_derived ON track_relationships(derived_track_id);
+CREATE INDEX idx_track_relationships_org ON track_relationships(organization_id);
+```

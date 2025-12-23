@@ -1,0 +1,145 @@
+---
+description: "Trike Backoffice - Database Documentation"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Trike Backoffice - Database Documentation
+
+## Complete SQL Migration & Seed Files
+
+**Status:** Production Ready  
+**Version:** 1.0  
+**Compatibility:** 100% with all CRUD functions and converted components
+
+## Getting Started
+
+### For First-Time Setup
+Start here: `/QUICK_START.md`
+- Get database running in 5 minutes
+- Step-by-step with screenshots
+
+### For Production Setup
+Read: `/DATABASE_SETUP_INSTRUCTIONS.md`
+- 3 installation methods (CLI, Dashboard, psql)
+- Comprehensive troubleshooting
+
+## What's Included
+
+### Complete Database Schema
+
+**21 Tables:**
+- Organizations & hierarchy (organizations, districts, stores)
+- Users & roles (users, roles)
+- Content (tracks, albums, playlists)
+- Learning (assignments, user_progress)
+- Certifications (certifications, user_certifications)
+- Forms (forms, form_blocks, form_submissions)
+- Knowledge base (kb_categories, kb_articles, kb_attachments)
+- System (notifications, activity_logs)
+
+**60+ Indexes** for optimal performance
+
+**30+ RLS Policies** for multi-tenant security
+
+**16+ Triggers** for automatic updates
+
+### Sample Data
+
+**130+ Records** including:
+- 1 Organization
+- 4 Districts
+- 9 Stores
+- 5 Roles
+- 11 Users (realistic hierarchy)
+- 7 Training Tracks (all content types)
+- 4 Albums
+- 3 Playlists (auto + manual)
+- 3 Active assignments
+- Forms, KB articles, notifications
+
+## Quick Reference
+
+### Installation (3 Methods)
+
+#### Method 1: Supabase Dashboard (Easiest)
+1. Open SQL Editor in Supabase Dashboard
+2. Copy/paste migration SQL > Run
+3. Copy/paste seed SQL > Run
+4. Done!
+
+#### Method 2: Supabase CLI (Best for Teams)
+```bash
+supabase link --project-ref YOUR_REF
+supabase db push
+supabase db seed
+```
+
+### Quick Validation
+
+```sql
+SELECT 
+    (SELECT COUNT(*) FROM organizations) as orgs,      -- 1
+    (SELECT COUNT(*) FROM users) as users,             -- 11
+    (SELECT COUNT(*) FROM tracks) as tracks,           -- 7
+    (SELECT COUNT(*) FROM playlists) as playlists,     -- 3
+    (SELECT COUNT(*) FROM assignments) as assignments; -- 3
+```
+
+## Database Schema
+
+### Entity Relationship Overview
+
+```
+Organization (root)
+  |
+  |--- Districts
+  |     |--- Stores
+  |           |--- Users (employees)
+  |
+  |--- Roles
+  |     |--- Users
+  |
+  |--- Tracks (content)
+  |     |--- User Progress
+  |     |--- Album Tracks
+  |
+  |--- Albums
+  |     |--- Album Tracks (> Tracks)
+  |     |--- Playlist Albums
+  |
+  |--- Playlists
+  |     |--- Assignments (> Users)
+  |     |--- Playlist Albums (> Albums)
+  |     |--- Playlist Tracks (> Tracks)
+  |
+  |--- Assignments
+  |     |--- User Progress (> Tracks)
+  |
+  |--- Certifications (templates)
+  |     |--- User Certifications (issued)
+  |
+  |--- Forms (templates)
+  |     |--- Form Blocks (fields)
+  |     |--- Form Submissions (responses)
+  |
+  |--- KB Categories
+  |     |--- KB Articles
+  |           |--- KB Attachments
+  |
+  |--- Notifications (> Users)
+  |
+  |--- Activity Logs (audit trail)
+```
+
+## Security
+
+### Multi-Tenant Isolation
+
+Every table has `organization_id` with RLS policies ensuring users only see their own organization's data.
+
+### Role-Based Access
+
+- **Admins:** Full access to organization data
+- **Managers:** Team/store data access
+- **Employees:** Personal data only

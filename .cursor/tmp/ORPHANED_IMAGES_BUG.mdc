@@ -1,0 +1,30 @@
+---
+description: "Orphaned Images Bug"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Orphaned Images Bug
+
+## Status: DOCUMENTED
+
+This document tracks a known issue with orphaned images.
+
+## Issue
+
+When slides are deleted from stories, their associated media files may remain in storage.
+
+## Impact
+
+- Storage bloat over time
+- No functional impact on users
+
+## Proposed Solution
+
+1. Track slide deletions
+2. Implement cleanup job
+3. Add storage usage monitoring
+
+## Workaround
+
+Manual cleanup via Supabase Storage dashboard.

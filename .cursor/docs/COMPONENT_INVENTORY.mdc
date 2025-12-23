@@ -1,0 +1,151 @@
+---
+description: "Component Inventory - Reusable components list to prevent duplication"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Component Inventory - Trike Backoffice LMS
+
+**PURPOSE:** This file lists all reusable components to prevent duplication.
+
+**RULE:** Before creating any modal, selector, picker, or form component, CHECK THIS FILE FIRST to see if it already exists.
+
+---
+
+## Tag Management
+
+### TagSelectorDialog
+**File:** `/components/TagSelectorDialog.tsx`  
+**Used In:** Content Authoring, Units, Knowledge Base, People, Playlists, Forms  
+**Purpose:** Universal tag selector modal for ALL tag categories
+
+**Features:**
+- Dark mode compliant (uses design-system.json theme tokens)
+- Automatically adapts to light/dark mode
+- Category grouping with folder icons
+- Multi-select with tag pills (not checkboxes)
+- Orange accent with gradient backgrounds for selected tags
+- "Create New Tag" button with inline creation
+- Tag management (edit/delete) with permission controls
+- "X tags selected" counter in footer
+
+**Usage:**
+```typescript
+import { TagSelectorDialog } from './components/TagSelectorDialog';
+
+<TagSelectorDialog
+  isOpen={boolean}
+  onClose={() => void}
+  selectedTags={string[]}
+  onTagsChange={(tags: string[], tagObjects?: Tag[]) => void}
+  systemCategory="units" | "content" | "people" | "knowledge-base" | "forms" | "shared"
+  allowManagement={boolean}
+  canManageSystemTags={boolean}
+  restrictToParentName={string}
+/>
+```
+
+**DO NOT CREATE:** UnitTagSelector, ContentTagPicker, TagSelectionModal, TagSelector
+
+---
+
+## Location/District Selectors
+
+### DistrictSelector
+**File:** `/components/DistrictSelector.tsx`  
+**Used In:** Units (New Unit modal)  
+**Purpose:** Select or create districts for units
+
+**Usage:**
+```typescript
+import { DistrictSelector } from './components/DistrictSelector';
+
+<DistrictSelector
+  districts={District[]}
+  selectedId={string | null}
+  onSelect={(id: string) => void}
+  onClose={() => void}
+  onDistrictCreated={() => void}
+/>
+```
+
+---
+
+## Authentication
+
+### Login
+**File:** `/components/Login.tsx`  
+**Used In:** App.tsx (unauthenticated users)  
+**Purpose:** Email/password login and signup
+
+---
+
+## Rich Text Editing
+
+### RichTextEditor
+**File:** `/components/RichTextEditor.tsx`  
+**Used In:** Content Authoring (Articles, Stories, Checkpoints)  
+**Purpose:** WYSIWYG editor for long-form content
+
+---
+
+## File/Attachment Management
+
+### AttachmentPreviewDialog
+**File:** `/components/AttachmentPreviewDialog.tsx`  
+**Used In:** Content Authoring, Knowledge Base  
+**Purpose:** Preview and download attachments
+
+---
+
+## UI Component Library
+
+We use **shadcn/ui** components for base UI elements. These are already styled with theme tokens.
+
+**Available shadcn Components:**
+- `Button` - `/components/ui/button.tsx`
+- `Input` - `/components/ui/input.tsx`
+- `Dialog` - `/components/ui/dialog.tsx`
+- `Select` - `/components/ui/select.tsx`
+- `Badge` - `/components/ui/badge.tsx`
+- `Card` - `/components/ui/card.tsx`
+- `Tabs` - `/components/ui/tabs.tsx`
+
+**ALWAYS USE:** shadcn/ui components from `/components/ui/`
+
+---
+
+## Design System Rules
+
+### Color Tokens (from design-system.json)
+
+**NEVER HARDCODE COLORS.** Always use theme-aware classes:
+
+**Backgrounds:**
+- `bg-background` - Main app background
+- `bg-card` - Card/modal backgrounds
+- `bg-accent` - Hover/active states
+- `bg-primary` - Brand orange
+
+**Text:**
+- `text-foreground` - Primary text
+- `text-muted-foreground` - Secondary text
+- `text-primary` - Brand orange text
+
+**Borders:**
+- `border-border` - Default borders
+- `border-primary` - Accent borders
+
+---
+
+## Quick Reference
+
+**Need a tag selector?** Use `TagSelectorDialog`  
+**Need a district selector?** Use `DistrictSelector`  
+**Need a login form?** Use `Login`  
+**Need a rich text editor?** Use `RichTextEditor`  
+**Need a file preview?** Use `AttachmentPreviewDialog`  
+**Need a button?** Use shadcn `Button`  
+**Need a modal?** Use shadcn `Dialog`  
+
+**Before creating anything:** Check this file first!

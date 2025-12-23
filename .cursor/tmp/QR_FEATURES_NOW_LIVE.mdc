@@ -1,0 +1,27 @@
+---
+description: "QR Features Now Live"
+globs: "**/*"
+alwaysApply: false
+---
+
+# QR Features Now Live
+
+## Status: LIVE
+
+QR code features are now live and ready for use.
+
+## Features Available
+
+1. Enable/disable QR codes on KB articles
+2. Download QR codes as PNG or SVG
+3. Location metadata for physical placement
+4. Public KB viewer for scanning
+5. Analytics tracking
+
+## Usage
+
+1. Go to Knowledge Base
+2. Select an article
+3. Click "Enable QR"
+4. Download and print
+5. Post in physical location

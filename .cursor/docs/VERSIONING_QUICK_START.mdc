@@ -1,0 +1,98 @@
+---
+description: "Track Versioning & Duplication - Quick Start"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Track Versioning & Duplication - Quick Start
+
+## Immediate Action Required
+
+### Step 1: Run Database Migration (5 minutes)
+
+1. Open **`MIGRATION_INSTRUCTIONS.md`** file
+2. Copy the SQL script
+3. Open your **Supabase Dashboard** > **SQL Editor**
+4. Paste and **Run** the SQL
+5. Done!
+
+---
+
+## What You Get
+
+### Track Duplication
+```typescript
+import * as crud from './lib/crud';
+
+// Duplicate any track
+const newTrack = await crud.duplicateTrack(trackId);
+// Creates: "Safety Training (Copy)" as draft
+```
+
+**Features:**
+- Auto-naming with "(Copy)" suffix
+- Smart numbering (Copy 2, Copy 3...)
+- Copies all content: media, text, objectives, tags
+- Resets assignments (fresh start)
+- Always creates as draft
+
+---
+
+### Track Versioning
+
+When editing a **published track** that's already assigned to users:
+
+1. **Make your edits** > Click Save
+2. **Version Decision Modal appears** showing:
+   - Current playlists using this track
+   - Users pending (not completed)
+   - Users completed
+3. **Choose strategy:**
+   - **Replace**: Pending get V2, completed keep credit *(minor updates)*
+   - **Replace + Reassign**: Everyone must complete V2 *(major changes/compliance)*
+   - **Keep V1**: V2 only for new assignments *(significant rewrites)*
+4. **Add version notes** (required for audit trail)
+5. V2 created!
+
+---
+
+## Backend Functions
+
+All in `/lib/crud/tracks.ts`:
+
+| Function | Purpose |
+|----------|---------|
+| `duplicateTrack(id)` | Create copy with "(Copy)" suffix |
+| `getTrackVersions(id)` | Get all versions of a track |
+| `createTrackVersion(id, updates, notes)` | Create new version |
+| `getPlaylistsForTrack(id)` | List playlists using track |
+| `getTrackAssignmentStats(id)` | Get pending/completed counts |
+| `replaceTrackInPlaylists(oldId, newId)` | Update assignments |
+| `reassignCompletedUsers(oldId, newId)` | Reset completions |
+
+---
+
+## Pro Tips
+
+1. **Duplication** = New track (use for "Safety Q1" > "Safety Q2")
+2. **Versioning** = Update existing (use for "Safety 2025" > "Safety 2026")
+3. Version notes are **required** and visible in audit reports
+4. Learners never see version numbers, only track titles
+5. `getTracks()` automatically filters to latest versions only
+6. Old versions are read-only (view historical compliance)
+
+---
+
+## Quick Troubleshooting
+
+**"Column does not exist" error**
+Run the migration SQL from `MIGRATION_INSTRUCTIONS.md`
+
+**Duplicate button not showing**
+Import `duplicateTrack` from `/lib/crud` and add to your UI
+
+**Version modal not appearing**
+Check if track is published and has assignments (stats > 0)
+
+**Old versions showing in library**
+Make sure `is_latest_version = true` on current versions

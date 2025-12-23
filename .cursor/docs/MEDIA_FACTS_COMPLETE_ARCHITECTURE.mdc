@@ -1,0 +1,127 @@
+---
+description: "Complete Media, Transcript & Facts Architecture"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Complete Media, Transcript & Facts Architecture
+
+## Executive Summary
+
+This document describes a comprehensive, enterprise-grade architecture for managing media, transcripts, and AI-generated facts across all content types in the learning management system.
+
+## Architecture Layers
+
+### Layer 1: Content Tracks (Existing)
+- **Articles** - Text-based learning content
+- **Videos** - Single video with metadata
+- **Stories** - Multi-slide presentations (images + videos)
+- **Checkpoints** - Quizzes and assessments
+
+### Layer 2: Media Transcripts (NEW)
+- Centralized transcript storage
+- Deduplication by media URL
+- Cross-track reusability
+- Usage tracking and analytics
+- Manual correction support
+
+### Layer 3: Facts & Metadata (ENHANCED)
+- Facts table with relational architecture
+- Media source tracking in fact_usage
+- Composable and portable facts
+- Automatic ordering and cleanup
+
+## Database Schema Overview
+
+### Core Tables
+
+#### `media_transcripts` (NEW)
+```sql
+CREATE TABLE media_transcripts (
+    id UUID PRIMARY KEY,
+    media_url TEXT NOT NULL UNIQUE,
+    media_url_hash TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    transcript_text TEXT NOT NULL,
+    transcript_json JSONB,
+    duration_seconds INTEGER,
+    word_count INTEGER,
+    confidence_score DECIMAL(3,2),
+    used_in_tracks TEXT[],
+    usage_count INTEGER DEFAULT 1,
+    last_used_at TIMESTAMPTZ,
+    needs_review BOOLEAN DEFAULT false,
+    manual_corrections TEXT,
+    transcribed_at TIMESTAMPTZ,
+    transcription_service TEXT DEFAULT 'assemblyai',
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+```
+
+#### `fact_usage` (with NEW fields)
+```sql
+CREATE TABLE fact_usage (
+    id UUID PRIMARY KEY,
+    fact_id UUID REFERENCES facts(id),
+    track_type TEXT NOT NULL,
+    track_id TEXT NOT NULL,
+    added_at TIMESTAMPTZ,
+    
+    -- NEW: Media source tracking
+    source_media_id TEXT,
+    source_media_url TEXT,
+    source_media_type TEXT,
+    display_order INTEGER,
+    media_transcript_id UUID REFERENCES media_transcripts(id)
+);
+```
+
+## Content Type Workflows
+
+### Story Track Workflow
+1. User creates story with multiple video slides
+2. User clicks "Generate Key Facts"
+3. System checks cache for each video URL
+4. If cached: Retrieve from media_transcripts
+5. If not cached: Transcribe via AssemblyAI, save
+6. Combine all transcripts
+7. Send to GPT-4 for fact extraction
+8. Save facts with media source tracking
+9. Return enriched facts to client
+
+### Video Track Workflow (NEW)
+1. User creates video track
+2. User clicks "Transcribe Video"
+3. System checks cache, transcribes if needed
+4. Display transcript to user
+5. User clicks "Generate Key Facts"
+6. Save facts with media source tracking
+7. Link video track to transcript
+
+## Benefits by Stakeholder
+
+### For Content Authors
+- Faster fact generation (cached transcripts)
+- Consistent facts for reused videos
+- Clear visual indication of fact sources
+- Automatic fact ordering by video sequence
+
+### For Administrators
+- 70-90% reduction in transcription API calls
+- Better content reusability
+- Centralized transcript management
+- Usage analytics per video
+
+### For Learners
+- More consistent learning content
+- Better-organized facts (grouped by video)
+- Potential for video captions
+- Faster content updates
+
+## Cost Analysis
+
+### With Transcript Caching
+- First generation: transcribe
+- Subsequent regenerations: use cache
+- **Estimated savings: 67-78%**

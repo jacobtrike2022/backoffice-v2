@@ -1,0 +1,139 @@
+---
+description: "KB QR Code - Quick Start Guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# KB QR Code - Quick Start Guide
+
+## Installation (5 minutes)
+
+### 1. Install Dependencies
+```bash
+npm install qr-code-styling nanoid jspdf
+```
+
+### 2. Run Database Migration
+```sql
+-- In Supabase SQL Editor, run:
+-- /MIGRATION_KB_QR_CODES.sql
+```
+
+### 3. Add Public Route
+```tsx
+// In your router file (App.tsx or similar)
+import { KBPublicView } from './components/public/KBPublicView';
+
+// Add route OUTSIDE authentication guards:
+<Route path="/kb/:slug" element={<KBPublicView />} />
+```
+
+---
+
+## Integration (10 minutes)
+
+### Add QR Toggle to KB Article View
+
+```tsx
+// In your Knowledge Base article detail component
+import { QRCodeToggle } from './components/kb/QRCodeToggle';
+
+// In the article header:
+<div className="flex items-center justify-between">
+  <h1>{track.title}</h1>
+  
+  <div className="flex gap-2">
+    {/* Your existing actions */}
+    
+    {/* QR Code Toggle */}
+    {userIsAdmin && (
+      <QRCodeToggle 
+        track={track} 
+        onUpdate={() => refetchTrack()}
+      />
+    )}
+  </div>
+</div>
+```
+
+### Add Archive Warning
+
+```tsx
+// In your archive/delete handler
+import { QRArchiveWarningModal } from './components/kb/QRArchiveWarningModal';
+import { useState } from 'react';
+
+const [showQRWarning, setShowQRWarning] = useState(false);
+
+async function handleArchive() {
+  // Check for active QR code
+  if (track.kb_qr_enabled) {
+    setShowQRWarning(true);
+    return; // Don't proceed
+  }
+  
+  await archiveTrack();
+}
+
+// In render:
+<QRArchiveWarningModal
+  open={showQRWarning}
+  onOpenChange={setShowQRWarning}
+  onConfirm={async () => {
+    setShowQRWarning(false);
+    await archiveTrack(); // User confirmed
+  }}
+  track={track}
+  actionType="archive"
+/>
+```
+
+---
+
+## Usage
+
+### For Admins
+
+1. **Enable QR Code**
+   - View a Knowledge Base article
+   - Click "Enable QR" button in the header
+   - QR code popover opens
+
+2. **Add Location**
+   - Enter where the QR will be posted (e.g., "Break Room")
+   - Location auto-saves and appears on printed QR
+
+3. **Download QR Code**
+   - Click "Download PNG" for high-quality print
+   - Or "Download SVG" for vector editing
+   - Print and post in the specified location
+
+### For Employees
+
+1. **Scan QR Code**
+   - Open phone camera
+   - Point at QR code
+   - Tap notification to open link
+
+2. **View Content**
+   - Article loads in mobile browser
+   - No login required (if public)
+   - Read/watch content
+
+---
+
+## File Reference
+
+```
+/MIGRATION_KB_QR_CODES.sql              Database migration
+/lib/qr-code-utils.ts                   Core utilities
+/components/public/KBPublicView.tsx     Public KB viewer
+/components/kb/QRCodeToggle.tsx         QR toggle popover
+/components/kb/QRArchiveWarningModal    Archive warning
+```
+
+---
+
+**That's it!** Your QR code system is ready to use.
+
+Enable QR codes on KB articles, download print-ready files, and let employees scan to access reference materials instantly.

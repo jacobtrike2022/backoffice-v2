@@ -1,0 +1,23 @@
+---
+description: "KB QR Where to Find"
+globs: "**/*"
+alwaysApply: false
+---
+
+# KB QR - Where to Find
+
+## File Locations
+
+| Component | Path |
+|-----------|------|
+| QR Generation Utilities | `/lib/qr-code-utils.ts` |
+| QR Toggle Component | `/components/kb/QRCodeToggle.tsx` |
+| Archive Warning Modal | `/components/kb/QRArchiveWarningModal.tsx` |
+| Public KB Viewer | `/components/public/KBPublicView.tsx` |
+| Standalone HTML | `/public/kb-public.html` |
+| Database Migration | `/MIGRATION_KB_QR_CODES.sql` |
+
+## Documentation
+
+- Implementation Guide: `.cursor/docs/KB_QR_IMPLEMENTATION_GUIDE.mdc`
+- Quick Start: `.cursor/docs/KB_QR_QUICK_START.mdc`

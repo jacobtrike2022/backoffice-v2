@@ -1,0 +1,25 @@
+---
+description: "Story View Facts Fix"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Story View Facts Fix
+
+## Status: RESOLVED
+
+Facts display in story view has been fixed.
+
+## Issue
+
+Facts were not displaying correctly in the story viewer.
+
+## Fix Applied
+
+- Updated facts query in story component
+- Fixed fact usage join
+- Added proper ordering
+
+## Verification
+
+Stories now display associated facts correctly.

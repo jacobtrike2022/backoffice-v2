@@ -15,7 +15,7 @@ export function MigrationAlert() {
 
   const handleOpenInstructions = () => {
     // Open the migration instructions in a new tab
-    window.open('/MIGRATION_INSTRUCTIONS.md', '_blank');
+    window.open('/.cursor/docs/MIGRATION_INSTRUCTIONS.mdc', '_blank');
   };
 
   if (isDismissed) return null;

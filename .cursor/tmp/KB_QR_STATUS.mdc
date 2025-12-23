@@ -1,0 +1,34 @@
+---
+description: "KB QR Code Feature Status"
+globs: "**/*"
+alwaysApply: false
+---
+
+# KB QR Code Feature Status
+
+## Current Status: Awaiting Database Migration
+
+## Ready
+
+- `/lib/qr-code-utils.ts` - QR code generation
+- `/components/kb/QRCodeToggle.tsx` - Toggle UI
+- `/components/kb/QRArchiveWarningModal.tsx` - Warning modal
+- `/components/public/KBPublicView.tsx` - Public viewer
+- `/public/kb-public.html` - Standalone HTML viewer
+
+## Required Action
+
+Run `/MIGRATION_KB_QR_CODES.sql` in Supabase SQL Editor to:
+- Add `kb_slug` column to tracks
+- Add `kb_qr_enabled` column to tracks
+- Add `kb_qr_location` column to tracks
+- Add organization KB settings
+- Create `kb_page_views` table
+
+## Testing
+
+After migration:
+1. Enable QR on any KB article
+2. Download QR code
+3. Scan with phone
+4. Verify article loads

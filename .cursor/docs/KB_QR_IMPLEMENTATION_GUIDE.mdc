@@ -1,0 +1,130 @@
+---
+description: "Knowledge Base QR Code Generation - Implementation Guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Knowledge Base QR Code Generation - Implementation Guide
+
+## Overview
+
+This feature allows admins to generate QR codes for Knowledge Base articles. QR codes are **opt-in** and location-aware, enabling employees to scan physical codes and view reference materials on their phones without logging in.
+
+---
+
+## What's Been Implemented
+
+### 1. Database Migration
+- `/MIGRATION_KB_QR_CODES.sql` - Run this in Supabase SQL Editor
+  - Adds `kb_slug`, `kb_qr_enabled`, `kb_qr_location`, `kb_qr_downloaded_count` to `tracks` table
+  - Adds `kb_privacy_mode`, `kb_shared_password`, `kb_logo_url` to `organizations` table
+  - Creates `kb_page_views` table for analytics
+
+### 2. Core Utilities
+- `/lib/qr-code-utils.ts` - QR code generation functions
+  - `generateKBSlug()` - Creates unique slugs for KB articles
+  - `createQRCode()` - Generates QR codes with logo overlays
+  - `generateFramedQRCanvas()` - Creates print-ready framed QR codes
+  - `downloadCanvasAsPNG()` - Downloads QR as PNG
+  - `downloadQRCodeAsSVG()` - Downloads QR as SVG
+
+### 3. Components
+- `/components/public/KBPublicView.tsx` - Public KB article viewer
+- `/components/kb/QRCodeToggle.tsx` - QR toggle popover
+- `/components/kb/QRArchiveWarningModal.tsx` - Archive warning
+
+---
+
+## Required Dependencies
+
+```bash
+npm install qr-code-styling nanoid jspdf
+```
+
+---
+
+## Integration Steps
+
+### Step 1: Run Database Migration
+```sql
+-- In Supabase SQL Editor, run:
+-- /MIGRATION_KB_QR_CODES.sql
+```
+
+### Step 2: Add Public KB Route
+```tsx
+import { KBPublicView } from './components/public/KBPublicView';
+
+// Add route OUTSIDE any authentication guards:
+<Route path="/kb/:slug" element={<KBPublicView />} />
+```
+
+### Step 3: Integrate QR Toggle in KB Article View
+```tsx
+import { QRCodeToggle } from './components/kb/QRCodeToggle';
+
+{userIsAdmin && (
+  <QRCodeToggle 
+    track={track} 
+    onUpdate={() => refetchTrack()}
+  />
+)}
+```
+
+### Step 4: Add Archive Warning
+```tsx
+import { QRArchiveWarningModal } from './components/kb/QRArchiveWarningModal';
+
+async function handleArchiveTrack() {
+  if (track.kb_qr_enabled) {
+    setShowQRWarning(true);
+    return;
+  }
+  await archiveTrack();
+}
+
+<QRArchiveWarningModal
+  open={showQRWarning}
+  onOpenChange={setShowQRWarning}
+  onConfirm={async () => {
+    setShowQRWarning(false);
+    await archiveTrack();
+  }}
+  track={track}
+  actionType="archive"
+/>
+```
+
+---
+
+## Design Specifications
+
+### QR Code Frame Design
+- Header: "SCAN FOR REFERENCE" (18px bold, black)
+- QR Code: 400x400px with logo overlay
+- Title: Article title (16px bold, wrapped)
+- Location: Optional location text (12px gray)
+
+### Colors
+- **Primary**: `#F64A05` (Trike orange) - QR dots
+- **Border**: `#000000` (Black) - 8px border
+- **Background**: `#FFFFFF` (White)
+
+### Error Correction
+- **Level H (High)** - 30% of QR can be obscured
+- Logo covers 30% of center area
+- QR remains scannable with logo overlay
+
+---
+
+## Success Criteria
+
+- Admins can toggle QR codes ON/OFF for KB articles
+- Admins can specify physical location for QR codes
+- QR codes download as PNG and SVG
+- QR codes are scannable and link to public KB view
+- Public KB view works on mobile without login
+- Archive warning prevents accidental QR code breakage
+- Slug generation is collision-resistant
+- Organization logos appear in QR codes
+- Privacy modes (public, password, employee_login) work correctly

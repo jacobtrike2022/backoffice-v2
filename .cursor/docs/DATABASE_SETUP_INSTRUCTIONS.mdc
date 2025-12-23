@@ -1,0 +1,130 @@
+---
+description: "Database Setup Instructions - Complete guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Database Setup Instructions
+
+## Complete SQL Migration & Seed Files for Trike Backoffice
+
+This document provides instructions for running the SQL migration and seed files that match your current CRUD implementation exactly.
+
+## Files
+
+1. **`/supabase/migrations/00001_initial_schema.sql`** - Complete schema (all tables, indexes, RLS)
+2. **`/supabase/seeds/00001_seed_data.sql`** - Sample data for development/testing
+
+## Option 1: Run via Supabase CLI (Recommended)
+
+### Prerequisites
+```bash
+npm install -g supabase
+supabase login
+```
+
+### Link to Your Project
+```bash
+supabase link --project-ref YOUR_PROJECT_REF
+```
+
+### Run Migration
+```bash
+supabase db push
+```
+
+### Run Seeds
+```bash
+supabase db seed
+```
+
+## Option 2: Run via Supabase Dashboard
+
+### Step 1: Open SQL Editor
+1. Go to https://app.supabase.com
+2. Select your project
+3. Navigate to **SQL Editor** in the left sidebar
+
+### Step 2: Run Migration
+1. Click **New Query**
+2. Copy contents of `/supabase/migrations/00001_initial_schema.sql`
+3. Paste into SQL Editor
+4. Click **Run**
+5. Wait for completion (may take 30-60 seconds)
+
+### Step 3: Run Seeds
+1. Click **New Query**
+2. Copy contents of `/supabase/seeds/00001_seed_data.sql`
+3. Paste into SQL Editor
+4. Click **Run**
+
+## Verification
+
+After running both files, verify the setup:
+
+### Check Tables Created
+```sql
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_schema = 'public' 
+ORDER BY table_name;
+```
+
+**Expected tables (21 total):**
+- organizations, districts, stores
+- roles, users
+- tracks, albums, album_tracks
+- playlists, playlist_albums, playlist_tracks
+- assignments, user_progress
+- certifications, user_certifications
+- forms, form_blocks, form_submissions
+- kb_categories, kb_articles, kb_attachments
+- notifications, activity_logs
+
+### Check Seed Data
+```sql
+SELECT COUNT(*) FROM organizations;  -- Should return 1
+SELECT COUNT(*) FROM users;          -- Should return 11
+SELECT COUNT(*) FROM tracks;         -- Should return 7
+SELECT COUNT(*) FROM playlists;      -- Should return 3
+SELECT COUNT(*) FROM assignments;    -- Should return 3
+```
+
+## Troubleshooting
+
+### Issue: "relation already exists"
+**Solution:** Either drop all tables first or create a fresh Supabase project.
+
+### Issue: "uuid-ossp extension not available"
+**Solution:** Enable it first:
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```
+
+### Issue: Foreign key constraint errors in seed
+**Solution:** Make sure migration completed successfully before running seeds.
+
+## What's Included
+
+### Complete Schema Features:
+- 21 tables with proper relationships
+- All foreign keys and constraints
+- Comprehensive indexes for performance
+- UUID primary keys throughout
+- Automatic updated_at triggers
+- Row Level Security (RLS) policies
+- Organization-scoped data isolation
+- Proper cascade delete rules
+
+### Sample Data Includes:
+- 1 Organization: "Trike Convenience Stores"
+- 4 Districts: Northeast, Southeast, Midwest, Western
+- 9 Stores across all districts
+- 5 Roles: Admin, District Manager, Store Manager, CSR, Shift Lead
+- 11 Users with realistic hierarchy
+- 7 Training Tracks (video, article, story, checkpoint)
+- 4 Albums with track associations
+- 3 Playlists (2 auto, 1 manual)
+- Active assignments and progress records
+- Form templates and KB articles
+- Notifications and activity logs

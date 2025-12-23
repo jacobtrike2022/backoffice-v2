@@ -1,0 +1,29 @@
+---
+description: "SQL Delivery Summary"
+globs: "**/*"
+alwaysApply: false
+---
+
+# SQL Delivery Summary
+
+## Delivered Files
+
+### Migrations
+- `00001_initial_schema.sql` - Base schema (21 tables)
+- `00003_increment_track_views.sql` - View count RPC
+- `00004_add_likes_count.sql` - Likes count
+
+### Seeds
+- `00001_seed_data.sql` - Demo data
+
+## Schema Stats
+
+- **Tables:** 21
+- **Indexes:** 60+
+- **RLS Policies:** 30+
+- **Triggers:** 16+
+- **Sample Records:** 130+
+
+## Compatibility
+
+100% compatible with all CRUD functions and hooks.

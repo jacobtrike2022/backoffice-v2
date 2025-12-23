@@ -1,0 +1,40 @@
+---
+description: "SQL Validation Checklist"
+globs: "**/*"
+alwaysApply: false
+---
+
+# SQL Validation Checklist
+
+## Pre-Migration Checks
+
+- [ ] Backup existing data
+- [ ] Note current table count
+- [ ] Check for existing RLS policies
+
+## Post-Migration Checks
+
+### Tables (21 expected)
+```sql
+SELECT COUNT(*) FROM information_schema.tables 
+WHERE table_schema = 'public';
+```
+
+### Seed Data
+```sql
+SELECT COUNT(*) FROM organizations;  -- 1
+SELECT COUNT(*) FROM users;          -- 11
+SELECT COUNT(*) FROM tracks;         -- 7
+SELECT COUNT(*) FROM playlists;      -- 3
+```
+
+### RLS Enabled
+```sql
+SELECT tablename, rowsecurity 
+FROM pg_tables 
+WHERE schemaname = 'public';
+```
+
+## Troubleshooting
+
+If counts don't match, check Supabase logs for errors.

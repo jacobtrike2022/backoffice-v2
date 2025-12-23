@@ -1,0 +1,120 @@
+---
+description: "Database Migration Instructions for Versioning"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Database Migration Instructions
+
+## Quick Setup - Run This SQL in Supabase
+
+To enable versioning and duplication features, you need to add new columns to the `tracks` table.
+
+### Steps:
+
+1. **Open Supabase Dashboard** > Go to your project
+2. **Navigate to SQL Editor** (left sidebar)
+3. **Create a new query**
+4. **Copy and paste the SQL below**
+5. **Click "Run"**
+
+---
+
+## SQL Migration Script:
+
+```sql
+-- ============================================================================
+-- Add Versioning Fields to Tracks Table
+-- ============================================================================
+
+-- Add new columns
+ALTER TABLE tracks 
+ADD COLUMN IF NOT EXISTS parent_track_id UUID REFERENCES tracks(id) ON DELETE SET NULL,
+ADD COLUMN IF NOT EXISTS version_number INTEGER DEFAULT 1,
+ADD COLUMN IF NOT EXISTS version_notes TEXT,
+ADD COLUMN IF NOT EXISTS is_latest_version BOOLEAN DEFAULT true,
+ADD COLUMN IF NOT EXISTS content_text TEXT,
+ADD COLUMN IF NOT EXISTS is_system_content BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS summary TEXT;
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_tracks_parent_track ON tracks(parent_track_id);
+CREATE INDEX IF NOT EXISTS idx_tracks_version_number ON tracks(version_number);
+CREATE INDEX IF NOT EXISTS idx_tracks_latest_version ON tracks(is_latest_version) WHERE is_latest_version = true;
+CREATE INDEX IF NOT EXISTS idx_tracks_system_content ON tracks(is_system_content) WHERE is_system_content = true;
+
+-- Update existing tracks to have default versioning fields
+UPDATE tracks 
+SET 
+  version_number = 1,
+  is_latest_version = true,
+  parent_track_id = NULL
+WHERE version_number IS NULL;
+
+-- Add documentation
+COMMENT ON COLUMN tracks.parent_track_id IS 'Points to the original track (V1) for version chains. NULL for V1 tracks.';
+COMMENT ON COLUMN tracks.version_number IS 'Sequential version number (1, 2, 3...). All tracks start at V1.';
+COMMENT ON COLUMN tracks.version_notes IS 'Admin changelog notes explaining what changed in this version';
+COMMENT ON COLUMN tracks.is_latest_version IS 'TRUE for the current/latest version. Only one version per track family should be latest.';
+COMMENT ON COLUMN tracks.content_text IS 'Text content for articles and stories.';
+COMMENT ON COLUMN tracks.is_system_content IS 'TRUE for Trike Library system tracks that are locked from editing.';
+COMMENT ON COLUMN tracks.summary IS 'Brief summary of track content.';
+```
+
+---
+
+## Verification:
+
+After running the migration, verify it worked by running this query:
+
+```sql
+SELECT 
+  column_name, 
+  data_type, 
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'tracks'
+  AND column_name IN (
+    'parent_track_id', 
+    'version_number', 
+    'version_notes', 
+    'is_latest_version',
+    'content_text',
+    'is_system_content',
+    'summary'
+  )
+ORDER BY column_name;
+```
+
+You should see 7 rows returned showing all the new columns.
+
+---
+
+## What These Fields Do:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `parent_track_id` | UUID | Links to the original V1 track. NULL for V1 tracks. |
+| `version_number` | Integer | Sequential version (1, 2, 3...). Defaults to 1. |
+| `version_notes` | Text | Admin changelog (e.g., "Updated Handbook 2026"). |
+| `is_latest_version` | Boolean | TRUE for current version. Used for filtering. |
+| `content_text` | Text | Article/story text content (separate from URLs). |
+| `is_system_content` | Boolean | TRUE for locked Trike Library tracks. |
+| `summary` | Text | Brief summary for previews. |
+
+---
+
+## Troubleshooting:
+
+### "Permission denied"
+Make sure you're logged in as the project owner or have admin privileges.
+
+### "Relation 'tracks' does not exist"
+The tracks table hasn't been created yet. Make sure your initial schema migration has run first.
+
+### Columns already exist
+That's fine! The `IF NOT EXISTS` clauses will skip existing columns. The migration is safe to run multiple times.
+
+---
+
+**Once complete, refresh your app and the versioning features will work!**

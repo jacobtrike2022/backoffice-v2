@@ -1,0 +1,22 @@
+---
+description: "KB QR Fixed"
+globs: "**/*"
+alwaysApply: false
+---
+
+# KB QR Fixed
+
+## Issue Resolved
+
+QR code generation issues have been resolved.
+
+## Fix Applied
+
+- Updated QR code URL generation
+- Fixed slug handling
+- Corrected organization lookup
+- Added proper error handling
+
+## Status
+
+RESOLVED - QR codes now generate correctly.

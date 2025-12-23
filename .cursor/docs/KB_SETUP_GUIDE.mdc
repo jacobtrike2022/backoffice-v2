@@ -1,0 +1,106 @@
+---
+description: "Knowledge Base QR Code Setup Guide"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Knowledge Base QR Code Setup Guide
+
+## Current Issue
+The QR code viewer is showing: **"organization_not_found"**
+
+This is because the `organizations` table is missing the KB columns needed for privacy settings and branding.
+
+---
+
+## Quick Fix (2 Minutes)
+
+### Step 1: Add KB Columns to Database
+
+1. **Open your Supabase Dashboard**: https://supabase.com/dashboard
+2. **Navigate to**: SQL Editor (left sidebar)
+3. **Copy and paste** the entire contents of `/ADD_KB_COLUMNS.sql`
+4. **Click "Run"**
+5. **Verify** you see: KB columns added successfully!
+
+### Step 2: Refresh the QR Link
+
+Visit your QR code URL again - it should now work!
+
+---
+
+## Privacy Mode Options
+
+After adding the columns, you can control who can access your Knowledge Base:
+
+### Option 1: Public (Default)
+**Anyone with the QR code can access**
+```sql
+UPDATE organizations 
+SET kb_privacy_mode = 'public'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+```
+
+### Option 2: Password Protected
+**Users must enter a shared password**
+```sql
+UPDATE organizations 
+SET 
+  kb_privacy_mode = 'password',
+  kb_shared_password = 'your-password-here'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+```
+
+### Option 3: Employee Login Required
+**Users must sign in with their employee account**
+```sql
+UPDATE organizations 
+SET kb_privacy_mode = 'employee_login'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+```
+
+---
+
+## Add Your Organization Logo
+
+### Add a single logo (works for both light/dark mode):
+```sql
+UPDATE organizations 
+SET kb_logo_url = 'https://your-cdn.com/logo.png'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+```
+
+### Add separate logos for light and dark mode:
+```sql
+UPDATE organizations 
+SET 
+  kb_logo_light = 'https://your-cdn.com/logo-light.png',
+  kb_logo_dark = 'https://your-cdn.com/logo-dark.png'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+```
+
+**Upload your logo to Supabase Storage first:**
+1. Go to Storage in Supabase Dashboard
+2. Create a bucket called `organization-logos` (make it public)
+3. Upload your logo
+4. Copy the public URL
+5. Use that URL in the SQL above
+
+---
+
+## How the Privacy Flow Works
+
+```
+User scans QR code
+  |
+Frontend requests /kb/public/{slug}
+  |
+Backend checks organization privacy_mode
+  |
++-------------+------------------+----------------------+
+|   PUBLIC    |    PASSWORD      |   EMPLOYEE LOGIN     |
++-------------+------------------+----------------------+
+| Show content| Show password    | Redirect to login    |
+| immediately | prompt           | page                 |
++-------------+------------------+----------------------+
+```

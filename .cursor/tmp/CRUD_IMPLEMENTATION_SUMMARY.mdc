@@ -1,0 +1,45 @@
+---
+description: "CRUD Implementation Summary"
+globs: "**/*"
+alwaysApply: false
+---
+
+# CRUD Implementation Summary
+
+## Overview
+
+Complete CRUD infrastructure for all entities in Trike Backoffice.
+
+## CRUD Modules (/lib/crud/)
+
+| Module | Entity | Operations |
+|--------|--------|------------|
+| tracks.ts | Tracks | Create, Read, Update, Delete, Publish, Duplicate |
+| assignments.ts | Assignments | Create, Read, Update, Expire |
+| progress.ts | User Progress | Create, Read, Update |
+| forms.ts | Forms | Create, Read, Update, Delete, Submit |
+| certifications.ts | Certifications | Create, Read, Update, Issue |
+| users.ts | Users | Create, Read, Update, Invite |
+| knowledge-base.ts | KB Articles | Create, Read, Update, Delete |
+| notifications.ts | Notifications | Create, Read, Mark Read |
+| activity.ts | Activity Logs | Create, Read |
+
+## React Hooks (/lib/hooks/)
+
+| Hook | Purpose |
+|------|---------|
+| useCurrentUser() | Get logged-in user |
+| useTracks() | Fetch tracks with filters |
+| useForms() | Fetch forms with filters |
+| useAssignments() | Fetch assignments with filters |
+| useUsers() | Fetch users with filters |
+| useNotifications() | Real-time notifications |
+
+## Business Rules Implemented
+
+- Content defaults to `draft` status
+- Autosave functionality
+- Auto-playlist triggers
+- Cascade progress updates
+- Auto-certification issuance
+- 9 auto-generated notification types

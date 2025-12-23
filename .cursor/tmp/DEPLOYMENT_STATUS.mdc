@@ -1,0 +1,38 @@
+---
+description: "KB Public Viewer - Deployment Status"
+globs: "**/*"
+alwaysApply: false
+---
+
+# KB Public Viewer - Deployment Status
+
+## Completed (Automated Setup)
+
+1. **Created `/public/kb-public.html`**
+   - Configured with Supabase credentials
+   - Reads `?slug=` from URL query parameter
+   - Handles password protection
+   - Tracks analytics
+   - Mobile-optimized
+
+2. **Updated React Components**
+   - `/lib/qr-code-utils.ts` - Added `generateKBPublicUrl()` function
+   - `/components/kb/QRCodeToggle.tsx` - Uses correct URL format
+
+## Local Development Testing
+
+1. Start your dev server: `npm run dev`
+2. Enable QR code for any KB article
+3. Open: `http://localhost:5173/kb-public.html?slug={your-slug}`
+4. Article displays without login
+
+## Production Deployment (Manual)
+
+1. Build your app: `npm run build`
+2. Deploy the `dist/` folder to your hosting provider
+3. The HTML file will be included automatically (it's in `public/`)
+
+## File Locations
+
+- **Local Development:** `/public/kb-public.html`
+- **After Production Build:** Copied to `/dist/kb-public.html` (automatic)

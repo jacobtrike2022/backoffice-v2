@@ -1,0 +1,28 @@
+---
+description: "Facts Database Fix Status"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Facts Database Fix Status
+
+## Status: RESOLVED
+
+This document tracked the resolution of facts database issues.
+
+## Issues Fixed
+
+1. Facts table schema corrected
+2. RLS policies updated
+3. CRUD operations working
+4. Facts displaying correctly in UI
+
+## Verification
+
+Run in Supabase SQL Editor:
+```sql
+SELECT COUNT(*) FROM facts;
+SELECT COUNT(*) FROM fact_usage;
+```
+
+Both should return data without errors.

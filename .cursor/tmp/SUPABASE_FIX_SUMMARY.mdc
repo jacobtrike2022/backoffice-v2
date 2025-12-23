@@ -1,0 +1,28 @@
+---
+description: "Supabase Fix Summary"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Supabase Fix Summary
+
+## Issues Resolved
+
+1. **ReferenceError: process is not defined**
+   - Fixed: Updated supabase.ts to use Vite env vars
+
+2. **RLS Policies Blocking Queries**
+   - Fixed: Updated policies for proper user context
+
+3. **Missing Tables**
+   - Fixed: Ran migrations to create all required tables
+
+## Current Status
+
+All Supabase integration issues have been resolved.
+
+## Files Modified
+
+- `/lib/supabase.ts`
+- `/utils/supabase/info.tsx`
+- Various migration files

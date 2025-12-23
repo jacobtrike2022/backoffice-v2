@@ -10,7 +10,7 @@
  * 
  * The .env file is gitignored and will not be committed to the repository.
  * 
- * See ENVIRONMENT_SETUP.md for detailed setup instructions.
+ * See .cursor/docs/ENVIRONMENT_SETUP.mdc for detailed setup instructions.
  */
 
 // Get Supabase project ID from environment variable
@@ -19,7 +19,7 @@ export const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 if (!projectId) {
   throw new Error(
     'VITE_SUPABASE_PROJECT_ID is not set. Please create a .env file with your Supabase credentials. ' +
-    'See ENVIRONMENT_SETUP.md for instructions.'
+    'See .cursor/docs/ENVIRONMENT_SETUP.mdc for instructions.'
   );
 }
 
@@ -29,7 +29,7 @@ export const publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 if (!publicAnonKey) {
   throw new Error(
     'VITE_SUPABASE_ANON_KEY is not set. Please create a .env file with your Supabase credentials. ' +
-    'See ENVIRONMENT_SETUP.md for instructions.'
+    'See .cursor/docs/ENVIRONMENT_SETUP.mdc for instructions.'
   );
 }
 

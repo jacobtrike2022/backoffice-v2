@@ -1,0 +1,40 @@
+---
+description: "QR Code Project Audit Report"
+globs: "**/*"
+alwaysApply: false
+---
+
+# QR Code Project Audit Report
+
+**Status:** PARTIALLY COMPLETE - CRITICAL ISSUES FOUND
+
+## Critical Blockers
+
+### 1. DATABASE MIGRATION NOT APPLIED
+**Status:** BLOCKING EVERYTHING
+
+**Issue:** The SQL migration file exists at `/MIGRATION_KB_QR_CODES.sql` but was NEVER run in your Supabase database.
+
+**Impact:**
+- No `kb_slug` column - QR codes can't generate links
+- No `kb_qr_enabled` column - Can't enable/disable QR
+- No `kb_qr_location` column - Can't set location reference
+- No `kb_qr_downloaded_count` column - Can't track downloads
+- No organization KB settings columns - Privacy/password features broken
+- No `kb_page_views` table - Analytics won't work
+
+## Resolution
+
+Run the SQL migration in Supabase SQL Editor:
+1. Open Supabase Dashboard
+2. Navigate to SQL Editor
+3. Copy/paste contents of `/MIGRATION_KB_QR_CODES.sql`
+4. Click Run
+5. Verify columns exist in `tracks` table
+
+## Components Ready
+
+- `/lib/qr-code-utils.ts` - QR generation utilities
+- `/components/kb/QRCodeToggle.tsx` - QR toggle popover
+- `/components/kb/QRArchiveWarningModal.tsx` - Archive warning
+- `/components/public/KBPublicView.tsx` - Public KB viewer

@@ -1,0 +1,37 @@
+---
+description: "Design and development guidelines template"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Guidelines
+
+**Add your own guidelines here**
+
+## General Guidelines
+
+Any general rules you want the AI to follow:
+
+* Only use absolute positioning when necessary. Opt for responsive and well structured layouts that use flexbox and grid by default
+* Refactor code as you go to keep code clean
+* Keep file sizes small and put helper functions and components in their own files
+
+## Design System Guidelines
+
+Rules for how the AI should make generations look like your company's design system:
+
+* Use a base font-size of 14px
+* Date formats should always be in the format "Jun 10"
+* The bottom toolbar should only ever have a maximum of 4 items
+* Never use the floating action button with the bottom toolbar
+* Chips should always come in sets of 3 or more
+* Don't use a dropdown if there are 2 or fewer options
+
+### Button
+
+The Button component is a fundamental interactive element in our design system, designed to trigger actions or navigate users through the application.
+
+#### Variants
+* **Primary Button**: Used for the main action in a section or page. Bold, filled with the primary brand color. One primary button per section.
+* **Secondary Button**: Used for alternative or supporting actions. Outlined with the primary color, transparent background.
+* **Tertiary Button**: Used for the least important actions. Text-only with no border, using primary color.

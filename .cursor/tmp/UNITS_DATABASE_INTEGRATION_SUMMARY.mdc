@@ -1,0 +1,29 @@
+---
+description: "Units Database Integration Summary"
+globs: "**/*"
+alwaysApply: false
+---
+
+# Units Database Integration Summary
+
+## Status: COMPLETE
+
+Units feature has been integrated with the database.
+
+## What Was Done
+
+1. Units table created
+2. CRUD operations implemented
+3. UI components connected
+4. Tags integration working
+
+## Database Table
+
+`units` table with proper relationships to:
+- Organizations
+- Tags
+- Districts
+
+## Usage
+
+Units can now be created, edited, and deleted through the UI with all changes persisted to the database.
