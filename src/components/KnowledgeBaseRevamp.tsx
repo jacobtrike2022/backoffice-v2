@@ -964,70 +964,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         throw new Error('Organization not found');
       }
 
-      // Create or get conversation ID
-      let conversationId = brainConversationId;
-      if (!conversationId) {
-        let conversationCreated = false;
-        
-        try {
-          // Try to create conversation using CRUD function (requires auth)
-          const newConv = await brainCrud.createConversation({
-            title: `Q&A: ${selectedTrack.title}`
-          });
-          conversationId = (newConv as any).id;
-          conversationCreated = true;
-          setBrainConversationId(conversationId);
-        } catch (convError) {
-          console.warn('Failed to create conversation via CRUD, trying direct insert:', convError);
-          
-          // Fallback: Create conversation directly via Supabase
-          try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const { data: newConv, error: insertError } = await supabase
-              .from('brain_conversations')
-              .insert({
-                organization_id: orgId,
-                user_id: user?.id || null,
-                title: `Q&A: ${selectedTrack.title}`,
-              } as any)
-              .select()
-              .single();
-
-            if (insertError) {
-              console.error('Failed to create conversation directly:', {
-                error: insertError,
-                code: insertError.code,
-                message: insertError.message,
-                details: insertError.details,
-                hint: insertError.hint,
-                orgId,
-                userId: user?.id
-              });
-              
-              // Provide more specific error messages
-              if (insertError.code === '42501' || insertError.message?.includes('permission')) {
-                throw new Error('Permission denied. Please ensure you are logged in and have access to create conversations.');
-              } else if (insertError.code === '23503' || insertError.message?.includes('foreign key')) {
-                throw new Error('Invalid organization or user. Please refresh the page and try again.');
-              } else {
-                throw new Error(`Failed to create conversation: ${insertError.message || insertError.code || 'Unknown error'}`);
-              }
-            } else {
-              conversationId = (newConv as any).id;
-              conversationCreated = true;
-              setBrainConversationId(conversationId);
-            }
-          } catch (directError) {
-            console.error('Failed to create conversation directly:', directError);
-            throw new Error('Unable to create conversation. Please ensure you are logged in and have the necessary permissions.');
-          }
-        }
-        
-        // Only proceed if conversation was successfully created
-        if (!conversationCreated || !conversationId) {
-          throw new Error('Failed to create conversation. Please try again.');
-        }
-      }
+      // Use existing conversation ID, or let the API create one
+      // The API will create the conversation if conversationId is not provided
+      const conversationId = brainConversationId || undefined;
 
       // Get session token if available, otherwise use public anon key (for demo mode)
       const { data: { session } } = await supabase.auth.getSession();
@@ -1045,7 +984,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           },
           body: JSON.stringify({
             message: question,
-            conversationId: conversationId,
+            ...(conversationId && { conversationId }),
             organizationId: orgId
           })
         }
@@ -1073,8 +1012,13 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
       const data = await response.json();
       
-      // Extract response content - the API returns { message: { content: string }, sources: [...] }
+      // Extract response content - the API returns { message: { content: string }, sources: [...], conversationId: string }
       const responseContent = data.message?.content || data.response;
+      
+      // Update conversation ID if the API created a new one
+      if (data.conversationId && !brainConversationId) {
+        setBrainConversationId(data.conversationId);
+      }
       
       if (!responseContent) {
         console.error('Brain chat response missing content:', data);

@@ -1783,15 +1783,55 @@ async function handleBrainChat(req: Request): Promise<Response> {
       return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
     }
 
-    if (!conversationId || !message) {
-      return jsonResponse({ error: "conversationId and message are required" }, 400);
+    if (!message) {
+      return jsonResponse({ error: "message is required" }, 400);
+    }
+
+    // If no conversationId provided, create a new conversation
+    let finalConversationId = conversationId;
+    if (!finalConversationId) {
+      // Get user ID from token
+      const { data: { user } } = await supabase.auth.getUser(
+        req.headers.get("Authorization")?.replace("Bearer ", "") || ""
+      );
+      
+      const { data: newConv, error: convError } = await supabase
+        .from("brain_conversations")
+        .insert({
+          organization_id: orgId,
+          user_id: user?.id || null,
+          title: "New Conversation",
+        })
+        .select()
+        .single();
+
+      if (convError) {
+        console.error("Error creating conversation:", convError);
+        return jsonResponse({ error: `Failed to create conversation: ${convError.message}` }, 500);
+      }
+
+      finalConversationId = newConv.id;
+      console.log(`[Brain] Created new conversation: ${finalConversationId}`);
+    }
+
+    // Verify conversation exists
+    const { data: existingConv, error: checkError } = await supabase
+      .from("brain_conversations")
+      .select("id")
+      .eq("id", finalConversationId)
+      .eq("organization_id", orgId)
+      .single();
+
+    if (checkError || !existingConv) {
+      console.error("Conversation not found or access denied:", checkError);
+      return jsonResponse({ error: "Conversation not found or access denied" }, 404);
     }
 
     // Save user message
     const { data: userMessage, error: userMsgError } = await supabase
       .from("brain_messages")
       .insert({
-        conversation_id: conversationId,
+        conversation_id: finalConversationId,
         role: "user",
         content: message,
       })
@@ -1868,7 +1908,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
       const { data: savedMessage } = await supabase
         .from("brain_messages")
         .insert({
-          conversation_id: conversationId,
+          conversation_id: finalConversationId,
           role: "assistant",
           content: assistantMessage,
         })
@@ -1878,6 +1918,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
       return jsonResponse({
         message: savedMessage,
         sources: fallbackResults || [],
+        conversationId: finalConversationId, // Return the conversation ID in case it was created
       });
     }
 
@@ -1937,11 +1978,12 @@ async function handleBrainChat(req: Request): Promise<Response> {
     await supabase
       .from("brain_conversations")
       .update({ updated_at: new Date().toISOString() })
-      .eq("id", conversationId);
+      .eq("id", finalConversationId);
 
     return jsonResponse({
       message: savedMessage,
       sources: embeddings || [],
+      conversationId: finalConversationId, // Return the conversation ID in case it was created
     });
   } catch (error) {
     console.error("Brain chat error:", error);
