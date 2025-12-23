@@ -1,3 +1,17 @@
+// =============================================================================
+// LEGACY KNOWLEDGE BASE (CATEGORY-BASED) - NOT USED BY CURRENT APP ROUTING
+// -----------------------------------------------------------------------------
+// This component was an intermediate KB implementation that relies on
+// `useKBCategories` and `useKBCategoryTracks` for category/track views.
+// It is not imported by `App.tsx` and is kept only as a reference.
+//
+// Current, production KB implementation:
+// - Internal KB UI: `KnowledgeBaseRevamp` (used in `App.tsx`)
+// - Public KB UI: `PublicKBViewer` + Supabase edge function `kb.ts`
+//
+// New development should extend `KnowledgeBaseRevamp` rather than this file.
+// =============================================================================
+
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';

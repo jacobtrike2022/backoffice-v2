@@ -1,3 +1,16 @@
+// =============================================================================
+// LEGACY KNOWLEDGE BASE (MOCK DATA) - NOT USED BY CURRENT APP ROUTING
+// -----------------------------------------------------------------------------
+// This component was the original Knowledge Base UI built on mock data.
+// It is no longer wired into `App.tsx` and is kept only as a design/reference.
+//
+// Current, production KB implementation:
+// - Internal KB UI: `KnowledgeBaseRevamp` (used in `App.tsx`)
+// - Public KB UI: `PublicKBViewer` + Supabase edge function `kb.ts`
+//
+// New development should extend `KnowledgeBaseRevamp` rather than this file.
+// =============================================================================
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';

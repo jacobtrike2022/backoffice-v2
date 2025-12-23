@@ -1,7 +1,14 @@
 /**
- * Public Knowledge Base Article View
- * Accessible via /kb/{slug} - No authentication required (configurable)
- * Optimized for mobile viewing (primary use case: QR code scanning)
+ * LEGACY PUBLIC KNOWLEDGE BASE VIEWER
+ * ---------------------------------------------------------------------------
+ * This was the original public KB viewer implementation.
+ * It is referenced in older QR/KB docs but is NOT used by `App.tsx` anymore.
+ *
+ * Current, production public KB flow:
+ * - React component: `PublicKBViewer` (`src/components/PublicKBViewer.tsx`)
+ * - Backend: `src/supabase/functions/server/kb.ts` mounted under `/kb`
+ *
+ * Keep this file only as a historical/reference implementation.
  */
 
 import { useState, useEffect } from 'react';
