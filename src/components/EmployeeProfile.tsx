@@ -62,11 +62,11 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../lib/supabase';
 import { useCurrentUser } from '../lib/hooks/useSupabase';
-import { resetPassword } from '../lib/hooks/useAuth';
 import { createNotification } from '../lib/crud/notifications';
 import { getUserCertifications } from '../lib/crud/certifications';
 import { ExternalLink } from 'lucide-react';
 import { EditPeopleDialog } from './EditPeopleDialog';
+import { PinManagementDialog } from './PinManagementDialog';
 
 type UserRole = 'admin' | 'administrator' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -140,6 +140,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
   const [loading, setLoading] = useState(true);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showPinDialog, setShowPinDialog] = useState(false);
   
   // Tab-specific data states
   const [overviewData, setOverviewData] = useState<any>(null);
@@ -883,18 +884,8 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
     window.location.reload();
   };
 
-  const handleResetPassword = async () => {
-    try {
-      await resetPassword(employee.email);
-      toast.success('Password reset email sent', {
-        description: `Reset link sent to ${employee.email}`
-      });
-    } catch (err: any) {
-      console.error('Error resetting password:', err);
-      toast.error('Failed to send password reset email', {
-        description: err.message || 'Please try again later'
-      });
-    }
+  const handleManagePin = () => {
+    setShowPinDialog(true);
   };
 
   const handleSendReminder = () => {
@@ -1183,10 +1174,10 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleResetPassword}
+                  onClick={handleManagePin}
                 >
                   <Key className="w-4 h-4 mr-2" />
-                  Reset Password
+                  Manage PIN
                 </Button>
               )}
             </div>
@@ -2114,6 +2105,12 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
           onSuccess={handleEditSuccess}
         />
       )}
+      <PinManagementDialog
+        isOpen={showPinDialog}
+        onClose={() => setShowPinDialog(false)}
+        userId={employee.id}
+        userName={employee.name}
+      />
     </div>
   );
 }

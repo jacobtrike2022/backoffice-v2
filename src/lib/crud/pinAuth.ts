@@ -131,21 +131,64 @@ export function clearPinSession() {
 
 /**
  * Generate a new PIN for a user (admin function)
+ * Ensures uniqueness within the user's organization
  */
 export async function generateUserPin(userId: string): Promise<string | null> {
   try {
-    // Generate PIN using Supabase function
-    const { data: pin } = await supabase.rpc('generate_pin');
+    // First, get the user's organization_id
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
 
-    if (!pin) {
-      throw new Error('Failed to generate PIN');
+    if (userError || !user) {
+      console.error('Failed to get user organization:', userError);
+      return null;
+    }
+
+    const organizationId = user.organization_id;
+    if (!organizationId) {
+      console.error('User has no organization_id');
+      return null;
+    }
+
+    // Generate a unique PIN within the organization
+    const commonPins = ['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234'];
+    let attempts = 0;
+    const maxAttempts = 100;
+    let newPin: string | null = null;
+
+    while (attempts < maxAttempts) {
+      // Generate random 4-digit PIN
+      const randomPin = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      
+      // Skip common PINs
+      if (commonPins.includes(randomPin)) {
+        attempts++;
+        continue;
+      }
+
+      // Check uniqueness within organization
+      const isUnique = await checkPinUniqueness(randomPin, organizationId, userId);
+      if (isUnique) {
+        newPin = randomPin;
+        break;
+      }
+      
+      attempts++;
+    }
+
+    if (!newPin) {
+      console.error('Failed to generate unique PIN after', maxAttempts, 'attempts');
+      return null;
     }
 
     // Update user record
     const { error } = await supabase
       .from('users')
       .update({
-        pin: pin,
+        pin: newPin,
         pin_set_at: new Date().toISOString()
       })
       .eq('id', userId);
@@ -155,7 +198,7 @@ export async function generateUserPin(userId: string): Promise<string | null> {
       return null;
     }
 
-    return pin;
+    return newPin;
   } catch (error) {
     console.error('Error generating PIN:', error);
     return null;
@@ -163,9 +206,62 @@ export async function generateUserPin(userId: string): Promise<string | null> {
 }
 
 /**
+ * Get user PIN (admin function)
+ */
+export async function getUserPin(userId: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('pin')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Failed to get PIN:', error);
+      return null;
+    }
+
+    return data?.pin || null;
+  } catch (error) {
+    console.error('Error getting PIN:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if PIN is unique within organization
+ */
+export async function checkPinUniqueness(pin: string, organizationId: string, excludeUserId?: string): Promise<boolean> {
+  try {
+    let query = supabase
+      .from('users')
+      .select('id')
+      .eq('pin', pin)
+      .eq('organization_id', organizationId)
+      .not('pin', 'is', null);
+
+    if (excludeUserId) {
+      query = query.neq('id', excludeUserId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Failed to check PIN uniqueness:', error);
+      return false;
+    }
+
+    return !data || data.length === 0;
+  } catch (error) {
+    console.error('Error checking PIN uniqueness:', error);
+    return false;
+  }
+}
+
+/**
  * Set custom PIN for a user (admin or self-service)
  */
-export async function setUserPin(userId: string, pin: string): Promise<boolean> {
+export async function setUserPin(userId: string, pin: string, organizationId?: string): Promise<boolean> {
   // Validate PIN format
   if (!/^\d{4}$/.test(pin)) {
     throw new Error('PIN must be 4 digits');
@@ -178,6 +274,14 @@ export async function setUserPin(userId: string, pin: string): Promise<boolean> 
   }
 
   try {
+    // If organizationId is provided, check uniqueness
+    if (organizationId) {
+      const isUnique = await checkPinUniqueness(pin, organizationId, userId);
+      if (!isUnique) {
+        throw new Error('This PIN is already in use by another employee in your organization');
+      }
+    }
+
     const { error } = await supabase
       .from('users')
       .update({
@@ -194,7 +298,7 @@ export async function setUserPin(userId: string, pin: string): Promise<boolean> 
     return true;
   } catch (error) {
     console.error('Error setting PIN:', error);
-    return false;
+    throw error;
   }
 }
 
