@@ -326,3 +326,37 @@ export async function getBrainStats(): Promise<BrainStats> {
   return await response.json();
 }
 
+/**
+ * Backfill brain index - index all published tracks that aren't already indexed
+ * Calls the edge function endpoint
+ */
+export async function backfillBrainIndex(organizationId: string): Promise<{
+  indexed: number;
+  skipped: number;
+  errors: string[];
+  details: Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>;
+}> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('User not authenticated');
+
+  const serverUrl = getServerUrl();
+  const response = await fetch(`${serverUrl}/brain/backfill`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': supabaseAnonKey,
+    },
+    body: JSON.stringify({
+      organizationId,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to backfill brain index');
+  }
+
+  return await response.json();
+}
+

@@ -209,6 +209,11 @@ Deno.serve(async (req: Request) => {
       return await handleBrainStats(req);
     }
 
+    // Backfill brain index (admin function)
+    if (method === "POST" && path === "/brain/backfill") {
+      return await handleBrainBackfill(req);
+    }
+
     // =========================================================================
     // 404 - Route not found
     // =========================================================================
@@ -240,7 +245,8 @@ Deno.serve(async (req: Request) => {
         "POST /brain/remove",
         "POST /brain/chat",
         "POST /brain/search",
-        "GET /brain/stats"
+        "GET /brain/stats",
+        "POST /brain/backfill"
       ]
     }, 404);
 
@@ -2094,5 +2100,248 @@ async function handleBrainStats(req: Request): Promise<Response> {
   } catch (error) {
     console.error("Brain stats error:", error);
     return jsonResponse({ error: error.message || "Failed to get stats" }, 500);
+  }
+}
+
+/**
+ * Backfill brain index - index all published tracks that aren't already indexed
+ */
+async function handleBrainBackfill(req: Request): Promise<Response> {
+  try {
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Parse body to check for organizationId fallback
+    const body = await req.json();
+    const { organizationId } = body;
+    
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain Backfill] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
+
+    console.log(`[Brain Backfill] Starting backfill for organization ${orgId}...`);
+
+    // Step 1: Get all published tracks for this organization
+    const { data: tracks, error: tracksError } = await supabase
+      .from("tracks")
+      .select("id, title, description, content, content_text, transcript, type, status, organization_id, is_system_content")
+      .eq("organization_id", orgId)
+      .eq("status", "published")
+      .not("type", "eq", "checkpoint");
+
+    if (tracksError) {
+      console.error("[Brain Backfill] Error fetching tracks:", tracksError);
+      return jsonResponse({ error: `Failed to fetch tracks: ${tracksError.message}` }, 500);
+    }
+
+    if (!tracks || tracks.length === 0) {
+      return jsonResponse({
+        indexed: 0,
+        skipped: 0,
+        errors: [],
+        details: [],
+        message: "No published tracks found",
+      });
+    }
+
+    console.log(`[Brain Backfill] Found ${tracks.length} published tracks`);
+
+    // Step 2: Get list of already-indexed content_ids
+    const { data: existingEmbeddings, error: embeddingsError } = await supabase
+      .from("brain_embeddings")
+      .select("content_id")
+      .eq("organization_id", orgId)
+      .eq("content_type", "track");
+
+    if (embeddingsError) {
+      console.warn("[Brain Backfill] Could not fetch existing embeddings:", embeddingsError);
+    }
+
+    const indexedContentIds = new Set(
+      (existingEmbeddings || []).map((e: any) => e.content_id)
+    );
+
+    console.log(`[Brain Backfill] Found ${indexedContentIds.size} already-indexed tracks`);
+
+    // Step 3: Filter to only unindexed tracks
+    const unindexedTracks = tracks.filter((track: any) => !indexedContentIds.has(track.id));
+
+    if (unindexedTracks.length === 0) {
+      return jsonResponse({
+        indexed: 0,
+        skipped: 0,
+        errors: [],
+        details: [],
+        message: "All tracks are already indexed",
+      });
+    }
+
+    console.log(`[Brain Backfill] ${unindexedTracks.length} tracks need indexing`);
+
+    // Step 4: Index each unindexed track
+    const result = {
+      indexed: 0,
+      skipped: 0,
+      errors: [] as string[],
+      details: [] as Array<{ trackId: string; title: string; status: "indexed" | "skipped" | "error" }>,
+    };
+
+    for (const track of unindexedTracks) {
+      try {
+        const trackType = track.type || "article";
+        const trackTitle = track.title || "Untitled";
+
+        // Skip checkpoints (double-check)
+        if (trackType === "checkpoint") {
+          result.skipped++;
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: "skipped",
+          });
+          continue;
+        }
+
+        // Get transcript for videos
+        let transcriptText: string | undefined;
+        if (trackType === "video") {
+          // Check track transcript field first
+          if (track.transcript) {
+            transcriptText = track.transcript;
+          } else {
+            // Check media_transcripts table
+            const { data: transcriptData } = await supabase
+              .from("media_transcripts")
+              .select("transcript_text")
+              .contains("used_in_tracks", [track.id])
+              .maybeSingle();
+            transcriptText = transcriptData?.transcript_text;
+          }
+        }
+
+        // Build text for indexing
+        const parts: string[] = [];
+        if (track.title) parts.push(`Title: ${track.title}`);
+        if (track.description) parts.push(`Description: ${track.description}`);
+
+        if (trackType === "video" && transcriptText) {
+          parts.push(`Content: ${transcriptText}`);
+        } else if (trackType === "article") {
+          const content = track.transcript || track.content || track.content_text;
+          if (content) {
+            // Strip HTML tags
+            const cleanContent = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+            parts.push(`Content: ${cleanContent}`);
+          }
+        } else if (trackType === "story" && track.transcript) {
+          try {
+            const storyData = typeof track.transcript === "string" ? JSON.parse(track.transcript) : track.transcript;
+            if (storyData.slides && Array.isArray(storyData.slides)) {
+              const slideContent = storyData.slides
+                .map((slide: any, index: number) => {
+                  const slideTitle = slide.title || slide.name || "";
+                  const slideText = slide.transcript?.text || slide.content || "";
+                  return slideText ? `Slide ${index + 1}: ${slideTitle ? slideTitle + ": " : ""}${slideText}` : "";
+                })
+                .filter(Boolean)
+                .join("\n\n");
+              if (slideContent) parts.push(slideContent);
+            }
+          } catch (e) {
+            // Not valid JSON, skip
+          }
+        }
+
+        const text = parts.join("\n\n");
+
+        if (!text || text.trim().length < 20) {
+          result.skipped++;
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: "skipped",
+          });
+          continue;
+        }
+
+        // Index the track using the embed endpoint
+        const chunks = chunkText(text);
+        const isSystemTemplate = track.is_system_content || false;
+
+        let chunksIndexed = 0;
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          const embedding = await generateEmbedding(chunk);
+
+          const { error: insertError } = await supabase
+            .from("brain_embeddings")
+            .insert({
+              organization_id: orgId,
+              content_type: "track",
+              content_id: track.id,
+              chunk_index: i,
+              chunk_text: chunk,
+              embedding: embedding,
+              metadata: {
+                trackType: trackType,
+                isSystemTemplate: isSystemTemplate,
+              },
+              is_system_template: isSystemTemplate,
+            });
+
+          if (insertError) {
+            console.error(`[Brain Backfill] Error inserting chunk ${i} for ${track.id}:`, insertError);
+            continue;
+          }
+
+          chunksIndexed++;
+        }
+
+        if (chunksIndexed > 0) {
+          result.indexed++;
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: "indexed",
+          });
+          console.log(`[Brain Backfill] ✓ Indexed: ${trackTitle} (${track.id}) - ${chunksIndexed} chunks`);
+        } else {
+          result.errors.push(`${track.id}: Failed to index any chunks`);
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: "error",
+          });
+        }
+      } catch (error: any) {
+        const errorMsg = error.message || String(error);
+        result.errors.push(`${track.id}: ${errorMsg}`);
+        result.details.push({
+          trackId: track.id,
+          title: track.title || "Untitled",
+          status: "error",
+        });
+        console.error(`[Brain Backfill] ✗ Error indexing ${track.id}:`, error);
+      }
+    }
+
+    console.log(`[Brain Backfill] Complete: ${result.indexed} indexed, ${result.skipped} skipped, ${result.errors.length} errors`);
+
+    return jsonResponse(result);
+  } catch (error) {
+    console.error("[Brain Backfill] Fatal error:", error);
+    return jsonResponse({ 
+      error: error.message || "Failed to backfill brain index",
+      indexed: 0,
+      skipped: 0,
+      errors: [error.message || String(error)],
+      details: [],
+    }, 500);
   }
 }

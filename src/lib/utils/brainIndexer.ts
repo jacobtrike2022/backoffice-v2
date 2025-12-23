@@ -444,3 +444,124 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
   return stats;
 }
 
+/**
+ * Backfill brain index - only index tracks that aren't already indexed
+ * Use for catching up on tracks that were published before brain indexing was enabled
+ */
+export async function backfillBrainIndex(organizationId: string): Promise<{
+  indexed: number;
+  skipped: number;
+  errors: string[];
+  details: Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>;
+}> {
+  const result = {
+    indexed: 0,
+    skipped: 0,
+    errors: [] as string[],
+    details: [] as Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>,
+  };
+
+  try {
+    console.log(`[Brain Backfill] Starting backfill for organization ${organizationId}...`);
+
+    // Step 1: Get all published tracks for this organization
+    const { data: tracks, error: tracksError } = await supabase
+      .from('tracks')
+      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .eq('organization_id', organizationId)
+      .eq('status', 'published')
+      .not('type', 'eq', 'checkpoint');
+
+    if (tracksError) {
+      throw new Error(`Failed to fetch tracks: ${tracksError.message}`);
+    }
+
+    if (!tracks || tracks.length === 0) {
+      console.log('[Brain Backfill] No published tracks found');
+      return result;
+    }
+
+    console.log(`[Brain Backfill] Found ${tracks.length} published tracks`);
+
+    // Step 2: Get list of already-indexed content_ids
+    const { data: existingEmbeddings, error: embeddingsError } = await supabase
+      .from('brain_embeddings')
+      .select('content_id')
+      .eq('organization_id', organizationId)
+      .eq('content_type', 'track');
+
+    if (embeddingsError) {
+      console.warn('[Brain Backfill] Could not fetch existing embeddings, will attempt to index all tracks:', embeddingsError);
+    }
+
+    const indexedContentIds = new Set(
+      (existingEmbeddings || []).map((e: any) => e.content_id)
+    );
+
+    console.log(`[Brain Backfill] Found ${indexedContentIds.size} already-indexed tracks`);
+
+    // Step 3: Filter to only unindexed tracks
+    const unindexedTracks = tracks.filter(track => !indexedContentIds.has(track.id));
+
+    if (unindexedTracks.length === 0) {
+      console.log('[Brain Backfill] All tracks are already indexed');
+      return result;
+    }
+
+    console.log(`[Brain Backfill] ${unindexedTracks.length} tracks need indexing`);
+
+    // Step 4: Index each unindexed track
+    for (const track of unindexedTracks) {
+      try {
+        const trackType = track.track_type || track.type || 'article';
+        const trackTitle = track.title || 'Untitled';
+
+        // Skip checkpoints (double-check)
+        if (SKIP_TRACK_TYPES.includes(trackType)) {
+          result.skipped++;
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: 'skipped',
+          });
+          continue;
+        }
+
+        // Get transcript for videos
+        let transcript: string | undefined;
+        if (trackType === 'video') {
+          transcript = await getTrackTranscript(track.id);
+        }
+
+        // Index the track
+        await indexTrackToBrain(track, transcript);
+        
+        result.indexed++;
+        result.details.push({
+          trackId: track.id,
+          title: trackTitle,
+          status: 'indexed',
+        });
+
+        console.log(`[Brain Backfill] ✓ Indexed: ${trackTitle} (${track.id})`);
+      } catch (error: any) {
+        const errorMsg = error.message || String(error);
+        result.errors.push(`${track.id}: ${errorMsg}`);
+        result.details.push({
+          trackId: track.id,
+          title: track.title || 'Untitled',
+          status: 'error',
+        });
+        console.error(`[Brain Backfill] ✗ Error indexing ${track.id}:`, error);
+      }
+    }
+
+    console.log(`[Brain Backfill] Complete: ${result.indexed} indexed, ${result.skipped} skipped, ${result.errors.length} errors`);
+  } catch (error: any) {
+    console.error('[Brain Backfill] Fatal error:', error);
+    result.errors.push(`Fatal: ${error.message || String(error)}`);
+  }
+
+  return result;
+}
+
