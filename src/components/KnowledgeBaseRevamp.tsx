@@ -967,52 +967,142 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       // Create or get conversation ID
       let conversationId = brainConversationId;
       if (!conversationId) {
-        // Create new conversation using CRUD function
-        const newConv = await brainCrud.createConversation({
-          title: `Q&A: ${selectedTrack.title}`
-        });
-        conversationId = (newConv as any).id;
-        setBrainConversationId(conversationId);
+        let conversationCreated = false;
+        
+        try {
+          // Try to create conversation using CRUD function (requires auth)
+          const newConv = await brainCrud.createConversation({
+            title: `Q&A: ${selectedTrack.title}`
+          });
+          conversationId = (newConv as any).id;
+          conversationCreated = true;
+          setBrainConversationId(conversationId);
+        } catch (convError) {
+          console.warn('Failed to create conversation via CRUD, trying direct insert:', convError);
+          
+          // Fallback: Create conversation directly via Supabase
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const { data: newConv, error: insertError } = await supabase
+              .from('brain_conversations')
+              .insert({
+                organization_id: orgId,
+                user_id: user?.id || null,
+                title: `Q&A: ${selectedTrack.title}`,
+              } as any)
+              .select()
+              .single();
+
+            if (insertError) {
+              console.error('Failed to create conversation directly:', {
+                error: insertError,
+                code: insertError.code,
+                message: insertError.message,
+                details: insertError.details,
+                hint: insertError.hint,
+                orgId,
+                userId: user?.id
+              });
+              
+              // Provide more specific error messages
+              if (insertError.code === '42501' || insertError.message?.includes('permission')) {
+                throw new Error('Permission denied. Please ensure you are logged in and have access to create conversations.');
+              } else if (insertError.code === '23503' || insertError.message?.includes('foreign key')) {
+                throw new Error('Invalid organization or user. Please refresh the page and try again.');
+              } else {
+                throw new Error(`Failed to create conversation: ${insertError.message || insertError.code || 'Unknown error'}`);
+              }
+            } else {
+              conversationId = (newConv as any).id;
+              conversationCreated = true;
+              setBrainConversationId(conversationId);
+            }
+          } catch (directError) {
+            console.error('Failed to create conversation directly:', directError);
+            throw new Error('Unable to create conversation. Please ensure you are logged in and have the necessary permissions.');
+          }
+        }
+        
+        // Only proceed if conversation was successfully created
+        if (!conversationCreated || !conversationId) {
+          throw new Error('Failed to create conversation. Please try again.');
+        }
       }
 
-      // Call brain chat endpoint
+      // Get session token if available, otherwise use public anon key (for demo mode)
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || publicAnonKey;
+
+      // Call brain chat endpoint directly
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/trike-server/brain/chat`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
+            'Authorization': `Bearer ${authToken}`,
+            'apikey': publicAnonKey
           },
           body: JSON.stringify({
             message: question,
             conversationId: conversationId,
-            organizationId: orgId,
-            context: {
-              trackId: selectedTrack.id,
-              trackTitle: selectedTrack.title,
-              trackType: selectedTrack.type
-            }
+            organizationId: orgId
           })
         }
       );
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || 'Failed to get response');
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        }
+        
+        console.error('Brain chat API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+          conversationId,
+          orgId
+        });
+        
+        throw new Error(errorData.error || `Failed to get response (${response.status})`);
       }
 
       const data = await response.json();
       
       // Extract response content - the API returns { message: { content: string }, sources: [...] }
-      const responseContent = data.message?.content || data.response || "Sorry, I couldn't process that question. Please try again.";
+      const responseContent = data.message?.content || data.response;
+      
+      if (!responseContent) {
+        console.error('Brain chat response missing content:', data);
+        throw new Error('Received empty response from brain chat');
+      }
       
       setBrainMessages(prev => [...prev, { role: 'assistant', content: responseContent }]);
     } catch (error) {
       console.error('Brain chat error:', error);
+      
+      let errorMessage = "Sorry, I couldn't process that question. Please try again.";
+      
+      if (error instanceof Error) {
+        // Provide more helpful error messages
+        if (error.message.includes('Failed to create conversation')) {
+          errorMessage = "Unable to start conversation. Please make sure you're logged in and try again.";
+        } else if (error.message.includes('not authenticated') || error.message.includes('Unauthorized')) {
+          errorMessage = "Authentication required. Please log in and try again.";
+        } else if (error.message.includes('Organization not found')) {
+          errorMessage = "Unable to identify your organization. Please refresh the page and try again.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       setBrainMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: error instanceof Error ? error.message : "Sorry, I couldn't process that question. Please try again." 
+        content: errorMessage
       }]);
     } finally {
       setBrainLoading(false);
@@ -2263,16 +2353,16 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       {/* Brain Drawer - slides from right - Only show when track is selected and drawer is open */}
       {selectedTrack && brainDrawerOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop - only on mobile */}
           <div 
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm sm:hidden"
             onClick={() => setBrainDrawerOpen(false)}
           />
           
           {/* Drawer */}
-          <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-white dark:bg-slate-950 shadow-2xl transform transition-transform duration-300 ease-in-out translate-x-0">
+          <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] lg:w-[450px] bg-white dark:bg-slate-950 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center justify-between p-4 border-b shrink-0">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
                   <Sparkles className="h-4 w-4 text-white" />
@@ -2290,7 +2380,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
             </div>
 
             {/* Messages Area */}
-            <ScrollArea className="flex-1 p-4" style={{height: 'calc(100vh - 180px)'}}>
+            <div className="flex-1 overflow-y-auto p-4">
               {brainMessages.length === 0 ? (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground text-center py-4">
@@ -2336,10 +2426,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   )}
                 </div>
               )}
-            </ScrollArea>
+            </div>
 
             {/* Input Area */}
-            <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white dark:bg-slate-950">
+            <div className="p-4 border-t bg-white dark:bg-slate-950 shrink-0">
               <form onSubmit={(e) => { e.preventDefault(); handleBrainAsk(brainInput); }} className="flex gap-2">
                 <Input
                   value={brainInput}
