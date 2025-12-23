@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogOverlay, DialogPortal } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -51,13 +51,6 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
     } finally {
       setFetchingPin(false);
     }
-  };
-
-  const handleRevealPin = async () => {
-    if (currentPin === null) {
-      await fetchCurrentPin();
-    }
-    setShowPin(true);
   };
 
   const handleGeneratePin = async () => {
@@ -150,7 +143,9 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogPortal>
+        <DialogOverlay className="backdrop-blur-md bg-black/30" />
+        <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
@@ -164,7 +159,21 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
         <div className="space-y-6 py-4">
           {/* Current PIN Section */}
           <div className="space-y-3">
-            <Label className="text-sm font-medium">Current PIN</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Current PIN</Label>
+              {currentPin !== null && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleGeneratePin}
+                  disabled={loading || fetchingPin}
+                  className="h-7 text-xs"
+                >
+                  <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                  Generate New
+                </Button>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               {fetchingPin ? (
                 <div className="flex-1 h-10 bg-muted animate-pulse rounded-md" />
@@ -200,31 +209,6 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
                 No PIN has been set for this employee yet
               </p>
             )}
-          </div>
-
-          {/* Quick Actions */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Quick Actions</Label>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleRevealPin}
-                disabled={fetchingPin || currentPin === null}
-                className="flex-1"
-              >
-                <Eye className="h-4 w-4 mr-2" />
-                Reveal PIN
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleGeneratePin}
-                disabled={loading || fetchingPin}
-                className="flex-1"
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Generate New
-              </Button>
-            </div>
           </div>
 
           {/* Set Custom PIN Section */}
@@ -294,6 +278,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
           </Button>
         </DialogFooter>
       </DialogContent>
+      </DialogPortal>
     </Dialog>
   );
 }
