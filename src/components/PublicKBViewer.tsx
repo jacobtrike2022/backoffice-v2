@@ -318,8 +318,16 @@ export function PublicKBViewer() {
         console.warn('Failed to increment track view count:', error);
       }
       
-      // Load likes count
+      // Load likes count and check if user already liked
       loadLikes(data.track.id);
+      
+      // Check localStorage for like state (persist across page loads)
+      const likedKey = `kb_liked_${data.track.id}`;
+      const hasLikedBefore = localStorage.getItem(likedKey) === 'true';
+      if (hasLikedBefore) {
+        setHasLiked(true);
+        console.log('✅ PublicKBViewer: Restored like state from localStorage');
+      }
 
       setLoading(false);
     } catch (err: any) {
@@ -360,16 +368,32 @@ export function PublicKBViewer() {
 
   async function loadLikes(trackId: string) {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${trackId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
+      // Get userId from session to check if user already liked
+      const currentSession = getPinSession();
+      const currentUserId = currentSession?.userId || userId || null;
+      
+      // Include userId in query to check if user already liked
+      const url = currentUserId 
+        ? `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${trackId}?userId=${currentUserId}`
+        : `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${trackId}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+        },
+      });
       const data = await response.json();
       setLikes(data.likes || 0);
+      
+      // Set hasLiked state if user already liked (from database or localStorage)
+      if (data.userLiked === true) {
+        setHasLiked(true);
+        localStorage.setItem(`kb_liked_${trackId}`, 'true');
+        console.log('✅ PublicKBViewer: User already liked this track (from database)');
+      } else if (localStorage.getItem(`kb_liked_${trackId}`) === 'true') {
+        setHasLiked(true);
+        console.log('✅ PublicKBViewer: User already liked this track (from localStorage)');
+      }
     } catch (err) {
       console.warn('Failed to load likes:', err);
     }

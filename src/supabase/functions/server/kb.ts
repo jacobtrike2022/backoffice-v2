@@ -1,5 +1,5 @@
 import { Hono } from 'npm:hono';
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.3';
 import * as kv from './kv_store.tsx';
 
 const kbApp = new Hono();
@@ -314,46 +314,73 @@ kbApp.post('/page-view', async (c) => {
     await kv.set(pageViewKey, pageViewData);
 
     // Record activity event if userId is provided (using service role key - bypasses RLS)
+    // Deduplicate: Only record if no view event exists in the last 60 seconds for this user+track
     if (userId) {
       try {
-        const { data: trackInfo } = await supabase
-          .from('tracks')
-          .select('title, type, version_number')
-          .eq('id', finalTrackId)
-          .single();
+        // Check for recent view event (within last 60 seconds) to prevent duplicates
+        const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
+        const { data: recentView } = await supabase
+          .from('activity_events')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('object_id', finalTrackId)
+          .eq('verb', 'Viewed')
+          .gte('timestamp', oneMinuteAgo)
+          .limit(1)
+          .maybeSingle();
         
-        if (trackInfo) {
-          const { error: activityInsertError } = await supabase
-            .from('activity_events')
-            .insert({
-              user_id: userId,
-              verb: 'Viewed', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
-              object_type: 'track',
-              object_id: finalTrackId,
-              object_name: trackInfo.title,
-              result_completion: false,
-              context_platform: 'web',
-              timestamp: new Date().toISOString(),
-              metadata: {
-                track_type: trackInfo.type,
-                track_version: trackInfo.version_number || 1,
-                action_type: 'view',
-                verb_uri: 'http://activitystrea.ms/schema/1.0/view', // xAPI verb URI for LRS interoperability
-                referrer: referrer || 'direct_link'
-              }
-            });
+        if (recentView) {
+          console.log('⏭️ KB Page View: Recent view event exists (within 60s), skipping duplicate:', {
+            userId,
+            trackId: finalTrackId,
+            existingEventId: recentView.id
+          });
+        } else {
+          const { data: trackInfo } = await supabase
+            .from('tracks')
+            .select('title, type, version_number')
+            .eq('id', finalTrackId)
+            .single();
           
-          if (activityInsertError) {
-            console.error('❌ KB Page View: Failed to insert activity event:', {
-              userId,
-              trackId: finalTrackId,
-              error: activityInsertError.message,
-              code: activityInsertError.code,
-              details: activityInsertError.details,
-              hint: activityInsertError.hint
-            });
-          } else {
-            console.log('✅ KB Page View: Activity event recorded for userId:', userId);
+          if (trackInfo) {
+            const { data: insertedEvent, error: activityInsertError } = await supabase
+              .from('activity_events')
+              .insert({
+                user_id: userId,
+                verb: 'Viewed', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
+                object_type: 'track',
+                object_id: finalTrackId,
+                object_name: trackInfo.title,
+                result_completion: false,
+                context_platform: 'web',
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  track_type: trackInfo.type,
+                  track_version: trackInfo.version_number || 1,
+                  action_type: 'view',
+                  verb_uri: 'http://activitystrea.ms/schema/1.0/view', // xAPI verb URI for LRS interoperability
+                  referrer: referrer || 'direct_link'
+                }
+              })
+              .select()
+              .single();
+            
+            if (activityInsertError) {
+              console.error('❌ KB Page View: Failed to insert activity event:', {
+                userId,
+                trackId: finalTrackId,
+                error: activityInsertError.message,
+                code: activityInsertError.code,
+                details: activityInsertError.details,
+                hint: activityInsertError.hint
+              });
+            } else {
+              console.log('✅ KB Page View: Activity event recorded for userId:', {
+                userId,
+                trackId: finalTrackId,
+                eventId: insertedEvent?.id
+              });
+            }
           }
         }
       } catch (activityError: any) {
@@ -468,12 +495,45 @@ kbApp.post('/like', async (c) => {
 
     console.log('📊 KB Like: Attempting to increment likes for track:', finalTrackId);
 
-      // Try to increment in database using RPC function (most reliable)
-      let newLikes = 0;
-      try {
-        const { error: rpcError } = await supabase.rpc('increment_track_likes', {
-          track_id: finalTrackId
+    // Check if user already liked this track (prevent duplicate likes and activity events)
+    if (userId) {
+      const { data: existingLike } = await supabase
+        .from('activity_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('object_id', finalTrackId)
+        .eq('verb', 'Liked')
+        .limit(1)
+        .maybeSingle();
+      
+      if (existingLike) {
+        console.log('⏭️ KB Like: User already liked this track, returning current count:', {
+          userId,
+          trackId: finalTrackId,
+          existingEventId: existingLike.id
         });
+        
+        // Return current likes count without incrementing
+        const { data: track } = await supabase
+          .from('tracks')
+          .select('likes_count')
+          .eq('id', finalTrackId)
+          .single();
+        
+        return c.json({ 
+          success: true, 
+          likes: track?.likes_count || 0,
+          alreadyLiked: true
+        });
+      }
+    }
+
+    // Try to increment in database using RPC function (most reliable)
+    let newLikes = 0;
+    try {
+      const { error: rpcError } = await supabase.rpc('increment_track_likes', {
+        track_id: finalTrackId
+      });
 
       if (!rpcError) {
         // RPC succeeded, get updated count
@@ -497,7 +557,7 @@ kbApp.post('/like', async (c) => {
               .single();
             
             if (trackInfo) {
-              const { error: activityInsertError } = await supabase
+              const { data: insertedEvent, error: activityInsertError } = await supabase
                 .from('activity_events')
                 .insert({
                   user_id: userId,
@@ -514,17 +574,25 @@ kbApp.post('/like', async (c) => {
                     action_type: 'like',
                     verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for LRS interoperability
                   }
-                });
+                })
+                .select()
+                .single();
               
               if (activityInsertError) {
                 console.error('❌ KB Like: Failed to insert activity event:', {
                   userId,
                   trackId: finalTrackId,
                   error: activityInsertError.message,
-                  details: activityInsertError.details
+                  code: activityInsertError.code,
+                  details: activityInsertError.details,
+                  hint: activityInsertError.hint
                 });
               } else {
-                console.log('✅ KB Like: Activity event recorded for userId:', userId);
+                console.log('✅ KB Like: Activity event recorded successfully:', {
+                  userId,
+                  trackId: finalTrackId,
+                  eventId: insertedEvent?.id
+                });
               }
             }
           } catch (activityError: any) {
@@ -583,7 +651,7 @@ kbApp.post('/like', async (c) => {
               .single();
             
             if (trackInfo) {
-              const { error: activityInsertError } = await supabase
+              const { data: insertedEvent, error: activityInsertError } = await supabase
                 .from('activity_events')
                 .insert({
                   user_id: userId,
@@ -600,17 +668,25 @@ kbApp.post('/like', async (c) => {
                     action_type: 'like',
                     verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for LRS interoperability
                   }
-                });
+                })
+                .select()
+                .single();
               
               if (activityInsertError) {
                 console.error('❌ KB Like: Failed to insert activity event:', {
                   userId,
                   trackId: finalTrackId,
                   error: activityInsertError.message,
-                  details: activityInsertError.details
+                  code: activityInsertError.code,
+                  details: activityInsertError.details,
+                  hint: activityInsertError.hint
                 });
               } else {
-                console.log('✅ KB Like: Activity event recorded for userId:', userId);
+                console.log('✅ KB Like: Activity event recorded successfully:', {
+                  userId,
+                  trackId: finalTrackId,
+                  eventId: insertedEvent?.id
+                });
               }
             }
           } catch (activityError: any) {
@@ -650,16 +726,18 @@ kbApp.post('/like', async (c) => {
 });
 
 // Get likes count for a track (from database, with KV fallback)
+// Also checks if a specific user has liked the track
 kbApp.get('/likes/:trackId', async (c) => {
   try {
     const trackId = c.req.param('trackId');
+    const userId = c.req.query('userId') || null; // Optional userId to check if they liked
     
     if (!trackId) {
       console.error('❌ KB Get Likes: Missing trackId');
       return c.json({ error: 'Missing trackId' }, 400);
     }
 
-    console.log('📊 KB Get Likes: Fetching likes for track:', trackId);
+    console.log('📊 KB Get Likes: Fetching likes for track:', trackId, userId ? `(checking if user ${userId} liked)` : '');
 
     // Always get latest version if trackId points to an old version
     let finalTrackId = trackId;
@@ -698,8 +776,24 @@ kbApp.get('/likes/:trackId', async (c) => {
 
       if (!dbError && track) {
         const likes = track.likes_count || 0;
-        console.log('✅ KB Get Likes: Retrieved from database:', likes);
-        return c.json({ likes });
+        
+        // Check if user has liked this track
+        let userLiked = false;
+        if (userId) {
+          const { data: userLikeEvent } = await supabase
+            .from('activity_events')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('object_id', finalTrackId)
+            .eq('verb', 'Liked')
+            .limit(1)
+            .maybeSingle();
+          
+          userLiked = !!userLikeEvent;
+        }
+        
+        console.log('✅ KB Get Likes: Retrieved from database:', { likes, userLiked });
+        return c.json({ likes, userLiked });
       }
     } catch (dbError: any) {
       console.warn('⚠️ KB Get Likes: Database query failed, falling back to KV store:', dbError.message);
@@ -712,11 +806,11 @@ kbApp.get('/likes/:trackId', async (c) => {
       const likes = data?.count || 0;
       
       console.log('✅ KB Get Likes: Retrieved from KV store (fallback):', likes);
-      return c.json({ likes });
+      return c.json({ likes, userLiked: false }); // Can't check user like state from KV
     } catch (kvError: any) {
       console.error('❌ KB Get Likes: KV store query also failed:', kvError.message);
       // Return 0 as default
-      return c.json({ likes: 0 });
+      return c.json({ likes: 0, userLiked: false });
     }
   } catch (error: any) {
     console.error('❌ KB Get Likes: Unexpected error:', {
