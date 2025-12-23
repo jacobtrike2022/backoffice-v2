@@ -1099,7 +1099,7 @@ async function getOrgIdFromToken(req: Request): Promise<string | null> {
     }
 
     // Check if this is the public anon key (demo mode)
-    const publicAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const publicAnonKey = Deno.env.get("PUBLIC_ANON_KEY");
     if (token === publicAnonKey) {
       // Demo mode: return default org ID
       console.log("🔓 [getOrgIdFromToken] Demo mode detected, using default org ID");
@@ -1639,13 +1639,22 @@ async function generateEmbedding(text: string): Promise<number[]> {
  */
 async function handleBrainEmbed(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Parse body to check for organizationId fallback
     const body = await req.json();
-    const { contentType, contentId, text, metadata = {} } = body;
+    const { contentType, contentId, text, metadata = {}, organizationId } = body;
+    
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
 
     if (!contentType || !contentId || !text) {
       return jsonResponse({ error: "contentType, contentId, and text are required" }, 400);
@@ -1703,13 +1712,22 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
  */
 async function handleBrainRemove(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Parse body to check for organizationId fallback
     const body = await req.json();
-    const { contentType, contentId } = body;
+    const { contentType, contentId, organizationId } = body;
+    
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
 
     if (!contentType || !contentId) {
       return jsonResponse({ error: "contentType and contentId are required" }, 400);

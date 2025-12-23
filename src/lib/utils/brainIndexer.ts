@@ -94,6 +94,7 @@ export async function indexTrackToBrain(
     text,
     metadata,
     isSystemTemplate: metadata.isSystemTemplate,
+    organizationId: track.organization_id,
   });
 }
 
@@ -102,10 +103,26 @@ export async function indexTrackToBrain(
  * Call on delete, unpublish, or status change to draft/archived
  */
 export async function removeTrackFromBrain(trackId: string): Promise<void> {
-  await removeFromBrain({
-    contentType: 'track',
-    contentId: trackId,
-  });
+  try {
+    // Fetch track to get organization_id
+    const { data: track } = await supabase
+      .from('tracks')
+      .select('organization_id')
+      .eq('id', trackId)
+      .single();
+
+    await removeFromBrain({
+      contentType: 'track',
+      contentId: trackId,
+      organizationId: track?.organization_id,
+    });
+  } catch (error) {
+    // If fetch fails, try without organizationId (fallback to token auth)
+    await removeFromBrain({
+      contentType: 'track',
+      contentId: trackId,
+    });
+  }
 }
 
 /**
@@ -253,6 +270,7 @@ async function indexToBrain(params: {
   text: string;
   metadata?: IndexMetadata;
   isSystemTemplate?: boolean;
+  organizationId?: string;
 }): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -269,6 +287,7 @@ async function indexToBrain(params: {
         contentType: params.contentType,
         contentId: params.contentId,
         text: params.text,
+        organizationId: params.organizationId,
         metadata: {
           ...params.metadata,
           isSystemTemplate: params.isSystemTemplate || false,
@@ -296,6 +315,7 @@ async function indexToBrain(params: {
 async function removeFromBrain(params: {
   contentType: IndexableContentType;
   contentId: string;
+  organizationId?: string;
 }): Promise<void> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -311,6 +331,7 @@ async function removeFromBrain(params: {
       body: JSON.stringify({
         contentType: params.contentType,
         contentId: params.contentId,
+        organizationId: params.organizationId,
       }),
     });
 
