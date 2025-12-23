@@ -1757,17 +1757,25 @@ async function handleBrainRemove(req: Request): Promise<Response> {
  */
 async function handleBrainChat(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
     if (!OPENAI_API_KEY) {
       return jsonResponse({ error: "OpenAI API key not configured" }, 500);
     }
 
     const body = await req.json();
-    const { conversationId, message } = body;
+    const { conversationId, message, organizationId } = body;
+    
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
 
     if (!conversationId || !message) {
       return jsonResponse({ error: "conversationId and message are required" }, 400);
@@ -1940,13 +1948,22 @@ async function handleBrainChat(req: Request): Promise<Response> {
  */
 async function handleBrainSearch(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
+    // Parse body to check for organizationId fallback
     const body = await req.json();
-    const { query, limit = 10, contentType } = body;
+    const { query, limit = 10, contentType, organizationId } = body;
+    
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
 
     if (!query) {
       return jsonResponse({ error: "query is required" }, 400);
@@ -2010,9 +2027,21 @@ async function handleBrainSearch(req: Request): Promise<Response> {
  */
 async function handleBrainStats(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+    
+    // For GET requests, check query params for organizationId fallback
+    const url = new URL(req.url);
+    const organizationId = url.searchParams.get("organizationId");
+    
+    // Use query param organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Brain] Using organizationId from query params: ${organizationId}`);
+      orgId = organizationId;
+    }
+    
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
     }
 
     // Get total embeddings

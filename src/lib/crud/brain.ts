@@ -179,6 +179,7 @@ export async function sendMessage(input: SendMessageInput) {
     body: JSON.stringify({
       conversationId: input.conversationId,
       message: input.message,
+      organizationId: orgId,
     }),
   });
 
@@ -286,6 +287,7 @@ export async function searchContent(input: SearchContentInput) {
       query: input.query,
       limit: input.limit || 10,
       contentType: input.contentType,
+      organizationId: orgId,
     }),
   });
 
@@ -308,7 +310,7 @@ export async function getBrainStats(): Promise<BrainStats> {
   if (!session) throw new Error('User not authenticated');
 
   const serverUrl = getServerUrl();
-  const response = await fetch(`${serverUrl}/brain/stats`, {
+  const response = await fetch(`${serverUrl}/brain/stats?organizationId=${orgId}`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${session.access_token}`,
