@@ -200,11 +200,19 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   }, [initialTrackId, selectedTrack, hasLoadedInitialTrack]);
 
   // Listen for initialTrackId being undefined to clear the selected track
+  // This ensures that when navigating back to library view, the selected track is cleared
   useEffect(() => {
     if (initialTrackId === undefined && selectedTrack) {
-      console.log('📍 ContentLibrary: Clearing selected track (initialTrackId is undefined)');
+      console.log('📍 ContentLibrary: Clearing selected track (returning to library view)');
       setSelectedTrack(null);
       setHasLoadedInitialTrack(false);
+      // Also clear the URL if we're returning to library view
+      if (window.location.pathname.startsWith('/video/') || 
+          window.location.pathname.startsWith('/article/') ||
+          window.location.pathname.startsWith('/story/') ||
+          window.location.pathname.startsWith('/checkpoint/')) {
+        window.history.replaceState({}, '', '/');
+      }
     }
   }, [initialTrackId]);
 

@@ -88,6 +88,7 @@ export default function App() {
   >(null);
   const [previousView, setPreviousView] =
     useState<AppView | null>(null); // Track where user came from
+  const [contentLibraryKey, setContentLibraryKey] = useState(0); // Key to force ContentLibrary reset
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -287,6 +288,11 @@ export default function App() {
       setInitialMode(null);
     }
 
+    // When navigating to content view, increment key to force ContentLibrary reset
+    if (view === "content" && initialTrackId === undefined) {
+      setContentLibraryKey(prev => prev + 1);
+    }
+
     // Store previous view for back navigation
     setPreviousView(currentView);
     setCurrentView(view);
@@ -375,6 +381,7 @@ export default function App() {
       case "content":
         return (
           <ContentLibrary
+            key={`content-library-${contentLibraryKey}`}
             role={currentRole}
             onNavigate={requestNavigate}
             editingArticle={editingArticle}
