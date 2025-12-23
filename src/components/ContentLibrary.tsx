@@ -61,7 +61,7 @@ import { useTracks } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -71,7 +71,15 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
-import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
+
+// Attempt to import defaultThumbnail image. Fall back to undefined if not found.
+let defaultThumbnail: string | undefined;
+try {
+  // @ts-ignore: Ignore error if file does not exist during build.
+  defaultThumbnail = require('../assets/default-thumbnail.png');
+} catch {
+  defaultThumbnail = undefined;
+}
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -237,20 +245,25 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       const newTrack = await crud.duplicateTrack(track.id);
       
       // Show persistent toast with link to view the duplicated track
-      toast.success(`"${track.title}" duplicated successfully!`, {
-        description: `New draft: "${newTrack.title}"`,
+      toast.success(`"${(track as { title?: string }).title ?? 'Track'}" duplicated successfully!`, {
+        description: `New draft: "${(newTrack as { title?: string }).title ?? 'Untitled'}"`,
         duration: Infinity, // Stay visible until dismissed
         action: {
           label: 'View Copy',
           onClick: async () => {
             // Load and view the duplicated track
-            const freshTrack = await crud.getTrackById(newTrack.id);
+            // Fix: newTrack may be typed as 'never' or missing id, assert type or use type guard
+            if (!newTrack || typeof newTrack !== "object" || !("id" in newTrack)) {
+              toast.error("Unable to load duplicated track (missing ID).");
+              return;
+            }
+            const trackId = String((newTrack as { id: string | number }).id);
+            const freshTrack = await crud.getTrackById(trackId);
             setSelectedTrack(freshTrack);
+            await refetch(); // Refresh the list
           }
         }
       });
-      
-      await refetch(); // Refresh the list
     } catch (error: any) {
       console.error('Failed to duplicate track:', error);
       toast.error(`Failed to duplicate: ${error.message}`);
@@ -537,7 +550,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     console.log('🔍 Version clicked, loading version:', versionTrackId);
     try {
       console.log('📍 Fetching track data for version:', versionTrackId);
-      const versionTrack = await crud.getTrackById(versionTrackId);
+      const versionTrack = await crud.getTrackById(versionTrackId) as any;
       
       if (!versionTrack) {
         console.error('❌ Version track not found:', versionTrackId);
@@ -646,12 +659,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       // Otherwise, refetch the current selected track
       const trackIdToFetch = newTrackId || selectedTrack.id;
       console.log('ContentLibrary - fetching track ID:', trackIdToFetch);
-      const updatedTrack = await crud.getTrackById(trackIdToFetch);
+      const updatedTrack = await crud.getTrackById(trackIdToFetch) as any;
       setSelectedTrack(updatedTrack);
       console.log('ContentLibrary - updated track:', updatedTrack);
       
       // If we're loading a new version, update the URL
-      if (newTrackId) {
+      if (newTrackId && updatedTrack) {
         const newUrl = `/${updatedTrack.type}/${newTrackId}`;
         console.log('ContentLibrary - updating URL to:', newUrl);
         window.history.pushState({ trackId: newTrackId, trackType: updatedTrack.type }, '', newUrl);

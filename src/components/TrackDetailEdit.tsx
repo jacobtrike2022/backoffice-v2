@@ -2064,8 +2064,27 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
         onClose={() => setIsTagSelectorOpen(false)}
-        selectedTags={editFormData.tags || []}
-        onTagsChange={(tags) => setEditFormData({ ...editFormData, tags })}
+        selectedTags={isEditMode ? (editFormData.tags || []) : (track.tags || [])}
+        onTagsChange={async (tags) => {
+          if (isEditMode) {
+            setEditFormData({ ...editFormData, tags });
+          } else {
+            // In view mode, save directly to database
+            try {
+              await crud.updateTrack({
+                id: track.id,
+                tags: tags
+              });
+              toast.success('KB categories updated');
+              onUpdate(); // Refresh track data
+            } catch (error: any) {
+              console.error('Error updating tags:', error);
+              toast.error('Failed to update KB categories', {
+                description: error.message || 'Please try again'
+              });
+            }
+          }
+        }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
       />

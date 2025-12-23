@@ -2712,7 +2712,32 @@ export function StoryEditor({
         isOpen={isTagSelectorOpen}
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
-        onTagsChange={setTags}
+        onTagsChange={async (newTags) => {
+          if (isEditMode) {
+            setTags(newTags);
+          } else {
+            // In view mode, save directly to database
+            try {
+              const currentTrackId = track?.id || trackId;
+              if (!currentTrackId) return;
+              
+              await crud.updateTrack({
+                id: currentTrackId,
+                tags: newTags
+              });
+              setTags(newTags); // Update local state
+              toast.success('KB categories updated');
+              if (onUpdate) {
+                onUpdate(); // Refresh track data
+              }
+            } catch (error: any) {
+              console.error('Error updating tags:', error);
+              toast.error('Failed to update KB categories', {
+                description: error.message || 'Please try again'
+              });
+            }
+          }
+        }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
       />
