@@ -1118,12 +1118,12 @@ async function recordViewActivityEvent(trackId: string, userId: string) {
       return;
     }
 
-    // Insert activity event
+    // Insert activity event with xAPI/Tin Can API standard verb
     const { error: activityError } = await supabase
       .from('activity_events')
       .insert({
         user_id: userId,
-        verb: 'viewed',
+        verb: 'Viewed', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
         object_type: 'track',
         object_id: trackId,
         object_name: track.title,
@@ -1133,7 +1133,8 @@ async function recordViewActivityEvent(trackId: string, userId: string) {
         metadata: {
           track_type: track.type,
           track_version: track.version_number || 1,
-          action_type: 'view'
+          action_type: 'view',
+          verb_uri: 'http://activitystrea.ms/schema/1.0/view' // xAPI verb URI for LRS interoperability
         }
       });
 
@@ -1287,12 +1288,12 @@ async function recordLikeActivityEvent(trackId: string, userId: string) {
       return;
     }
 
-    // Insert activity event
+    // Insert activity event with xAPI/Tin Can API standard verb
     const { error: activityError } = await supabase
       .from('activity_events')
       .insert({
         user_id: userId,
-        verb: 'liked',
+        verb: 'Liked', // xAPI/Tin Can API standard verb (capitalized)
         object_type: 'track',
         object_id: trackId,
         object_name: track.title,
@@ -1302,7 +1303,8 @@ async function recordLikeActivityEvent(trackId: string, userId: string) {
         metadata: {
           track_type: track.type,
           track_version: track.version_number || 1,
-          action_type: 'like'
+          action_type: 'like',
+          verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for interoperability
         }
       });
 
@@ -1585,6 +1587,9 @@ export async function createTrackVersion(
   }
 
   // Create new version
+  // Strategy for views/likes:
+  // - Views: Carry over (same content, just updated)
+  // - Likes: Start fresh (users can re-like the updated version)
   const newVersionData: CreateTrackInput = {
     ...originalTrack,
     ...updates,
@@ -1592,10 +1597,29 @@ export async function createTrackVersion(
     version_number: nextVersion,
     version_notes: versionNotes,
     is_latest_version: true,
-    status: 'published' // New version is published
+    status: 'published', // New version is published
+    // Explicitly handle views/likes:
+    // Views carry over from original (preserve popularity)
+    // Likes start fresh (measure engagement with new version)
+    // Note: view_count and likes_count are not in CreateTrackInput, so we'll set them after creation
   };
 
   const newVersion = await createTrack(newVersionData);
+  
+  // Set view_count to carry over from original, but likes_count starts at 0
+  if (newVersion && originalTrack.view_count) {
+    await supabase
+      .from('tracks')
+      .update({ 
+        view_count: originalTrack.view_count,
+        likes_count: 0 // Start fresh for likes
+      })
+      .eq('id', newVersion.id);
+    
+    // Update the returned object to reflect the changes
+    newVersion.view_count = originalTrack.view_count;
+    newVersion.likes_count = 0;
+  }
 
   // Mark old version as no longer latest
   await updateTrack({

@@ -862,7 +862,7 @@ export async function getStoreActivity(storeId: string, limit: number = 20) {
           if (activity.result_score_scaled !== null && activity.result_score_scaled !== undefined) {
             description += ` - Score: ${Math.round(activity.result_score_scaled)}%`;
           }
-        } else if (activity.verb === 'watched' || activity.verb === 'viewed') {
+        } else if (activity.verb === 'watched' || activity.verb === 'viewed' || activity.verb === 'Viewed') {
           type = 'assignment';
           title = 'Content Viewed';
           description = activity.object_name || activity.object_type;

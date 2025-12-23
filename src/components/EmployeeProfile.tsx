@@ -40,7 +40,8 @@ import {
   Bell,
   Tag as TagIcon,
   Plus,
-  Hash
+  Hash,
+  ThumbsUp
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -794,14 +795,24 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             iconColor: 'text-purple-600',
             score: event.result_score_scaled
           });
-        } else if (event.verb === 'watched' || event.verb === 'viewed' || event.verb === 'started') {
+        } else if (event.verb === 'watched' || event.verb === 'viewed' || event.verb === 'Viewed' || event.verb === 'started') {
           timelineEvents.push({
             id: `event-started-${event.id}`,
             type: 'track_started',
-            title: `${event.verb === 'watched' || event.verb === 'viewed' ? 'Viewed' : 'Started'}: ${event.object_name || event.object_type || 'Content'}`,
+            title: `${event.verb === 'watched' || event.verb === 'viewed' || event.verb === 'Viewed' ? 'Viewed' : 'Started'}: ${event.object_name || event.object_type || 'Content'}`,
             timestamp: timestamp,
             icon: BookOpen,
             iconColor: 'text-orange-600'
+          });
+        } else if (event.verb === 'Liked') {
+          // Liked activity
+          timelineEvents.push({
+            id: `event-liked-${event.id}`,
+            type: 'track_liked',
+            title: `Liked: ${event.object_name || event.object_type || 'Content'}`,
+            timestamp: timestamp,
+            icon: ThumbsUp,
+            iconColor: 'text-blue-600'
           });
         } else if (event.verb) {
           // Other activity events

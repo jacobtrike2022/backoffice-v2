@@ -19,14 +19,17 @@ kbApp.get('/public/:slug', async (c) => {
       return c.json({ error: 'Slug is required' }, 400);
     }
 
-    // Fetch track by kb_slug from Supabase
+    // Fetch track by kb_slug from Supabase - ALWAYS get latest version
     const { data: track, error: trackError } = await supabase
       .from('tracks')
       .select('*')
       .eq('kb_slug', slug)
       .eq('show_in_knowledge_base', true)
       .eq('status', 'published')
-      .single();
+      .or('is_latest_version.eq.true,is_latest_version.is.null') // Only latest versions
+      .order('version_number', { ascending: false }) // Get highest version number if multiple
+      .limit(1)
+      .maybeSingle();
 
     console.log('🎯 Track query result:', { track, error: trackError });
 
@@ -368,21 +371,44 @@ kbApp.post('/like', async (c) => {
       return c.json({ error: 'Missing trackId' }, 400);
     }
 
-    console.log('📊 KB Like: Attempting to increment likes for track:', trackId);
+    // Always like the latest version, even if trackId points to an old version
+    let finalTrackId = trackId;
+    const { data: trackById } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id, is_latest_version')
+      .eq('id', trackId)
+      .single();
+    
+    if (trackById && trackById.is_latest_version === false) {
+      const parentId = trackById.parent_track_id || trackId;
+      const { data: latestTrack } = await supabase
+        .from('tracks')
+        .select('id')
+        .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+        .eq('is_latest_version', true)
+        .single();
+      
+      if (latestTrack) {
+        finalTrackId = latestTrack.id;
+        console.log(`🔄 KB Like: Redirected from old version ${trackId} to latest version ${finalTrackId}`);
+      }
+    }
 
-    // Try to increment in database using RPC function (most reliable)
-    let newLikes = 0;
-    try {
-      const { error: rpcError } = await supabase.rpc('increment_track_likes', {
-        track_id: trackId
-      });
+    console.log('📊 KB Like: Attempting to increment likes for track:', finalTrackId);
+
+      // Try to increment in database using RPC function (most reliable)
+      let newLikes = 0;
+      try {
+        const { error: rpcError } = await supabase.rpc('increment_track_likes', {
+          track_id: finalTrackId
+        });
 
       if (!rpcError) {
         // RPC succeeded, get updated count
         const { data: track, error: fetchError } = await supabase
           .from('tracks')
           .select('likes_count')
-          .eq('id', trackId)
+          .eq('id', finalTrackId)
           .single();
 
         if (!fetchError && track) {
@@ -395,17 +421,17 @@ kbApp.post('/like', async (c) => {
             const { data: trackInfo } = await supabase
               .from('tracks')
               .select('title, type, version_number')
-              .eq('id', trackId)
+              .eq('id', finalTrackId)
               .single();
             
             if (trackInfo) {
-              await supabase
+              const { error: activityInsertError } = await supabase
                 .from('activity_events')
                 .insert({
                   user_id: userId,
-                  verb: 'liked',
+                  verb: 'Liked', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
                   object_type: 'track',
-                  object_id: trackId,
+                  object_id: finalTrackId,
                   object_name: trackInfo.title,
                   result_completion: false,
                   context_platform: 'web',
@@ -413,10 +439,21 @@ kbApp.post('/like', async (c) => {
                   metadata: {
                     track_type: trackInfo.type,
                     track_version: trackInfo.version_number || 1,
-                    action_type: 'like'
+                    action_type: 'like',
+                    verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for LRS interoperability
                   }
                 });
-              console.log('✅ KB Like: Activity event recorded for userId:', userId);
+              
+              if (activityInsertError) {
+                console.error('❌ KB Like: Failed to insert activity event:', {
+                  userId,
+                  trackId: finalTrackId,
+                  error: activityInsertError.message,
+                  details: activityInsertError.details
+                });
+              } else {
+                console.log('✅ KB Like: Activity event recorded for userId:', userId);
+              }
             }
           } catch (activityError: any) {
             console.warn('⚠️ KB Like: Failed to record activity event (non-critical):', activityError.message);
@@ -443,11 +480,11 @@ kbApp.post('/like', async (c) => {
         const { data: track, error: fetchError } = await supabase
           .from('tracks')
           .select('likes_count')
-          .eq('id', trackId)
+          .eq('id', finalTrackId)
           .single();
 
         if (fetchError || !track) {
-          throw new Error(`Track not found: ${trackId}`);
+          throw new Error(`Track not found: ${finalTrackId}`);
         }
 
         const currentLikes = track.likes_count || 0;
@@ -456,7 +493,7 @@ kbApp.post('/like', async (c) => {
         const { error: updateError } = await supabase
           .from('tracks')
           .update({ likes_count: newLikes })
-          .eq('id', trackId);
+          .eq('id', finalTrackId);
 
         if (updateError) {
           throw updateError;
@@ -470,17 +507,17 @@ kbApp.post('/like', async (c) => {
             const { data: trackInfo } = await supabase
               .from('tracks')
               .select('title, type, version_number')
-              .eq('id', trackId)
+              .eq('id', finalTrackId)
               .single();
             
             if (trackInfo) {
-              await supabase
+              const { error: activityInsertError } = await supabase
                 .from('activity_events')
                 .insert({
                   user_id: userId,
-                  verb: 'liked',
+                  verb: 'Liked', // xAPI/Tin Can API standard verb (capitalized per https://registry.tincanapi.com/#home/verbs)
                   object_type: 'track',
-                  object_id: trackId,
+                  object_id: finalTrackId,
                   object_name: trackInfo.title,
                   result_completion: false,
                   context_platform: 'web',
@@ -488,10 +525,21 @@ kbApp.post('/like', async (c) => {
                   metadata: {
                     track_type: trackInfo.type,
                     track_version: trackInfo.version_number || 1,
-                    action_type: 'like'
+                    action_type: 'like',
+                    verb_uri: 'http://activitystrea.ms/schema/1.0/like' // xAPI verb URI for LRS interoperability
                   }
                 });
-              console.log('✅ KB Like: Activity event recorded for userId:', userId);
+              
+              if (activityInsertError) {
+                console.error('❌ KB Like: Failed to insert activity event:', {
+                  userId,
+                  trackId: finalTrackId,
+                  error: activityInsertError.message,
+                  details: activityInsertError.details
+                });
+              } else {
+                console.log('✅ KB Like: Activity event recorded for userId:', userId);
+              }
             }
           } catch (activityError: any) {
             console.warn('⚠️ KB Like: Failed to record activity event (non-critical):', activityError.message);
@@ -501,14 +549,16 @@ kbApp.post('/like', async (c) => {
     } catch (dbError: any) {
       console.error('❌ KB Like: Database update failed:', {
         trackId,
+        finalTrackId,
         error: dbError.message || dbError
       });
       // Continue to KV store fallback
     }
 
     // Also update KV store for backward compatibility and caching
+    // Store for both the original trackId (for backward compatibility) and finalTrackId
     try {
-      const likesKey = `kb_likes:${trackId}`;
+      const likesKey = `kb_likes:${finalTrackId}`;
       await kv.set(likesKey, { 
         count: newLikes, 
         lastUpdated: new Date().toISOString() 
@@ -539,12 +589,39 @@ kbApp.get('/likes/:trackId', async (c) => {
 
     console.log('📊 KB Get Likes: Fetching likes for track:', trackId);
 
+    // Always get latest version if trackId points to an old version
+    let finalTrackId = trackId;
+    
     // Try to get from database first (source of truth)
     try {
+      // First, get the track to check if it's the latest version
+      const { data: trackById, error: trackError } = await supabase
+        .from('tracks')
+        .select('id, parent_track_id, is_latest_version')
+        .eq('id', trackId)
+        .single();
+      
+      // If this is not the latest version, find the latest version
+      if (trackById && trackById.is_latest_version === false) {
+        const parentId = trackById.parent_track_id || trackId;
+        const { data: latestTrack } = await supabase
+          .from('tracks')
+          .select('id')
+          .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+          .eq('is_latest_version', true)
+          .single();
+        
+        if (latestTrack) {
+          finalTrackId = latestTrack.id;
+          console.log(`🔄 KB Get Likes: Redirected from old version ${trackId} to latest version ${finalTrackId}`);
+        }
+      }
+      
+      // Get likes count for the latest version
       const { data: track, error: dbError } = await supabase
         .from('tracks')
         .select('likes_count')
-        .eq('id', trackId)
+        .eq('id', finalTrackId)
         .single();
 
       if (!dbError && track) {
@@ -558,7 +635,7 @@ kbApp.get('/likes/:trackId', async (c) => {
 
     // Fall back to KV store if database query fails
     try {
-      const likesKey = `kb_likes:${trackId}`;
+      const likesKey = `kb_likes:${finalTrackId}`;
       const data = await kv.get(likesKey);
       const likes = data?.count || 0;
       
