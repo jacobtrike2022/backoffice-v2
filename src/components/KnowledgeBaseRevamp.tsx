@@ -2294,102 +2294,93 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         </DialogContent>
       </Dialog>
 
-      {/* Brain Drawer - slides from right - Only show when track is selected and drawer is open */}
-      {selectedTrack && brainDrawerOpen && (
-        <>
-          {/* Backdrop - only on mobile */}
-          <div 
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm sm:hidden"
-            onClick={() => setBrainDrawerOpen(false)}
-          />
-          
-          {/* Drawer */}
-          <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] lg:w-[450px] bg-white dark:bg-slate-950 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
-                  <Sparkles className="h-4 w-4 text-white" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sm">Company Brain</h3>
-                  <p className="text-xs text-muted-foreground truncate max-w-[250px]">
-                    Ask about: {selectedTrack.title}
-                  </p>
-                </div>
+      {/* Brain Chat Modal - Only show when track is selected and modal is open */}
+      <Dialog open={brainDrawerOpen && !!selectedTrack} onOpenChange={setBrainDrawerOpen}>
+        <DialogContent className="max-w-2xl h-[80vh] flex flex-col p-0">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-white" />
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setBrainDrawerOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
+              <div>
+                <DialogTitle className="text-base font-semibold">Company Brain</DialogTitle>
+                <p className="text-xs text-muted-foreground truncate max-w-[400px]">
+                  Ask about: {selectedTrack?.title}
+                </p>
+              </div>
             </div>
-
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {brainMessages.length === 0 ? (
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Ask me anything about this {selectedTrack.type || 'content'}
-                  </p>
-                  
-                  {/* Suggested Questions */}
-                  {getSuggestedQuestions(selectedTrack).length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">Suggested questions:</p>
-                      {getSuggestedQuestions(selectedTrack).map((q, i) => (
-                        <button
-                          key={i}
-                          onClick={() => handleBrainAsk(q)}
-                          className="w-full text-left p-3 rounded-lg border hover:border-orange-300 hover:bg-orange-50 transition-colors text-sm"
-                        >
-                          {q}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {brainMessages.map((msg, i) => (
-                    <div key={i} className={cn(
-                      "p-3 rounded-lg text-sm",
-                      msg.role === 'user' 
-                        ? "bg-orange-100 ml-8 dark:bg-orange-900/20" 
-                        : "bg-slate-100 mr-8 dark:bg-slate-800"
-                    )}>
-                      {msg.content}
-                    </div>
-                  ))}
-                  {brainLoading && (
-                    <div className="bg-slate-100 mr-8 p-3 rounded-lg dark:bg-slate-800">
-                      <div className="flex gap-1">
-                        <span className="animate-bounce">●</span>
-                        <span className="animate-bounce delay-100">●</span>
-                        <span className="animate-bounce delay-200">●</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Input Area */}
-            <div className="p-4 border-t bg-white dark:bg-slate-950 shrink-0">
-              <form onSubmit={(e) => { e.preventDefault(); handleBrainAsk(brainInput); }} className="flex gap-2">
-                <Input
-                  value={brainInput}
-                  onChange={(e) => setBrainInput(e.target.value)}
-                  placeholder="Ask a question..."
-                  className="flex-1"
-                  disabled={brainLoading}
-                />
-                <Button type="submit" disabled={brainLoading || !brainInput.trim()} size="icon">
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
-            </div>
+            <Button variant="ghost" size="icon" onClick={() => setBrainDrawerOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-        </>
-      )}
+
+          {/* Messages Area */}
+          <ScrollArea className="flex-1 p-4">
+            {brainMessages.length === 0 ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Ask me anything about this {selectedTrack?.type || 'content'}
+                </p>
+                
+                {/* Suggested Questions */}
+                {selectedTrack && getSuggestedQuestions(selectedTrack).length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Suggested questions:</p>
+                    {getSuggestedQuestions(selectedTrack).map((q, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleBrainAsk(q)}
+                        className="w-full text-left p-3 rounded-lg border hover:border-orange-300 hover:bg-orange-50 transition-colors text-sm"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {brainMessages.map((msg, i) => (
+                  <div key={i} className={cn(
+                    "p-3 rounded-lg text-sm",
+                    msg.role === 'user' 
+                      ? "bg-orange-100 ml-8 dark:bg-orange-900/20" 
+                      : "bg-slate-100 mr-8 dark:bg-slate-800"
+                  )}>
+                    {msg.content}
+                  </div>
+                ))}
+                {brainLoading && (
+                  <div className="bg-slate-100 mr-8 p-3 rounded-lg dark:bg-slate-800">
+                    <div className="flex gap-1">
+                      <span className="animate-bounce">●</span>
+                      <span className="animate-bounce delay-100">●</span>
+                      <span className="animate-bounce delay-200">●</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </ScrollArea>
+
+          {/* Input Area */}
+          <div className="p-4 border-t bg-white dark:bg-slate-950 shrink-0">
+            <form onSubmit={(e) => { e.preventDefault(); handleBrainAsk(brainInput); }} className="flex gap-2">
+              <Input
+                value={brainInput}
+                onChange={(e) => setBrainInput(e.target.value)}
+                placeholder="Ask a question..."
+                className="flex-1"
+                disabled={brainLoading}
+              />
+              <Button type="submit" disabled={brainLoading || !brainInput.trim()} size="icon">
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

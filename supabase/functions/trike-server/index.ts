@@ -1790,16 +1790,29 @@ async function handleBrainChat(req: Request): Promise<Response> {
     // If no conversationId provided, create a new conversation
     let finalConversationId = conversationId;
     if (!finalConversationId) {
-      // Get user ID from token
-      const { data: { user } } = await supabase.auth.getUser(
-        req.headers.get("Authorization")?.replace("Bearer ", "") || ""
-      );
+      // Try to get user ID from token (may be null for anon/demo mode)
+      let userId: string | null = null;
+      try {
+        const authHeader = req.headers.get("Authorization");
+        const token = authHeader?.replace("Bearer ", "") || "";
+        
+        // Only try to get user if we have a token that's not the anon key
+        if (token && token.length > 100) { // JWTs are typically much longer than anon keys
+          const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+          if (!userError && user) {
+            userId = user.id;
+            console.log(`[Brain] Got user ID from token: ${userId}`);
+          }
+        }
+      } catch (e) {
+        console.log("[Brain] Could not extract user from token (using anonymous mode)");
+      }
       
       const { data: newConv, error: convError } = await supabase
         .from("brain_conversations")
         .insert({
           organization_id: orgId,
-          user_id: user?.id || null,
+          user_id: userId, // Can be null for anonymous users
           title: "New Conversation",
         })
         .select()
@@ -1807,6 +1820,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
       if (convError) {
         console.error("Error creating conversation:", convError);
+        console.error("Details:", { orgId, userId, errorCode: convError.code, errorMessage: convError.message });
         return jsonResponse({ error: `Failed to create conversation: ${convError.message}` }, 500);
       }
 
