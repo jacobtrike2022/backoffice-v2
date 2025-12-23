@@ -1771,7 +1771,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
     }
 
     const body = await req.json();
-    const { conversationId, message, organizationId } = body;
+    const { conversationId, message, organizationId, trackId } = body;
     
     // Use body organizationId as fallback if token auth failed
     if (!orgId && organizationId) {
@@ -1800,12 +1800,31 @@ async function handleBrainChat(req: Request): Promise<Response> {
         if (token && token.length > 100) { // JWTs are typically much longer than anon keys
           const { data: { user }, error: userError } = await supabase.auth.getUser(token);
           if (!userError && user) {
-            userId = user.id;
-            console.log(`[Brain] Got user ID from token: ${userId}`);
+            // Verify user exists in user_profiles table (foreign key reference)
+            // The foreign key constraint requires the user to exist in the referenced table
+            const { data: profile, error: profileError } = await supabase
+              .from("user_profiles")
+              .select("id")
+              .eq("id", user.id)
+              .maybeSingle();
+            
+            if (!profileError && profile && profile.id) {
+              userId = user.id;
+              console.log(`[Brain] Got valid user ID from token: ${userId}`);
+            } else {
+              // User doesn't exist in user_profiles (e.g., PIN login users)
+              // Use null to avoid foreign key constraint violation
+              console.log(`[Brain] User ${user.id} not found in user_profiles (PIN login?), using anonymous mode`);
+              userId = null;
+            }
           }
+        } else {
+          // Anon key or invalid token - use anonymous mode
+          console.log("[Brain] Using anonymous mode (anon key or no valid token)");
+          userId = null;
         }
       } catch (e) {
-        console.log("[Brain] Could not extract user from token (using anonymous mode)");
+        console.log("[Brain] Could not extract user from token (using anonymous mode):", e);
       }
       
       const { data: newConv, error: convError } = await supabase
@@ -1858,6 +1877,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
     }
 
     // Generate query embedding
+    // Generate query embedding
     const queryEmbedding = await generateEmbedding(message);
 
     // Find similar content using cosine similarity
@@ -1874,17 +1894,35 @@ async function handleBrainChat(req: Request): Promise<Response> {
     );
 
     if (searchError) {
-      console.error("Error searching embeddings:", searchError);
-      // Fallback: use simple text search
-      const { data: fallbackResults } = await supabase
+      console.error("[Brain] RPC error, using fallback:", searchError.message);
+      // Fallback: use simple text search, filtered by trackId if provided
+      let fallbackQuery = supabase
         .from("brain_embeddings")
         .select("chunk_text, content_type, content_id, metadata")
-        .eq("organization_id", orgId)
-        .limit(8);
+        .eq("organization_id", orgId);
+      
+      // Filter by trackId if provided to scope context to specific content
+      if (trackId) {
+        fallbackQuery = fallbackQuery.eq("content_id", trackId);
+      }
+      
+      const { data: fallbackResults, error: fallbackError } = await fallbackQuery.limit(8);
 
       const context = (fallbackResults || [])
         .map((e) => e.chunk_text)
         .join("\n\n");
+
+      // Log context info for debugging
+      console.log(`[Brain] Fallback context length: ${context.length} chars, ${fallbackResults?.length || 0} chunks found`);
+
+      // If no context found, provide a helpful message
+      if (!context || context.trim() === '') {
+        console.warn("[Brain] No content found in knowledge base (fallback path)");
+        // Return a helpful error message instead of calling OpenAI with empty context
+        return jsonResponse({
+          error: "No relevant content found in the knowledge base for this question. The content may not be indexed yet, or the question doesn't match any available information. Please try rephrasing your question or contact support if you believe this content should be available."
+        }, 404);
+      }
 
       // Generate response with context
       const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1898,7 +1936,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
           messages: [
             {
               role: "system",
-              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so.",
+              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
             },
             {
               role: "user",
@@ -1916,10 +1954,18 @@ async function handleBrainChat(req: Request): Promise<Response> {
       }
 
       const aiData = await openaiResponse.json();
-      const assistantMessage = aiData.choices[0].message.content;
+      const assistantMessage = aiData.choices[0]?.message?.content;
+
+      // Validate we got a response from OpenAI
+      if (!assistantMessage || assistantMessage.trim() === '') {
+        console.error("OpenAI returned empty response (fallback path):", aiData);
+        return jsonResponse({ 
+          error: "OpenAI returned an empty response. Please try again." 
+        }, 500);
+      }
 
       // Save assistant message
-      const { data: savedMessage } = await supabase
+      const { data: savedMessage, error: saveError } = await supabase
         .from("brain_messages")
         .insert({
           conversation_id: finalConversationId,
@@ -1928,6 +1974,38 @@ async function handleBrainChat(req: Request): Promise<Response> {
         })
         .select()
         .single();
+
+      if (saveError) {
+        console.error("Error saving assistant message (fallback path):", saveError);
+        // Still return the response even if save fails
+        return jsonResponse({
+          message: { 
+            id: null,
+            conversation_id: finalConversationId,
+            role: "assistant", 
+            content: assistantMessage,
+            created_at: new Date().toISOString()
+          },
+          sources: fallbackResults || [],
+          conversationId: finalConversationId,
+        });
+      }
+
+      // Validate savedMessage has content
+      if (!savedMessage || !savedMessage.content) {
+        console.error("Saved message is missing content (fallback path):", savedMessage);
+        return jsonResponse({
+          message: { 
+            id: null,
+            conversation_id: finalConversationId,
+            role: "assistant", 
+            content: assistantMessage,
+            created_at: new Date().toISOString()
+          },
+          sources: fallbackResults || [],
+          conversationId: finalConversationId,
+        });
+      }
 
       return jsonResponse({
         message: savedMessage,
@@ -1941,6 +2019,92 @@ async function handleBrainChat(req: Request): Promise<Response> {
       .map((e: any) => e.chunk_text)
       .join("\n\n");
 
+    // If no context found, check if ANY embeddings exist for this org/track
+    if (!context || context.trim() === '') {
+      // Direct query to check if embeddings exist, filtered by trackId if provided
+      let checkQuery = supabase
+        .from("brain_embeddings")
+        .select("id, content_type, chunk_text")
+        .eq("organization_id", orgId);
+      
+      // Filter by trackId if provided
+      if (trackId) {
+        checkQuery = checkQuery.eq("content_id", trackId);
+      }
+      
+      const { data: embeddingsCheck } = await checkQuery.limit(5);
+      
+      if (embeddingsCheck && embeddingsCheck.length > 0) {
+        // Try using the direct query results as fallback (RPC may have failed to match)
+        const directContext = embeddingsCheck.map(e => e.chunk_text).join("\n\n");
+        if (directContext && directContext.trim() !== '') {
+          // Continue with the response generation using direct context
+          const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "gpt-4o",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
+                },
+                {
+                  role: "user",
+                  content: `Context:\n${directContext}\n\nQuestion: ${message}`,
+                },
+              ],
+              temperature: 0.7,
+              max_tokens: 1000,
+            }),
+          });
+
+          if (!openaiResponse.ok) {
+            const error = await openaiResponse.text();
+            throw new Error(`OpenAI error: ${error}`);
+          }
+
+          const aiData = await openaiResponse.json();
+          const assistantMessage = aiData.choices[0]?.message?.content;
+
+          if (!assistantMessage || assistantMessage.trim() === '') {
+            console.error("OpenAI returned empty response (direct fallback):", aiData);
+            return jsonResponse({ error: "OpenAI returned an empty response. Please try again." }, 500);
+          }
+
+          // Save assistant message
+          const { data: savedMessage, error: saveError } = await supabase
+            .from("brain_messages")
+            .insert({
+              conversation_id: finalConversationId,
+              role: "assistant",
+              content: assistantMessage,
+            })
+            .select()
+            .single();
+
+          if (saveError) {
+            console.error("Error saving assistant message (direct fallback):", saveError);
+          }
+
+          return jsonResponse({
+            message: savedMessage || { id: null, conversation_id: finalConversationId, role: "assistant", content: assistantMessage, created_at: new Date().toISOString() },
+            sources: embeddingsCheck || [],
+            conversationId: finalConversationId,
+          });
+        }
+      }
+      
+      console.warn("[Brain] No relevant content found in knowledge base for this question");
+      // Return a helpful error message instead of calling OpenAI with empty context
+      return jsonResponse({
+        error: "No relevant content found in the knowledge base for this question. The content may not be indexed yet, or the question doesn't match any available information. Please try rephrasing your question or contact support if you believe this content should be available."
+      }, 404);
+    }
+
     // Generate response with context
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -1953,7 +2117,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
         messages: [
           {
             role: "system",
-            content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so.",
+              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
           },
           {
             role: "user",
@@ -1971,13 +2135,21 @@ async function handleBrainChat(req: Request): Promise<Response> {
     }
 
     const aiData = await openaiResponse.json();
-    const assistantMessage = aiData.choices[0].message.content;
+    const assistantMessage = aiData.choices[0]?.message?.content;
+
+    // Validate we got a response from OpenAI
+    if (!assistantMessage || assistantMessage.trim() === '') {
+      console.error("OpenAI returned empty response:", aiData);
+      return jsonResponse({ 
+        error: "OpenAI returned an empty response. Please try again." 
+      }, 500);
+    }
 
     // Save assistant message
     const { data: savedMessage, error: saveError } = await supabase
       .from("brain_messages")
       .insert({
-        conversation_id: conversationId,
+        conversation_id: finalConversationId,
         role: "assistant",
         content: assistantMessage,
       })
@@ -1986,6 +2158,34 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
     if (saveError) {
       console.error("Error saving assistant message:", saveError);
+      // Still return the response even if save fails
+      return jsonResponse({
+        message: { 
+          id: null,
+          conversation_id: finalConversationId,
+          role: "assistant", 
+          content: assistantMessage,
+          created_at: new Date().toISOString()
+        },
+        sources: embeddings || [],
+        conversationId: finalConversationId,
+      });
+    }
+
+    // Validate savedMessage has content
+    if (!savedMessage || !savedMessage.content) {
+      console.error("Saved message is missing content:", savedMessage);
+      return jsonResponse({
+        message: { 
+          id: null,
+          conversation_id: finalConversationId,
+          role: "assistant", 
+          content: assistantMessage,
+          created_at: new Date().toISOString()
+        },
+        sources: embeddings || [],
+        conversationId: finalConversationId,
+      });
     }
 
     // Update conversation timestamp

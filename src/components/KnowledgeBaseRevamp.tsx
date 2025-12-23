@@ -985,7 +985,8 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           body: JSON.stringify({
             message: question,
             ...(conversationId && { conversationId }),
-            organizationId: orgId
+            organizationId: orgId,
+            trackId: selectedTrack?.id  // Include trackId to filter context to this specific track
           })
         }
       );
@@ -1007,22 +1008,41 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           orgId
         });
         
+        // Handle 404 (no content found) with a helpful message
+        if (response.status === 404 && errorData.error?.includes('No relevant content')) {
+          throw new Error(errorData.error);
+        }
+        
         throw new Error(errorData.error || `Failed to get response (${response.status})`);
       }
 
       const data = await response.json();
       
-      // Extract response content - the API returns { message: { content: string }, sources: [...], conversationId: string }
-      const responseContent = data.message?.content || data.response;
+      console.log('Brain chat API response:', data);
+      
+      // Extract response content - the API returns { message: { id, conversation_id, role, content, ... }, sources: [...], conversationId: string }
+      // The message object is the saved database record, so content is in data.message.content
+      let responseContent = data.message?.content;
+      
+      // Fallback: check if message is a string or has different structure
+      if (!responseContent) {
+        if (typeof data.message === 'string') {
+          responseContent = data.message;
+        } else if (data.response) {
+          responseContent = data.response;
+        } else if (data.assistantMessage) {
+          responseContent = data.assistantMessage;
+        }
+      }
       
       // Update conversation ID if the API created a new one
       if (data.conversationId && !brainConversationId) {
         setBrainConversationId(data.conversationId);
       }
       
-      if (!responseContent) {
-        console.error('Brain chat response missing content:', data);
-        throw new Error('Received empty response from brain chat');
+      if (!responseContent || responseContent.trim() === '') {
+        console.error('Brain chat response missing content. Full response:', JSON.stringify(data, null, 2));
+        throw new Error('Received empty response from brain chat. The AI may not have found relevant information. Please try rephrasing your question.');
       }
       
       setBrainMessages(prev => [...prev, { role: 'assistant', content: responseContent }]);
