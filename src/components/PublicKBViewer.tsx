@@ -29,6 +29,7 @@ import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.
 import { TTSPlayer } from './content/TTSPlayer';
 import { PinLoginModal } from './public/PinLoginModal';
 import { getPinSession } from '../lib/crud/pinAuth';
+import * as crud from '../lib/crud';
 
 interface Fact {
   id: string;
@@ -304,6 +305,14 @@ export function PublicKBViewer() {
       // Track page view (with userId if logged in)
       trackPageView(data.track.id, userId);
       
+      // Increment view count in tracks table (with userId for activity tracking)
+      try {
+        await crud.incrementTrackViews(data.track.id, userId || undefined);
+      } catch (error) {
+        // Log error but don't block page load
+        console.warn('Failed to increment track view count:', error);
+      }
+      
       // Load likes count
       loadLikes(data.track.id);
 
@@ -367,7 +376,7 @@ export function PublicKBViewer() {
             Authorization: `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ trackId: track.id }),
+          body: JSON.stringify({ trackId: track.id, userId: userId || null }),
         }
       );
       const data = await response.json();

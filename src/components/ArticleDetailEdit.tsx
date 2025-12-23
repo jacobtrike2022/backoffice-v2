@@ -1692,7 +1692,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Views</p>
-                  <p className="font-semibold">{track.views || 0}</p>
+                  <p className="font-semibold">{track.view_count || 0}</p>
                 </div>
               </div>
 

@@ -57,7 +57,7 @@ import { ArticleDetailEdit } from './ArticleDetailEdit';
 import { CheckpointEditor } from './content-authoring/CheckpointEditor';
 import { StoryEditor } from './content-authoring/StoryEditor';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
-import { useTracks } from '../lib/hooks/useSupabase';
+import { useTracks, useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -107,6 +107,7 @@ const calculateReadingTime = (htmlContent: string): number => {
 };
 
 export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onBackToLibrary, registerUnsavedChangesCheck }: ContentLibraryProps) {
+  const { user: currentUser } = useCurrentUser();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -528,8 +529,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       }
       
       // Try to increment view count in the background (non-blocking)
+      // Pass userId for activity tracking if available
       try {
-        await crud.incrementTrackViews(track.id);
+        await crud.incrementTrackViews(track.id, currentUser?.id || undefined);
       } catch (error) {
         // Silently fail - don't prevent the page from opening
         console.warn('Failed to increment view count:', error);

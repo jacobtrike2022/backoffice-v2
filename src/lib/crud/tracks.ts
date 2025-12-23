@@ -991,58 +991,339 @@ export async function uploadTrackFile(trackId: string, file: File): Promise<{ ur
 
 /**
  * Increment track view count
+ * Uses RPC function for atomic increment, falls back to manual update if RPC doesn't exist
+ * Optionally records activity event if userId is provided
  */
-export async function incrementTrackViews(trackId: string) {
+export async function incrementTrackViews(trackId: string, userId?: string | null) {
+  if (!trackId) {
+    console.error('❌ incrementTrackViews: trackId is required');
+    return;
+  }
+
   try {
-    const { error } = await supabase.rpc('increment_track_views', {
+    console.log('📊 incrementTrackViews: Attempting to increment views for track:', trackId);
+    
+    // Try RPC function first (most reliable - atomic operation)
+    const { error: rpcError } = await supabase.rpc('increment_track_views', {
       track_id: trackId
     });
 
-    // If RPC doesn't exist, fall back to manual increment
-    if (error) {
-      // Check if it's a 404 or function doesn't exist error
-      const isNotFoundError = error.code === 'P0001' || 
-                             error.message?.includes('function') || 
-                             error.message?.includes('does not exist') ||
-                             error.message?.includes('not found');
+    if (!rpcError) {
+      console.log('✅ incrementTrackViews: Successfully incremented via RPC for track:', trackId);
       
-      if (!isNotFoundError) {
-        console.warn('Failed to increment track views via RPC:', error.message);
+      // Record activity event if userId is provided
+      if (userId) {
+        recordViewActivityEvent(trackId, userId).catch(err => {
+          console.warn('⚠️ incrementTrackViews: Failed to record activity event (non-critical):', err);
+        });
       }
       
-      // Fall back to manual increment
-      const { data: track } = await supabase
-        .from('tracks')
-        .select('view_count')
-        .eq('id', trackId)
-        .single();
+      return;
+    }
 
-      if (track) {
-        await supabase
-          .from('tracks')
-          .update({ view_count: (track.view_count || 0) + 1 })
-          .eq('id', trackId);
+    // RPC function doesn't exist or failed - log the error
+    const isFunctionNotFound = rpcError.code === '42883' || 
+                               rpcError.message?.includes('function') || 
+                               rpcError.message?.includes('does not exist') ||
+                               rpcError.message?.includes('not found');
+    
+    if (isFunctionNotFound) {
+      console.warn('⚠️ incrementTrackViews: RPC function not found, falling back to manual increment. Consider running migration 00003_increment_track_views.sql');
+    } else {
+      console.error('❌ incrementTrackViews: RPC call failed:', {
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+        hint: rpcError.hint
+      });
+    }
+    
+    // Fall back to manual increment (read-then-update - not atomic but works)
+    console.log('📊 incrementTrackViews: Falling back to manual increment for track:', trackId);
+    
+    const { data: track, error: fetchError } = await supabase
+      .from('tracks')
+      .select('view_count, id')
+      .eq('id', trackId)
+      .single();
+
+    if (fetchError) {
+      console.error('❌ incrementTrackViews: Failed to fetch track:', {
+        trackId,
+        error: fetchError.code,
+        message: fetchError.message
+      });
+      return;
+    }
+
+    if (!track) {
+      console.error('❌ incrementTrackViews: Track not found:', trackId);
+      return;
+    }
+
+    const currentCount = track.view_count || 0;
+    const newCount = currentCount + 1;
+
+    const { error: updateError } = await supabase
+      .from('tracks')
+      .update({ view_count: newCount })
+      .eq('id', trackId);
+
+    if (updateError) {
+      console.error('❌ incrementTrackViews: Failed to update view count:', {
+        trackId,
+        currentCount,
+        newCount,
+        error: updateError.code,
+        message: updateError.message
+      });
+    } else {
+      console.log('✅ incrementTrackViews: Successfully incremented manually:', {
+        trackId,
+        oldCount: currentCount,
+        newCount
+      });
+      
+      // Record activity event if userId is provided
+      if (userId) {
+        recordViewActivityEvent(trackId, userId).catch(err => {
+          console.warn('⚠️ incrementTrackViews: Failed to record activity event (non-critical):', err);
+        });
       }
     }
   } catch (err: any) {
-    // Catch network errors (like 404) and fall back silently
-    if (err?.status === 404 || err?.message?.includes('404')) {
-      // Silently fall back to manual increment
-      const { data: track } = await supabase
-        .from('tracks')
-        .select('view_count')
-        .eq('id', trackId)
-        .single();
+    // Catch unexpected errors
+    console.error('❌ incrementTrackViews: Unexpected error:', {
+      trackId,
+      error: err?.message || err,
+      stack: err?.stack
+    });
+  }
+}
 
-      if (track) {
-        await supabase
-          .from('tracks')
-          .update({ view_count: (track.view_count || 0) + 1 })
-          .eq('id', trackId);
-      }
-    } else {
-      console.warn('Error incrementing track views:', err);
+/**
+ * Record view activity event in activity_events table
+ */
+async function recordViewActivityEvent(trackId: string, userId: string) {
+  try {
+    // Get track info for activity event
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('title, type, version_number, organization_id')
+      .eq('id', trackId)
+      .single();
+
+    if (trackError || !track) {
+      console.warn('⚠️ recordViewActivityEvent: Track not found:', trackId);
+      return;
     }
+
+    // Insert activity event
+    const { error: activityError } = await supabase
+      .from('activity_events')
+      .insert({
+        user_id: userId,
+        verb: 'viewed',
+        object_type: 'track',
+        object_id: trackId,
+        object_name: track.title,
+        result_completion: false, // Viewing is not completion
+        context_platform: 'web',
+        timestamp: new Date().toISOString(),
+        metadata: {
+          track_type: track.type,
+          track_version: track.version_number || 1,
+          action_type: 'view'
+        }
+      });
+
+    if (activityError) {
+      console.error('❌ recordViewActivityEvent: Failed to insert activity event:', {
+        trackId,
+        userId,
+        error: activityError.message
+      });
+    } else {
+      console.log('✅ recordViewActivityEvent: Activity event recorded for view:', {
+        trackId,
+        userId
+      });
+    }
+  } catch (err: any) {
+    console.error('❌ recordViewActivityEvent: Unexpected error:', {
+      trackId,
+      userId,
+      error: err?.message || err
+    });
+  }
+}
+
+/**
+ * Increment track likes count
+ * Uses RPC function for atomic increment, falls back to manual update if RPC doesn't exist
+ * Optionally records activity event if userId is provided
+ */
+export async function incrementTrackLikes(trackId: string, userId?: string | null) {
+  if (!trackId) {
+    console.error('❌ incrementTrackLikes: trackId is required');
+    return;
+  }
+
+  try {
+    console.log('📊 incrementTrackLikes: Attempting to increment likes for track:', trackId);
+    
+    // Try RPC function first (most reliable - atomic operation)
+    const { error: rpcError } = await supabase.rpc('increment_track_likes', {
+      track_id: trackId
+    });
+
+    if (!rpcError) {
+      console.log('✅ incrementTrackLikes: Successfully incremented via RPC for track:', trackId);
+      
+      // Record activity event if userId is provided
+      if (userId) {
+        recordLikeActivityEvent(trackId, userId).catch(err => {
+          console.warn('⚠️ incrementTrackLikes: Failed to record activity event (non-critical):', err);
+        });
+      }
+      
+      return;
+    }
+
+    // RPC function doesn't exist or failed - log the error
+    const isFunctionNotFound = rpcError.code === '42883' || 
+                               rpcError.message?.includes('function') || 
+                               rpcError.message?.includes('does not exist') ||
+                               rpcError.message?.includes('not found');
+    
+    if (isFunctionNotFound) {
+      console.warn('⚠️ incrementTrackLikes: RPC function not found, falling back to manual increment. Consider running migration 00004_add_likes_count.sql');
+    } else {
+      console.error('❌ incrementTrackLikes: RPC call failed:', {
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+        hint: rpcError.hint
+      });
+    }
+    
+    // Fall back to manual increment (read-then-update - not atomic but works)
+    console.log('📊 incrementTrackLikes: Falling back to manual increment for track:', trackId);
+    
+    const { data: track, error: fetchError } = await supabase
+      .from('tracks')
+      .select('likes_count, id')
+      .eq('id', trackId)
+      .single();
+
+    if (fetchError) {
+      console.error('❌ incrementTrackLikes: Failed to fetch track:', {
+        trackId,
+        error: fetchError.code,
+        message: fetchError.message
+      });
+      return;
+    }
+
+    if (!track) {
+      console.error('❌ incrementTrackLikes: Track not found:', trackId);
+      return;
+    }
+
+    const currentCount = track.likes_count || 0;
+    const newCount = currentCount + 1;
+
+    const { error: updateError } = await supabase
+      .from('tracks')
+      .update({ likes_count: newCount })
+      .eq('id', trackId);
+
+    if (updateError) {
+      console.error('❌ incrementTrackLikes: Failed to update likes count:', {
+        trackId,
+        currentCount,
+        newCount,
+        error: updateError.code,
+        message: updateError.message
+      });
+    } else {
+      console.log('✅ incrementTrackLikes: Successfully incremented manually:', {
+        trackId,
+        oldCount: currentCount,
+        newCount
+      });
+      
+      // Record activity event if userId is provided
+      if (userId) {
+        recordLikeActivityEvent(trackId, userId).catch(err => {
+          console.warn('⚠️ incrementTrackLikes: Failed to record activity event (non-critical):', err);
+        });
+      }
+    }
+  } catch (err: any) {
+    // Catch unexpected errors
+    console.error('❌ incrementTrackLikes: Unexpected error:', {
+      trackId,
+      error: err?.message || err,
+      stack: err?.stack
+    });
+  }
+}
+
+/**
+ * Record like activity event in activity_events table
+ */
+async function recordLikeActivityEvent(trackId: string, userId: string) {
+  try {
+    // Get track info for activity event
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('title, type, version_number, organization_id')
+      .eq('id', trackId)
+      .single();
+
+    if (trackError || !track) {
+      console.warn('⚠️ recordLikeActivityEvent: Track not found:', trackId);
+      return;
+    }
+
+    // Insert activity event
+    const { error: activityError } = await supabase
+      .from('activity_events')
+      .insert({
+        user_id: userId,
+        verb: 'liked',
+        object_type: 'track',
+        object_id: trackId,
+        object_name: track.title,
+        result_completion: false, // Liking is not completion
+        context_platform: 'web',
+        timestamp: new Date().toISOString(),
+        metadata: {
+          track_type: track.type,
+          track_version: track.version_number || 1,
+          action_type: 'like'
+        }
+      });
+
+    if (activityError) {
+      console.error('❌ recordLikeActivityEvent: Failed to insert activity event:', {
+        trackId,
+        userId,
+        error: activityError.message
+      });
+    } else {
+      console.log('✅ recordLikeActivityEvent: Activity event recorded for like:', {
+        trackId,
+        userId
+      });
+    }
+  } catch (err: any) {
+    console.error('❌ recordLikeActivityEvent: Unexpected error:', {
+      trackId,
+      userId,
+      error: err?.message || err
+    });
   }
 }
 

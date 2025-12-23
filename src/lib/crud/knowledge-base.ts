@@ -429,26 +429,53 @@ export async function searchAvailableTracksForKB(categoryId: string, search: str
 }
 
 /**
- * Toggle like on a track (increment/decrement)
- * Uses KV store to persist likes count
+ * Toggle like on a track (increment)
+ * Uses Edge Function which updates both database and KV store
  */
 export async function toggleTrackLike(trackId: string) {
-  const response = await fetch(`${getServerUrl()}/kb/like`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${publicAnonKey}`
-    },
-    body: JSON.stringify({ trackId })
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || 'Failed to like track');
+  if (!trackId) {
+    console.error('❌ toggleTrackLike: trackId is required');
+    throw new Error('Track ID is required');
   }
-  
-  const data = await response.json();
-  return data.likes;
+
+  try {
+    console.log('📊 toggleTrackLike: Liking track:', trackId);
+    
+    const response = await fetch(`${getServerUrl()}/kb/like`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${publicAnonKey}`
+      },
+      body: JSON.stringify({ trackId })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error || `HTTP ${response.status}: Failed to like track`;
+      console.error('❌ toggleTrackLike: Request failed:', {
+        trackId,
+        status: response.status,
+        error: errorMessage
+      });
+      throw new Error(errorMessage);
+    }
+    
+    const data = await response.json();
+    console.log('✅ toggleTrackLike: Successfully liked track:', {
+      trackId,
+      newLikesCount: data.likes
+    });
+    
+    return data.likes;
+  } catch (error: any) {
+    console.error('❌ toggleTrackLike: Unexpected error:', {
+      trackId,
+      error: error.message || error,
+      stack: error.stack
+    });
+    throw error;
+  }
 }
 
 /**

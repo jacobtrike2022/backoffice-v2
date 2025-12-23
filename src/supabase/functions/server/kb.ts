@@ -358,44 +358,223 @@ kbApp.get('/feedback/:trackId', async (c) => {
   }
 });
 
-// Like a track (increment likes counter in KV store)
+// Like a track (increment likes counter in database and KV store)
 kbApp.post('/like', async (c) => {
   try {
-    const { trackId } = await c.req.json();
+    const { trackId, userId } = await c.req.json();
 
     if (!trackId) {
+      console.error('❌ KB Like: Missing trackId');
       return c.json({ error: 'Missing trackId' }, 400);
     }
 
-    const likesKey = `kb_likes:${trackId}`;
-    
-    // Get current likes count
-    const currentData = await kv.get(likesKey);
-    const currentLikes = currentData?.count || 0;
-    const newLikes = currentLikes + 1;
-    
-    // Update likes count
-    await kv.set(likesKey, { count: newLikes, lastUpdated: new Date().toISOString() });
+    console.log('📊 KB Like: Attempting to increment likes for track:', trackId);
+
+    // Try to increment in database using RPC function (most reliable)
+    let newLikes = 0;
+    try {
+      const { error: rpcError } = await supabase.rpc('increment_track_likes', {
+        track_id: trackId
+      });
+
+      if (!rpcError) {
+        // RPC succeeded, get updated count
+        const { data: track, error: fetchError } = await supabase
+          .from('tracks')
+          .select('likes_count')
+          .eq('id', trackId)
+          .single();
+
+        if (!fetchError && track) {
+          newLikes = track.likes_count || 0;
+          console.log('✅ KB Like: Successfully incremented via RPC, new count:', newLikes);
+        
+        // Record activity event if userId is provided
+        if (userId) {
+          try {
+            const { data: trackInfo } = await supabase
+              .from('tracks')
+              .select('title, type, version_number')
+              .eq('id', trackId)
+              .single();
+            
+            if (trackInfo) {
+              await supabase
+                .from('activity_events')
+                .insert({
+                  user_id: userId,
+                  verb: 'liked',
+                  object_type: 'track',
+                  object_id: trackId,
+                  object_name: trackInfo.title,
+                  result_completion: false,
+                  context_platform: 'web',
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    track_type: trackInfo.type,
+                    track_version: trackInfo.version_number || 1,
+                    action_type: 'like'
+                  }
+                });
+              console.log('✅ KB Like: Activity event recorded for userId:', userId);
+            }
+          } catch (activityError: any) {
+            console.warn('⚠️ KB Like: Failed to record activity event (non-critical):', activityError.message);
+          }
+        }
+        }
+      } else {
+        // RPC function doesn't exist, fall back to manual increment
+        const isFunctionNotFound = rpcError.code === '42883' || 
+                                   rpcError.message?.includes('function') || 
+                                   rpcError.message?.includes('does not exist');
+        
+        if (isFunctionNotFound) {
+          console.warn('⚠️ KB Like: RPC function not found, falling back to manual increment. Consider running migration 00004_add_likes_count.sql');
+        } else {
+          console.error('❌ KB Like: RPC call failed:', {
+            code: rpcError.code,
+            message: rpcError.message,
+            details: rpcError.details
+          });
+        }
+
+        // Fall back to manual increment
+        const { data: track, error: fetchError } = await supabase
+          .from('tracks')
+          .select('likes_count')
+          .eq('id', trackId)
+          .single();
+
+        if (fetchError || !track) {
+          throw new Error(`Track not found: ${trackId}`);
+        }
+
+        const currentLikes = track.likes_count || 0;
+        newLikes = currentLikes + 1;
+
+        const { error: updateError } = await supabase
+          .from('tracks')
+          .update({ likes_count: newLikes })
+          .eq('id', trackId);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        console.log('✅ KB Like: Successfully incremented manually, new count:', newLikes);
+        
+        // Record activity event if userId is provided
+        if (userId) {
+          try {
+            const { data: trackInfo } = await supabase
+              .from('tracks')
+              .select('title, type, version_number')
+              .eq('id', trackId)
+              .single();
+            
+            if (trackInfo) {
+              await supabase
+                .from('activity_events')
+                .insert({
+                  user_id: userId,
+                  verb: 'liked',
+                  object_type: 'track',
+                  object_id: trackId,
+                  object_name: trackInfo.title,
+                  result_completion: false,
+                  context_platform: 'web',
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    track_type: trackInfo.type,
+                    track_version: trackInfo.version_number || 1,
+                    action_type: 'like'
+                  }
+                });
+              console.log('✅ KB Like: Activity event recorded for userId:', userId);
+            }
+          } catch (activityError: any) {
+            console.warn('⚠️ KB Like: Failed to record activity event (non-critical):', activityError.message);
+          }
+        }
+      }
+    } catch (dbError: any) {
+      console.error('❌ KB Like: Database update failed:', {
+        trackId,
+        error: dbError.message || dbError
+      });
+      // Continue to KV store fallback
+    }
+
+    // Also update KV store for backward compatibility and caching
+    try {
+      const likesKey = `kb_likes:${trackId}`;
+      await kv.set(likesKey, { 
+        count: newLikes, 
+        lastUpdated: new Date().toISOString() 
+      });
+    } catch (kvError) {
+      console.warn('⚠️ KB Like: KV store update failed (non-critical):', kvError);
+    }
 
     return c.json({ success: true, likes: newLikes });
   } catch (error: any) {
-    console.error('Error liking track:', error);
+    console.error('❌ KB Like: Unexpected error:', {
+      error: error.message || error,
+      stack: error.stack
+    });
     return c.json({ error: error.message || 'Failed to like track' }, 500);
   }
 });
 
-// Get likes count for a track
+// Get likes count for a track (from database, with KV fallback)
 kbApp.get('/likes/:trackId', async (c) => {
   try {
     const trackId = c.req.param('trackId');
-    const likesKey = `kb_likes:${trackId}`;
     
-    const data = await kv.get(likesKey);
-    const likes = data?.count || 0;
+    if (!trackId) {
+      console.error('❌ KB Get Likes: Missing trackId');
+      return c.json({ error: 'Missing trackId' }, 400);
+    }
 
-    return c.json({ likes });
+    console.log('📊 KB Get Likes: Fetching likes for track:', trackId);
+
+    // Try to get from database first (source of truth)
+    try {
+      const { data: track, error: dbError } = await supabase
+        .from('tracks')
+        .select('likes_count')
+        .eq('id', trackId)
+        .single();
+
+      if (!dbError && track) {
+        const likes = track.likes_count || 0;
+        console.log('✅ KB Get Likes: Retrieved from database:', likes);
+        return c.json({ likes });
+      }
+    } catch (dbError: any) {
+      console.warn('⚠️ KB Get Likes: Database query failed, falling back to KV store:', dbError.message);
+    }
+
+    // Fall back to KV store if database query fails
+    try {
+      const likesKey = `kb_likes:${trackId}`;
+      const data = await kv.get(likesKey);
+      const likes = data?.count || 0;
+      
+      console.log('✅ KB Get Likes: Retrieved from KV store (fallback):', likes);
+      return c.json({ likes });
+    } catch (kvError: any) {
+      console.error('❌ KB Get Likes: KV store query also failed:', kvError.message);
+      // Return 0 as default
+      return c.json({ likes: 0 });
+    }
   } catch (error: any) {
-    return c.json({ error: error.message }, 500);
+    console.error('❌ KB Get Likes: Unexpected error:', {
+      error: error.message || error,
+      stack: error.stack
+    });
+    return c.json({ error: error.message || 'Failed to get likes' }, 500);
   }
 });
 
