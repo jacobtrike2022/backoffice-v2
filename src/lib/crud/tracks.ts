@@ -1430,66 +1430,6 @@ async function addTrackTags(trackId: string, tagNames: string[]) {
 }
 
 // ============================================================================
-// ALBUMS CRUD OPERATIONS
-// ============================================================================
-
-/**
- * Get all albums for organization with filters
- */
-export async function getAlbums(filters: {
-  status?: string;
-  search?: string;
-  tags?: string[];
-  ids?: string[]; // Filter by specific IDs
-} = {}) {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
-
-  let query = supabase
-    .from('albums')
-    .select(`
-      *,
-      album_tracks (
-        id,
-        track:tracks (
-          id,
-          title,
-          type,
-          duration_minutes
-        )
-      )
-    `)
-    .eq('organization_id', orgId);
-
-  if (filters.ids && filters.ids.length > 0) {
-    query = query.in('id', filters.ids);
-  }
-
-  if (filters.status) {
-    query = query.eq('status', filters.status);
-  }
-
-  if (filters.search) {
-    query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
-
-  if (error) throw error;
-
-  // Enrich with track counts and duration
-  const enrichedAlbums = (data || []).map(album => ({
-    ...album,
-    trackCount: album.album_tracks?.length || 0,
-    duration_minutes: album.album_tracks?.reduce((sum: number, at: any) => 
-      sum + (at.track?.duration_minutes || 0), 0
-    ) || 0,
-  }));
-
-  return enrichedAlbums;
-}
-
-// ============================================================================
 // VERSIONING OPERATIONS
 // ============================================================================
 

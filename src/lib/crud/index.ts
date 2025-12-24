@@ -6,6 +6,7 @@
 export * from './tracks';
 
 // Albums & Playlists
+export * from './albums';
 export * from './playlists';
 export * from './assignments';
 
