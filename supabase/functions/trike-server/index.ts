@@ -1759,6 +1759,47 @@ async function handleBrainRemove(req: Request): Promise<Response> {
 }
 
 /**
+ * Build citations array from source chunks
+ */
+async function buildCitations(sources: any[]): Promise<any[]> {
+  if (!sources || sources.length === 0) return [];
+  
+  const citationsPromises = sources.map(async (source, index) => {
+    try {
+      // Get track metadata
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('id, title, version_number, published_at')
+        .eq('id', source.content_id)
+        .maybeSingle();
+      
+      return {
+        index: index + 1,
+        quote: source.chunk_text?.substring(0, 200) + '...' || 'No preview available',
+        trackId: source.content_id,
+        trackTitle: track?.title || 'Unknown Source',
+        version: track?.version_number || 1,
+        publishedDate: track?.published_at || null,
+        similarity: source.similarity || null,
+      };
+    } catch (error) {
+      console.error(`Error building citation ${index + 1}:`, error);
+      return {
+        index: index + 1,
+        quote: source.chunk_text?.substring(0, 200) + '...' || 'No preview available',
+        trackId: source.content_id,
+        trackTitle: 'Unknown Source',
+        version: 1,
+        publishedDate: null,
+        similarity: source.similarity || null,
+      };
+    }
+  });
+  
+  return await Promise.all(citationsPromises);
+}
+
+/**
  * Chat with brain (RAG query)
  */
 async function handleBrainChat(req: Request): Promise<Response> {
@@ -1786,6 +1827,52 @@ async function handleBrainChat(req: Request): Promise<Response> {
     if (!message) {
       return jsonResponse({ error: "message is required" }, 400);
     }
+
+    // Fetch current track context if trackId provided
+    let currentTrack: { title: string; type: string; description?: string } | null = null;
+    if (trackId) {
+      const { data: trackData } = await supabase
+        .from('tracks')
+        .select('title, type, description')
+        .eq('id', trackId)
+        .single();
+      
+      if (trackData) {
+        currentTrack = trackData;
+        console.log(`[Brain] Current track context: "${trackData.title}" (${trackData.type})`);
+      }
+    }
+
+    // Build context-aware system prompt
+    const systemPrompt = currentTrack 
+      ? `You are Company Brain, an intelligent assistant that helps employees find answers from their organization's training content.
+
+CURRENT CONTEXT:
+The user is currently viewing: "${currentTrack.title}" (${currentTrack.type})
+${currentTrack.description ? `Description: ${currentTrack.description}` : ''}
+
+INSTRUCTIONS:
+1. When you use information from the provided context, add citation markers like [1], [2], etc. Each number corresponds to the source order in the context.
+2. Prioritize information from the current track when answering questions like "summarize this" or "what's the key takeaway"
+3. If other tracks in the context contain MORE relevant or detailed information on the topic, mention them: "For more detailed information on [topic], see [Track Title]"
+4. If the question is about something not covered in the current track but IS covered in another source, say so clearly
+5. Keep citations minimal - only cite sources you actually use
+6. If the context doesn't contain the answer, say so without making up information
+
+RESPONSE STYLE:
+- Be concise and direct
+- Use bullet points only when listing 3+ items
+- Bold key terms or important facts
+- When suggesting related tracks, be specific about what additional information they contain`
+
+      : `You are Company Brain, an intelligent assistant that helps employees find answers from their organization's training content.
+
+INSTRUCTIONS:
+1. When you use information from the provided context, add citation markers like [1], [2], etc.
+2. Only cite sources you actually use
+3. Place citation markers at the end of the relevant sentence or claim
+4. If the context doesn't contain the answer, say so without citations
+5. Keep citations minimal - don't over-cite`;
 
     // If no conversationId provided, create a new conversation
     let finalConversationId = conversationId;
@@ -1908,9 +1995,25 @@ async function handleBrainChat(req: Request): Promise<Response> {
       
       const { data: fallbackResults, error: fallbackError } = await fallbackQuery.limit(8);
 
-      const context = (fallbackResults || [])
-        .map((e) => e.chunk_text)
-        .join("\n\n");
+      // Build numbered context with track titles for better GPT understanding
+      const contextParts = await Promise.all((fallbackResults || []).map(async (e: any, i: number) => {
+        let sourceLabel = `Source ${i + 1}`;
+        if (e.content_id) {
+          const { data: track } = await supabase
+            .from('tracks')
+            .select('title')
+            .eq('id', e.content_id)
+            .maybeSingle();
+          
+          if (track?.title) {
+            const isCurrentTrack = e.content_id === trackId;
+            sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
+          }
+        }
+        return `[${sourceLabel}]:\n${e.chunk_text}`;
+      }));
+
+      const context = contextParts.join('\n\n---\n\n');
 
       // Log context info for debugging
       console.log(`[Brain] Fallback context length: ${context.length} chars, ${fallbackResults?.length || 0} chunks found`);
@@ -1936,7 +2039,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
           messages: [
             {
               role: "system",
-              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
+              content: systemPrompt,
             },
             {
               role: "user",
@@ -1977,6 +2080,8 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
       if (saveError) {
         console.error("Error saving assistant message (fallback path):", saveError);
+        // Build citations
+        const citations = await buildCitations(fallbackResults || []);
         // Still return the response even if save fails
         return jsonResponse({
           message: { 
@@ -1986,6 +2091,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
             content: assistantMessage,
             created_at: new Date().toISOString()
           },
+          citations: citations,
           sources: fallbackResults || [],
           conversationId: finalConversationId,
         });
@@ -1994,6 +2100,8 @@ async function handleBrainChat(req: Request): Promise<Response> {
       // Validate savedMessage has content
       if (!savedMessage || !savedMessage.content) {
         console.error("Saved message is missing content (fallback path):", savedMessage);
+        // Build citations
+        const citations = await buildCitations(fallbackResults || []);
         return jsonResponse({
           message: { 
             id: null,
@@ -2002,22 +2110,27 @@ async function handleBrainChat(req: Request): Promise<Response> {
             content: assistantMessage,
             created_at: new Date().toISOString()
           },
+          citations: citations,
           sources: fallbackResults || [],
           conversationId: finalConversationId,
         });
       }
 
+      // Build citations
+      const citations = await buildCitations(fallbackResults || []);
+      
       return jsonResponse({
         message: savedMessage,
+        citations: citations,
         sources: fallbackResults || [],
         conversationId: finalConversationId, // Return the conversation ID in case it was created
       });
     }
 
-    // Build context from similar chunks
+    // Build context from similar chunks with numbered sources
     const context = (embeddings || [])
-      .map((e: any) => e.chunk_text)
-      .join("\n\n");
+      .map((e: any, i: number) => `[Source ${i + 1}]:\n${e.chunk_text}`)
+      .join("\n\n---\n\n");
 
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
@@ -2036,8 +2149,28 @@ async function handleBrainChat(req: Request): Promise<Response> {
       
       if (embeddingsCheck && embeddingsCheck.length > 0) {
         // Try using the direct query results as fallback (RPC may have failed to match)
-        const directContext = embeddingsCheck.map(e => e.chunk_text).join("\n\n");
-        if (directContext && directContext.trim() !== '') {
+        
+        // Build numbered context with track titles
+        const contextParts = await Promise.all(embeddingsCheck.map(async (e: any, i: number) => {
+          let sourceLabel = `Source ${i + 1}`;
+          if (e.content_id) {
+            const { data: track } = await supabase
+              .from('tracks')
+              .select('title')
+              .eq('id', e.content_id)
+              .maybeSingle();
+            
+            if (track?.title) {
+              const isCurrentTrack = e.content_id === trackId;
+              sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
+            }
+          }
+          return `[${sourceLabel}]:\n${e.chunk_text}`;
+        }));
+
+        const numberedContext = contextParts.join('\n\n---\n\n');
+        
+        if (numberedContext && numberedContext.trim() !== '') {
           // Continue with the response generation using direct context
           const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -2050,11 +2183,11 @@ async function handleBrainChat(req: Request): Promise<Response> {
               messages: [
                 {
                   role: "system",
-                  content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
+                  content: systemPrompt,
                 },
                 {
                   role: "user",
-                  content: `Context:\n${directContext}\n\nQuestion: ${message}`,
+                  content: `Context:\n${numberedContext}\n\nQuestion: ${message}`,
                 },
               ],
               temperature: 0.7,
@@ -2090,8 +2223,12 @@ async function handleBrainChat(req: Request): Promise<Response> {
             console.error("Error saving assistant message (direct fallback):", saveError);
           }
 
+          // Build citations
+          const citations = await buildCitations(embeddingsCheck || []);
+
           return jsonResponse({
             message: savedMessage || { id: null, conversation_id: finalConversationId, role: "assistant", content: assistantMessage, created_at: new Date().toISOString() },
+            citations: citations,
             sources: embeddingsCheck || [],
             conversationId: finalConversationId,
           });
@@ -2117,7 +2254,15 @@ async function handleBrainChat(req: Request): Promise<Response> {
         messages: [
           {
             role: "system",
-              content: "You are a helpful assistant that answers questions based on the provided training content. Use only the information from the context to answer questions. If the context doesn't contain the answer, say so clearly.",
+            content: `You are a helpful assistant that answers questions based on the provided training content.
+
+IMPORTANT: When you use information from the context, add citation markers like [1], [2], etc. to indicate which source you're using. Each number corresponds to the order the sources appear in the context.
+
+Rules:
+- Only cite sources you actually use
+- Place citation markers at the end of the relevant sentence or claim
+- If the context doesn't contain the answer, say so without citations
+- Keep citations minimal - don't over-cite`,
           },
           {
             role: "user",
@@ -2158,6 +2303,8 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
     if (saveError) {
       console.error("Error saving assistant message:", saveError);
+      // Build citations
+      const citations = await buildCitations(embeddings || []);
       // Still return the response even if save fails
       return jsonResponse({
         message: { 
@@ -2167,6 +2314,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
           content: assistantMessage,
           created_at: new Date().toISOString()
         },
+        citations: citations,
         sources: embeddings || [],
         conversationId: finalConversationId,
       });
@@ -2175,6 +2323,8 @@ async function handleBrainChat(req: Request): Promise<Response> {
     // Validate savedMessage has content
     if (!savedMessage || !savedMessage.content) {
       console.error("Saved message is missing content:", savedMessage);
+      // Build citations
+      const citations = await buildCitations(embeddings || []);
       return jsonResponse({
         message: { 
           id: null,
@@ -2183,6 +2333,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
           content: assistantMessage,
           created_at: new Date().toISOString()
         },
+        citations: citations,
         sources: embeddings || [],
         conversationId: finalConversationId,
       });
@@ -2194,8 +2345,12 @@ async function handleBrainChat(req: Request): Promise<Response> {
       .update({ updated_at: new Date().toISOString() })
       .eq("id", finalConversationId);
 
+    // Build citations
+    const citations = await buildCitations(embeddings || []);
+
     return jsonResponse({
       message: savedMessage,
+      citations: citations,
       sources: embeddings || [],
       conversationId: finalConversationId, // Return the conversation ID in case it was created
     });

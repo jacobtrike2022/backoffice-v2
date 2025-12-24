@@ -79,6 +79,7 @@ import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { StoryPreview } from './content-authoring/StoryPreview';
+import BrainChatDrawer from './BrainChat/BrainChatDrawer';
 import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
 // Helper for date formatting
@@ -480,10 +481,6 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
   // Brain Drawer State
   const [brainDrawerOpen, setBrainDrawerOpen] = useState(false);
-  const [brainMessages, setBrainMessages] = useState<{role: 'user'|'assistant', content: string}[]>([]);
-  const [brainLoading, setBrainLoading] = useState(false);
-  const [brainConversationId, setBrainConversationId] = useState<string | null>(null);
-  const [brainInput, setBrainInput] = useState('');
 
   // Function to refetch the currently selected track
   const refetchSelectedTrack = async () => {
@@ -869,9 +866,6 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     if (!selectedTrack) {
       setBrainDrawerOpen(false);
     }
-    setBrainMessages([]);
-    setBrainConversationId(null);
-    setBrainInput('');
   }, [selectedTrack?.id]);
 
   const handleLike = async (e?: React.MouseEvent) => {
@@ -912,164 +906,6 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       // Reset feedback state on error
       setUserFeedback(null);
       toast.error(errorMessage);
-    }
-  };
-
-  // Brain Drawer Handlers
-  const getSuggestedQuestions = (track: any) => {
-    if (!track) return [];
-    switch(track.type) {
-      case 'video':
-        return [
-          "Summarize the key points from this video",
-          "What are the main steps I should follow?",
-          "When should I contact my supervisor?"
-        ];
-      case 'article':
-        return [
-          "What's the most important takeaway?",
-          "Can you explain this in simpler terms?",
-          "What are common mistakes to avoid?"
-        ];
-      case 'story':
-        return [
-          "What does each slide teach me?",
-          "Give me a quick summary",
-          "What should I remember from this?"
-        ];
-      default:
-        return [
-          "Summarize this for me",
-          "What's the key information?",
-          "What should I remember?"
-        ];
-    }
-  };
-
-  const handleBrainAsk = async (question: string) => {
-    if (!question.trim() || !selectedTrack) {
-      if (!selectedTrack) {
-        console.warn('Cannot ask question: no track selected');
-      }
-      return;
-    }
-    
-    setBrainInput('');
-    setBrainMessages(prev => [...prev, { role: 'user', content: question }]);
-    setBrainLoading(true);
-    
-    try {
-      const orgId = await getCurrentUserOrgId();
-      if (!orgId) {
-        throw new Error('Organization not found');
-      }
-
-      // Use existing conversation ID, or let the API create one
-      // The API will create the conversation if conversationId is not provided
-      const conversationId = brainConversationId || undefined;
-
-      // Get session token if available, otherwise use public anon key (for demo mode)
-      const { data: { session } } = await supabase.auth.getSession();
-      const authToken = session?.access_token || publicAnonKey;
-
-      // Call brain chat endpoint directly
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/trike-server/brain/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`,
-            'apikey': publicAnonKey
-          },
-          body: JSON.stringify({
-            message: question,
-            ...(conversationId && { conversationId }),
-            organizationId: orgId,
-            trackId: selectedTrack?.id  // Include trackId to filter context to this specific track
-          })
-        }
-      );
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
-        }
-        
-        console.error('Brain chat API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData,
-          conversationId,
-          orgId
-        });
-        
-        // Handle 404 (no content found) with a helpful message
-        if (response.status === 404 && errorData.error?.includes('No relevant content')) {
-          throw new Error(errorData.error);
-        }
-        
-        throw new Error(errorData.error || `Failed to get response (${response.status})`);
-      }
-
-      const data = await response.json();
-      
-      console.log('Brain chat API response:', data);
-      
-      // Extract response content - the API returns { message: { id, conversation_id, role, content, ... }, sources: [...], conversationId: string }
-      // The message object is the saved database record, so content is in data.message.content
-      let responseContent = data.message?.content;
-      
-      // Fallback: check if message is a string or has different structure
-      if (!responseContent) {
-        if (typeof data.message === 'string') {
-          responseContent = data.message;
-        } else if (data.response) {
-          responseContent = data.response;
-        } else if (data.assistantMessage) {
-          responseContent = data.assistantMessage;
-        }
-      }
-      
-      // Update conversation ID if the API created a new one
-      if (data.conversationId && !brainConversationId) {
-        setBrainConversationId(data.conversationId);
-      }
-      
-      if (!responseContent || responseContent.trim() === '') {
-        console.error('Brain chat response missing content. Full response:', JSON.stringify(data, null, 2));
-        throw new Error('Received empty response from brain chat. The AI may not have found relevant information. Please try rephrasing your question.');
-      }
-      
-      setBrainMessages(prev => [...prev, { role: 'assistant', content: responseContent }]);
-    } catch (error) {
-      console.error('Brain chat error:', error);
-      
-      let errorMessage = "Sorry, I couldn't process that question. Please try again.";
-      
-      if (error instanceof Error) {
-        // Provide more helpful error messages
-        if (error.message.includes('Failed to create conversation')) {
-          errorMessage = "Unable to start conversation. Please make sure you're logged in and try again.";
-        } else if (error.message.includes('not authenticated') || error.message.includes('Unauthorized')) {
-          errorMessage = "Authentication required. Please log in and try again.";
-        } else if (error.message.includes('Organization not found')) {
-          errorMessage = "Unable to identify your organization. Please refresh the page and try again.";
-        } else {
-          errorMessage = error.message;
-        }
-      }
-      
-      setBrainMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: errorMessage
-      }]);
-    } finally {
-      setBrainLoading(false);
     }
   };
 
@@ -2314,94 +2150,22 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         </DialogContent>
       </Dialog>
 
-      {/* Brain Chat Modal - Only show when track is selected and modal is open */}
-      <Dialog open={brainDrawerOpen && !!selectedTrack} onOpenChange={setBrainDrawerOpen}>
-        <DialogContent className="max-w-2xl h-[80vh] flex flex-col p-0">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-semibold">Company Brain</DialogTitle>
-                <p className="text-xs text-muted-foreground truncate max-w-[400px]">
-                  Ask about: {selectedTrack?.title}
-                </p>
-              </div>
-            </div>
-            <Button variant="ghost" size="icon" onClick={() => setBrainDrawerOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Messages Area */}
-          <ScrollArea className="flex-1 p-4">
-            {brainMessages.length === 0 ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Ask me anything about this {selectedTrack?.type || 'content'}
-                </p>
-                
-                {/* Suggested Questions */}
-                {selectedTrack && getSuggestedQuestions(selectedTrack).length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">Suggested questions:</p>
-                    {getSuggestedQuestions(selectedTrack).map((q, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleBrainAsk(q)}
-                        className="w-full text-left p-3 rounded-lg border hover:border-orange-300 hover:bg-orange-50 transition-colors text-sm"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {brainMessages.map((msg, i) => (
-                  <div key={i} className={cn(
-                    "p-3 rounded-lg text-sm",
-                    msg.role === 'user' 
-                      ? "bg-orange-100 ml-8 dark:bg-orange-900/20" 
-                      : "bg-slate-100 mr-8 dark:bg-slate-800"
-                  )}>
-                    {msg.content}
-                  </div>
-                ))}
-                {brainLoading && (
-                  <div className="bg-slate-100 mr-8 p-3 rounded-lg dark:bg-slate-800">
-                    <div className="flex gap-1">
-                      <span className="animate-bounce">●</span>
-                      <span className="animate-bounce delay-100">●</span>
-                      <span className="animate-bounce delay-200">●</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </ScrollArea>
-
-          {/* Input Area */}
-          <div className="p-4 border-t bg-white dark:bg-slate-950 shrink-0">
-            <form onSubmit={(e) => { e.preventDefault(); handleBrainAsk(brainInput); }} className="flex gap-2">
-              <Input
-                value={brainInput}
-                onChange={(e) => setBrainInput(e.target.value)}
-                placeholder="Ask a question..."
-                className="flex-1"
-                disabled={brainLoading}
-              />
-              <Button type="submit" disabled={brainLoading || !brainInput.trim()} size="icon">
-                <Send className="h-4 w-4" />
-              </Button>
-            </form>
-          </div>
-        </DialogContent>
-      </Dialog>
-
+      {/* Brain Chat Modal */}
+      <BrainChatDrawer
+        isOpen={brainDrawerOpen && !!selectedTrack}
+        onOpenChange={setBrainDrawerOpen}
+        track={selectedTrack}
+        onNavigateToTrack={(id) => {
+          // Find the track and select it
+          const findAndSelect = async () => {
+             const track = await crud.getTracks({ ids: [id] });
+             if (track && track.length > 0) {
+               setSelectedTrack(track[0]);
+             }
+          };
+          findAndSelect();
+        }}
+      />
     </div>
   );
 }
