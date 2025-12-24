@@ -177,7 +177,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         if (assignmentType === 'manual') return selectedEmployees.length > 0;
         return triggerConditions.some(c => c.value !== '');
       case 1: // Details
-        return playlistName.trim() !== '' && playlistDescription.trim() !== '';
+        return playlistName.trim() !== '';
       case 2: // Content & Stages
         return stages.some(s => s.albums.length > 0 || s.tracks.length > 0);
       case 3: // Stage Config
@@ -281,10 +281,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         // Load tags
         try {
           const tags = await getEntityTags(existingPlaylistId, 'playlist');
+          console.log('🏷️ Loaded playlist tags:', tags);
           setPlaylistTags(tags.map(t => t.name));
           setSelectedTagObjects(tags);
         } catch (error) {
           console.error('Error loading playlist tags:', error);
+          // Clear tag state on error to avoid stale data
+          setPlaylistTags([]);
+          setSelectedTagObjects([]);
         }
 
         // Set trigger conditions for auto playlists
@@ -464,11 +468,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       console.log(mode === 'edit' ? '✅ Playlist updated:' : '✅ Playlist created:', playlist.id);
 
       // 1.5 Assign Tags
-      if (playlistTags.length > 0 && selectedTagObjects.length > 0) {
+      // Always use selectedTagObjects if available (has IDs), otherwise use playlistTags to fetch IDs
+      if (selectedTagObjects.length > 0) {
         const tagIds = selectedTagObjects.map(t => t.id);
+        console.log('🏷️ Assigning tags to playlist:', tagIds);
         await assignTags(playlist.id, 'playlist', tagIds);
-      } else if (playlistTags.length === 0) {
+      } else if (playlistTags.length > 0) {
+        // Fallback: if we have tag names but not objects, try to find them
+        // This shouldn't happen in normal flow, but handle it gracefully
+        console.warn('⚠️ Have tag names but no tag objects, skipping tag assignment');
+        // Clear tags to avoid stale data
+        await assignTags(playlist.id, 'playlist', []);
+      } else {
         // Clear tags if none selected
+        console.log('🏷️ No tags selected, clearing playlist tags');
         await assignTags(playlist.id, 'playlist', []);
       }
 
@@ -610,9 +623,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   };
 
   const handleTagsChange = (newTags: string[], newTagObjects?: Tag[]) => {
+    console.log('🏷️ Tags changed:', { newTags, newTagObjects });
     setPlaylistTags(newTags);
-    if (newTagObjects) {
+    if (newTagObjects && newTagObjects.length > 0) {
       setSelectedTagObjects(newTagObjects);
+    } else {
+      // If no tag objects provided but we have tag names, clear tag objects
+      // This ensures we don't have stale tag objects
+      setSelectedTagObjects([]);
     }
   };
 
@@ -1037,10 +1055,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="description">Description *</Label>
+                  <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
-                    placeholder="Describe the purpose and goals of this playlist..."
+                    placeholder="Describe the purpose and goals of this playlist... (optional)"
                     rows={4}
                     value={playlistDescription}
                     onChange={(e) => setPlaylistDescription(e.target.value)}

@@ -382,17 +382,17 @@ export default function App() {
         return (
           <ContentLibrary
             key={`content-library-${contentLibraryKey}`}
-            role={currentRole}
-            onNavigate={requestNavigate}
-            editingArticle={editingArticle}
-            onClearEditingArticle={() => setEditingArticle(null)}
+            currentRole={currentRole}
+            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             initialTrackId={initialTrackId}
-            onBackClick={handleBackFromContentAuthoring}
-            previousView={previousView}
-            initialMode={initialMode}
-            onRegisterUnsavedChangesCheck={(checkFn) =>
+            onBackToLibrary={handleBackFromContentAuthoring}
+            registerUnsavedChangesCheck={(checkFn) =>
               setHasUnsavedChangesRef(() => checkFn)
             }
+            onNavigateToPlaylist={(playlistId: string) => {
+              setSelectedPlaylistId(playlistId);
+              requestNavigate("assignments");
+            }}
           />
         );
       case "assignments":

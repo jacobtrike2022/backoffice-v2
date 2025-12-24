@@ -602,8 +602,8 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   // Handler for album clicks from sidebar
   const handleAlbumClick = (albumId: string) => {
     console.log('Album clicked:', albumId);
-    // For now, just log - we'll build the AlbumEditor in Phase 3
-    // TODO: Navigate to album editor
+    toast.info('Album editor coming soon! (Phase 3)');
+    // TODO: Navigate to album editor in Phase 3
     // setSelectedAlbum(albumId);
   };
 
