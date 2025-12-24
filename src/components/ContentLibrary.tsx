@@ -57,6 +57,7 @@ import { ArticleDetailEdit } from './ArticleDetailEdit';
 import { CheckpointEditor } from './content-authoring/CheckpointEditor';
 import { StoryEditor } from './content-authoring/StoryEditor';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
+import { ContentLibrarySidebar } from './ContentLibrarySidebar';
 import { useTracks, useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
@@ -112,6 +113,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
+  const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
   const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published'); // Status filter
