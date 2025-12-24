@@ -599,6 +599,22 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
   };
 
+  // Handler for album clicks from sidebar
+  const handleAlbumClick = (albumId: string) => {
+    console.log('Album clicked:', albumId);
+    // For now, just log - we'll build the AlbumEditor in Phase 3
+    // TODO: Navigate to album editor
+    // setSelectedAlbum(albumId);
+  };
+
+  // Handler for playlist clicks from sidebar  
+  const handlePlaylistClick = (playlistId: string) => {
+    console.log('Playlist clicked:', playlistId);
+    if (onNavigateToPlaylist) {
+      onNavigateToPlaylist(playlistId);
+    }
+  };
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'video': return <Video className="h-4 w-4" />;
@@ -845,7 +861,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Main library view
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pr-72">
+      {/* Floating Sidebar - only show in library view, not detail view */}
+      <ContentLibrarySidebar
+        onPlaylistClick={handlePlaylistClick}
+        onAlbumClick={handleAlbumClick}
+        className="hidden lg:block"
+      />
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
