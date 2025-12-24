@@ -95,7 +95,7 @@ export function ContentLibrarySidebar({
   return (
     <div 
       className={cn(
-        "fixed right-6 top-32 w-64 bg-card/95 backdrop-blur-sm border border-border rounded-xl shadow-xl z-40",
+        "w-full bg-card/95 backdrop-blur-sm border border-border rounded-xl shadow-xl",
         className
       )}
     >

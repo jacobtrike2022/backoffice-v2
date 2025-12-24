@@ -861,16 +861,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Main library view
   return (
-    <div className="space-y-6 pr-72">
-      {/* Floating Sidebar - only show in library view, not detail view */}
-      <ContentLibrarySidebar
-        onPlaylistClick={handlePlaylistClick}
-        onAlbumClick={handleAlbumClick}
-        className="hidden lg:block"
-      />
-      
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex gap-6">
+      {/* Main content area */}
+      <div className="flex-1 space-y-6 min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between">
         <div>
           <h1 className="text-foreground">Content Library</h1>
           <p className="text-muted-foreground mt-1">
@@ -1584,7 +1579,18 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </DialogContent>
       </Dialog>
 
-      <Footer />
+        <Footer />
+      </div>
+
+      {/* Sidebar - now in document flow, not fixed */}
+      <div className="hidden lg:block w-64 flex-shrink-0">
+        <div className="sticky top-6">
+          <ContentLibrarySidebar
+            onPlaylistClick={handlePlaylistClick}
+            onAlbumClick={handleAlbumClick}
+          />
+        </div>
+      </div>
     </div>
   );
 }
