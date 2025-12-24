@@ -2127,10 +2127,41 @@ INSTRUCTIONS:
       });
     }
 
-    // Build context from similar chunks with numbered sources
-    const context = (embeddings || [])
-      .map((e: any, i: number) => `[Source ${i + 1}]:\n${e.chunk_text}`)
-      .join("\n\n---\n\n");
+    // Build context from similar chunks with track titles
+    // Prioritize current track in search results
+    if (embeddings && embeddings.length > 0 && trackId) {
+      embeddings.sort((a: any, b: any) => {
+        const aIsCurrent = a.content_id === trackId;
+        const bIsCurrent = b.content_id === trackId;
+        
+        // If one is from current track and other isn't, prioritize current
+        if (aIsCurrent && !bIsCurrent) return -1;
+        if (!aIsCurrent && bIsCurrent) return 1;
+        
+        // Otherwise maintain similarity order (already sorted by RPC)
+        return 0;
+      });
+    }
+
+    // Build numbered context with track titles for better GPT understanding
+    const contextParts = await Promise.all((embeddings || []).map(async (e: any, i: number) => {
+      let sourceLabel = `Source ${i + 1}`;
+      if (e.content_id) {
+        const { data: track } = await supabase
+          .from('tracks')
+          .select('title')
+          .eq('id', e.content_id)
+          .maybeSingle();
+        
+        if (track?.title) {
+          const isCurrentTrack = e.content_id === trackId;
+          sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
+        }
+      }
+      return `[${sourceLabel}]:\n${e.chunk_text}`;
+    }));
+
+    const context = contextParts.join('\n\n---\n\n');
 
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
@@ -2254,15 +2285,7 @@ INSTRUCTIONS:
         messages: [
           {
             role: "system",
-            content: `You are a helpful assistant that answers questions based on the provided training content.
-
-IMPORTANT: When you use information from the context, add citation markers like [1], [2], etc. to indicate which source you're using. Each number corresponds to the order the sources appear in the context.
-
-Rules:
-- Only cite sources you actually use
-- Place citation markers at the end of the relevant sentence or claim
-- If the context doesn't contain the answer, say so without citations
-- Keep citations minimal - don't over-cite`,
+            content: systemPrompt,
           },
           {
             role: "user",
