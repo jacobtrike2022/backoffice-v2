@@ -403,6 +403,10 @@ export default function App() {
             selectedPlaylistId={selectedPlaylistId}
             onClearSelection={() => setSelectedPlaylistId(undefined)}
             onEditTrack={handleEditTrack}
+            onOpenPlaylistWizard={() => {
+              setEditingPlaylistId(undefined);
+              requestNavigate("playlist-wizard");
+            }}
             onEditPlaylist={(playlistId: string) => {
               setEditingPlaylistId(playlistId);
               requestNavigate("playlist-wizard");
@@ -413,6 +417,10 @@ export default function App() {
         return (
           <Playlists
             currentRole={currentRole}
+            onOpenPlaylistWizard={() => {
+              setEditingPlaylistId(undefined);
+              requestNavigate("playlist-wizard");
+            }}
             onEditPlaylist={(playlistId: string) => {
               setEditingPlaylistId(playlistId);
               requestNavigate("playlist-wizard");
