@@ -1,33 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Zap, 
-  X, 
-  Send, 
-  MessageSquare, 
-  Sparkles,
-  Loader2,
-  ChevronRight,
-  BookOpen
-} from 'lucide-react';
+import { motion } from 'motion/react';
+import { X, Send, Zap } from 'lucide-react';
 import { 
   Dialog, 
-  DialogContent, 
   DialogTitle,
   DialogPortal,
-  DialogOverlay
+  DialogOverlay,
+  DialogContentRaw
 } from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '../ui/utils';
 import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+
+// =============================================================================
+// TYPES
+// =============================================================================
 
 interface BrainMessage {
   role: 'user' | 'assistant';
   content: string;
   sources?: any[];
+  citations?: any[];
 }
 
 interface BrainChatDrawerProps {
@@ -37,6 +30,56 @@ interface BrainChatDrawerProps {
   onNavigateToTrack?: (trackId: string) => void;
   isPublicView?: boolean;
 }
+
+// =============================================================================
+// SUB-COMPONENTS
+// =============================================================================
+
+const LoadingDot = () => (
+  <div className="flex items-center gap-3">
+    <motion.div
+      className="w-3 h-3 rounded-full bg-orange-500"
+      style={{ boxShadow: '0 0 12px 4px rgba(255,107,0,0.5)' }}
+      animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+      transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+    />
+    <span className="text-sm text-white/60">Thinking...</span>
+  </div>
+);
+
+const InlineCitation: React.FC<{
+  index: number;
+  citation: any;
+  onNavigate?: (trackId: string) => void;
+}> = ({ index, citation, onNavigate }) => {
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="inline-flex items-center justify-center w-4 h-4 ml-0.5 text-[10px] font-bold text-orange-400 bg-orange-500/15 hover:bg-orange-500/25 rounded-full transition-all cursor-pointer align-super"
+      >
+        {index}
+      </button>
+      {expanded && (
+        <div className="block mt-2 mb-3 p-3 bg-white/5 border-l-2 border-orange-500/50 rounded-r-lg text-sm">
+          <p className="text-white/70 italic mb-2">"{citation.quote}"</p>
+          <button 
+            onClick={() => onNavigate?.(citation.trackId)}
+            className="text-xs text-orange-400 hover:text-orange-300 transition-colors"
+          >
+            {citation.trackTitle} →
+          </button>
+        </div>
+      )}
+    </>
+  );
+};
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   isOpen,
@@ -49,19 +92,12 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Reset chat when track changes
   useEffect(() => {
     setMessages([]);
     setConversationId(null);
@@ -103,7 +139,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to get response (${response.status})`);
+        throw new Error(errorData.error || `Failed (${response.status})`);
       }
 
       const data = await response.json();
@@ -112,23 +148,19 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
         setConversationId(data.conversationId);
       }
 
-      let aiContent = '';
-      if (data.message?.content) aiContent = data.message.content;
-      else if (typeof data.message === 'string') aiContent = data.message;
-      else if (data.response) aiContent = data.response;
-
-      if (!aiContent) throw new Error('Received empty response from AI');
+      const aiContent = data.message?.content || data.message || data.response || '';
+      if (!aiContent) throw new Error('Empty response');
 
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: aiContent,
-        sources: data.sources || []
+        sources: data.sources || [],
+        citations: data.citations || []
       }]);
     } catch (error: any) {
-      console.error('Brain chat error:', error);
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: error.message || "Sorry, I encountered an error. Please try again." 
+        content: error.message || "Sorry, I encountered an error." 
       }]);
     } finally {
       setIsLoading(false);
@@ -136,152 +168,141 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   };
 
   const formatMessage = (content: string) => {
-    // 1. Handle bold: **term** -> <strong>term</strong>
     let formatted = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // 2. Handle numbered lists: 1. item -> <li>item</li>
-    const lines = formatted.split('\n');
-    let inList = false;
-    const result: React.ReactNode[] = [];
-
-    lines.forEach((line, i) => {
-      const listMatch = line.match(/^\d+\.\s+(.*)/);
-      if (listMatch) {
-        if (!inList) {
-          inList = true;
-          result.push(<ol key={`list-start-${i}`} className="list-decimal ml-6 space-y-2 my-3" />);
-        }
-        // This is a simplification, in a real React component we'd push to the last element if it's an OL
-        // But for this purpose, we'll just wrap the content.
-        result.push(<li key={i} className="mb-1">{listMatch[1]}</li>);
-      } else {
-        if (inList) inList = false;
-        if (line.trim()) {
-          result.push(<p key={i} className="mb-3 last:mb-0" dangerouslySetInnerHTML={{ __html: line }} />);
-        }
-      }
-    });
-
-    // Actually, a better way to handle the mix of HTML and React for the list
-    // Let's just do a simple markdown-to-html string and use dangerouslySetInnerHTML for the whole bubble
-    // but with sanitized/controlled parsing.
-    
-    return formatted.split('\n\n').map((para, i) => {
-      // Check if paragraph is a list
+    return formatted.split('\n\n').map((para) => {
       if (para.match(/^\d+\.\s+/m)) {
-        const listItems = para.split('\n').map((item, j) => {
-          const content = item.replace(/^\d+\.\s+/, '');
-          return `<li key="${j}">${content}</li>`;
-        });
-        return `<ol class="list-decimal ml-6 space-y-2 my-3">${listItems.join('')}</ol>`;
+        const items = para.split('\n').map(item => 
+          `<li>${item.replace(/^\d+\.\s+/, '')}</li>`
+        ).join('');
+        return `<ol class="list-decimal ml-5 space-y-1 my-2">${items}</ol>`;
       }
-      return `<p class="mb-3 last:mb-0">${para.replace(/\n/g, '<br />')}</p>`;
+      return `<p class="mb-2 last:mb-0">${para.replace(/\n/g, '<br/>')}</p>`;
     }).join('');
   };
 
-  const suggestedPrompts = track?.type === 'video' 
-    ? ["Summarize the key points", "What are the main steps?", "When should I contact a supervisor?"]
-    : ["What's the key takeaway?", "Explain this simply", "Summarize this for me"];
+  const renderMessage = (content: string, citations: any[] = []) => {
+    if (!citations.length) {
+      return <div dangerouslySetInnerHTML={{ __html: formatMessage(content) }} />;
+    }
+    
+    const parts = content.split(/(\[\d+\])/g);
+    return (
+      <div>
+        {parts.map((part, i) => {
+          const match = part.match(/\[(\d+)\]/);
+          if (match) {
+            const idx = parseInt(match[1]);
+            const citation = citations.find(c => c.index === idx);
+            if (citation) {
+              return <InlineCitation key={i} index={idx} citation={citation} onNavigate={onNavigateToTrack} />;
+            }
+          }
+          return part.trim() ? <span key={i} dangerouslySetInnerHTML={{ __html: formatMessage(part) }} /> : null;
+        })}
+      </div>
+    );
+  };
+
+  const prompts = track?.type === 'video' 
+    ? ["Summarize this", "Key points", "Main steps"]
+    : ["Key takeaway", "Explain simply", "Summarize"];
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogPortal>
-        <DialogOverlay 
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md"
-        />
-        <DialogContent 
-          className="fixed top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 z-50 w-[50vw] max-w-2xl h-[70vh] bg-[#0d0d0f]/90 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden p-0 flex flex-col"
+        <DialogOverlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+        
+        <DialogContentRaw 
+          className="fixed z-50 flex flex-col overflow-hidden"
           style={{
+            /* ============================================
+               SIZING - MATCH THE MOCKUP
+               Desktop: 45% width, 70% height of viewport
+               Mobile: 95% width, 90% height
+               ============================================ */
+            width: 'clamp(340px, 45vw, 700px)',
+            height: 'clamp(500px, 70vh, 800px)',
+            
+            /* Centering */
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            
+            /* Appearance */
+            backgroundColor: '#0a0a0a',
+            borderRadius: '24px',
+            
+            /* Orange glow border effect */
             boxShadow: `
-              0 0 0 1px rgba(255,255,255,0.05),
-              0 0 80px -20px rgba(255,107,0,0.5),
-              0 0 60px -30px rgba(255,60,0,0.4),
-              0 25px 50px -12px rgba(0,0,0,0.8)
-            `
+              0 0 0 1px rgba(255, 107, 0, 0.3),
+              0 0 40px -10px rgba(255, 107, 0, 0.4),
+              0 0 80px -20px rgba(255, 107, 0, 0.2),
+              0 25px 50px -12px rgba(0, 0, 0, 0.8)
+            `,
           }}
         >
-          {/* Animated edge glow */}
-          <div 
-            className="absolute -inset-[1px] rounded-3xl opacity-60 -z-10 animate-pulse"
-            style={{
-              background: 'linear-gradient(135deg, rgba(255,107,0,0.3) 0%, transparent 50%, rgba(255,60,0,0.2) 100%)',
-              filter: 'blur(20px)',
-            }}
-          />
+          <DialogTitle className="sr-only">Company Brain</DialogTitle>
+          
+          {/* ============================================
+              HEADER - X button top right
+              ============================================ */}
+          <div className="absolute top-4 right-4 z-20">
+            <button
+              onClick={() => onOpenChange(false)}
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/15 transition-all"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5 text-white/60" />
+            </button>
+          </div>
 
-            {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-white/5">
-              <div className="flex items-center gap-3">
-                {/* Mini lightning bolt */}
-                <Zap 
-                  className="w-5 h-5" 
-                  style={{ color: '#FF6B00', filter: 'drop-shadow(0 0 8px rgba(255,107,0,0.6))' }}
-                  fill="currentColor"
-                />
-                <DialogTitle className="text-lg font-semibold text-white">Company Brain</DialogTitle>
-              </div>
-              
-              <button
-                onClick={() => onOpenChange(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
-              >
-                <X className="w-5 h-5 text-white/60" />
-              </button>
-            </div>
-
-            {/* Context Pill */}
-            {track && (
-              <div className="px-5 pt-3 pb-2">
+          {/* ============================================
+              MAIN CONTENT AREA
+              ============================================ */}
+          <div className="flex-1 overflow-y-auto">
+            
+            {messages.length === 0 ? (
+              /* ========================================
+                 EMPTY STATE - Matches mockup exactly
+                 ======================================== */
+              <div className="flex flex-col items-center justify-center h-full px-8 py-12">
+                
+                {/* Lightning bolt icon with glow */}
                 <div 
-                  className="inline-flex items-center px-4 py-1.5 rounded-full text-sm font-medium text-white"
+                  className="w-40 h-40 rounded-3xl flex items-center justify-center mb-8"
                   style={{
-                    background: 'linear-gradient(135deg, #FF6B00 0%, #FF3C00 100%)',
-                    boxShadow: '0 4px 15px rgba(255,107,0,0.3)',
+                    background: 'linear-gradient(145deg, rgba(30,30,30,1) 0%, rgba(20,20,20,1) 100%)',
+                    boxShadow: `
+                      inset 0 1px 0 rgba(255,255,255,0.05),
+                      0 0 60px -15px rgba(255,107,0,0.5),
+                      0 10px 40px -10px rgba(0,0,0,0.5)
+                    `,
                   }}
                 >
-                  {track.title}
-                </div>
-              </div>
-            )}
-
-          {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto px-4">
-            {messages.length === 0 ? (
-              /* Empty State */
-              <div className="flex-1 flex flex-col items-center justify-center px-8 text-center h-full">
-                {/* Lightning bolt with glow */}
-                <div className="relative mb-6">
-                  <div 
-                    className="absolute inset-0 blur-xl opacity-50"
-                    style={{ background: 'radial-gradient(circle, #FF6B00 0%, transparent 70%)' }}
-                  />
                   <Zap 
-                    className="relative w-14 h-14" 
-                    style={{ 
-                      color: '#FF6B00',
+                    className="w-20 h-20 text-orange-500" 
+                    fill="currentColor"
+                    style={{
                       filter: 'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
                     }}
-                    fill="currentColor"
                   />
                 </div>
                 
-                {/* Title */}
-                <h2 className="text-xl font-semibold text-white mb-2">
-                  Ask anything about this article
+                {/* Welcome text */}
+                <h2 className="text-2xl font-semibold text-white mb-2">
+                  {track?.title || "Company Brain"}
                 </h2>
-                
-                {/* Subtitle */}
-                <p className="text-white/50 text-sm mb-8">
-                  I'll search your training content to find the answer.
+                <p className="text-white/50 text-base mb-10">
+                  How can I help you today?
                 </p>
                 
-                {/* Suggested prompts */}
-                <div className="w-full max-w-sm space-y-3">
-                  {suggestedPrompts.map((prompt, i) => (
+                {/* Prompt chips - horizontal row */}
+                <div className="flex flex-wrap justify-center gap-3 mb-6 px-4">
+                  {prompts.map((prompt, i) => (
                     <button
                       key={i}
                       onClick={() => handleSend(prompt)}
-                      className="w-full px-5 py-3.5 text-left text-white/80 text-sm bg-white/5 hover:bg-white/10 border border-white/10 hover:border-orange-500/30 rounded-2xl transition-all duration-200 hover:shadow-[0_0_20px_rgba(255,107,0,0.15)]"
+                      className="px-5 py-2.5 text-sm text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded-full border border-white/10 hover:border-white/20 transition-all"
                     >
                       {prompt}
                     </button>
@@ -289,90 +310,77 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="py-6 space-y-6">
+              /* ========================================
+                 MESSAGES VIEW
+                 ======================================== */
+              <div className="px-6 py-6 space-y-4">
+                {track && (
+                  <div className="flex justify-center pb-3">
+                    <span className="px-4 py-1.5 text-xs text-white/40 bg-white/5 rounded-full">
+                      {track.title}
+                    </span>
+                  </div>
+                )}
+                
                 {messages.map((msg, i) => (
                   <motion.div
                     key={i}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
                     className={cn(
-                      "flex flex-col",
-                      msg.role === 'user' ? "items-end" : "items-start"
+                      "flex",
+                      msg.role === 'user' ? "justify-end" : "justify-start"
                     )}
                   >
                     <div
                       className={cn(
-                        "p-4 md:p-5 text-[15px] leading-[1.6]",
+                        "px-4 py-3 text-sm leading-relaxed",
                         msg.role === 'user' 
-                          ? "bg-gradient-to-br from-[#FF6B00] to-[#FF3C00] text-white rounded-[24px_24px_4px_24px] shadow-lg shadow-orange-500/30 max-w-[85%]"
-                          : "bg-white/5 border border-white/10 text-white/90 rounded-[24px_24px_24px_4px] max-w-[90%]"
+                          ? "bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-2xl rounded-br-sm max-w-[80%] shadow-lg shadow-orange-500/20"
+                          : "bg-white/5 border border-white/10 text-white/85 rounded-2xl rounded-bl-sm max-w-[85%]"
                       )}
                     >
-                      <div dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
+                      {msg.role === 'assistant' 
+                        ? renderMessage(msg.content, msg.citations)
+                        : msg.content
+                      }
                     </div>
-
-                    {/* Source Pills */}
-                    {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                      <div className="mt-4 w-full max-w-[90%] mb-2">
-                        <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-3 ml-1">
-                          📚 Sources
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {msg.sources.map((source, j) => (
-                            <button
-                              key={j}
-                              onClick={() => onNavigateToTrack?.(source.content_id || source.id)}
-                              className="bg-gradient-to-br from-[#FF6B00] to-[#FF3C00] px-4 py-2 rounded-full text-[13px] font-medium text-white shadow-lg shadow-orange-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 min-h-[36px]"
-                            >
-                              <BookOpen className="h-3.5 w-3.5" />
-                              {source.metadata?.title || source.title || "Related Content"}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </motion.div>
                 ))}
 
-                {/* Thinking State */}
                 {isLoading && (
                   <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col items-start"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex justify-start"
                   >
-                    <div className="flex items-center gap-2 mb-3 ml-1">
-                      <Zap className="h-4 w-4 text-[#FF6B00] fill-[#FF6B00] animate-pulse" />
-                      <span className="text-[13px] text-white/60 font-medium">Searching your training content...</span>
-                    </div>
-                    <div className="w-full max-w-[240px] h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <motion.div 
-                        className="h-full bg-gradient-to-r from-[#FF6B00] to-[#FF3C00]"
-                        animate={{ 
-                          x: [-240, 240],
-                        }}
-                        transition={{ 
-                          duration: 1.5, 
-                          repeat: Infinity,
-                          ease: "easeInOut"
-                        }}
-                      />
+                    <div className="px-4 py-3 bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm">
+                      <LoadingDot />
                     </div>
                   </motion.div>
                 )}
+                
+                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
 
-          {/* Input Area */}
-          <div className="p-4 border-t border-white/5">
+          {/* ============================================
+              INPUT AREA - Bottom of drawer
+              ============================================ */}
+          <div className="px-6 pb-6 pt-4">
             <div 
-              className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 focus-within:border-orange-500/50 focus-within:shadow-[0_0_20px_rgba(255,107,0,0.15)] transition-all duration-200"
+              className="flex items-center gap-3 rounded-2xl px-5 py-4"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
             >
               <input
                 type="text"
                 placeholder="Ask a question..."
-                className="flex-1 bg-transparent text-white placeholder-white/40 outline-none text-sm"
+                className="flex-1 bg-transparent text-white text-base placeholder-white/30 outline-none"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && input.trim() && handleSend()}
@@ -380,17 +388,16 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-orange-500/25"
+                className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-30 transition-all"
               >
-                <Send className="w-4 h-4 text-white" />
+                <Send className="w-5 h-5 text-white/70" />
               </button>
             </div>
           </div>
-        </DialogContent>
+        </DialogContentRaw>
       </DialogPortal>
     </Dialog>
   );
 };
 
 export default BrainChatDrawer;
-

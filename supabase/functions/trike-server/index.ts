@@ -1982,16 +1982,12 @@ INSTRUCTIONS:
 
     if (searchError) {
       console.error("[Brain] RPC error, using fallback:", searchError.message);
-      // Fallback: use simple text search, filtered by trackId if provided
-      let fallbackQuery = supabase
+      // Fallback: search ALL content in the organization (not just current track)
+      // The trackId is only used for context prioritization, not search filtering
+      const fallbackQuery = supabase
         .from("brain_embeddings")
         .select("chunk_text, content_type, content_id, metadata")
         .eq("organization_id", orgId);
-      
-      // Filter by trackId if provided to scope context to specific content
-      if (trackId) {
-        fallbackQuery = fallbackQuery.eq("content_id", trackId);
-      }
       
       const { data: fallbackResults, error: fallbackError } = await fallbackQuery.limit(8);
 
@@ -2165,18 +2161,14 @@ INSTRUCTIONS:
 
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
-      // Direct query to check if embeddings exist, filtered by trackId if provided
-      let checkQuery = supabase
+      // Direct query to check if embeddings exist - search ALL content in org
+      // The trackId is only used for context prioritization, not search filtering
+      const checkQuery = supabase
         .from("brain_embeddings")
-        .select("id, content_type, chunk_text")
+        .select("id, content_type, chunk_text, content_id")
         .eq("organization_id", orgId);
       
-      // Filter by trackId if provided
-      if (trackId) {
-        checkQuery = checkQuery.eq("content_id", trackId);
-      }
-      
-      const { data: embeddingsCheck } = await checkQuery.limit(5);
+      const { data: embeddingsCheck } = await checkQuery.limit(8);
       
       if (embeddingsCheck && embeddingsCheck.length > 0) {
         // Try using the direct query results as fallback (RPC may have failed to match)
