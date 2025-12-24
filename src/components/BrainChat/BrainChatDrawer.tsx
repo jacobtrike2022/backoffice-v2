@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { X, Send, Zap } from 'lucide-react';
+import { X, Send, Zap, Plus, Mic } from 'lucide-react';
 import { 
   Dialog, 
   DialogTitle,
@@ -11,10 +11,6 @@ import {
 import { cn } from '../ui/utils';
 import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-
-// =============================================================================
-// TYPES
-// =============================================================================
 
 interface BrainMessage {
   role: 'user' | 'assistant';
@@ -30,10 +26,6 @@ interface BrainChatDrawerProps {
   onNavigateToTrack?: (trackId: string) => void;
   isPublicView?: boolean;
 }
-
-// =============================================================================
-// SUB-COMPONENTS
-// =============================================================================
 
 const LoadingDot = () => (
   <div className="flex items-center gap-3">
@@ -76,10 +68,6 @@ const InlineCitation: React.FC<{
     </>
   );
 };
-
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
 
 const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   isOpen,
@@ -210,113 +198,203 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogPortal>
-        <DialogOverlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+        <DialogOverlay className="fixed inset-0 z-50 bg-black/70" />
         
         <DialogContentRaw 
-          className="fixed z-50 flex flex-col overflow-hidden"
           style={{
-            /* ============================================
-               SIZING - MATCH THE MOCKUP
-               Desktop: 45% width, 70% height of viewport
-               Mobile: 95% width, 90% height
-               ============================================ */
-            width: 'clamp(340px, 45vw, 700px)',
-            height: 'clamp(500px, 70vh, 800px)',
-            
-            /* Centering */
+            position: 'fixed',
+            zIndex: 50,
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            
-            /* Appearance */
-            backgroundColor: '#0a0a0a',
-            borderRadius: '24px',
-            
-            /* Orange glow border effect */
+            width: '480px',
+            maxWidth: '95vw',
+            height: '620px',
+            maxHeight: '90vh',
+            backgroundColor: '#0c0c0c',
+            borderRadius: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
             boxShadow: `
-              0 0 0 1px rgba(255, 107, 0, 0.3),
-              0 0 40px -10px rgba(255, 107, 0, 0.4),
-              0 0 80px -20px rgba(255, 107, 0, 0.2),
-              0 25px 50px -12px rgba(0, 0, 0, 0.8)
+              0 0 0 1px rgba(255,107,0,0.15),
+              0 0 80px -20px rgba(255,107,0,0.25)
             `,
           }}
         >
           <DialogTitle className="sr-only">Company Brain</DialogTitle>
           
-          {/* ============================================
-              HEADER - X button top right
-              ============================================ */}
-          <div className="absolute top-4 right-4 z-20">
-            <button
+          {/* Header row - settings left, X right */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 16px 0 16px',
+          }}>
+            {/* Settings button - left */}
+            <button style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(255,255,255,0.06)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="12" cy="5" r="1.5" fill="currentColor"/>
+                <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
+                <circle cx="5" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="19" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="7.05" cy="7.05" r="1.5" fill="currentColor"/>
+                <circle cx="16.95" cy="16.95" r="1.5" fill="currentColor"/>
+                <circle cx="7.05" cy="16.95" r="1.5" fill="currentColor"/>
+                <circle cx="16.95" cy="7.05" r="1.5" fill="currentColor"/>
+              </svg>
+            </button>
+            
+            {/* X button - right */}
+            <button 
               onClick={() => onOpenChange(false)}
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/15 transition-all"
-              aria-label="Close"
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
             >
-              <X className="w-5 h-5 text-white/60" />
+              <X style={{ width: '20px', height: '20px', color: 'rgba(255,255,255,0.5)' }} />
             </button>
           </div>
 
-          {/* ============================================
-              MAIN CONTENT AREA
-              ============================================ */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Main content area */}
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
             
             {messages.length === 0 ? (
-              /* ========================================
-                 EMPTY STATE - Matches mockup exactly
-                 ======================================== */
-              <div className="flex flex-col items-center justify-center h-full px-8 py-12">
+              /* Empty state */
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 32px',
+              }}>
                 
-                {/* Lightning bolt icon with glow */}
-                <div 
-                  className="w-40 h-40 rounded-3xl flex items-center justify-center mb-8"
-                  style={{
-                    background: 'linear-gradient(145deg, rgba(30,30,30,1) 0%, rgba(20,20,20,1) 100%)',
-                    boxShadow: `
-                      inset 0 1px 0 rgba(255,255,255,0.05),
-                      0 0 60px -15px rgba(255,107,0,0.5),
-                      0 10px 40px -10px rgba(0,0,0,0.5)
-                    `,
-                  }}
-                >
+                {/* Lightning bolt container */}
+                <div style={{
+                  width: '200px',
+                  height: '140px',
+                  borderRadius: '20px',
+                  backgroundColor: '#1a1a1a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '24px',
+                  boxShadow: '0 0 60px -15px rgba(255,107,0,0.4)',
+                }}>
                   <Zap 
-                    className="w-20 h-20 text-orange-500" 
-                    fill="currentColor"
                     style={{
+                      width: '72px',
+                      height: '72px',
+                      color: '#FF6B00',
+                      fill: '#FF6B00',
                       filter: 'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
                     }}
                   />
                 </div>
                 
-                {/* Welcome text */}
-                <h2 className="text-2xl font-semibold text-white mb-2">
+                {/* Track title */}
+                <h2 style={{
+                  fontSize: '20px',
+                  fontWeight: 600,
+                  color: 'white',
+                  margin: '0 0 8px 0',
+                  textAlign: 'center',
+                }}>
                   {track?.title || "Company Brain"}
                 </h2>
-                <p className="text-white/50 text-base mb-10">
+                
+                {/* Subtitle */}
+                <p style={{
+                  fontSize: '15px',
+                  color: 'rgba(255,255,255,0.5)',
+                  margin: '0 0 28px 0',
+                  textAlign: 'center',
+                }}>
                   How can I help you today?
                 </p>
                 
-                {/* Prompt chips - horizontal row */}
-                <div className="flex flex-wrap justify-center gap-3 mb-6 px-4">
+                {/* Prompt chips */}
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  maxWidth: '360px',
+                }}>
                   {prompts.map((prompt, i) => (
                     <button
                       key={i}
                       onClick={() => handleSend(prompt)}
-                      className="px-5 py-2.5 text-sm text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded-full border border-white/10 hover:border-white/20 transition-all"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '10px 16px',
+                        fontSize: '14px',
+                        color: 'rgba(255,255,255,0.7)',
+                        backgroundColor: 'transparent',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '999px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                      }}
                     >
+                      <span style={{
+                        width: '16px',
+                        height: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '10px',
+                        opacity: 0.6,
+                      }}>
+                        {i === 0 ? '◎' : i === 1 ? '✦' : '▣'}
+                      </span>
                       {prompt}
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              /* ========================================
-                 MESSAGES VIEW
-                 ======================================== */
-              <div className="px-6 py-6 space-y-4">
+              /* Messages */
+              <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {track && (
-                  <div className="flex justify-center pb-3">
-                    <span className="px-4 py-1.5 text-xs text-white/40 bg-white/5 rounded-full">
+                  <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: '8px' }}>
+                    <span style={{
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      color: 'rgba(255,255,255,0.4)',
+                      backgroundColor: 'rgba(255,255,255,0.05)',
+                      borderRadius: '999px',
+                    }}>
                       {track.title}
                     </span>
                   </div>
@@ -328,18 +406,28 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.2 }}
-                    className={cn(
-                      "flex",
-                      msg.role === 'user' ? "justify-end" : "justify-start"
-                    )}
+                    style={{
+                      display: 'flex',
+                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    }}
                   >
                     <div
-                      className={cn(
-                        "px-4 py-3 text-sm leading-relaxed",
-                        msg.role === 'user' 
-                          ? "bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-2xl rounded-br-sm max-w-[80%] shadow-lg shadow-orange-500/20"
-                          : "bg-white/5 border border-white/10 text-white/85 rounded-2xl rounded-bl-sm max-w-[85%]"
-                      )}
+                      style={{
+                        padding: '12px 16px',
+                        fontSize: '15px',
+                        lineHeight: 1.5,
+                        maxWidth: msg.role === 'user' ? '80%' : '85%',
+                        borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                        ...(msg.role === 'user' ? {
+                          background: 'linear-gradient(135deg, #FF6B00, #FF4500)',
+                          color: 'white',
+                          boxShadow: '0 4px 12px rgba(255,107,0,0.25)',
+                        } : {
+                          backgroundColor: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          color: 'rgba(255,255,255,0.85)',
+                        }),
+                      }}
                     >
                       {msg.role === 'assistant' 
                         ? renderMessage(msg.content, msg.citations)
@@ -353,9 +441,14 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="flex justify-start"
+                    style={{ display: 'flex', justifyContent: 'flex-start' }}
                   >
-                    <div className="px-4 py-3 bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm">
+                    <div style={{
+                      padding: '12px 16px',
+                      backgroundColor: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '16px 16px 16px 4px',
+                    }}>
                       <LoadingDot />
                     </div>
                   </motion.div>
@@ -366,31 +459,84 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
             )}
           </div>
 
-          {/* ============================================
-              INPUT AREA - Bottom of drawer
-              ============================================ */}
-          <div className="px-6 pb-6 pt-4">
-            <div 
-              className="flex items-center gap-3 rounded-2xl px-5 py-4"
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
+          {/* Input area - bottom */}
+          <div style={{ padding: '16px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              backgroundColor: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '14px',
+            }}>
+              {/* Plus button */}
+              <button style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+              }}>
+                <Plus style={{ width: '20px', height: '20px', color: 'rgba(255,255,255,0.4)' }} />
+              </button>
+              
+              {/* Input */}
               <input
                 type="text"
                 placeholder="Ask a question..."
-                className="flex-1 bg-transparent text-white text-base placeholder-white/30 outline-none"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && input.trim() && handleSend()}
+                style={{
+                  flex: 1,
+                  background: 'none',
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '15px',
+                  color: 'white',
+                }}
               />
+              
+              {/* Mic button */}
+              <button style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+              }}>
+                <Mic style={{ width: '18px', height: '18px', color: 'rgba(255,255,255,0.4)' }} />
+              </button>
+              
+              {/* Send/arrow button */}
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
-                className="w-11 h-11 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-30 transition-all"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'none',
+                  border: 'none',
+                  cursor: input.trim() && !isLoading ? 'pointer' : 'default',
+                  padding: 0,
+                  opacity: input.trim() && !isLoading ? 1 : 0.3,
+                }}
               >
-                <Send className="w-5 h-5 text-white/70" />
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                </svg>
               </button>
             </div>
           </div>
