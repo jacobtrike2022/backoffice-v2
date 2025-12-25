@@ -596,10 +596,8 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     // Update URL to content library without page reload
     window.history.pushState({}, '', '/content-library');
     
-    // Notify parent component if provided
-    if (onBackToLibrary) {
-      onBackToLibrary();
-    }
+    // Don't call onBackToLibrary() here - that would navigate away from content library
+    // We just want to clear the selected track and stay in the library view
   };
 
   // Handler for album clicks from sidebar
