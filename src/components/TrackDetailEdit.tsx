@@ -276,6 +276,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         let facts: any[] = [];
         try {
           const dbFacts = await factsCrud.getFactsForTrack(track.id);
+          
           // Convert DB facts to frontend format
           facts = dbFacts.map((f: any) => ({
             title: f.title,
@@ -316,10 +317,25 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   // Load facts for view mode
   useEffect(() => {
-    if (!isEditMode && track.id) {
+    // Only load facts when NOT in edit mode
+    if (isEditMode) {
+      return;
+    }
+    
+    if (track.id) {
       const loadViewModeFacts = async () => {
+        // Use editFormData.learning_objectives as fallback if available (just exited edit mode)
+        const fallbackFacts = (editFormData.learning_objectives || []).length > 0 
+          ? editFormData.learning_objectives 
+          : null;
+        
+        if (fallbackFacts) {
+          setViewModeFacts(fallbackFacts);
+        }
+        
         try {
           const dbFacts = await factsCrud.getFactsForTrack(track.id);
+          
           const facts = dbFacts.map((f: any) => ({
             title: f.title,
             fact: f.content,
@@ -328,16 +344,26 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             steps: f.steps || [],
             contexts: [f.context?.specificity || 'universal'],
           }));
-          setViewModeFacts(facts);
-          console.log(`📊 Loaded ${facts.length} facts for view mode`);
+          
+          // Only update if API returned facts, or if we don't have fallback facts
+          if (facts.length > 0 || !fallbackFacts) {
+            setViewModeFacts(facts);
+            console.log(`📊 Loaded ${facts.length} facts for view mode`);
+          } else {
+            console.log(`📊 API returned 0 facts, keeping ${fallbackFacts.length} fallback facts from editFormData`);
+          }
         } catch (error) {
           console.warn('Could not fetch facts for view mode:', error);
+          // If we have fallback facts, keep them
+          if (!fallbackFacts) {
+            setViewModeFacts([]);
+          }
         }
       };
       
       loadViewModeFacts();
     }
-  }, [isEditMode, track.id]);
+  }, [isEditMode, track]);
 
   // Debug: Log when editFormData changes
   useEffect(() => {
@@ -541,6 +567,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       console.log('Track updated successfully, calling onUpdate...');
       toast.success(contentChanged ? 'Track updated successfully!' : 'Settings updated!');
+      
       setIsEditMode(false);
       
       // Call onUpdate to trigger refetch
@@ -2131,6 +2158,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           setIsSaving(false); // Reset saving state
           
           console.log('🔄 Exiting edit mode...');
+          
           setIsEditMode(false);
           
           console.log('⏳ Waiting 300ms before refreshing data...');
