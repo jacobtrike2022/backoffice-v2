@@ -610,11 +610,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     // setSelectedAlbum(albumId);
   };
 
-  // Handler for playlist clicks from sidebar  (filters content)
+  // Handler for playlist clicks from sidebar (filters content)
   const handlePlaylistClick = async (playlistId: string) => {
     console.log('Playlist clicked, filtering by:', playlistId);
 
     if (filterByPlaylistId === playlistId) {
+      // Clicking same playlist clears the filter
       setFilterByPlaylistId(null);
       setFilterPlaylistTracks([]);
       setFilterPlaylistTitle('');
@@ -629,9 +630,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         return;
       }
 
-      const trackIds = (playlist.playlist_tracks || [])
-        .map((pt: any) => pt.track_id)
-        .filter(Boolean);
+      // getPlaylistById already extracts track_ids for us
+      const trackIds = playlist.track_ids || [];
+      
+      console.log('Playlist track IDs:', trackIds);
 
       setFilterByPlaylistId(playlistId);
       setFilterPlaylistTracks(trackIds);
@@ -640,7 +642,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       if (trackIds.length === 0) {
         toast.info(`"${playlist.title}" has no tracks yet`);
       } else {
-        toast.success(`Showing ${trackIds.length} tracks from "${playlist.title}"`);
+        toast.success(`Filtering by "${playlist.title}" (${trackIds.length} tracks)`);
       }
     } catch (error) {
       console.error('Failed to load playlist:', error);
@@ -898,7 +900,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Main library view
   return (
-    <div className="flex gap-6 min-h-full">
+    <div className="flex gap-6">
       {/* Main content area */}
       <div className="flex-1 space-y-6 min-w-0">
         {/* Header */}
@@ -1085,8 +1087,28 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               <FileText className="h-12 w-12 text-muted-foreground/50" />
               <h3 className="font-semibold">No tracks found</h3>
               <p className="text-sm text-muted-foreground">
-                Try adjusting your search or filters
+                {filterByPlaylistId && filterPlaylistTracks.length > 0
+                  ? `The playlist "${filterPlaylistTitle}" has ${filterPlaylistTracks.length} track(s), but none match the current "${statusFilter}" filter. Try changing the status filter above.`
+                  : filterByPlaylistId
+                  ? `"${filterPlaylistTitle}" has no tracks yet.`
+                  : 'Try adjusting your search or filters'
+                }
               </p>
+              {filterByPlaylistId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => {
+                    setFilterByPlaylistId(null);
+                    setFilterPlaylistTracks([]);
+                    setFilterPlaylistTitle('');
+                  }}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Clear playlist filter
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
