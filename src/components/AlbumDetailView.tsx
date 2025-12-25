@@ -71,6 +71,7 @@ export function AlbumDetailView({
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [draggedTrackId, setDraggedTrackId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [localTracks, setLocalTracks] = useState<AlbumTrack[]>([]);
 
   // Sync editForm when album changes
@@ -186,6 +187,9 @@ export function AlbumDetailView({
     
     if (!draggedTrackId || draggedTrackId === targetTrackId) return;
 
+    // Track the drop target
+    setDropTargetId(targetTrackId);
+
     const draggedIndex = localTracks.findIndex(t => t.track_id === draggedTrackId);
     const targetIndex = localTracks.findIndex(t => t.track_id === targetTrackId);
     
@@ -198,19 +202,14 @@ export function AlbumDetailView({
     setLocalTracks(newTracks);
   };
 
-  const handleDragEnd = () => {
-    setDraggedTrackId(null);
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetTrackId: string) => {
-    e.preventDefault();
-    
-    if (!draggedTrackId || draggedTrackId === targetTrackId) {
+  const handleDragEnd = async () => {
+    if (!draggedTrackId || !dropTargetId || draggedTrackId === dropTargetId) {
       setDraggedTrackId(null);
+      setDropTargetId(null);
       return;
     }
 
-    // Get the current order from localTracks
+    // Get the current order from localTracks (which was updated during dragOver)
     const trackIds = localTracks.map(t => t.track_id);
     
     try {
@@ -228,6 +227,12 @@ export function AlbumDetailView({
     }
     
     setDraggedTrackId(null);
+    setDropTargetId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    // Prevent default drop behavior - we handle it in handleDragEnd
   };
 
   const filteredAvailableTracks = availableTracks.filter(t =>
@@ -374,7 +379,7 @@ export function AlbumDetailView({
                   draggable
                   onDragStart={(e) => handleDragStart(e, albumTrack.track_id)}
                   onDragOver={(e) => handleDragOver(e, albumTrack.track_id)}
-                  onDrop={(e) => handleDrop(e, albumTrack.track_id)}
+                  onDrop={handleDrop}
                   onDragEnd={handleDragEnd}
                   className={`flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors group ${
                     draggedTrackId === albumTrack.track_id ? 'opacity-50' : ''
