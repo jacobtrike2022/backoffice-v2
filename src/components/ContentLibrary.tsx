@@ -31,7 +31,8 @@ import {
   Trash2,
   Copy,
   MoreVertical,
-  Archive
+  Archive,
+  Plus
 } from 'lucide-react';
 import {
   Select,
@@ -89,6 +90,7 @@ interface ContentLibraryProps {
   onNavigateToPlaylist?: (playlistId: string) => void;
   onBackToLibrary?: () => void; // Callback to notify parent when returning to library
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
+  onNavigate?: (view: string) => void; // Navigation callback for creating content
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -107,7 +109,7 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onBackToLibrary, registerUnsavedChangesCheck }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -910,6 +912,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          {onNavigate && (
+            <Button 
+              className="bg-brand-gradient" 
+              onClick={() => onNavigate('authoring')}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Content
+            </Button>
+          )}
           <Button
             variant={viewMode === 'grid' ? 'default' : 'outline'}
             size="sm"

@@ -288,6 +288,11 @@ export default function App() {
       setInitialMode(null);
     }
 
+    // Clear playlist wizard state when navigating away from playlist-wizard
+    if (currentView === "playlist-wizard") {
+      setEditingPlaylistId(undefined);
+    }
+
     // When navigating to content view, increment key to force ContentLibrary reset
     if (view === "content" && initialTrackId === undefined) {
       setContentLibraryKey(prev => prev + 1);
@@ -393,6 +398,14 @@ export default function App() {
               setSelectedPlaylistId(playlistId);
               requestNavigate("assignments");
             }}
+            onNavigate={(view: string) => {
+              if (view === 'authoring') {
+                setPreviousView('content');
+                setInitialMode(null);
+                setInitialTrackId(undefined);
+                requestNavigate('authoring');
+              }
+            }}
           />
         );
       case "assignments":
@@ -436,6 +449,9 @@ export default function App() {
               setEditingPlaylistId(undefined);
               requestNavigate("assignments");
             }}
+            registerUnsavedChangesCheck={(checkFn) =>
+              setHasUnsavedChangesRef(() => checkFn)
+            }
           />
         );
       case "people":

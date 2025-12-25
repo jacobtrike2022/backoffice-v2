@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -57,6 +57,7 @@ interface PlaylistWizardProps {
   mode?: 'create' | 'edit';
   existingPlaylistId?: string;
   isFullPage?: boolean;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
 const WIZARD_STEPS = [
@@ -121,9 +122,12 @@ const AVAILABLE_TRACKS = [
 // Tags that match existing patterns
 // const AVAILABLE_TAGS = ['onboarding', 'compliance', 'safety', 'customer-service', 'leadership', 'technology', 'operations', 'policy'];
 
-export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, isFullPage = false }: PlaylistWizardProps) {
+export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, isFullPage = false, registerUnsavedChangesCheck }: PlaylistWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
+  
+  // Track original state for unsaved changes detection
+  const [originalState, setOriginalState] = useState<any>(null);
   
   // Form state
   const [assignmentType, setAssignmentType] = useState<'auto' | 'manual'>('auto');
@@ -341,6 +345,26 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
         setStages(loadedStages);
         
+        // Save original state for unsaved changes detection
+        setOriginalState({
+          playlistName: playlist.title || '',
+          playlistDescription: playlist.description || '',
+          assignmentType: playlist.type || 'manual',
+          playlistTags: tags.map(t => t.name),
+          triggerConditions: playlist.type === 'auto' && playlist.trigger_rules 
+            ? [{ field: 'role', operator: 'equals', value: '' }] 
+            : [{ field: 'role', operator: 'equals', value: '' }],
+          selectedEmployees: assignments?.map(a => a.user_id) || [],
+          stages: loadedStages,
+          startImmediately,
+          startDelayDays,
+          completionThreshold,
+          minQuizScore,
+          minFinalScore,
+          completionDeadlineDays,
+          completionActions: []
+        });
+        
         toast.success('Playlist loaded for editing');
       } catch (error) {
         console.error('Error loading playlist:', error);
@@ -352,6 +376,97 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     
     loadPlaylist();
   }, [existingPlaylistId, mode, user?.organization_id]);
+  
+  // Save initial state for create mode
+  useEffect(() => {
+    if (mode === 'create' && !originalState) {
+      setOriginalState({
+        playlistName: '',
+        playlistDescription: '',
+        assignmentType: 'auto',
+        playlistTags: [],
+        triggerConditions: [{ field: 'role', operator: 'equals', value: '' }],
+        selectedEmployees: [],
+        stages: [{ 
+          id: 's1',
+          name: 'Stage 1', 
+          albums: [], 
+          tracks: [],
+          unlockType: 'immediate',
+          unlockDays: 0,
+          unlockAfterStage: '',
+          unlockAssignment: '',
+          unlockAssignmentCompleter: 'learner',
+          allowManagerOverride: false,
+          allowAdminOverride: true,
+          notifyOnUnlock: false
+        }],
+        startImmediately: true,
+        startDelayDays: 14,
+        completionThreshold: 100,
+        minQuizScore: 80,
+        minFinalScore: 85,
+        completionDeadlineDays: 30,
+        completionActions: []
+      });
+    }
+  }, [mode, originalState]);
+  
+  // Check for unsaved changes
+  const hasUnsavedChanges = useCallback(() => {
+    if (!originalState) return false;
+    
+    // Helper to compare arrays
+    const arraysEqual = (a: any[], b: any[]) => {
+      if (a.length !== b.length) return false;
+      const sortedA = [...a].sort();
+      const sortedB = [...b].sort();
+      return sortedA.every((val, idx) => val === sortedB[idx]);
+    };
+    
+    // Helper to compare stages
+    const stagesEqual = (a: any[], b: any[]) => {
+      if (a.length !== b.length) return false;
+      return a.every((stageA, idx) => {
+        const stageB = b[idx];
+        return stageA.name === stageB.name &&
+               arraysEqual(stageA.albums || [], stageB.albums || []) &&
+               arraysEqual(stageA.tracks || [], stageB.tracks || []) &&
+               stageA.unlockType === stageB.unlockType &&
+               stageA.unlockDays === stageB.unlockDays;
+      });
+    };
+    
+    return (
+      playlistName !== originalState.playlistName ||
+      playlistDescription !== originalState.playlistDescription ||
+      assignmentType !== originalState.assignmentType ||
+      !arraysEqual(playlistTags, originalState.playlistTags) ||
+      !arraysEqual(selectedEmployees, originalState.selectedEmployees) ||
+      !stagesEqual(stages, originalState.stages) ||
+      startImmediately !== originalState.startImmediately ||
+      startDelayDays !== originalState.startDelayDays ||
+      completionThreshold !== originalState.completionThreshold ||
+      minQuizScore !== originalState.minQuizScore ||
+      minFinalScore !== originalState.minFinalScore ||
+      completionDeadlineDays !== originalState.completionDeadlineDays ||
+      completionActions.length !== originalState.completionActions.length
+    );
+  }, [originalState, playlistName, playlistDescription, assignmentType, playlistTags, selectedEmployees, stages, startImmediately, startDelayDays, completionThreshold, minQuizScore, minFinalScore, completionDeadlineDays, completionActions.length]);
+  
+  // Register unsaved changes check with parent
+  useEffect(() => {
+    if (registerUnsavedChangesCheck) {
+      registerUnsavedChangesCheck(hasUnsavedChanges);
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
+    };
+  }, [registerUnsavedChangesCheck, hasUnsavedChanges]);
 
   const addTriggerCondition = () => {
     setTriggerConditions([...triggerConditions, { field: 'role', operator: 'equals', value: '' }]);
