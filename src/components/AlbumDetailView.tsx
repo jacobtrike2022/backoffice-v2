@@ -70,6 +70,8 @@ export function AlbumDetailView({
   const [availableTracks, setAvailableTracks] = useState<any[]>([]);
   const [trackSearchQuery, setTrackSearchQuery] = useState('');
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
+  const [draggedTrackId, setDraggedTrackId] = useState<string | null>(null);
+  const [localTracks, setLocalTracks] = useState<AlbumTrack[]>([]);
 
   // Sync editForm when album changes
   useEffect(() => {
@@ -77,6 +79,14 @@ export function AlbumDetailView({
       title: album.title,
       description: album.description || '',
     });
+  }, [album]);
+
+  // Sync localTracks when album changes
+  useEffect(() => {
+    if (album.tracks) {
+      const sorted = [...album.tracks].sort((a, b) => a.display_order - b.display_order);
+      setLocalTracks(sorted);
+    }
   }, [album]);
 
   const handleSave = async () => {
@@ -107,6 +117,8 @@ export function AlbumDetailView({
     try {
       await albumsCrud.removeTrackFromAlbum(album.id, trackId);
       toast.success('Track removed');
+      // Update local state optimistically
+      setLocalTracks(prev => prev.filter(t => t.track_id !== trackId));
       onUpdate();
     } catch (err) {
       console.error('Error removing track:', err);
@@ -141,6 +153,7 @@ export function AlbumDetailView({
       const result = await albumsCrud.addTracksToAlbum(album.id, Array.from(selectedTrackIds));
       toast.success(`Added ${selectedTrackIds.size} track(s)`);
       setShowAddTracksDialog(false);
+      // onUpdate will refresh the album and localTracks will sync via useEffect
       onUpdate();
     } catch (err) {
       console.error('Error adding tracks:', err);
@@ -158,6 +171,63 @@ export function AlbumDetailView({
       }
       return next;
     });
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, trackId: string) => {
+    setDraggedTrackId(trackId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', trackId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetTrackId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    if (!draggedTrackId || draggedTrackId === targetTrackId) return;
+
+    const draggedIndex = localTracks.findIndex(t => t.track_id === draggedTrackId);
+    const targetIndex = localTracks.findIndex(t => t.track_id === targetTrackId);
+    
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const newTracks = [...localTracks];
+    const [draggedTrack] = newTracks.splice(draggedIndex, 1);
+    newTracks.splice(targetIndex, 0, draggedTrack);
+    
+    setLocalTracks(newTracks);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTrackId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetTrackId: string) => {
+    e.preventDefault();
+    
+    if (!draggedTrackId || draggedTrackId === targetTrackId) {
+      setDraggedTrackId(null);
+      return;
+    }
+
+    // Get the current order from localTracks
+    const trackIds = localTracks.map(t => t.track_id);
+    
+    try {
+      await albumsCrud.reorderAlbumTracks(album.id, trackIds);
+      toast.success('Track order updated');
+      onUpdate(); // Refresh album data
+    } catch (err) {
+      console.error('Error reordering tracks:', err);
+      toast.error('Failed to reorder tracks');
+      // Revert to original order
+      if (album.tracks) {
+        const sorted = [...album.tracks].sort((a, b) => a.display_order - b.display_order);
+        setLocalTracks(sorted);
+      }
+    }
+    
+    setDraggedTrackId(null);
   };
 
   const filteredAvailableTracks = availableTracks.filter(t =>
@@ -284,7 +354,7 @@ export function AlbumDetailView({
           </Button>
         </CardHeader>
         <CardContent>
-          {(!album.tracks || album.tracks.length === 0) ? (
+          {(!localTracks || localTracks.length === 0) ? (
             <div className="text-center py-12">
               <Music className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
               <h3 className="font-semibold mb-2">No tracks in this album</h3>
@@ -298,55 +368,60 @@ export function AlbumDetailView({
             </div>
           ) : (
             <div className="space-y-2">
-              {album.tracks
-                .sort((a, b) => a.display_order - b.display_order)
-                .map((albumTrack, index) => (
-                  <div
-                    key={albumTrack.track_id}
-                    className="flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors group"
-                  >
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <GripVertical className="h-4 w-4 cursor-grab" />
-                      <span className="text-sm w-6 text-center">{index + 1}</span>
-                    </div>
-                    
-                    {albumTrack.track?.thumbnail_url && (
-                      <img
-                        src={albumTrack.track.thumbnail_url}
-                        alt=""
-                        className="w-12 h-12 rounded object-cover"
-                      />
-                    )}
-                    
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{albumTrack.track?.title || 'Untitled'}</p>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Badge variant="outline" className="text-xs capitalize flex items-center gap-1">
-                          {getTrackIcon(albumTrack.track?.type || '')}
-                          {albumTrack.track?.type}
-                        </Badge>
-                        {albumTrack.track?.duration_minutes && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {albumTrack.track.duration_minutes} min
-                          </span>
-                        )}
-                        {albumTrack.is_required && (
-                          <Badge variant="secondary" className="text-xs">Required</Badge>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => handleRemoveTrack(albumTrack.track_id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+              {localTracks.map((albumTrack, index) => (
+                <div
+                  key={albumTrack.track_id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, albumTrack.track_id)}
+                  onDragOver={(e) => handleDragOver(e, albumTrack.track_id)}
+                  onDrop={(e) => handleDrop(e, albumTrack.track_id)}
+                  onDragEnd={handleDragEnd}
+                  className={`flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors group ${
+                    draggedTrackId === albumTrack.track_id ? 'opacity-50' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <GripVertical className="h-4 w-4 cursor-grab active:cursor-grabbing" />
+                    <span className="text-sm w-6 text-center">{index + 1}</span>
                   </div>
-                ))}
+                  
+                  {albumTrack.track?.thumbnail_url && (
+                    <img
+                      src={albumTrack.track.thumbnail_url}
+                      alt=""
+                      className="w-12 h-12 rounded object-cover"
+                    />
+                  )}
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{albumTrack.track?.title || 'Untitled'}</p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Badge variant="outline" className="text-xs capitalize flex items-center gap-1">
+                        {getTrackIcon(albumTrack.track?.type || '')}
+                        {albumTrack.track?.type}
+                      </Badge>
+                      {albumTrack.track?.duration_minutes && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {albumTrack.track.duration_minutes} min
+                        </span>
+                      )}
+                      {albumTrack.is_required && (
+                        <Badge variant="secondary" className="text-xs">Required</Badge>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => handleRemoveTrack(albumTrack.track_id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
