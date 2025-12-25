@@ -138,7 +138,7 @@ export function AlbumDetailView({
     if (selectedTrackIds.size === 0) return;
     
     try {
-      await albumsCrud.addTracksToAlbum(album.id, Array.from(selectedTrackIds));
+      const result = await albumsCrud.addTracksToAlbum(album.id, Array.from(selectedTrackIds));
       toast.success(`Added ${selectedTrackIds.size} track(s)`);
       setShowAddTracksDialog(false);
       onUpdate();

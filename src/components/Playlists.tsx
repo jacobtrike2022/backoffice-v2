@@ -128,7 +128,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         }
       });
     }
-  }, [selectedAlbumId]);
+  }, [selectedAlbumId, selectedAlbum]);
 
   // Fetch albums when albums tab is active
   const fetchAlbums = async () => {
@@ -330,7 +330,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       });
       
       toast.success('Album created');
-      setSelectedAlbum(newAlbum);
+      // Fetch full album with tracks relationship
+      const fullAlbum = await albumsCrud.getAlbumById(newAlbum.id);
+      if (fullAlbum) {
+        setSelectedAlbum(fullAlbum);
+      }
       await fetchAlbums();
     } catch (err) {
       console.error('Error creating album:', err);
@@ -1305,7 +1309,13 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <Card 
                   key={album.id}
                   className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => setSelectedAlbum(album)}
+                  onClick={async () => {
+                    // Fetch full album with tracks relationship
+                    const fullAlbum = await albumsCrud.getAlbumById(album.id);
+                    if (fullAlbum) {
+                      setSelectedAlbum(fullAlbum);
+                    }
+                  }}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -1327,9 +1337,13 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={(e) => {
+                          <DropdownMenuItem onClick={async (e) => {
                             e.stopPropagation();
-                            setSelectedAlbum(album);
+                            // Fetch full album with tracks relationship
+                            const fullAlbum = await albumsCrud.getAlbumById(album.id);
+                            if (fullAlbum) {
+                              setSelectedAlbum(fullAlbum);
+                            }
                           }}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit

@@ -108,16 +108,20 @@ export async function getAlbums(options: {
 
   if (error) throw error;
 
-  // Enrich with computed fields
+  // Enrich with computed fields and transform album_tracks to tracks
   const enrichedAlbums = (albums || []).map((album: any) => {
     const albumTracks = album.album_tracks || [];
-    const trackCount = albumTracks.length;
-    const totalDurationMinutes = albumTracks.reduce((sum: number, at: any) => 
+    // Sort tracks by display_order
+    const sortedTracks = albumTracks
+      .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0));
+    const trackCount = sortedTracks.length;
+    const totalDurationMinutes = sortedTracks.reduce((sum: number, at: any) => 
       sum + (at.track?.duration_minutes || 0), 0
     );
 
     return {
       ...album,
+      tracks: sortedTracks as AlbumTrack[],
       track_count: trackCount,
       total_duration_minutes: totalDurationMinutes,
     };
@@ -169,12 +173,14 @@ export async function getAlbumById(albumId: string): Promise<Album | null> {
     sum + (at.track?.duration_minutes || 0), 0
   );
 
-  return {
+  const result = {
     ...album,
     tracks: sortedTracks as AlbumTrack[],
     track_count: sortedTracks.length,
     total_duration_minutes: totalDurationMinutes,
   } as Album;
+
+  return result;
 }
 
 /**
@@ -391,7 +397,9 @@ export async function addTracksToAlbum(
     .update({ updated_at: new Date().toISOString() })
     .eq('id', albumId);
 
-  return getAlbumById(albumId) as Promise<Album>;
+  const result = await getAlbumById(albumId) as Promise<Album>;
+
+  return result;
 }
 
 /**
