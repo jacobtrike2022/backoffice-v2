@@ -868,27 +868,25 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       </div>
 
       {/* Main Tab Navigation */}
-      <div className="flex items-center gap-1 border-b">
+      <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-[3px]">
         <button
           onClick={() => setMainTab('playlists')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+          className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
             mainTab === 'playlists'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <ListChecks className="h-4 w-4 inline mr-2" />
           Playlists
         </button>
         <button
           onClick={() => setMainTab('albums')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+          className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
             mainTab === 'albums'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <AlbumIcon className="h-4 w-4 inline mr-2" />
           Albums
         </button>
       </div>
@@ -1321,7 +1319,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-start space-x-3 flex-1">
                         <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <Music className="h-6 w-6 text-primary" />
+                          <AlbumIcon className="h-6 w-6 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold mb-1 truncate">{album.title}</h3>
@@ -1382,7 +1380,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     {/* Stats */}
                     <div className="flex items-center gap-4 pt-3 border-t text-sm text-muted-foreground">
                       <div className="flex items-center gap-1.5">
-                        <Music className="h-4 w-4" />
+                        <AlbumIcon className="h-4 w-4" />
                         <span className="font-medium">{album.track_count || 0} tracks</span>
                       </div>
                       <div className="flex items-center gap-1.5">

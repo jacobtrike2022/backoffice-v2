@@ -15,6 +15,7 @@ import {
   Trash2,
   GripVertical,
   Music,
+  Album as AlbumIcon,
   Clock,
   CheckCircle2,
   MoreVertical,
@@ -264,7 +265,7 @@ export function AlbumDetailView({
           <div>
             <div className="flex items-center space-x-3">
               <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Music className="h-6 w-6 text-primary" />
+                <AlbumIcon className="h-6 w-6 text-primary" />
               </div>
               {isEditing ? (
                 <Input
@@ -350,7 +351,7 @@ export function AlbumDetailView({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
-            <Music className="h-5 w-5" />
+            <AlbumIcon className="h-5 w-5" />
             Tracks in Album
           </CardTitle>
           <Button onClick={() => setShowAddTracksDialog(true)}>
@@ -361,7 +362,7 @@ export function AlbumDetailView({
         <CardContent>
           {(!localTracks || localTracks.length === 0) ? (
             <div className="text-center py-12">
-              <Music className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <AlbumIcon className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
               <h3 className="font-semibold mb-2">No tracks in this album</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Add tracks to build your album
@@ -485,7 +486,7 @@ export function AlbumDetailView({
                       <Badge variant="outline" className="text-xs capitalize">
                         {track.type}
                       </Badge>
-                      {track.duration_minutes && (
+                      {track.duration_minutes != null && track.duration_minutes > 0 && (
                         <span>{track.duration_minutes} min</span>
                       )}
                     </div>

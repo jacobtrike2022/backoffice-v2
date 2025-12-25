@@ -8,6 +8,7 @@ import { supabase, getCurrentUserOrgId } from '../supabase';
 import { compressImage } from '../utils/imageCompression';
 import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
 import { generateKeyFacts } from './facts';
+import { calculateTrackDuration } from '../utils/trackDuration';
 
 export interface CreateTrackInput {
   title: string;
@@ -276,6 +277,37 @@ export async function createTrack(input: CreateTrackInput) {
   // Set default thumbnail if none provided
   const thumbnailUrl = input.thumbnail_url || DEFAULT_THUMBNAIL_URL;
 
+  // Auto-calculate duration if not provided
+  let calculatedDuration = input.duration_minutes;
+  if (calculatedDuration === undefined || calculatedDuration === null) {
+    // Parse content based on type
+    let storyData: any = undefined;
+    let checkpointData: any = undefined;
+    
+    if (input.type === 'story' && input.transcript) {
+      try {
+        storyData = typeof input.transcript === 'string' ? JSON.parse(input.transcript) : input.transcript;
+      } catch (e) {
+        // Not valid JSON, skip
+      }
+    }
+    
+    if (input.type === 'checkpoint' && input.transcript) {
+      try {
+        checkpointData = typeof input.transcript === 'string' ? JSON.parse(input.transcript) : input.transcript;
+      } catch (e) {
+        // Not valid JSON, skip
+      }
+    }
+    
+    calculatedDuration = calculateTrackDuration(input.type, {
+      transcript: input.transcript,
+      storyData,
+      checkpointData,
+      duration_minutes: input.duration_minutes
+    });
+  }
+
   const { data: track, error } = await supabase
     .from('tracks')
     .insert({
@@ -285,7 +317,7 @@ export async function createTrack(input: CreateTrackInput) {
       type: input.type,
       content_url: input.content_url,
       thumbnail_url: thumbnailUrl,
-      duration_minutes: input.duration_minutes,
+      duration_minutes: calculatedDuration,
       transcript: input.transcript,
       summary: input.summary,
       status: input.status || 'draft',
@@ -357,6 +389,45 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   if (!existingTrack) {
     throw new Error('Track not found');
+  }
+
+  // Auto-calculate duration if content changed and duration not explicitly provided
+  const trackType = existingTrack.type || updateData.type || 'article';
+  const contentChanged = updateData.transcript !== undefined || updateData.content_url !== undefined;
+  const durationNotProvided = updateData.duration_minutes === undefined;
+  
+  if (contentChanged && durationNotProvided) {
+    // Parse content based on type
+    let storyData: any = undefined;
+    let checkpointData: any = undefined;
+    const newTranscript = updateData.transcript !== undefined ? updateData.transcript : existingTrack.transcript;
+    
+    if (trackType === 'story' && newTranscript) {
+      try {
+        storyData = typeof newTranscript === 'string' ? JSON.parse(newTranscript) : newTranscript;
+      } catch (e) {
+        // Not valid JSON, skip
+      }
+    }
+    
+    if (trackType === 'checkpoint' && newTranscript) {
+      try {
+        checkpointData = typeof newTranscript === 'string' ? JSON.parse(newTranscript) : newTranscript;
+      } catch (e) {
+        // Not valid JSON, skip
+      }
+    }
+    
+    const calculatedDuration = calculateTrackDuration(trackType, {
+      transcript: newTranscript,
+      storyData,
+      checkpointData,
+      duration_minutes: updateData.duration_minutes
+    });
+    
+    if (calculatedDuration !== undefined) {
+      updateData.duration_minutes = calculatedDuration;
+    }
   }
 
   // Update the track

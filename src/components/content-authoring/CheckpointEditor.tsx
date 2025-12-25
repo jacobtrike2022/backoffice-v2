@@ -545,12 +545,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
+      // Calculate duration from question count (1 min per question)
+      const calculatedDuration = questions.length;
+
       const trackData = {
         title,
         description,
         type: 'checkpoint' as const,
         transcript: JSON.stringify(checkpointData),
-        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        duration_minutes: calculatedDuration,
         tags,
         thumbnail_url: thumbnailUrl
       };
@@ -643,12 +646,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
+      // Calculate duration from question count (1 min per question)
+      const calculatedDuration = questions.length;
+
       const trackData = {
         title,
         description,
         type: 'checkpoint' as const,
         transcript: JSON.stringify(checkpointData),
-        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        duration_minutes: calculatedDuration,
         tags,
         thumbnail_url: thumbnailUrl
       };

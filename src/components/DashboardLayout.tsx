@@ -114,7 +114,7 @@ const navigationGroups: NavigationGroup[] = [
       },
       {
         id: 'assignments',
-        label: 'Playlists',
+        label: 'Playlists & Albums',
         icon: ListChecks,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },

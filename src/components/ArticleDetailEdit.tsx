@@ -403,11 +403,22 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         currentTags.delete('system:show_in_knowledge_base');
       }
 
+      // Calculate duration from word count (200 WPM) if article body changed
+      let calculatedDuration = parseInt(editFormData.duration_minutes) || track.duration_minutes;
+      if (editFormData.article_body && editFormData.article_body !== (track.transcript || '')) {
+        // Article content changed, recalculate duration
+        const plainText = editFormData.article_body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const wordCount = plainText.split(/\s+/).filter(word => word.length > 0).length;
+        if (wordCount > 0) {
+          calculatedDuration = Math.max(1, Math.ceil(wordCount / 200));
+        }
+      }
+
       const updateData = {
         id: track.id,
         title: editFormData.title || track.title,
         description: editFormData.description || track.description,
-        duration_minutes: parseInt(editFormData.duration_minutes) || track.duration_minutes || 0,
+        duration_minutes: calculatedDuration,
         content_url: editFormData.content_url || track.content_url || '',
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url || '',
         type: editFormData.type,

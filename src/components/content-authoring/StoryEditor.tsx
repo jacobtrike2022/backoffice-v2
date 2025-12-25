@@ -145,32 +145,34 @@ export function StoryEditor({
   const isSuperAdmin = isSuperAdminAuthenticated || currentRole === 'Trike Super Admin';
   const isSystemContent = existingTrack?.is_system_content && !isSuperAdmin;
   
-  // Calculate story duration
+  // Calculate story duration - only sum video slide durations (ignore images)
   const calculateStoryDuration = () => {
     if (slides.length === 0) return 0; // No slides yet
     
-    // Sum up all slide durations
-    const totalSeconds = slides.reduce((total, slide) => {
-      if (slide.duration && !isNaN(slide.duration)) {
+    // Filter to only video slides
+    const videoSlides = slides.filter((slide: any) => slide.type === 'video' && slide.url);
+    
+    if (videoSlides.length === 0) return 0;
+    
+    // Sum up video durations (in seconds)
+    const totalSeconds = videoSlides.reduce((total: number, slide: any) => {
+      if (slide.duration && !isNaN(slide.duration) && slide.duration > 0) {
         return total + slide.duration;
-      } else if (slide.url) {
-        // If slide has content but no duration, use default 10 seconds
-        return total + 10;
-      } else {
-        // Slide has no content yet, don't count it
-        return total;
       }
+      // If video has URL but no duration, skip it (should have duration from upload)
+      return total;
     }, 0);
     
-    if (totalSeconds === 0) return 0; // No valid content yet
+    if (totalSeconds === 0) return 0;
     
     // Convert to minutes, minimum 1 minute for valid content
     const minutes = Math.max(1, Math.round(totalSeconds / 60));
-    console.log('Story duration calculation:', {
-      slideCount: slides.length,
+    console.log('Story duration calculation (videos only):', {
+      totalSlides: slides.length,
+      videoSlides: videoSlides.length,
       totalSeconds,
       minutes,
-      slides: slides.map(s => ({ type: s.type, duration: s.duration, hasUrl: !!s.url }))
+      videoSlidesDetails: videoSlides.map(s => ({ type: s.type, duration: s.duration, hasUrl: !!s.url }))
     });
     return minutes;
   };
