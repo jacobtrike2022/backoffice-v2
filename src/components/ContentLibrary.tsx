@@ -137,6 +137,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [hasUnsavedChangesRef, setHasUnsavedChangesRef] = useState<(() => boolean) | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const [showNavigationWarning, setShowNavigationWarning] = useState(false);
+  const [filterByPlaylistId, setFilterByPlaylistId] = useState<string | null>(null);
+  const [filterPlaylistTracks, setFilterPlaylistTracks] = useState<string[]>([]);
+  const [filterPlaylistTitle, setFilterPlaylistTitle] = useState<string>('');
 
   // Register unsaved changes check from child editors
   const registerUnsavedChangesCheckLocal = useCallback((checkFn: (() => boolean) | null) => {
@@ -607,11 +610,41 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     // setSelectedAlbum(albumId);
   };
 
-  // Handler for playlist clicks from sidebar  
-  const handlePlaylistClick = (playlistId: string) => {
-    console.log('Playlist clicked:', playlistId);
-    if (onNavigateToPlaylist) {
-      onNavigateToPlaylist(playlistId);
+  // Handler for playlist clicks from sidebar  (filters content)
+  const handlePlaylistClick = async (playlistId: string) => {
+    console.log('Playlist clicked, filtering by:', playlistId);
+
+    if (filterByPlaylistId === playlistId) {
+      setFilterByPlaylistId(null);
+      setFilterPlaylistTracks([]);
+      setFilterPlaylistTitle('');
+      toast.info('Playlist filter cleared');
+      return;
+    }
+
+    try {
+      const playlist = await crud.getPlaylistById(playlistId);
+      if (!playlist) {
+        toast.error('Playlist not found');
+        return;
+      }
+
+      const trackIds = (playlist.playlist_tracks || [])
+        .map((pt: any) => pt.track_id)
+        .filter(Boolean);
+
+      setFilterByPlaylistId(playlistId);
+      setFilterPlaylistTracks(trackIds);
+      setFilterPlaylistTitle(playlist.title || 'Playlist');
+
+      if (trackIds.length === 0) {
+        toast.info(`"${playlist.title}" has no tracks yet`);
+      } else {
+        toast.success(`Showing ${trackIds.length} tracks from "${playlist.title}"`);
+      }
+    } catch (error) {
+      console.error('Failed to load playlist:', error);
+      toast.error('Failed to load playlist');
     }
   };
 
@@ -641,6 +674,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     if (sortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
     return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
   });
+
+  const filteredTracks = filterByPlaylistId && filterPlaylistTracks.length > 0
+    ? sortedTracks.filter(track => filterPlaylistTracks.includes(track.id))
+    : sortedTracks;
 
   // Loading state - only show skeleton on initial load, not on refetch
   if (loading && (!tracks || tracks.length === 0)) {
@@ -861,7 +898,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Main library view
   return (
-    <div className="flex gap-6">
+    <div className="flex gap-6 min-h-full">
       {/* Main content area */}
       <div className="flex-1 space-y-6 min-w-0">
         {/* Header */}
@@ -1015,12 +1052,33 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       </Card>
 
       {/* Results Count */}
-      <div className="text-sm text-muted-foreground">
-        {sortedTracks.length} {sortedTracks.length === 1 ? 'track' : 'tracks'} found
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">
+          {filteredTracks.length} {filteredTracks.length === 1 ? 'track' : 'tracks'} found
+        </span>
+        {filterByPlaylistId && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="flex items-center gap-1">
+              <Play className="h-3 w-3" />
+              Filtered by: {filterPlaylistTitle}
+              <button
+                onClick={() => {
+                  setFilterByPlaylistId(null);
+                  setFilterPlaylistTracks([]);
+                  setFilterPlaylistTitle('');
+                }}
+                className="text-xs text-destructive hover:text-destructive/80"
+                aria-label="Clear playlist filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* Track Grid/List */}
-      {sortedTracks.length === 0 ? (
+      {filteredTracks.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <div className="flex flex-col items-center gap-2">
@@ -1034,7 +1092,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </Card>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sortedTracks.map((track) => (
+          {filteredTracks.map((track) => (
             <Card
               key={track.id}
               className="cursor-pointer hover:shadow-lg transition-shadow group"
@@ -1308,7 +1366,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </div>
       ) : (
         <div className="space-y-4">
-          {sortedTracks.map((track) => (
+          {filteredTracks.map((track) => (
             <Card
               key={track.id}
               className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -1582,12 +1640,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         <Footer />
       </div>
 
-      {/* Sidebar - now in document flow, not fixed */}
-      <div className="hidden lg:block w-64 flex-shrink-0">
-        <div className="sticky top-6">
+      {/* Sidebar wrapper for sticky positioning */}
+      <div className="hidden lg:block w-64 flex-shrink-0 relative">
+        <div className="sticky top-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
           <ContentLibrarySidebar
             onPlaylistClick={handlePlaylistClick}
             onAlbumClick={handleAlbumClick}
+            activePlaylistFilter={filterByPlaylistId}
           />
         </div>
       </div>

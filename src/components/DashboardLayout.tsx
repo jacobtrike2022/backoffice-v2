@@ -609,8 +609,8 @@ export function DashboardLayout({
         </header>
 
         {/* Page content with enhanced spacing */}
-        <main className="flex-1 overflow-y-auto bg-background">
-          <div className="p-8">
+        <main className="flex-1 flex flex-col bg-background">
+          <div className="flex-1 overflow-y-auto p-8">
             {children}
           </div>
         </main>
