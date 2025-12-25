@@ -88,6 +88,7 @@ interface ContentLibraryProps {
   isSuperAdminAuthenticated?: boolean;
   initialTrackId?: string; // Track ID to open on mount
   onNavigateToPlaylist?: (playlistId: string) => void;
+  onNavigateToAlbum?: (albumId: string) => void;  // NEW
   onBackToLibrary?: () => void; // Callback to notify parent when returning to library
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
   onNavigate?: (view: string) => void; // Navigation callback for creating content
@@ -109,7 +110,7 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -602,12 +603,25 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     // We just want to clear the selected track and stay in the library view
   };
 
-  // Handler for album clicks from sidebar
+  // Handler for album clicks from sidebar (filters content)
   const handleAlbumClick = (albumId: string) => {
-    console.log('Album clicked:', albumId);
-    toast.info('Album editor coming soon! (Phase 3)');
-    // TODO: Navigate to album editor in Phase 3
-    // setSelectedAlbum(albumId);
+    console.log('Album clicked, filtering by:', albumId);
+    // TODO: Implement album filtering similar to playlist filtering
+    toast.info('Album filtering coming soon!');
+  };
+
+  // Handler for edit album navigation
+  const handleEditAlbum = (albumId: string) => {
+    if (onNavigateToAlbum) {
+      onNavigateToAlbum(albumId);
+    }
+  };
+
+  // Handler for edit playlist navigation
+  const handleEditPlaylist = (playlistId: string) => {
+    if (onNavigateToPlaylist) {
+      onNavigateToPlaylist(playlistId);
+    }
   };
 
   // Handler for playlist clicks from sidebar (filters content)
@@ -1677,7 +1691,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           <ContentLibrarySidebar
             onPlaylistClick={handlePlaylistClick}
             onAlbumClick={handleAlbumClick}
+            onEditPlaylist={onNavigateToPlaylist ? handleEditPlaylist : undefined}
+            onEditAlbum={onNavigateToAlbum ? handleEditAlbum : undefined}
             activePlaylistFilter={filterByPlaylistId}
+            activeAlbumFilter={null}  // TODO: Add album filtering state if needed
           />
         </div>
       </div>

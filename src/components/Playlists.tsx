@@ -63,6 +63,9 @@ import { Separator } from './ui/separator';
 import { useCurrentUser } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import * as crud from '../lib/crud';
+import * as albumsCrud from '../lib/crud/albums';
+import type { Album } from '../lib/crud/albums';
+import { AlbumDetailView } from './AlbumDetailView';
 import { toast } from 'sonner@2.0.3';
 
 interface PlaylistsProps {
@@ -70,11 +73,13 @@ interface PlaylistsProps {
   onOpenPlaylistWizard?: () => void;
   onEditPlaylist?: (playlistId: string) => void;
   selectedPlaylistId?: string;
+  selectedAlbumId?: string;        // NEW: For deep-linking to album
+  initialTab?: 'playlists' | 'albums';  // NEW: Which tab to show initially
   previousView?: string | null;
   onBackToPreviousView?: () => void;
 }
 
-export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditPlaylist, selectedPlaylistId, previousView, onBackToPreviousView }: PlaylistsProps) {
+export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditPlaylist, selectedPlaylistId, selectedAlbumId, initialTab, previousView, onBackToPreviousView }: PlaylistsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewFilter, setViewFilter] = useState<string>('all');
   const [selectedPlaylist, setSelectedPlaylist] = useState<any | null>(null);
@@ -84,6 +89,16 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [totalDuration, setTotalDuration] = useState<number>(0); // in minutes
+
+  // Albums state
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [albumsLoading, setAlbumsLoading] = useState(false);
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+  const [albumSearchQuery, setAlbumSearchQuery] = useState('');
+  const [albumStatusFilter, setAlbumStatusFilter] = useState<'all' | 'published' | 'draft' | 'archived'>('all');
+
+  // Main view tab (playlists vs albums)
+  const [mainTab, setMainTab] = useState<'playlists' | 'albums'>(initialTab || 'playlists');
 
   const { user } = useCurrentUser();
 
@@ -101,6 +116,49 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       }
     }
   }, [selectedPlaylistId, playlists.length, selectedPlaylist]);
+
+  // Auto-select album if selectedAlbumId is provided
+  useEffect(() => {
+    if (selectedAlbumId && !selectedAlbum) {
+      setMainTab('albums');
+      albumsCrud.getAlbumById(selectedAlbumId).then(album => {
+        if (album) {
+          console.log('🎵 Auto-selecting album:', album.title);
+          setSelectedAlbum(album);
+        }
+      });
+    }
+  }, [selectedAlbumId]);
+
+  // Fetch albums when albums tab is active
+  const fetchAlbums = async () => {
+    try {
+      setAlbumsLoading(true);
+      const filters: { status?: 'draft' | 'published' | 'archived'; search?: string } = {};
+      
+      if (albumStatusFilter !== 'all') {
+        filters.status = albumStatusFilter;
+      }
+      
+      if (albumSearchQuery) {
+        filters.search = albumSearchQuery;
+      }
+      
+      const data = await albumsCrud.getAlbums(filters);
+      setAlbums(data);
+    } catch (err) {
+      console.error('Error fetching albums:', err);
+      toast.error('Failed to load albums');
+    } finally {
+      setAlbumsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mainTab === 'albums') {
+      fetchAlbums();
+    }
+  }, [mainTab, albumStatusFilter]);
 
   // Calculate total duration when a playlist is selected
   useEffect(() => {
@@ -256,6 +314,97 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     }
   };
 
+  // Album action handlers
+  const handleCreateAlbum = async () => {
+    try {
+      const orgId = user?.organization_id;
+      if (!orgId) {
+        toast.error('Organization not found');
+        return;
+      }
+      
+      const newAlbum = await albumsCrud.createAlbum({
+        title: 'New Album',
+        organization_id: orgId,
+        status: 'draft',
+      });
+      
+      toast.success('Album created');
+      setSelectedAlbum(newAlbum);
+      await fetchAlbums();
+    } catch (err) {
+      console.error('Error creating album:', err);
+      toast.error('Failed to create album');
+    }
+  };
+
+  const handleDuplicateAlbum = async (albumId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await albumsCrud.duplicateAlbum(albumId);
+      toast.success('Album duplicated');
+      await fetchAlbums();
+    } catch (err) {
+      console.error('Error duplicating album:', err);
+      toast.error('Failed to duplicate album');
+    }
+  };
+
+  const handleArchiveAlbum = async (albumId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await albumsCrud.archiveAlbum(albumId);
+      toast.success('Album archived');
+      await fetchAlbums();
+      if (selectedAlbum?.id === albumId) {
+        setSelectedAlbum(null);
+      }
+    } catch (err) {
+      console.error('Error archiving album:', err);
+      toast.error('Failed to archive album');
+    }
+  };
+
+  const handleDeleteAlbum = async (albumId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this album? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      await albumsCrud.deleteAlbum(albumId);
+      toast.success('Album deleted');
+      await fetchAlbums();
+      if (selectedAlbum?.id === albumId) {
+        setSelectedAlbum(null);
+      }
+    } catch (err) {
+      console.error('Error deleting album:', err);
+      toast.error('Failed to delete album');
+    }
+  };
+
+  const handlePublishAlbum = async (albumId: string) => {
+    try {
+      await albumsCrud.publishAlbum(albumId);
+      toast.success('Album published');
+      await fetchAlbums();
+      // Refresh selected album if it's the one being published
+      if (selectedAlbum?.id === albumId) {
+        const updated = await albumsCrud.getAlbumById(albumId);
+        setSelectedAlbum(updated);
+      }
+    } catch (err) {
+      console.error('Error publishing album:', err);
+      toast.error('Failed to publish album');
+    }
+  };
+
+  const filteredAlbums = albums.filter(album => {
+    const matchesSearch = album.title.toLowerCase().includes(albumSearchQuery.toLowerCase()) ||
+                         album.description?.toLowerCase().includes(albumSearchQuery.toLowerCase());
+    return matchesSearch;
+  });
+
   const filteredPlaylists = playlists.filter(playlist => {
     const matchesSearch = playlist.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          playlist.description?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -269,6 +418,28 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     
     return matchesSearch && matchesFilter;
   });
+
+  // Album detail view
+  if (selectedAlbum) {
+    return (
+      <AlbumDetailView
+        album={selectedAlbum}
+        onBack={() => {
+          setSelectedAlbum(null);
+          if (onBackToPreviousView) {
+            onBackToPreviousView();
+          }
+        }}
+        onUpdate={async () => {
+          const updated = await albumsCrud.getAlbumById(selectedAlbum.id);
+          setSelectedAlbum(updated);
+          await fetchAlbums();
+        }}
+        onPublish={() => handlePublishAlbum(selectedAlbum.id)}
+        previousView={previousView}
+      />
+    );
+  }
 
   // If a playlist is selected, show detail view
   if (selectedPlaylist) {
@@ -678,16 +849,49 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground mb-2">Playlists</h1>
+          <h1 className="text-foreground mb-2">Playlists & Albums</h1>
           <p className="text-muted-foreground">
-            Assign content to your team through curated learning playlists
+            Organize and assign content to your team
           </p>
         </div>
-        <Button className="bg-brand-gradient" onClick={onOpenPlaylistWizard}>
+        <Button 
+          className="bg-brand-gradient" 
+          onClick={mainTab === 'playlists' ? onOpenPlaylistWizard : handleCreateAlbum}
+        >
           <Plus className="h-4 w-4 mr-2" />
-          Create Playlist
+          Create {mainTab === 'playlists' ? 'Playlist' : 'Album'}
         </Button>
       </div>
+
+      {/* Main Tab Navigation */}
+      <div className="flex items-center gap-1 border-b">
+        <button
+          onClick={() => setMainTab('playlists')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            mainTab === 'playlists'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <ListChecks className="h-4 w-4 inline mr-2" />
+          Playlists
+        </button>
+        <button
+          onClick={() => setMainTab('albums')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            mainTab === 'albums'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <AlbumIcon className="h-4 w-4 inline mr-2" />
+          Albums
+        </button>
+      </div>
+
+      {/* Conditional content based on mainTab */}
+      {mainTab === 'playlists' ? (
+        <>
 
       {/* Hero Stats Header Section */}
       {currentRole === 'admin' && (
@@ -1003,6 +1207,183 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
           </CardContent>
         </Card>
       )}
+        </>
+      ) : (
+        <>
+          {/* ALBUMS TAB CONTENT */}
+          
+          {/* Albums Filters */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search albums..."
+                    value={albumSearchQuery}
+                    onChange={(e) => setAlbumSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant={albumStatusFilter === 'all' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAlbumStatusFilter('all')}
+                    className={albumStatusFilter === 'all' ? 'bg-brand-gradient' : ''}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={albumStatusFilter === 'published' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAlbumStatusFilter('published')}
+                    className={albumStatusFilter === 'published' ? 'bg-brand-gradient' : ''}
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Published
+                  </Button>
+                  <Button
+                    variant={albumStatusFilter === 'draft' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAlbumStatusFilter('draft')}
+                    className={albumStatusFilter === 'draft' ? 'bg-brand-gradient' : ''}
+                  >
+                    <Edit className="h-3 w-3 mr-1" />
+                    Drafts
+                  </Button>
+                  <Button
+                    variant={albumStatusFilter === 'archived' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAlbumStatusFilter('archived')}
+                    className={albumStatusFilter === 'archived' ? 'bg-brand-gradient' : ''}
+                  >
+                    <Archive className="h-3 w-3 mr-1" />
+                    Archived
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Results Count */}
+          <p className="text-sm text-muted-foreground">
+            {albumsLoading ? 'Loading...' : `Showing ${filteredAlbums.length} album${filteredAlbums.length !== 1 ? 's' : ''}`}
+          </p>
+
+          {/* Albums Grid */}
+          {albumsLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <Skeleton className="h-32" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : filteredAlbums.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <AlbumIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <h3 className="font-semibold mb-2">No albums found</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {albumSearchQuery || albumStatusFilter !== 'all'
+                    ? 'Try adjusting your search or filter criteria'
+                    : 'Create your first album to organize tracks'
+                  }
+                </p>
+                <Button variant="outline" onClick={handleCreateAlbum}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Album
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredAlbums.map((album) => (
+                <Card 
+                  key={album.id}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => setSelectedAlbum(album)}
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start space-x-3 flex-1">
+                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <Music className="h-6 w-6 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold mb-1 truncate">{album.title}</h3>
+                          {album.description && (
+                            <p className="text-sm text-muted-foreground line-clamp-2">{album.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="sm" className="ml-2">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAlbum(album);
+                          }}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => handleDuplicateAlbum(album.id, e)}>
+                            <Copy className="h-4 w-4 mr-2" />
+                            Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={(e) => handleArchiveAlbum(album.id, e)}>
+                            <Archive className="h-4 w-4 mr-2" />
+                            Archive
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-red-600" 
+                            onClick={(e) => handleDeleteAlbum(album.id, e)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <Badge variant={
+                        album.status === 'published' ? 'default' : 
+                        album.status === 'draft' ? 'secondary' : 'outline'
+                      }>
+                        {album.status === 'published' && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                        {album.status}
+                      </Badge>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex items-center gap-4 pt-3 border-t text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <Music className="h-4 w-4" />
+                        <span className="font-medium">{album.track_count || 0} tracks</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-4 w-4" />
+                        <span className="font-medium">{album.total_duration_minutes || 0} min</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      
       <Footer />
     </div>
   );

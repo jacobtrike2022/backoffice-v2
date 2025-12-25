@@ -77,6 +77,7 @@ export default function App() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<
     string | undefined
   >(undefined);
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState<
     string | undefined
   >(undefined);
@@ -293,6 +294,12 @@ export default function App() {
       setEditingPlaylistId(undefined);
     }
 
+    // Clear album/playlist selection when navigating away from assignments
+    if (currentView === "assignments" && view !== "assignments") {
+      setSelectedPlaylistId(undefined);
+      setSelectedAlbumId(null);
+    }
+
     // When navigating to content view, increment key to force ContentLibrary reset
     if (view === "content" && initialTrackId === undefined) {
       setContentLibraryKey(prev => prev + 1);
@@ -396,6 +403,12 @@ export default function App() {
             }
             onNavigateToPlaylist={(playlistId: string) => {
               setSelectedPlaylistId(playlistId);
+              setPreviousView('content');
+              requestNavigate("assignments");
+            }}
+            onNavigateToAlbum={(albumId: string) => {
+              setSelectedAlbumId(albumId);
+              setPreviousView('content');
               requestNavigate("assignments");
             }}
             onNavigate={(view: string) => {
@@ -412,10 +425,6 @@ export default function App() {
         return (
           <Playlists
             currentRole={currentRole}
-            onNavigate={requestNavigate}
-            selectedPlaylistId={selectedPlaylistId}
-            onClearSelection={() => setSelectedPlaylistId(undefined)}
-            onEditTrack={handleEditTrack}
             onOpenPlaylistWizard={() => {
               setEditingPlaylistId(undefined);
               requestNavigate("playlist-wizard");
@@ -423,6 +432,15 @@ export default function App() {
             onEditPlaylist={(playlistId: string) => {
               setEditingPlaylistId(playlistId);
               requestNavigate("playlist-wizard");
+            }}
+            selectedPlaylistId={selectedPlaylistId || undefined}
+            selectedAlbumId={selectedAlbumId || undefined}
+            initialTab={selectedAlbumId ? 'albums' : 'playlists'}
+            previousView={previousView}
+            onBackToPreviousView={() => {
+              setSelectedPlaylistId(undefined);
+              setSelectedAlbumId(null);
+              setPreviousView(null);
             }}
           />
         );

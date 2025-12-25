@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, FolderOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, FolderOpen, ChevronDown, ChevronUp, Edit, Filter } from 'lucide-react';
 import { getRecentAlbums, type Album } from '../lib/crud/albums';
 import { getPlaylists } from '../lib/crud/playlists';
 import { cn } from './ui/utils';
@@ -7,7 +7,10 @@ import { cn } from './ui/utils';
 interface ContentLibrarySidebarProps {
   onPlaylistClick: (playlistId: string) => void;
   onAlbumClick: (albumId: string) => void;
+  onEditPlaylist?: (playlistId: string) => void;  // NEW
+  onEditAlbum?: (albumId: string) => void;        // NEW
   activePlaylistFilter?: string | null;
+  activeAlbumFilter?: string | null;              // NEW
   className?: string;
 }
 
@@ -21,8 +24,11 @@ interface Playlist {
 
 export function ContentLibrarySidebar({ 
   onPlaylistClick, 
-  onAlbumClick, 
+  onAlbumClick,
+  onEditPlaylist,
+  onEditAlbum,
   activePlaylistFilter,
+  activeAlbumFilter,
   className 
 }: ContentLibrarySidebarProps) {
   const [playlistsExpanded, setPlaylistsExpanded] = useState(false);
@@ -131,6 +137,7 @@ export function ContentLibrarySidebar({
                     key={playlist.id} 
                     playlist={playlist} 
                     onClick={() => onPlaylistClick(playlist.id)} 
+                    onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
                     isActive={activePlaylistFilter === playlist.id}
                   />
                 ))}
@@ -142,6 +149,7 @@ export function ContentLibrarySidebar({
                     key={playlist.id} 
                     playlist={playlist} 
                     onClick={() => onPlaylistClick(playlist.id)} 
+                    onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
                     isActive={activePlaylistFilter === playlist.id}
                   />
                 ))}
@@ -200,6 +208,8 @@ export function ContentLibrarySidebar({
                     key={album.id} 
                     album={album} 
                     onClick={() => onAlbumClick(album.id)} 
+                    onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
+                    isActive={activeAlbumFilter === album.id}
                   />
                 ))}
               </div>
@@ -210,6 +220,8 @@ export function ContentLibrarySidebar({
                     key={album.id} 
                     album={album} 
                     onClick={() => onAlbumClick(album.id)} 
+                    onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
+                    isActive={activeAlbumFilter === album.id}
                   />
                 ))}
               </div>
@@ -244,23 +256,41 @@ export function ContentLibrarySidebar({
 interface PlaylistItemProps {
   playlist: Playlist;
   onClick: () => void;
+  onEdit?: () => void;
   isActive?: boolean;
 }
 
-function PlaylistItem({ playlist, onClick, isActive = false }: PlaylistItemProps) {
+function PlaylistItem({ playlist, onClick, onEdit, isActive = false }: PlaylistItemProps) {
   return (
-    <button
-      onClick={onClick}
+    <div
       className={cn(
-        'w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left',
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group',
         isActive
           ? 'bg-primary/20 text-primary border border-primary/30'
           : 'hover:bg-accent/50'
       )}
     >
-      <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      <span className="text-sm text-foreground truncate flex-1">{playlist.title}</span>
-    </button>
+      <button
+        onClick={onClick}
+        className="flex items-center gap-3 flex-1 text-left"
+        title="Filter by playlist"
+      >
+        <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <span className="text-sm text-foreground truncate flex-1">{playlist.title}</span>
+      </button>
+      {onEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded"
+          title="Edit playlist"
+        >
+          <Edit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -268,25 +298,49 @@ function PlaylistItem({ playlist, onClick, isActive = false }: PlaylistItemProps
 interface AlbumItemProps {
   album: Album;
   onClick: () => void;
+  onEdit?: () => void;
+  isActive?: boolean;
 }
 
-function AlbumItem({ album, onClick }: AlbumItemProps) {
+function AlbumItem({ album, onClick, onEdit, isActive = false }: AlbumItemProps) {
   const trackCount = album.track_count || 0;
   const duration = album.total_duration_minutes || 0;
 
   return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-accent/50 transition-colors text-left"
+    <div
+      className={cn(
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group',
+        isActive
+          ? 'bg-primary/20 text-primary border border-primary/30'
+          : 'hover:bg-accent/50'
+      )}
     >
-      <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <span className="text-sm text-foreground truncate block">{album.title}</span>
-        <span className="text-xs text-muted-foreground">
-          {trackCount} {trackCount === 1 ? 'track' : 'tracks'} • {duration} min
-        </span>
-      </div>
-    </button>
+      <button
+        onClick={onClick}
+        className="flex items-center gap-3 flex-1 text-left"
+        title="Filter by album"
+      >
+        <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <span className="text-sm text-foreground truncate block">{album.title}</span>
+          <span className="text-xs text-muted-foreground">
+            {trackCount} {trackCount === 1 ? 'track' : 'tracks'} • {duration} min
+          </span>
+        </div>
+      </button>
+      {onEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded"
+          title="Edit album"
+        >
+          <Edit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+        </button>
+      )}
+    </div>
   );
 }
 
