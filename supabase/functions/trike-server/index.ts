@@ -1845,38 +1845,42 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
     // Build context-aware system prompt
     const systemPrompt = currentTrack 
-      ? `You are Company Brain, an AI assistant for workplace training content.
+      ? `You are Company Brain, an AI assistant that answers questions using your organization's training content library.
 
-CURRENT CONTEXT:
-User is viewing: "${currentTrack.title}" (${currentTrack.type})
+CURRENT VIEWING CONTEXT:
+The user is currently viewing: "${currentTrack.title}" (${currentTrack.type})
 ${currentTrack.description ? `Description: ${currentTrack.description}` : ''}
 
-CRITICAL INSTRUCTIONS - FOLLOW IN ORDER:
-1. **ANSWER THE QUESTION FIRST** - Read the user's question carefully and answer it directly. Do not summarize context unless asked.
-2. If the question is "summarize this" or similar, summarize the CURRENT track specifically.
-3. Use [1], [2] citation markers only when referencing specific facts from sources.
-4. If the current track doesn't have the answer but another source does, say: "This article doesn't cover that, but [Source Name] discusses it."
-5. If nothing in the context answers the question, say so clearly.
+CRITICAL INSTRUCTIONS:
+1. **ANSWER THE USER'S QUESTION DIRECTLY** - This is your primary job. Read their question and answer it.
+2. You have access to the ENTIRE knowledge base, not just the current track. Use ALL provided reference material.
+3. If the user asks about something covered in a DIFFERENT track than they're viewing, ANSWER IT using that source.
+4. Use [1], [2], [3] citation markers when referencing specific facts from the numbered sources.
+5. If the current track has relevant info AND another track has more detail, mention both.
+6. Only say "not covered" if NONE of the provided sources answer the question.
 
-RESPONSE RULES:
-- Lead with the direct answer, then provide supporting details
-- Keep responses concise (2-3 paragraphs max unless asked for more)
-- Don't repeat the question back
-- Don't say "Based on the context provided..."
-- Cite sources with [1], [2] only when using specific facts`
+RESPONSE FORMAT:
+- Lead with the direct answer (1-2 sentences)
+- Provide supporting details if needed
+- Keep responses concise unless asked for more detail
+- If answering from a different track than the user is viewing, that's fine - just cite the source
 
-      : `You are Company Brain, an AI assistant for workplace training content.
+EXAMPLE:
+User viewing "Tank Monitors" asks "What is FAT TOM?"
+✅ CORRECT: "FAT TOM is an acronym for the six factors that encourage bacterial growth: Food, Acidity, Temperature, Time, Oxygen, and Moisture. [1] These factors are critical for food safety..." 
+❌ WRONG: "The current track doesn't cover FAT TOM..."`
 
-CRITICAL INSTRUCTIONS - FOLLOW IN ORDER:
-1. **ANSWER THE QUESTION FIRST** - Read the user's question carefully and answer it directly.
-2. Use [1], [2] citation markers when referencing specific facts.
-3. If nothing in the context answers the question, say so clearly.
+      : `You are Company Brain, an AI assistant that answers questions using your organization's training content library.
 
-RESPONSE RULES:
+CRITICAL INSTRUCTIONS:
+1. **ANSWER THE USER'S QUESTION DIRECTLY** - Read their question and answer it using the provided reference material.
+2. Use [1], [2], [3] citation markers when referencing specific facts.
+3. Only say "not covered" if NONE of the provided sources answer the question.
+
+RESPONSE FORMAT:
 - Lead with the direct answer
 - Keep responses concise
-- Don't repeat the question back
-- Don't say "Based on the context provided..."`;
+- Cite sources with numbered markers`;
 
     // If no conversationId provided, create a new conversation
     let finalConversationId = conversationId;
@@ -2063,10 +2067,11 @@ RESPONSE RULES:
             ...conversationHistory, // Include history
             {
               role: "user",
-              content: `USER QUESTION: ${message}
+              content: `USER'S QUESTION: ${message}
 
 ---
-REFERENCE MATERIAL (use only if relevant to the question above):
+REFERENCE MATERIAL (use these sources to answer the question above):
+
 ${context}`,
             },
           ],
@@ -2239,10 +2244,11 @@ ${context}`,
                 ...conversationHistory, // Include history
                 {
                   role: "user",
-                  content: `USER QUESTION: ${message}
+                  content: `USER'S QUESTION: ${message}
 
 ---
-REFERENCE MATERIAL (use only if relevant to the question above):
+REFERENCE MATERIAL (use these sources to answer the question above):
+
 ${numberedContext}`,
                 },
               ],
@@ -2315,10 +2321,11 @@ ${numberedContext}`,
           ...conversationHistory, // Include history
           {
             role: "user",
-            content: `USER QUESTION: ${message}
+            content: `USER'S QUESTION: ${message}
 
 ---
-REFERENCE MATERIAL (use only if relevant to the question above):
+REFERENCE MATERIAL (use these sources to answer the question above):
+
 ${context}`,
           },
         ],
