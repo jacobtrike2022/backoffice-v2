@@ -202,6 +202,56 @@ export async function getPlaylists(filters: {
 }
 
 /**
+ * Get playlist title and track IDs only (lightweight, for filtering)
+ * This is optimized for filtering operations where we don't need full playlist data
+ */
+export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: string; track_ids: string[] } | null> {
+  // Run all independent queries in parallel for maximum speed
+  const [playlistResult, playlistTracksResult, playlistAlbumsResult] = await Promise.all([
+    // Get playlist title
+    supabase
+      .from('playlists')
+      .select('id, title')
+      .eq('id', playlistId)
+      .single(),
+    // Get standalone track IDs (no joins needed)
+    supabase
+      .from('playlist_tracks')
+      .select('track_id')
+      .eq('playlist_id', playlistId),
+    // Get album IDs
+    supabase
+      .from('playlist_albums')
+      .select('album_id')
+      .eq('playlist_id', playlistId),
+  ]);
+
+  if (playlistResult.error || !playlistResult.data) return null;
+
+  const albumIds = (playlistAlbumsResult.data || []).map((pa: any) => pa.album_id).filter(Boolean);
+
+  // Get track IDs from albums (only if there are albums)
+  let albumTrackIds: string[] = [];
+  if (albumIds.length > 0) {
+    const { data: albumTracks } = await supabase
+      .from('album_tracks')
+      .select('track_id')
+      .in('album_id', albumIds);
+    
+    albumTrackIds = (albumTracks || []).map((at: any) => at.track_id).filter(Boolean);
+  }
+
+  // Combine standalone tracks and album tracks, deduplicate
+  const standaloneTrackIds = (playlistTracksResult.data || []).map((pt: any) => pt.track_id).filter(Boolean);
+  const allTrackIds = [...new Set([...standaloneTrackIds, ...albumTrackIds])];
+
+  return {
+    title: playlistResult.data.title,
+    track_ids: allTrackIds,
+  };
+}
+
+/**
  * Get a single playlist by ID with full details
  */
 export async function getPlaylistById(playlistId: string) {

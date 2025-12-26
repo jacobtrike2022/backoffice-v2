@@ -1845,34 +1845,38 @@ async function handleBrainChat(req: Request): Promise<Response> {
 
     // Build context-aware system prompt
     const systemPrompt = currentTrack 
-      ? `You are Company Brain, an intelligent assistant that helps employees find answers from their organization's training content.
+      ? `You are Company Brain, an AI assistant for workplace training content.
 
 CURRENT CONTEXT:
-The user is currently viewing: "${currentTrack.title}" (${currentTrack.type})
+User is viewing: "${currentTrack.title}" (${currentTrack.type})
 ${currentTrack.description ? `Description: ${currentTrack.description}` : ''}
 
-INSTRUCTIONS:
-1. When you use information from the provided context, add citation markers like [1], [2], etc. Each number corresponds to the source order in the context.
-2. Prioritize information from the current track when answering questions like "summarize this" or "what's the key takeaway"
-3. If other tracks in the context contain MORE relevant or detailed information on the topic, mention them: "For more detailed information on [topic], see [Track Title]"
-4. If the question is about something not covered in the current track but IS covered in another source, say so clearly
-5. Keep citations minimal - only cite sources you actually use
-6. If the context doesn't contain the answer, say so without making up information
+CRITICAL INSTRUCTIONS - FOLLOW IN ORDER:
+1. **ANSWER THE QUESTION FIRST** - Read the user's question carefully and answer it directly. Do not summarize context unless asked.
+2. If the question is "summarize this" or similar, summarize the CURRENT track specifically.
+3. Use [1], [2] citation markers only when referencing specific facts from sources.
+4. If the current track doesn't have the answer but another source does, say: "This article doesn't cover that, but [Source Name] discusses it."
+5. If nothing in the context answers the question, say so clearly.
 
-RESPONSE STYLE:
-- Be concise and direct
-- Use bullet points only when listing 3+ items
-- Bold key terms or important facts
-- When suggesting related tracks, be specific about what additional information they contain`
+RESPONSE RULES:
+- Lead with the direct answer, then provide supporting details
+- Keep responses concise (2-3 paragraphs max unless asked for more)
+- Don't repeat the question back
+- Don't say "Based on the context provided..."
+- Cite sources with [1], [2] only when using specific facts`
 
-      : `You are Company Brain, an intelligent assistant that helps employees find answers from their organization's training content.
+      : `You are Company Brain, an AI assistant for workplace training content.
 
-INSTRUCTIONS:
-1. When you use information from the provided context, add citation markers like [1], [2], etc.
-2. Only cite sources you actually use
-3. Place citation markers at the end of the relevant sentence or claim
-4. If the context doesn't contain the answer, say so without citations
-5. Keep citations minimal - don't over-cite`;
+CRITICAL INSTRUCTIONS - FOLLOW IN ORDER:
+1. **ANSWER THE QUESTION FIRST** - Read the user's question carefully and answer it directly.
+2. Use [1], [2] citation markers when referencing specific facts.
+3. If nothing in the context answers the question, say so clearly.
+
+RESPONSE RULES:
+- Lead with the direct answer
+- Keep responses concise
+- Don't repeat the question back
+- Don't say "Based on the context provided..."`;
 
     // If no conversationId provided, create a new conversation
     let finalConversationId = conversationId;
@@ -1963,6 +1967,25 @@ INSTRUCTIONS:
       return jsonResponse({ error: userMsgError.message }, 500);
     }
 
+    // Fetch conversation history if we have a conversationId
+    let conversationHistory: Array<{role: string, content: string}> = [];
+    if (finalConversationId) {
+      const { data: historyMessages } = await supabase
+        .from("brain_messages")
+        .select("role, content")
+        .eq("conversation_id", finalConversationId)
+        .order("created_at", { ascending: true })
+        .limit(6); // Last 6 messages (3 exchanges)
+      
+      if (historyMessages && historyMessages.length > 0) {
+        // Don't include the message we just saved
+        conversationHistory = historyMessages.slice(0, -1).map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content
+        }));
+      }
+    }
+
     // Generate query embedding
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(message);
@@ -2037,9 +2060,14 @@ INSTRUCTIONS:
               role: "system",
               content: systemPrompt,
             },
+            ...conversationHistory, // Include history
             {
               role: "user",
-              content: `Context:\n${context}\n\nQuestion: ${message}`,
+              content: `USER QUESTION: ${message}
+
+---
+REFERENCE MATERIAL (use only if relevant to the question above):
+${context}`,
             },
           ],
           temperature: 0.7,
@@ -2208,9 +2236,14 @@ INSTRUCTIONS:
                   role: "system",
                   content: systemPrompt,
                 },
+                ...conversationHistory, // Include history
                 {
                   role: "user",
-                  content: `Context:\n${numberedContext}\n\nQuestion: ${message}`,
+                  content: `USER QUESTION: ${message}
+
+---
+REFERENCE MATERIAL (use only if relevant to the question above):
+${numberedContext}`,
                 },
               ],
               temperature: 0.7,
@@ -2279,9 +2312,14 @@ INSTRUCTIONS:
             role: "system",
             content: systemPrompt,
           },
+          ...conversationHistory, // Include history
           {
             role: "user",
-            content: `Context:\n${context}\n\nQuestion: ${message}`,
+            content: `USER QUESTION: ${message}
+
+---
+REFERENCE MATERIAL (use only if relevant to the question above):
+${context}`,
           },
         ],
         temperature: 0.7,

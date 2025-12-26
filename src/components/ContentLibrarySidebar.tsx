@@ -263,21 +263,19 @@ interface PlaylistItemProps {
 function PlaylistItem({ playlist, onClick, onEdit, isActive = false }: PlaylistItemProps) {
   return (
     <div
+      onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group',
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer',
         isActive
           ? 'bg-primary/20 text-primary border border-primary/30'
           : 'hover:bg-accent/50'
       )}
+      title="Filter by playlist"
     >
-      <button
-        onClick={onClick}
-        className="flex items-center gap-3 flex-1 text-left"
-        title="Filter by playlist"
-      >
+      <div className="flex items-center gap-3 flex-1 text-left">
         <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
         <span className="text-sm text-foreground truncate flex-1">{playlist.title}</span>
-      </button>
+      </div>
       {onEdit && (
         <button
           onClick={(e) => {
@@ -308,18 +306,16 @@ function AlbumItem({ album, onClick, onEdit, isActive = false }: AlbumItemProps)
 
   return (
     <div
+      onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group',
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer',
         isActive
           ? 'bg-primary/20 text-primary border border-primary/30'
           : 'hover:bg-accent/50'
       )}
+      title="Filter by album"
     >
-      <button
-        onClick={onClick}
-        className="flex items-center gap-3 flex-1 text-left"
-        title="Filter by album"
-      >
+      <div className="flex items-center gap-3 flex-1 text-left">
         <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <span className="text-sm text-foreground truncate block">{album.title}</span>
@@ -327,7 +323,7 @@ function AlbumItem({ album, onClick, onEdit, isActive = false }: AlbumItemProps)
             {trackCount} {trackCount === 1 ? 'track' : 'tracks'} • {duration} min
           </span>
         </div>
-      </button>
+      </div>
       {onEdit && (
         <button
           onClick={(e) => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -32,7 +32,8 @@ import {
   Copy,
   MoreVertical,
   Archive,
-  Plus
+  Plus,
+  FolderOpen
 } from 'lucide-react';
 import {
   Select,
@@ -143,6 +144,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [filterByPlaylistId, setFilterByPlaylistId] = useState<string | null>(null);
   const [filterPlaylistTracks, setFilterPlaylistTracks] = useState<string[]>([]);
   const [filterPlaylistTitle, setFilterPlaylistTitle] = useState<string>('');
+  const [filterByAlbumId, setFilterByAlbumId] = useState<string | null>(null);
+  const [filterAlbumTracks, setFilterAlbumTracks] = useState<string[]>([]);
+  const [filterAlbumTitle, setFilterAlbumTitle] = useState<string>('');
+
+  // Memoize filter Sets for O(1) lookups instead of O(n) array.includes()
+  const filterPlaylistTracksSet = useMemo(() => new Set(filterPlaylistTracks), [filterPlaylistTracks]);
+  const filterAlbumTracksSet = useMemo(() => new Set(filterAlbumTracks), [filterAlbumTracks]);
 
   // Register unsaved changes check from child editors
   const registerUnsavedChangesCheckLocal = useCallback((checkFn: (() => boolean) | null) => {
@@ -188,10 +196,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     search: searchQuery || undefined
   });
 
-  // Debug logging
-  console.log('ContentLibrary - tracks:', tracks);
-  console.log('ContentLibrary - loading:', loading);
-  console.log('ContentLibrary - error:', error);
+  // Debug logging (disabled for performance - enable only when needed)
+  // console.log('ContentLibrary - tracks:', tracks);
+  // console.log('ContentLibrary - loading:', loading);
+  // console.log('ContentLibrary - error:', error);
 
   // Load initial track from URL if provided - ONLY ONCE
   useEffect(() => {
@@ -604,10 +612,47 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   };
 
   // Handler for album clicks from sidebar (filters content)
-  const handleAlbumClick = (albumId: string) => {
-    console.log('Album clicked, filtering by:', albumId);
-    // TODO: Implement album filtering similar to playlist filtering
-    toast.info('Album filtering coming soon!');
+  const handleAlbumClick = async (albumId: string) => {
+    if (filterByAlbumId === albumId) {
+      // Clicking same album clears the filter
+      setFilterByAlbumId(null);
+      setFilterAlbumTracks([]);
+      setFilterAlbumTitle('');
+      toast.info('Album filter cleared');
+      return;
+    }
+
+    try {
+      // Fetch album data first (before any state updates)
+      // This keeps the old filter active during fetch, preventing a flash of all tracks
+      const { getAlbumById } = await import('../lib/crud/albums');
+      const album = await getAlbumById(albumId);
+      if (!album) {
+        toast.error('Album not found');
+        return;
+      }
+
+      // Extract track IDs from album.tracks
+      const trackIds = (album.tracks || []).map(at => at.track_id);
+
+      // Atomically swap filters: clear old + set new in one synchronous batch
+      // React 18 automatically batches these state updates in event handlers
+      setFilterByPlaylistId(null);
+      setFilterPlaylistTracks([]);
+      setFilterPlaylistTitle('');
+      setFilterByAlbumId(albumId);
+      setFilterAlbumTracks(trackIds);
+      setFilterAlbumTitle(album.title || 'Album');
+
+      if (trackIds.length === 0) {
+        toast.info(`"${album.title}" has no tracks yet`);
+      } else {
+        toast.success(`Filtering by "${album.title}" (${trackIds.length} tracks)`);
+      }
+    } catch (error) {
+      console.error('Failed to load album:', error);
+      toast.error('Failed to load album');
+    }
   };
 
   // Handler for edit album navigation
@@ -626,8 +671,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Handler for playlist clicks from sidebar (filters content)
   const handlePlaylistClick = async (playlistId: string) => {
-    console.log('Playlist clicked, filtering by:', playlistId);
-
     if (filterByPlaylistId === playlistId) {
       // Clicking same playlist clears the filter
       setFilterByPlaylistId(null);
@@ -638,25 +681,31 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
 
     try {
-      const playlist = await crud.getPlaylistById(playlistId);
-      if (!playlist) {
+      // Fetch playlist data first (before any state updates)
+      // This keeps the old filter active during fetch, preventing a flash of all tracks
+      const { getPlaylistTrackIds } = await import('../lib/crud/playlists');
+      const playlistData = await getPlaylistTrackIds(playlistId);
+      
+      if (!playlistData) {
         toast.error('Playlist not found');
         return;
       }
 
-      // getPlaylistById already extracts track_ids for us
-      const trackIds = playlist.track_ids || [];
-      
-      console.log('Playlist track IDs:', trackIds);
+      const trackIds = playlistData.track_ids || [];
 
+      // Atomically swap filters: clear old + set new in one synchronous batch
+      // React 18 automatically batches these state updates in event handlers
+      setFilterByAlbumId(null);
+      setFilterAlbumTracks([]);
+      setFilterAlbumTitle('');
       setFilterByPlaylistId(playlistId);
       setFilterPlaylistTracks(trackIds);
-      setFilterPlaylistTitle(playlist.title || 'Playlist');
+      setFilterPlaylistTitle(playlistData.title || 'Playlist');
 
       if (trackIds.length === 0) {
-        toast.info(`"${playlist.title}" has no tracks yet`);
+        toast.info(`"${playlistData.title}" has no tracks yet`);
       } else {
-        toast.success(`Filtering by "${playlist.title}" (${trackIds.length} tracks)`);
+        toast.success(`Filtering by "${playlistData.title}" (${trackIds.length} tracks)`);
       }
     } catch (error) {
       console.error('Failed to load playlist:', error);
@@ -684,16 +733,25 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     }
   };
 
-  // Sort tracks
-  const sortedTracks = [...(tracks || [])].sort((a, b) => {
-    if (sortBy === 'title') return a.title.localeCompare(b.title);
-    if (sortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
-    return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
-  });
+  // Memoize sorted tracks to avoid re-sorting on every render
+  const sortedTracks = useMemo(() => {
+    if (!tracks || tracks.length === 0) return [];
+    return [...tracks].sort((a, b) => {
+      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      if (sortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
+      return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
+    });
+  }, [tracks, sortBy]);
 
-  const filteredTracks = filterByPlaylistId && filterPlaylistTracks.length > 0
-    ? sortedTracks.filter(track => filterPlaylistTracks.includes(track.id))
-    : sortedTracks;
+  // Memoize filtered tracks with Set-based lookups for O(1) performance
+  const filteredTracks = useMemo(() => {
+    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
+      return sortedTracks.filter(track => filterPlaylistTracksSet.has(track.id));
+    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
+      return sortedTracks.filter(track => filterAlbumTracksSet.has(track.id));
+    }
+    return sortedTracks;
+  }, [sortedTracks, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
 
   // Loading state - only show skeleton on initial load, not on refetch
   if (loading && (!tracks || tracks.length === 0)) {
@@ -1100,6 +1158,25 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             </Badge>
           </div>
         )}
+        {filterByAlbumId && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="flex items-center gap-1">
+              <FolderOpen className="h-3 w-3" />
+              Filtered by: {filterAlbumTitle}
+              <button
+                onClick={() => {
+                  setFilterByAlbumId(null);
+                  setFilterAlbumTracks([]);
+                  setFilterAlbumTitle('');
+                }}
+                className="text-xs text-destructive hover:text-destructive/80"
+                aria-label="Clear album filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* Track Grid/List */}
@@ -1114,10 +1191,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   ? `The playlist "${filterPlaylistTitle}" has ${filterPlaylistTracks.length} track(s), but none match the current "${statusFilter}" filter. Try changing the status filter above.`
                   : filterByPlaylistId
                   ? `"${filterPlaylistTitle}" has no tracks yet.`
+                  : filterByAlbumId && filterAlbumTracks.length > 0
+                  ? `The album "${filterAlbumTitle}" has ${filterAlbumTracks.length} track(s), but none match the current "${statusFilter}" filter. Try changing the status filter above.`
+                  : filterByAlbumId
+                  ? `"${filterAlbumTitle}" has no tracks yet.`
                   : 'Try adjusting your search or filters'
                 }
               </p>
-              {filterByPlaylistId && (
+              {(filterByPlaylistId || filterByAlbumId) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1126,10 +1207,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     setFilterByPlaylistId(null);
                     setFilterPlaylistTracks([]);
                     setFilterPlaylistTitle('');
+                    setFilterByAlbumId(null);
+                    setFilterAlbumTracks([]);
+                    setFilterAlbumTitle('');
                   }}
                 >
                   <X className="h-4 w-4 mr-2" />
-                  Clear playlist filter
+                  Clear filter
                 </Button>
               )}
             </div>
@@ -1307,11 +1391,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     // Build complete tag list with metadata
                     const allTags: Array<{ name: string; color?: string; isSystem: boolean }> = [];
                     
-                    // Debug logging
-                    if (track.track_tags) {
-                      console.log('Track tags for', track.title, ':', track.track_tags);
-                    }
-                    
                     // Get tags from track_tags (with color info) - NEW SYSTEM
                     if (track.track_tags && Array.isArray(track.track_tags)) {
                       track.track_tags.forEach((tt: any) => {
@@ -1348,8 +1427,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         isSystem: true
                       });
                     }
-                    
-                    console.log('All tags for', track.title, ':', allTags);
                     
                     // Limit to first ~4 tags (approximating 2 lines)
                     const displayTags = allTags.slice(0, 4);
@@ -1694,7 +1771,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onEditPlaylist={onNavigateToPlaylist ? handleEditPlaylist : undefined}
             onEditAlbum={onNavigateToAlbum ? handleEditAlbum : undefined}
             activePlaylistFilter={filterByPlaylistId}
-            activeAlbumFilter={null}  // TODO: Add album filtering state if needed
+            activeAlbumFilter={filterByAlbumId}
           />
         </div>
       </div>
