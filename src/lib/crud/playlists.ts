@@ -223,7 +223,7 @@ export async function getPlaylistById(playlistId: string) {
       id,
       display_order,
       release_stage,
-      album:albums(
+      albums(
         id,
         title,
         description,
@@ -241,7 +241,7 @@ export async function getPlaylistById(playlistId: string) {
       id,
       display_order,
       release_stage,
-      track:tracks(
+      tracks(
         id,
         title,
         description,
@@ -259,14 +259,26 @@ export async function getPlaylistById(playlistId: string) {
     .eq('playlist_id', playlistId)
     .in('status', ['assigned', 'in_progress', 'completed']);
 
+  // Normalize response structure - Supabase may return albums/tracks under different keys
+  // Normalize to always use 'album' and 'track' keys for consistency
+  const normalizedAlbums = (playlistAlbums || []).map((pa: any) => ({
+    ...pa,
+    album: pa.albums || pa.album, // Support both structures
+  }));
+  
+  const normalizedTracks = (playlistTracks || []).map((pt: any) => ({
+    ...pt,
+    track: pt.tracks || pt.track, // Support both structures
+  }));
+
   // Extract album and track IDs for easier access
-  const album_ids = playlistAlbums?.map((pa: any) => pa.album.id).filter(Boolean) || [];
-  const track_ids = playlistTracks?.map((pt: any) => pt.track.id).filter(Boolean) || [];
+  const album_ids = normalizedAlbums.map((pa: any) => pa.album?.id).filter(Boolean) || [];
+  const track_ids = normalizedTracks.map((pt: any) => pt.track?.id).filter(Boolean) || [];
 
   return {
     ...playlist,
-    albums: playlistAlbums || [],
-    tracks: playlistTracks || [],
+    albums: normalizedAlbums,
+    tracks: normalizedTracks,
     album_ids,
     track_ids,
     assignment_count: assignmentCount || 0,

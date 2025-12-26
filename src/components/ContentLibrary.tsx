@@ -1263,11 +1263,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     </Popover>
                   </div>
                   {/* Duration/Reading Time Badge */}
-                  {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
+                  {(track.duration_minutes || (track.type === 'article' && track.transcript) || (track.type === 'checkpoint' && track.transcript)) && (
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
                       {track.type === 'article' 
                         ? calculateReadingTime(track.transcript || '')
-                        : track.duration_minutes
+                        : track.duration_minutes || 0
                       } min
                     </div>
                   )}
@@ -1466,7 +1466,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           <Clock className="h-4 w-4" />
                           {track.type === 'article' 
                             ? calculateReadingTime(track.transcript || '')
-                            : track.duration_minutes
+                            : track.duration_minutes || 0
                           } min
                         </div>
                       )}

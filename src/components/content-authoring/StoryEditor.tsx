@@ -40,7 +40,8 @@ import {
   Zap,
   CheckCircle2,
   Eye,
-  ThumbsUp
+  ThumbsUp,
+  Clock
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
@@ -682,17 +683,18 @@ export function StoryEditor({
   };
 
   const handleKBToggle = async (checked: boolean) => {
+    // If toggling ON, open modal immediately (before database update)
+    if (checked) {
+      setTagSelectorConfig({
+        systemCategory: 'knowledge-base',
+        restrictToParentName: 'KB Category'
+      });
+      setIsTagSelectorOpen(true);
+    }
+
     if (isEditMode) {
       // In edit mode, update the local state
       setShowInKnowledgeBase(checked);
-      
-      if (checked) {
-        setTagSelectorConfig({
-          systemCategory: 'knowledge-base',
-          restrictToParentName: 'KB Category'
-        });
-        setIsTagSelectorOpen(true);
-      }
     } else {
       // In view mode, update the track directly in the database
       try {
@@ -722,14 +724,6 @@ export function StoryEditor({
         // Refresh the track data
         if (onUpdate) {
           onUpdate();
-        }
-        
-        if (checked) {
-          setTagSelectorConfig({
-            systemCategory: 'knowledge-base',
-            restrictToParentName: 'KB Category'
-          });
-          setIsTagSelectorOpen(true);
         }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
@@ -1724,6 +1718,16 @@ export function StoryEditor({
                   <div>
                     <p className="text-muted-foreground text-xs">Format</p>
                     <p className="font-medium">Portrait (9:16) • {slides.length} Slides</p>
+                  </div>
+                </div>
+                <Separator />
+                <div className="flex items-start space-x-3">
+                  <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground text-xs">Est. Duration</p>
+                    <p className="font-medium">
+                      {existingTrack.duration_minutes || storyDuration} {(existingTrack.duration_minutes || storyDuration) === 1 ? 'min' : 'mins'}
+                    </p>
                   </div>
                 </div>
               </CardContent>

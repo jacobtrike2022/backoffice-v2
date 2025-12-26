@@ -23,6 +23,7 @@ import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog"
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { PublicKBViewer } from "./components/PublicKBViewer";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
@@ -548,7 +549,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       {/* Show loading state while checking auth */}
       {authLoading && (
         <div style={{
@@ -617,6 +618,6 @@ export default function App() {
           </>
         );
       })()}
-    </>
+    </ErrorBoundary>
   );
 }

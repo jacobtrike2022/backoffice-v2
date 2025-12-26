@@ -282,12 +282,13 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         setPlaylistDescription(playlist.description || '');
         setAssignmentType(playlist.type || 'manual');
         
-        // Load tags
+        // Load tags - store in variable for use in originalState
+        let loadedTags: any[] = [];
         try {
-          const tags = await getEntityTags(existingPlaylistId, 'playlist');
-          console.log('🏷️ Loaded playlist tags:', tags);
-          setPlaylistTags(tags.map(t => t.name));
-          setSelectedTagObjects(tags);
+          loadedTags = await getEntityTags(existingPlaylistId, 'playlist');
+          console.log('🏷️ Loaded playlist tags:', loadedTags);
+          setPlaylistTags(loadedTags.map(t => t.name));
+          setSelectedTagObjects(loadedTags);
         } catch (error) {
           console.error('Error loading playlist tags:', error);
           // Clear tag state on error to avoid stale data
@@ -350,7 +351,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           playlistName: playlist.title || '',
           playlistDescription: playlist.description || '',
           assignmentType: playlist.type || 'manual',
-          playlistTags: tags.map(t => t.name),
+          playlistTags: loadedTags.map(t => t.name),
           triggerConditions: playlist.type === 'auto' && playlist.trigger_rules 
             ? [{ field: 'role', operator: 'equals', value: '' }] 
             : [{ field: 'role', operator: 'equals', value: '' }],

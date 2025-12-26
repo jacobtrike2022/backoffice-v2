@@ -143,9 +143,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             setPassingScore(checkpointData.passingScore.toString());
             parsedPassingScore = checkpointData.passingScore.toString();
           }
-          if (checkpointData.timeLimit) {
+          if (checkpointData.timeLimit != null) {
             setTimeLimit(checkpointData.timeLimit.toString());
             parsedTimeLimit = checkpointData.timeLimit.toString();
+          } else {
+            setTimeLimit('');
+            parsedTimeLimit = '';
           }
         } catch (e) {
           console.error('Error parsing checkpoint data:', e);
@@ -214,9 +217,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             setPassingScore(checkpointData.passingScore.toString());
             parsedPassingScore = checkpointData.passingScore.toString();
           }
-          if (checkpointData.timeLimit) {
+          if (checkpointData.timeLimit != null) {
             setTimeLimit(checkpointData.timeLimit.toString());
             parsedTimeLimit = checkpointData.timeLimit.toString();
+          } else {
+            setTimeLimit('');
+            parsedTimeLimit = '';
           }
         } catch (e) {
           console.error('Error parsing checkpoint data:', e);
@@ -545,8 +551,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration from question count (1 min per question)
-      const calculatedDuration = questions.length;
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
+      const calculatedDuration = hasTimeLimit 
+        ? parseInt(timeLimit) 
+        : questions.length;
 
       const trackData = {
         title,
@@ -602,7 +611,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             const checkpointData = JSON.parse(track.transcript);
             if (checkpointData.questions) setQuestions(checkpointData.questions);
             if (checkpointData.passingScore) setPassingScore(checkpointData.passingScore.toString());
-            if (checkpointData.timeLimit) setTimeLimit(checkpointData.timeLimit.toString());
+            if (checkpointData.timeLimit != null) {
+            setTimeLimit(checkpointData.timeLimit.toString());
+          } else {
+            setTimeLimit('');
+          }
           } catch (e) {
             console.error('Error parsing checkpoint data:', e);
           }
@@ -646,8 +659,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration from question count (1 min per question)
-      const calculatedDuration = questions.length;
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
+      const calculatedDuration = hasTimeLimit 
+        ? parseInt(timeLimit) 
+        : questions.length;
 
       const trackData = {
         title,
@@ -828,12 +844,18 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
+      const calculatedDuration = hasTimeLimit 
+        ? parseInt(timeLimit) 
+        : questions.length;
+
       const trackData = {
         title,
         description,
         type: 'checkpoint' as const,
         transcript: JSON.stringify(checkpointData),
-        duration_minutes: timeLimit ? parseInt(timeLimit) : 0,
+        duration_minutes: calculatedDuration,
         tags,
         thumbnail_url: thumbnailUrl,
         status: 'published' as const
@@ -1192,6 +1214,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 <div>
                   <p className="text-muted-foreground">Total Questions</p>
                   <p className="text-2xl font-bold text-foreground">{questions.length}</p>
+                </div>
+                <Separator />
+                <div>
+                  <p className="text-muted-foreground">Est. Duration</p>
+                  <p className="font-medium text-foreground">
+                    {timeLimit && timeLimit.trim() !== '' 
+                      ? `${timeLimit} ${parseInt(timeLimit) === 1 ? 'min' : 'mins'}`
+                      : `${questions.length} ${questions.length === 1 ? 'min' : 'mins'}`
+                    }
+                  </p>
                 </div>
                 <Separator />
                 <div>

@@ -300,12 +300,17 @@ export async function createTrack(input: CreateTrackInput) {
       }
     }
     
-    calculatedDuration = calculateTrackDuration(input.type, {
+    const autoCalculated = calculateTrackDuration(input.type, {
       transcript: input.transcript,
       storyData,
       checkpointData,
       duration_minutes: input.duration_minutes
     });
+    
+    // Only use auto-calculated duration if it's not undefined
+    if (autoCalculated !== undefined) {
+      calculatedDuration = autoCalculated;
+    }
   }
 
   const { data: track, error } = await supabase
@@ -563,10 +568,11 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   // Handle Brain indexing based on status change
   const previousStatus = existingTrack?.status;
-  const trackType = track.type || existingTrack?.type || 'article';
+  // Update trackType with the final track data (may have changed during update)
+  const finalTrackType = track.type || existingTrack?.type || 'article';
   
   // Get transcript for videos if needed
-  if (trackType === 'video' && track.status === 'published') {
+  if (finalTrackType === 'video' && track.status === 'published') {
     getTrackTranscript(track.id).then(transcript => {
       handleTrackStatusChange(track, previousStatus, transcript).catch(() => {});
     }).catch(() => {
