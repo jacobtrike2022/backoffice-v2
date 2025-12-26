@@ -1901,9 +1901,15 @@ CRITICAL INSTRUCTIONS:
 1. **ANSWER THE USER'S QUESTION DIRECTLY** - This is your primary job. Read their question and answer it.
 2. You have access to the ENTIRE knowledge base, not just the current track. Use ALL provided reference material.
 3. If the user asks about something covered in a DIFFERENT track than they're viewing, ANSWER IT using that source.
-4. Use [1], [2], [3] citation markers when referencing specific facts from the numbered sources.
-5. If the current track has relevant info AND another track has more detail, mention both.
+4. **ALWAYS USE CITATION MARKERS** - Every factual claim MUST include a citation like [1], [2], [3] at the end of the sentence. This is MANDATORY, not optional.
+5. If the current track has relevant info AND another track has more detail, mention both with appropriate citations.
 6. Only say "not covered" if NONE of the provided sources answer the question.
+
+CITATION RULES (MANDATORY):
+- Add [1] after facts from Source 1, [2] after facts from Source 2, etc.
+- Example: "FAT TOM stands for Food, Acidity, Temperature, Time, Oxygen, and Moisture. [1]"
+- Never skip citations - every fact needs one
+- If multiple sources support a claim, use multiple markers: "This is important. [1][3]"
 
 RESPONSE FORMAT:
 - Lead with the direct answer (1-2 sentences)
@@ -1920,8 +1926,12 @@ User viewing "Tank Monitors" asks "What is FAT TOM?"
 
 CRITICAL INSTRUCTIONS:
 1. **ANSWER THE USER'S QUESTION DIRECTLY** - Read their question and answer it using the provided reference material.
-2. Use [1], [2], [3] citation markers when referencing specific facts.
+2. **ALWAYS USE CITATION MARKERS** - Every factual claim MUST include [1], [2], [3] at the end of the sentence.
 3. Only say "not covered" if NONE of the provided sources answer the question.
+
+CITATION RULES (MANDATORY):
+- Add [1] after facts from Source 1, [2] after facts from Source 2, etc.
+- Never skip citations - every fact needs one
 
 RESPONSE FORMAT:
 - Lead with the direct answer
