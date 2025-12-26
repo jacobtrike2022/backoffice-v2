@@ -1958,6 +1958,26 @@ async function handleBrainChat(req: Request): Promise<Response> {
       return jsonResponse({ error: "message is required" }, 400);
     }
 
+    // Fetch conversation history if we have a conversationId
+    let conversationHistory: Array<{role: string, content: string}> = [];
+    let finalConversationId = conversationId;
+    
+    if (conversationId) {
+      const { data: historyMessages } = await supabase
+        .from("brain_messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(6); // Last 6 messages (3 exchanges)
+      
+      if (historyMessages && historyMessages.length > 0) {
+        conversationHistory = historyMessages.map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content
+        }));
+      }
+    }
+
     // Fetch current track context if trackId provided
     let currentTrack: { title: string; type: string; description?: string } | null = null;
     if (trackId) {
@@ -1973,390 +1993,78 @@ async function handleBrainChat(req: Request): Promise<Response> {
       }
     }
 
-    // Build context-aware system prompt
-    const systemPrompt = currentTrack 
-      ? `You are Company Brain, an AI assistant that answers questions using your organization's training content library.
+    const systemPrompt = `You are Company Brain, an AI that answers questions using ONLY the provided source material.
 
-CURRENT VIEWING CONTEXT:
-The user is currently viewing: "${currentTrack.title}" (${currentTrack.type})
-${currentTrack.description ? `Description: ${currentTrack.description}` : ''}
+RULES:
+1. Answer ONLY using the sources provided below - never use outside knowledge
+2. Add [1], [2], [3] after EVERY sentence that states a fact (matching the source number)
+3. If the answer isn't in the sources, say \"I couldn't find this in your training materials\"
 
-CRITICAL INSTRUCTIONS:
-1. **ANSWER THE USER'S QUESTION DIRECTLY** - This is your primary job. Read their question and answer it.
-2. You have access to the ENTIRE knowledge base, not just the current track. Use ALL provided reference material.
-3. If the user asks about something covered in a DIFFERENT track than they're viewing, ANSWER IT using that source.
-4. **ALWAYS USE CITATION MARKERS** - Every factual claim MUST include a citation like [1], [2], [3] at the end of the sentence. This is MANDATORY, not optional.
-5. If the current track has relevant info AND another track has more detail, mention both with appropriate citations.
-6. Only say "not covered" if NONE of the provided sources answer the question.
+EXAMPLE FORMAT:
+"Employees must check ID for anyone appearing under 40. [1] The ID should be checked for date of birth and photo. [1]"
 
-CITATION RULES (MANDATORY):
-- Add [1] after facts from Source 1, [2] after facts from Source 2, etc.
-- Example: "FAT TOM stands for Food, Acidity, Temperature, Time, Oxygen, and Moisture. [1]"
-- Never skip citations - every fact needs one
-- If multiple sources support a claim, use multiple markers: "This is important. [1][3]"
+${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
 
-RESPONSE FORMAT:
-- Lead with the direct answer (1-2 sentences)
-- Provide supporting details if needed
-- Keep responses concise unless asked for more detail
-- If answering from a different track than the user is viewing, that's fine - just cite the source
-
-EXAMPLE:
-User viewing "Tank Monitors" asks "What is FAT TOM?"
-✅ CORRECT: "FAT TOM is an acronym for the six factors that encourage bacterial growth: Food, Acidity, Temperature, Time, Oxygen, and Moisture. [1] These factors are critical for food safety..." 
-❌ WRONG: "The current track doesn't cover FAT TOM..."`
-
-      : `You are Company Brain, an AI assistant that answers questions using your organization's training content library.
-
-CRITICAL INSTRUCTIONS:
-1. **ANSWER THE USER'S QUESTION DIRECTLY** - Read their question and answer it using the provided reference material.
-2. **ALWAYS USE CITATION MARKERS** - Every factual claim MUST include [1], [2], [3] at the end of the sentence.
-3. Only say "not covered" if NONE of the provided sources answer the question.
-
-CITATION RULES (MANDATORY):
-- Add [1] after facts from Source 1, [2] after facts from Source 2, etc.
-- Never skip citations - every fact needs one
-
-RESPONSE FORMAT:
-- Lead with the direct answer
-- Keep responses concise
-- Cite sources with numbered markers`;
-
-    // If no conversationId provided, create a new conversation
-    let finalConversationId = conversationId;
-    if (!finalConversationId) {
-      // Try to get user ID from token (may be null for anon/demo mode)
-      let userId: string | null = null;
-      try {
-        const authHeader = req.headers.get("Authorization");
-        const token = authHeader?.replace("Bearer ", "") || "";
-        
-        // Only try to get user if we have a token that's not the anon key
-        if (token && token.length > 100) { // JWTs are typically much longer than anon keys
-          const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-          if (!userError && user) {
-            // Verify user exists in user_profiles table (foreign key reference)
-            // The foreign key constraint requires the user to exist in the referenced table
-            const { data: profile, error: profileError } = await supabase
-              .from("user_profiles")
-              .select("id")
-              .eq("id", user.id)
-              .maybeSingle();
-            
-            if (!profileError && profile && profile.id) {
-              userId = user.id;
-              console.log(`[Brain] Got valid user ID from token: ${userId}`);
-            } else {
-              // User doesn't exist in user_profiles (e.g., PIN login users)
-              // Use null to avoid foreign key constraint violation
-              console.log(`[Brain] User ${user.id} not found in user_profiles (PIN login?), using anonymous mode`);
-              userId = null;
-            }
-          }
-        } else {
-          // Anon key or invalid token - use anonymous mode
-          console.log("[Brain] Using anonymous mode (anon key or no valid token)");
-          userId = null;
-        }
-      } catch (e) {
-        console.log("[Brain] Could not extract user from token (using anonymous mode):", e);
-      }
-      
-      const { data: newConv, error: convError } = await supabase
-        .from("brain_conversations")
-        .insert({
-          organization_id: orgId,
-          user_id: userId, // Can be null for anonymous users
-          title: "New Conversation",
-        })
-        .select()
-        .single();
-
-      if (convError) {
-        console.error("Error creating conversation:", convError);
-        console.error("Details:", { orgId, userId, errorCode: convError.code, errorMessage: convError.message });
-        return jsonResponse({ error: `Failed to create conversation: ${convError.message}` }, 500);
-      }
-
-      finalConversationId = newConv.id;
-      console.log(`[Brain] Created new conversation: ${finalConversationId}`);
-    }
-
-    // Verify conversation exists
-    const { data: existingConv, error: checkError } = await supabase
-      .from("brain_conversations")
-      .select("id")
-      .eq("id", finalConversationId)
-      .eq("organization_id", orgId)
-      .single();
-
-    if (checkError || !existingConv) {
-      console.error("Conversation not found or access denied:", checkError);
-      return jsonResponse({ error: "Conversation not found or access denied" }, 404);
-    }
-
-    // Save user message
-    const { data: userMessage, error: userMsgError } = await supabase
-      .from("brain_messages")
-      .insert({
-        conversation_id: finalConversationId,
-        role: "user",
-        content: message,
-      })
-      .select()
-      .single();
-
-    if (userMsgError) {
-      console.error("Error saving user message:", userMsgError);
-      return jsonResponse({ error: userMsgError.message }, 500);
-    }
-
-    // Fetch conversation history if we have a conversationId
-    let conversationHistory: Array<{role: string, content: string}> = [];
-    if (finalConversationId) {
-      const { data: historyMessages } = await supabase
-        .from("brain_messages")
-        .select("role, content")
-        .eq("conversation_id", finalConversationId)
-        .order("created_at", { ascending: true })
-        .limit(6); // Last 6 messages (3 exchanges)
-      
-      if (historyMessages && historyMessages.length > 0) {
-        // Don't include the message we just saved
-        conversationHistory = historyMessages.slice(0, -1).map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content
-        }));
-      }
-    }
-
-    // Generate query embedding
-    // Generate query embedding
+    // Generate embedding for the user's question
     const queryEmbedding = await generateEmbedding(message);
 
-    // Find similar content using cosine similarity
-    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
-    // For now, this only searches the user's org content
-    const { data: embeddings, error: searchError } = await supabase.rpc(
-      "match_brain_embeddings",
-      {
-        query_embedding: queryEmbedding,
-        match_threshold: 0.6, // Lowered from 0.7 for better recall
-        match_count: 8,       // Increased to get more context
-        org_id: orgId,
-      }
-    );
+    // Search for relevant content using vector similarity
+    const { data: embeddingsRaw, error: rpcError } = await supabase.rpc("match_brain_embeddings", {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.6,
+      match_count: 8,
+      org_id: orgId,
+    });
 
-    // #region agent log
-    const embeddingsCount = embeddings ? embeddings.length : 0;
-    const contentIds = embeddings ? embeddings.map((e: any, i: number) => {
-      const preview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
-      return { index: i + 1, contentId: e.content_id, chunkPreview: preview };
-    }) : [];
-    const similarities = embeddings ? embeddings.map((e: any) => e.similarity) : [];
-    const embeddingsLogData = {
-      location: 'trike-server/index.ts:2093',
-      message: 'Embeddings from RPC',
-      data: {
-        count: embeddingsCount,
-        contentIds: contentIds,
-        similarities: similarities
-      },
-      timestamp: Date.now(),
-      sessionId: 'debug-session',
-      runId: 'run1',
-      hypothesisId: 'A'
-    };
-    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(embeddingsLogData)}).catch(()=>{});
-    // #endregion
-
-    if (searchError) {
-      console.error("[Brain] RPC error, using fallback:", searchError.message);
-      // Fallback: search ALL content in the organization (not just current track)
-      // The trackId is only used for context prioritization, not search filtering
-      const fallbackQuery = supabase
-        .from("brain_embeddings")
-        .select("chunk_text, content_type, content_id, metadata")
-        .eq("organization_id", orgId);
-      
-      const { data: fallbackResults, error: fallbackError } = await fallbackQuery.limit(8);
-
-      // Build numbered context with track titles for better GPT understanding
-      const contextParts = await Promise.all((fallbackResults || []).map(async (e: any, i: number) => {
-        let sourceLabel = `Source ${i + 1}`;
-        if (e.content_id) {
-          const { data: track } = await supabase
-            .from('tracks')
-            .select('title')
-            .eq('id', e.content_id)
-            .maybeSingle();
-          
-          if (track?.title) {
-            const isCurrentTrack = e.content_id === trackId;
-            sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
-          }
-        }
-        return `[${sourceLabel}]:\n${e.chunk_text}`;
-      }));
-
-      const context = contextParts.join('\n\n---\n\n');
-
-      // Log context info for debugging
-      console.log(`[Brain] Fallback context length: ${context.length} chars, ${fallbackResults?.length || 0} chunks found`);
-
-      // If no context found, provide a helpful message
-      if (!context || context.trim() === '') {
-        console.warn("[Brain] No content found in knowledge base (fallback path)");
-        // Return a helpful error message instead of calling OpenAI with empty context
-        return jsonResponse({
-          error: "No relevant content found in the knowledge base for this question. The content may not be indexed yet, or the question doesn't match any available information. Please try rephrasing your question or contact support if you believe this content should be available."
-        }, 404);
-      }
-
-      // Generate response with context
-      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            ...conversationHistory, // Include history
-            {
-              role: "user",
-              content: `USER'S QUESTION: ${message}
-
----
-REFERENCE MATERIAL (use these sources to answer the question above):
-
-${context}`,
-            },
-          ],
-          temperature: 0.7,
-          max_tokens: 1000,
-        }),
-      });
-
-      if (!openaiResponse.ok) {
-        const error = await openaiResponse.text();
-        throw new Error(`OpenAI error: ${error}`);
-      }
-
-      const aiData = await openaiResponse.json();
-      const assistantMessage = aiData.choices[0]?.message?.content;
-
-      // Validate we got a response from OpenAI
-      if (!assistantMessage || assistantMessage.trim() === '') {
-        console.error("OpenAI returned empty response (fallback path):", aiData);
-        return jsonResponse({ 
-          error: "OpenAI returned an empty response. Please try again." 
-        }, 500);
-      }
-
-      // Save assistant message
-      const { data: savedMessage, error: saveError } = await supabase
-        .from("brain_messages")
-        .insert({
-          conversation_id: finalConversationId,
-          role: "assistant",
-          content: assistantMessage,
-        })
-        .select()
-        .single();
-
-      if (saveError) {
-        console.error("Error saving assistant message (fallback path):", saveError);
-        // Build citations
-        const citations = await buildCitations(fallbackResults || []);
-        // Still return the response even if save fails
-        return jsonResponse({
-          message: { 
-            id: null,
-            conversation_id: finalConversationId,
-            role: "assistant", 
-            content: assistantMessage,
-            created_at: new Date().toISOString()
-          },
-          citations: citations,
-          sources: fallbackResults || [],
-          conversationId: finalConversationId,
-        });
-      }
-
-      // Validate savedMessage has content
-      if (!savedMessage || !savedMessage.content) {
-        console.error("Saved message is missing content (fallback path):", savedMessage);
-        // Build citations
-        const citations = await buildCitations(fallbackResults || []);
-        return jsonResponse({
-          message: { 
-            id: null,
-            conversation_id: finalConversationId,
-            role: "assistant", 
-            content: assistantMessage,
-            created_at: new Date().toISOString()
-          },
-          citations: citations,
-          sources: fallbackResults || [],
-          conversationId: finalConversationId,
-        });
-      }
-
-      // Build citations
-      const citations = await buildCitations(fallbackResults || []);
-      
-      return jsonResponse({
-        message: savedMessage,
-        citations: citations,
-        sources: fallbackResults || [],
-        conversationId: finalConversationId, // Return the conversation ID in case it was created
-      });
+    if (rpcError) {
+      console.error("[Brain] RPC error:", rpcError);
     }
 
-    // Build context from similar chunks with track titles
-    // Prioritize current track in search results
-    if (embeddings && embeddings.length > 0 && trackId) {
-      embeddings.sort((a: any, b: any) => {
-        const aIsCurrent = a.content_id === trackId;
-        const bIsCurrent = b.content_id === trackId;
-        
-        // If one is from current track and other isn't, prioritize current
-        if (aIsCurrent && !bIsCurrent) return -1;
-        if (!aIsCurrent && bIsCurrent) return 1;
-        
-        // Otherwise maintain similarity order (already sorted by RPC)
-        return 0;
-      });
-      // #region agent log
-      const sortedContentIds = embeddings.map((e: any, i: number) => {
-        const preview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
-        return { index: i + 1, contentId: e.content_id, isCurrent: e.content_id === trackId, chunkPreview: preview };
-      });
-      const sortedLogData = {
-        location: 'trike-server/index.ts:2257',
-        message: 'Embeddings after sorting',
-        data: {
-          count: embeddings.length,
-          contentIds: sortedContentIds,
-          trackId: trackId
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'A'
-      };
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(sortedLogData)}).catch(()=>{});
-      // #endregion
+    // FILTER OUT TEST DATA from search results
+    const embeddings = (embeddingsRaw || []).filter((e: any) => {
+      const isTestData = e.content_id === '00000000-0000-0000-0000-000000000001' || 
+                        e.content_id === '00000000-0000-0000-0000-000000000002';
+      if (isTestData) {
+        console.log(`[Brain] Filtering out test data: content_id=${e.content_id}`);
+      }
+      return !isTestData;
+    });
+
+    console.log(`[Brain] Found ${embeddingsRaw?.length || 0} embeddings, ${embeddings.length} after filtering test data`);
+
+    // Boost results that contain query keywords
+    if (embeddings && embeddings.length > 1) {
+      const queryWords = message.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter((word: string) => word.length > 3 && !['what', 'does', 'stand', 'mean', 'explain', 'tell', 'about', 'how'].includes(word));
+
+      console.log(`[Brain] Query keywords for boosting:`, queryWords);
+
+      if (queryWords.length > 0) {
+        const scoredEmbeddings = embeddings.map((e: any) => {
+          const chunkLower = (e.chunk_text || '').toLowerCase();
+          let keywordScore = 0;
+          queryWords.forEach((word: string) => { if (chunkLower.includes(word)) { keywordScore += 10; } });
+          const metaTitle = (e.metadata?.trackTitle || '').toLowerCase();
+          queryWords.forEach((word: string) => { if (metaTitle.includes(word)) { keywordScore += 20; } });
+          return { ...e, keywordScore, combinedScore: (e.similarity || 0) + (keywordScore * 0.1) };
+        });
+        scoredEmbeddings.sort((a: any, b: any) => b.combinedScore - a.combinedScore);
+        console.log(`[Brain] After keyword boosting:`);
+        scoredEmbeddings.slice(0, 5).forEach((e: any, i: number) => {
+          console.log(`  [${i+1}] keywordScore=${e.keywordScore}, similarity=${e.similarity?.toFixed(3)}, preview="${e.chunk_text?.substring(0, 40)}..."`);
+        });
+        embeddings.length = 0;
+        embeddings.push(...scoredEmbeddings);
+      }
     }
 
-    // Build numbered context with track titles for better GPT understanding
-    const contextParts = await Promise.all((embeddings || []).map(async (e: any, i: number) => {
+    // Store embeddings for citation building (must match context order)
+    let embeddingsForCitations = embeddings;
+
+    // Build numbered context with track titles
+    const contextParts = await Promise.all(embeddings.map(async (e: any, i: number) => {
       let sourceLabel = `Source ${i + 1}`;
       if (e.content_id) {
         const { data: track } = await supabase
@@ -2370,74 +2078,20 @@ ${context}`,
           sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
         }
       }
-      // #region agent log
-      const ctxPreview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
-      const contextLogData = {
-        location: 'trike-server/index.ts:2276',
-        message: 'Building context part',
-        data: {
-          index: i + 1,
-          contentId: e.content_id,
-          sourceLabel: sourceLabel,
-          chunkPreview: ctxPreview
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'D'
-      };
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(contextLogData)}).catch(()=>{});
-      // #endregion
       return `[${sourceLabel}]:\n${e.chunk_text}`;
     }));
 
     const context = contextParts.join('\n\n---\n\n');
     
-    // CRITICAL: Store a DEEP COPY of the embeddings array used for context so citations match exactly
-    // Deep copy ensures object references don't get mutated
-    const embeddingsForCitations = (embeddings || []).map((e: any) => ({
-      ...e,
-      chunk_text: e.chunk_text,
-      content_id: e.content_id,
-      metadata: e.metadata ? { ...e.metadata } : null,
-      similarity: e.similarity
-    }));
-    
-    // Log the exact order that will be used for citations
     console.log(`[Brain] Context built with ${contextParts.length} sources. Source order in context:`);
     contextParts.forEach((part: string, i: number) => {
-      const sourceMatch = part.match(/Source (\d+)/);
-      const contentMatch = part.match(/content_id[":\s]+([a-f0-9-]+)/i);
-      console.log(`  Source ${i + 1} in context: ${part.substring(0, 100)}...`);
+      const titleMatch = part.match(/"([^"]+)"/);
+      console.log(`  Source ${i + 1}: ${titleMatch ? titleMatch[1] : 'no title'}`);
     });
-    
     console.log(`[Brain] Embeddings array order (for citations):`);
     embeddingsForCitations.forEach((e: any, i: number) => {
-      console.log(`  Citation ${i + 1} will be: content_id=${e.content_id}, preview="${e.chunk_text?.substring(0, 50) || 'no text'}..."`);
+      console.log(`  [${i + 1}]: content_id=${e.content_id}, preview="${e.chunk_text?.substring(0, 40) || 'no text'}..."`);
     });
-    
-    // #region agent log
-    const firstSourcePreview = contextParts[0] ? contextParts[0].substring(0, 100) : 'none';
-    const contextBuiltLogData = {
-      location: 'trike-server/index.ts:2395',
-      message: 'Context built',
-      data: {
-        contextLength: context.length,
-        sourceCount: contextParts.length,
-        firstSource: firstSourcePreview,
-        embeddingsOrder: embeddingsForCitations.map((e: any, i: number) => ({
-          index: i + 1,
-          contentId: e.content_id,
-          chunkPreview: e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text'
-        }))
-      },
-      timestamp: Date.now(),
-      sessionId: 'debug-session',
-      runId: 'run1',
-      hypothesisId: 'D'
-    };
-    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(contextBuiltLogData)}).catch(()=>{});
-    // #endregion
 
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
@@ -2449,9 +2103,19 @@ ${context}`,
         .select("id, content_type, chunk_text, content_id, metadata")
         .eq("organization_id", orgId);
       
-      const { data: embeddingsCheck } = await checkQuery.limit(8);
+      const { data: embeddingsCheckRaw } = await checkQuery.limit(8);
       
-      console.log(`[Brain] Fallback query found ${embeddingsCheck?.length || 0} embeddings`);
+      // FILTER OUT TEST DATA from fallback results too
+      const embeddingsCheck = (embeddingsCheckRaw || []).filter((e: any) => {
+        const isTestData = e.content_id === '00000000-0000-0000-0000-000000000001' || 
+                          e.content_id === '00000000-0000-0000-0000-000000000002';
+        if (isTestData) {
+          console.log(`[Brain] Filtering out test data from fallback: content_id=${e.content_id}`);
+        }
+        return !isTestData;
+      });
+      
+      console.log(`[Brain] Fallback query found ${embeddingsCheckRaw?.length || 0} embeddings, ${embeddingsCheck.length} after filtering test data`);
       
       if (embeddingsCheck && embeddingsCheck.length > 0) {
         // CRITICAL: Update embeddingsForCitations to match the fallback embeddings
@@ -2499,6 +2163,20 @@ ${context}`,
         
         if (numberedContext && numberedContext.trim() !== '') {
           // Continue with the response generation using direct context
+          const gptMessages = [
+            { role: "system", content: systemPrompt },
+            ...conversationHistory,
+            {
+              role: "user",
+              content: `Question: ${message}
+
+Sources:
+${numberedContext}
+
+Answer using ONLY these sources. Add [1] [2] [3] after each fact.`
+            },
+          ];
+          console.log(`[Brain GPT] Sending ${gptMessages.length} messages to GPT (direct fallback)`);
           const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -2507,22 +2185,7 @@ ${context}`,
             },
             body: JSON.stringify({
               model: "gpt-4o",
-              messages: [
-                {
-                  role: "system",
-                  content: systemPrompt,
-                },
-                ...conversationHistory, // Include history
-                {
-                  role: "user",
-                  content: `USER'S QUESTION: ${message}
-
----
-REFERENCE MATERIAL (use these sources to answer the question above):
-
-${numberedContext}`,
-                },
-              ],
+              messages: gptMessages,
               temperature: 0.7,
               max_tokens: 1000,
             }),
@@ -2535,10 +2198,25 @@ ${numberedContext}`,
 
           const aiData = await openaiResponse.json();
           const assistantMessage = aiData.choices[0]?.message?.content;
+          console.log(`[Brain GPT] Raw response (direct fallback): "${assistantMessage?.substring(0,200)}..."`);
+          console.log(`[Brain GPT] Has citations: ${/\[\d+\]/.test(assistantMessage || '')}`);
 
-          if (!assistantMessage || assistantMessage.trim() === '') {
-            console.error("OpenAI returned empty response (direct fallback):", aiData);
-            return jsonResponse({ error: "OpenAI returned an empty response. Please try again." }, 500);
+          let finalMessage = assistantMessage || '';
+          const hasCitation = /\[\d+\]/.test(finalMessage);
+          if (!hasCitation && fallbackEmbeddingsForCitations && fallbackEmbeddingsForCitations.length > 0) {
+            console.warn(`[Brain GPT] GPT forgot citations (direct fallback)! Adding source reference.`);
+            const firstSource = fallbackEmbeddingsForCitations[0];
+            let sourceTitle = firstSource?.metadata?.trackTitle || 'training materials';
+            if (!firstSource?.metadata?.trackTitle && firstSource?.content_id) {
+              const { data: trackInfo } = await supabase
+                .from('tracks')
+                .select('title')
+                .eq('id', firstSource.content_id)
+                .maybeSingle();
+              if (trackInfo?.title) sourceTitle = trackInfo.title;
+            }
+            finalMessage = finalMessage.trim() + ` [1]`;
+            console.log(`[Brain GPT] Added citation [1] pointing to: ${sourceTitle}`);
           }
 
           // Save assistant message
@@ -2547,7 +2225,7 @@ ${numberedContext}`,
             .insert({
               conversation_id: finalConversationId,
               role: "assistant",
-              content: assistantMessage,
+              content: finalMessage,
             })
             .select()
             .single();
@@ -2561,7 +2239,7 @@ ${numberedContext}`,
           const citations = await buildCitations(fallbackEmbeddingsForCitations || []);
 
           return jsonResponse({
-            message: savedMessage || { id: null, conversation_id: finalConversationId, role: "assistant", content: assistantMessage, created_at: new Date().toISOString() },
+            message: savedMessage || { id: null, conversation_id: finalConversationId, role: "assistant", content: finalMessage, created_at: new Date().toISOString() },
             citations: citations,
             sources: fallbackEmbeddingsForCitations || [],
             conversationId: finalConversationId,
@@ -2587,6 +2265,24 @@ ${numberedContext}`,
     }
 
     // Generate response with context
+    const gptMessages = [
+      { role: "system", content: systemPrompt },
+      ...conversationHistory,
+      {
+        role: "user",
+        content: `Question: ${message}
+
+Sources:
+${context}
+
+Answer using ONLY these sources. Add [1] [2] [3] after each fact.`
+      },
+    ];
+    console.log(`[Brain GPT] Sending ${gptMessages.length} messages to GPT (main path)`);
+    console.log(`[Brain GPT] System prompt length: ${systemPrompt.length} chars`);
+    console.log(`[Brain GPT] Context sources: ${(embeddingsForCitations || []).length}`);
+    console.log(`[Brain GPT] User question: "${message}"`);
+
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -2595,22 +2291,7 @@ ${numberedContext}`,
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          ...conversationHistory, // Include history
-          {
-            role: "user",
-            content: `USER'S QUESTION: ${message}
-
----
-REFERENCE MATERIAL (use these sources to answer the question above):
-
-${context}`,
-          },
-        ],
+        messages: gptMessages,
         temperature: 0.7,
         max_tokens: 1000,
       }),
@@ -2623,6 +2304,26 @@ ${context}`,
 
     const aiData = await openaiResponse.json();
     const assistantMessage = aiData.choices[0]?.message?.content;
+    console.log(`[Brain GPT] Raw response (main path): "${assistantMessage?.substring(0,200)}..."`);
+    console.log(`[Brain GPT] Has citations: ${/\[\d+\]/.test(assistantMessage || '')}`);
+
+    let finalMessage = assistantMessage || '';
+    const hasCitation = /\[\d+\]/.test(finalMessage);
+    if (!hasCitation && embeddingsForCitations && embeddingsForCitations.length > 0) {
+      console.warn(`[Brain GPT] GPT forgot citations (main path)! Adding source reference.`);
+      const firstSource = embeddingsForCitations[0];
+      let sourceTitle = firstSource?.metadata?.trackTitle || 'training materials';
+      if (!firstSource?.metadata?.trackTitle && firstSource?.content_id) {
+        const { data: trackInfo } = await supabase
+          .from('tracks')
+          .select('title')
+          .eq('id', firstSource.content_id)
+          .maybeSingle();
+        if (trackInfo?.title) sourceTitle = trackInfo.title;
+      }
+      finalMessage = finalMessage.trim() + ` [1]`;
+      console.log(`[Brain GPT] Added citation [1] pointing to: ${sourceTitle}`);
+    }
 
     // Validate we got a response from OpenAI
     if (!assistantMessage || assistantMessage.trim() === '') {
@@ -2635,11 +2336,11 @@ ${context}`,
     // Save assistant message
     const { data: savedMessage, error: saveError } = await supabase
       .from("brain_messages")
-      .insert({
-        conversation_id: finalConversationId,
-        role: "assistant",
-        content: assistantMessage,
-      })
+        .insert({
+          conversation_id: finalConversationId,
+          role: "assistant",
+          content: finalMessage,
+        })
       .select()
       .single();
 
@@ -2653,7 +2354,7 @@ ${context}`,
           id: null,
           conversation_id: finalConversationId,
           role: "assistant", 
-          content: assistantMessage,
+          content: finalMessage,
           created_at: new Date().toISOString()
         },
         citations: citations,
@@ -2672,7 +2373,7 @@ ${context}`,
           id: null,
           conversation_id: finalConversationId,
           role: "assistant", 
-          content: assistantMessage,
+          content: finalMessage,
           created_at: new Date().toISOString()
         },
         citations: citations,
