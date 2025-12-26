@@ -473,13 +473,69 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const followUpInputRef = useRef<HTMLInputElement>(null);
 
-  const suggestedPrompts = [
-    "What are the food safety basics?",
-    "How do I handle customer complaints?",
-    "Equipment cleaning procedures",
-    "Age verification requirements"
-  ];
+  // Dynamic suggested prompts from indexed content
+  const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([
+    "What are the key safety procedures?",
+    "Explain the basics",
+    "What should I know first?",
+    "Summarize the main topics"
+  ]);
+
+  // Fetch dynamic prompts from indexed content
+  useEffect(() => {
+    const fetchDynamicPrompts = async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+
+        // Get recently indexed tracks with good content
+        const { data: tracks } = await supabase
+          .from('tracks')
+          .select('id, title, type')
+          .eq('organization_id', orgId)
+          .eq('status', 'published')
+          .in('type', ['article', 'video'])
+          .order('updated_at', { ascending: false })
+          .limit(20);
+
+        if (tracks && tracks.length > 0) {
+          // Check which tracks are actually indexed in brain_embeddings
+          const { data: indexed } = await supabase
+            .from('brain_embeddings')
+            .select('content_id')
+            .eq('organization_id', orgId)
+            .in('content_id', tracks.map(t => t.id));
+
+          const indexedIds = new Set((indexed || []).map(e => e.content_id));
+          const indexedTracks = tracks.filter(t => indexedIds.has(t.id));
+
+          if (indexedTracks.length >= 4) {
+            // Generate prompts based on actual content
+            const prompts = indexedTracks.slice(0, 4).map((track, index) => {
+              const title = track.title || 'this topic';
+              // Create natural question variants
+              const templates = [
+                `What should I know about ${title}?`,
+                `Explain ${title}`,
+                `Key points from ${title}?`,
+                `Summarize ${title}`,
+              ];
+              // Truncate long titles
+              const prompt = templates[index % templates.length];
+              return prompt.length > 45 ? prompt.substring(0, 42) + '...' : prompt;
+            });
+            setSuggestedPrompts(prompts);
+          }
+        }
+      } catch (error) {
+        // Keep default prompts on error
+      }
+    };
+
+    fetchDynamicPrompts();
+  }, []);
 
   const handleSend = async (text: string = input) => {
     if (!text.trim() || isLoading) return;
@@ -510,7 +566,6 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
             message: userMessage,
             conversationId: conversationId || undefined,
             organizationId: orgId,
-            // No trackId - general knowledge base query
           })
         }
       );
@@ -533,6 +588,9 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
         content: aiContent,
         citations: data.citations || []
       }]);
+
+      // Focus the follow-up input after response
+      setTimeout(() => followUpInputRef.current?.focus(), 100);
     } catch (error: any) {
       setMessages(prev => [...prev, { 
         role: 'assistant', 
@@ -580,63 +638,80 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
     );
   };
 
+  // Check if the last response indicates content wasn't found
+  const lastMessage = messages[messages.length - 1];
+  const isNotFoundResponse = lastMessage?.content?.toLowerCase().includes("couldn't find") || 
+                             lastMessage?.content?.toLowerCase().includes("not covered") ||
+                             lastMessage?.content?.toLowerCase().includes("no information");
+
+  // Deduplicate citations by trackId
+  const deduplicatedCitations = lastMessage?.citations?.length > 0
+    ? Array.from(
+        new Map(
+          (lastMessage.citations || []).map((c: any) => [c.trackId, c])
+        ).values()
+      )
+    : [];
+
   return (
     <div className="relative mb-8">
-      {/* Background glow effects */}
+      {/* Background glow effects - boosted */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <div 
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full opacity-20"
           style={{
-            background: 'radial-gradient(ellipse, rgba(255,107,0,0.4) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse, rgba(255,107,0,0.5) 0%, transparent 70%)',
             filter: 'blur(60px)',
           }}
         />
       </div>
 
-      {/* Main container */}
+      {/* Main container - frosted glass */}
       <div 
         className="relative rounded-2xl border border-white/10 overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, rgba(20,20,20,0.95) 0%, rgba(12,12,12,0.98) 100%)',
-          boxShadow: '0 0 80px -20px rgba(255,107,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05)',
+          background: 'linear-gradient(180deg, rgba(30,30,32,0.80) 0%, rgba(22,22,24,0.85) 100%)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: '0 0 100px -20px rgba(255,107,0,0.32), inset 0 1px 0 rgba(255,255,255,0.05)',
         }}
       >
+        {/* Header - always visible */}
         <div className="p-8 pb-6">
-          {/* Header with animated lightning bolt */}
+          {/* Header with animated lightning bolt - stronger */}
           <div className="flex items-center justify-center gap-4 mb-6">
-            {/* Animated lightning bolt container */}
             <motion.div
               className="relative"
               animate={{
                 filter: [
-                  'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
-                  'drop-shadow(0 0 35px rgba(255,107,0,0.8))',
-                  'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
+                  'drop-shadow(0 0 15px rgba(255,107,0,0.5))',
+                  'drop-shadow(0 0 40px rgba(255,107,0,0.9))',
+                  'drop-shadow(0 0 15px rgba(255,107,0,0.5))',
                 ]
               }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
             >
               <motion.div
                 animate={{ 
-                  scale: [1, 1.05, 1],
-                  rotate: [0, 2, -2, 0]
+                  scale: [1, 1.08, 1],
+                  rotate: [0, 3, -3, 0]
                 }}
                 transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
               >
                 <Zap 
-                  className="w-12 h-12 text-orange-500 fill-orange-500"
-                  style={{ filter: 'drop-shadow(0 0 12px rgba(255,107,0,0.5))' }}
+                  className="w-14 h-14 text-orange-500 fill-orange-500"
+                  style={{ filter: 'drop-shadow(0 0 15px rgba(255,107,0,0.6))' }}
                 />
               </motion.div>
               
-              {/* Glow ring */}
+              {/* More prominent glow ring */}
               <motion.div
-                className="absolute inset-0 rounded-full"
+                className="absolute inset-[-8px] rounded-full"
                 style={{
-                  background: 'radial-gradient(circle, rgba(255,107,0,0.3) 0%, transparent 70%)',
+                  background: 'radial-gradient(circle, rgba(255,107,0,0.4) 0%, transparent 60%)',
                 }}
-                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity }}
+                animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
+                transition={{ duration: 2.5, repeat: Infinity }}
               />
             </motion.div>
 
@@ -650,63 +725,64 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
             </div>
           </div>
 
-          {/* Search/Chat input bar */}
-          <div 
-            className="relative max-w-2xl mx-auto"
-            style={{
-              boxShadow: '0 0 40px -10px rgba(255,107,0,0.3)',
-            }}
-          >
-            <div 
-              className="flex items-center gap-3 px-5 py-4 rounded-xl border border-orange-500/30 bg-black/40 backdrop-blur-sm transition-all focus-within:border-orange-500/50 focus-within:shadow-[0_0_30px_-5px_rgba(255,107,0,0.4)]"
-            >
-              <Search className="w-5 h-5 text-orange-500/70 flex-shrink-0" />
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Ask a question about your training content..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-                className="flex-1 bg-transparent border-none outline-none text-white text-base placeholder:text-white/30"
-              />
-              {input.trim() && (
-                <motion.button
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  onClick={() => handleSend()}
-                  disabled={isLoading}
-                  className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 transition-all disabled:opacity-50"
+          {/* Input bar - ONLY in empty state */}
+          {messages.length === 0 && (
+            <>
+              {/* Search input - centered hero style */}
+              <div 
+                className="relative max-w-2xl mx-auto"
+                style={{ boxShadow: '0 0 40px -10px rgba(255,107,0,0.3)' }}
+              >
+                <div 
+                  className="flex items-center gap-3 pl-6 pr-4 py-4 rounded-xl border border-orange-500/30 bg-black/60 backdrop-blur-sm transition-all focus-within:border-orange-500/50 focus-within:shadow-[0_0_30px_-5px_rgba(255,107,0,0.4)]"
                 >
-                  <Send className="w-4 h-4" />
-                </motion.button>
-              )}
-            </div>
-          </div>
+                  <Search className="w-5 h-5 text-white/30 flex-shrink-0" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    placeholder="Ask a question about your training content..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
+                    className="flex-1 bg-transparent border-none outline-none text-white text-base placeholder:text-white/30"
+                  />
+                  {input.trim() && (
+                    <motion.button
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      onClick={() => handleSend()}
+                      disabled={isLoading}
+                      className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 transition-all disabled:opacity-50"
+                    >
+                      <Send className="w-4 h-4" />
+                    </motion.button>
+                  )}
+                </div>
+              </div>
 
-          {/* Suggested prompts - only show when no conversation */}
-          {!isExpanded && (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-wrap justify-center gap-2 mt-5 max-w-2xl mx-auto"
-            >
-              {suggestedPrompts.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSend(prompt)}
-                  className="px-4 py-2 text-sm text-white/60 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-full transition-all"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </motion.div>
+              {/* Suggested prompts - orange gradient fill */}
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-wrap justify-center gap-3 mt-7 max-w-2xl mx-auto"
+              >
+                {suggestedPrompts.map((prompt, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSend(prompt)}
+                    className="px-4 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500/80 to-orange-600/80 hover:from-orange-500 hover:to-orange-600 rounded-full transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 hover:scale-105"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </motion.div>
+            </>
           )}
         </div>
 
-        {/* Expanded conversation area */}
+        {/* Expanded conversation area - includes input at bottom */}
         <AnimatePresence>
-          {isExpanded && (
+          {isExpanded && messages.length > 0 && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
@@ -714,8 +790,8 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               transition={{ duration: 0.3 }}
               className="border-t border-white/10"
             >
-              <div className="p-6 max-h-[400px] overflow-y-auto">
-                {/* Messages */}
+              {/* Messages area with max height and scroll */}
+              <div className="p-6 max-h-[350px] overflow-y-auto">
                 <div className="space-y-4 max-w-2xl mx-auto">
                   {messages.map((msg, i) => (
                     <motion.div
@@ -764,20 +840,19 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                   )}
                 </div>
 
-                {/* Source citations summary */}
-                {messages.length > 0 && messages[messages.length - 1]?.citations?.length > 0 && (
+                {/* Source citations summary - DEDUPLICATED, hide on "not found" */}
+                {messages.length > 0 && 
+                 deduplicatedCitations.length > 0 && 
+                 !isNotFoundResponse && (
                   <div className="mt-4 pt-4 border-t border-white/10 max-w-2xl mx-auto">
                     <p className="text-xs text-white/40 mb-2">Sources referenced:</p>
                     <div className="flex flex-wrap gap-2">
-                      {messages[messages.length - 1].citations?.map((citation: any, i: number) => (
+                      {deduplicatedCitations.map((citation: any) => (
                         <button
-                          key={i}
+                          key={citation.trackId}
                           onClick={() => onNavigateToTrack?.(citation.trackId)}
                           className="flex items-center gap-2 px-3 py-1.5 text-xs text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-lg transition-all"
                         >
-                          <span className="w-4 h-4 flex items-center justify-center bg-orange-500/30 rounded text-[10px] font-bold">
-                            {citation.index}
-                          </span>
                           {citation.trackTitle}
                         </button>
                       ))}
@@ -786,15 +861,40 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                 )}
               </div>
 
-              {/* Clear/New conversation button */}
-              <div className="px-6 pb-4 flex justify-center">
-                <button
-                  onClick={handleClear}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-white/50 hover:text-white/70 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                  Clear conversation
-                </button>
+              {/* Input bar - DOCKED AT BOTTOM when in conversation */}
+              <div className="px-6 pb-4 pt-2 border-t border-white/5">
+                <div className="max-w-2xl mx-auto">
+                  <div className="flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30">
+                    <Search className="w-4 h-4 text-white/30 flex-shrink-0" />
+                    <input
+                      ref={followUpInputRef}
+                      type="text"
+                      placeholder="Ask a follow-up question..."
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
+                      className="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder:text-white/30"
+                    />
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!input.trim() || isLoading}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white disabled:opacity-30 transition-all"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Clear conversation link */}
+                <div className="flex justify-center mt-3">
+                  <button
+                    onClick={handleClear}
+                    className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                    Clear conversation
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
