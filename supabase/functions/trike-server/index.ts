@@ -1784,7 +1784,28 @@ async function buildCitations(sources: any[]): Promise<any[]> {
   const citationsPromises = sources.map(async (source, index) => {
     try {
       // Log what we're looking up
-      console.log(`[Citations] Looking up content_id: ${source.content_id} for citation ${index + 1}`);
+      console.log(`[Citations] Citation ${index + 1}: Looking up content_id="${source.content_id}"`);
+      console.log(`[Citations] Citation ${index + 1}: Chunk preview="${source.chunk_text?.substring(0, 80) || 'no text'}..."`);
+      
+      // #region agent log
+      const chunkPreview = source.chunk_text ? source.chunk_text.substring(0, 50) : 'no text';
+      const hasMetadata = !!source.metadata;
+      const logData = {
+        location: 'trike-server/index.ts:1794',
+        message: 'Citation lookup start',
+        data: {
+          index: index + 1,
+          contentId: source.content_id,
+          chunkPreview: chunkPreview,
+          hasMetadata: hasMetadata
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'C'
+      };
+      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(logData)}).catch(()=>{});
+      // #endregion
       
       // Get track metadata - use service role client which should have access
       const { data: track, error: trackError } = await supabase
@@ -1794,12 +1815,55 @@ async function buildCitations(sources: any[]): Promise<any[]> {
         .maybeSingle();
       
       if (trackError) {
-        console.error(`[Citations] Error looking up track for citation ${index + 1}:`, trackError);
+        console.error(`[Citations] ERROR looking up track for citation ${index + 1}:`, trackError);
+        console.error(`[Citations] Error details: code=${trackError.code}, message=${trackError.message}`);
+        // #region agent log
+        const errorLogData = {
+          location: 'trike-server/index.ts:1804',
+          message: 'Track lookup error',
+          data: {
+            index: index + 1,
+            contentId: source.content_id,
+            error: trackError.message,
+            code: trackError.code
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'C'
+        };
+        fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(errorLogData)}).catch(()=>{});
+        // #endregion
       }
       
       // Log what we found
       const trackTitle = track?.title || null;
-      console.log(`[Citations] Citation ${index + 1}: content_id=${source.content_id}, title=${trackTitle || 'NOT FOUND'}`);
+      if (track) {
+        console.log(`[Citations] Citation ${index + 1}: FOUND track "${trackTitle}" for content_id="${source.content_id}"`);
+      } else {
+        console.warn(`[Citations] Citation ${index + 1}: NO TRACK FOUND for content_id="${source.content_id}"`);
+        console.warn(`[Citations] Citation ${index + 1}: Will use metadata title: ${source.metadata?.trackTitle || source.metadata?.title || 'Unknown Source'}`);
+      }
+      // #region agent log
+      const metadataTitle = source.metadata && source.metadata.trackTitle ? source.metadata.trackTitle : null;
+      const trackFound = !!track;
+      const logData2 = {
+        location: 'trike-server/index.ts:1816',
+        message: 'Citation lookup result',
+        data: {
+          index: index + 1,
+          contentId: source.content_id,
+          trackTitle: trackTitle,
+          found: trackFound,
+          metadataTitle: metadataTitle
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'C'
+      };
+      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(logData2)}).catch(()=>{});
+      // #endregion
       
       // If no track found, check if this is actually a valid content_id
       if (!track) {
@@ -1841,6 +1905,26 @@ async function buildCitations(sources: any[]): Promise<any[]> {
   console.log(`[Citations] Built ${citations.length} citations:`, 
     citations.map(c => `[${c.index}] ${c.trackTitle}`).join(', ')
   );
+  
+  // #region agent log
+  const finalCitations = citations.map((c: any) => {
+    const quotePreview = c.quote ? c.quote.substring(0, 50) : 'no quote';
+    return { index: c.index, contentId: c.trackId, title: c.trackTitle, quotePreview: quotePreview };
+  });
+  const finalCitationsLogData = {
+    location: 'trike-server/index.ts:1863',
+    message: 'Final citations array',
+    data: {
+      count: citations.length,
+      citations: finalCitations
+    },
+    timestamp: Date.now(),
+    sessionId: 'debug-session',
+    runId: 'run1',
+    hypothesisId: 'A'
+  };
+  fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(finalCitationsLogData)}).catch(()=>{});
+  // #endregion
   
   return citations;
 }
@@ -2063,6 +2147,29 @@ RESPONSE FORMAT:
       }
     );
 
+    // #region agent log
+    const embeddingsCount = embeddings ? embeddings.length : 0;
+    const contentIds = embeddings ? embeddings.map((e: any, i: number) => {
+      const preview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
+      return { index: i + 1, contentId: e.content_id, chunkPreview: preview };
+    }) : [];
+    const similarities = embeddings ? embeddings.map((e: any) => e.similarity) : [];
+    const embeddingsLogData = {
+      location: 'trike-server/index.ts:2093',
+      message: 'Embeddings from RPC',
+      data: {
+        count: embeddingsCount,
+        contentIds: contentIds,
+        similarities: similarities
+      },
+      timestamp: Date.now(),
+      sessionId: 'debug-session',
+      runId: 'run1',
+      hypothesisId: 'A'
+    };
+    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(embeddingsLogData)}).catch(()=>{});
+    // #endregion
+
     if (searchError) {
       console.error("[Brain] RPC error, using fallback:", searchError.message);
       // Fallback: search ALL content in the organization (not just current track)
@@ -2226,6 +2333,26 @@ ${context}`,
         // Otherwise maintain similarity order (already sorted by RPC)
         return 0;
       });
+      // #region agent log
+      const sortedContentIds = embeddings.map((e: any, i: number) => {
+        const preview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
+        return { index: i + 1, contentId: e.content_id, isCurrent: e.content_id === trackId, chunkPreview: preview };
+      });
+      const sortedLogData = {
+        location: 'trike-server/index.ts:2257',
+        message: 'Embeddings after sorting',
+        data: {
+          count: embeddings.length,
+          contentIds: sortedContentIds,
+          trackId: trackId
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'A'
+      };
+      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(sortedLogData)}).catch(()=>{});
+      // #endregion
     }
 
     // Build numbered context with track titles for better GPT understanding
@@ -2243,27 +2370,103 @@ ${context}`,
           sourceLabel = `Source ${i + 1} - "${track.title}"${isCurrentTrack ? ' (current article)' : ''}`;
         }
       }
+      // #region agent log
+      const ctxPreview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
+      const contextLogData = {
+        location: 'trike-server/index.ts:2276',
+        message: 'Building context part',
+        data: {
+          index: i + 1,
+          contentId: e.content_id,
+          sourceLabel: sourceLabel,
+          chunkPreview: ctxPreview
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'D'
+      };
+      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(contextLogData)}).catch(()=>{});
+      // #endregion
       return `[${sourceLabel}]:\n${e.chunk_text}`;
     }));
 
     const context = contextParts.join('\n\n---\n\n');
+    
+    // CRITICAL: Store a DEEP COPY of the embeddings array used for context so citations match exactly
+    // Deep copy ensures object references don't get mutated
+    const embeddingsForCitations = (embeddings || []).map((e: any) => ({
+      ...e,
+      chunk_text: e.chunk_text,
+      content_id: e.content_id,
+      metadata: e.metadata ? { ...e.metadata } : null,
+      similarity: e.similarity
+    }));
+    
+    // Log the exact order that will be used for citations
+    console.log(`[Brain] Context built with ${contextParts.length} sources. Source order in context:`);
+    contextParts.forEach((part: string, i: number) => {
+      const sourceMatch = part.match(/Source (\d+)/);
+      const contentMatch = part.match(/content_id[":\s]+([a-f0-9-]+)/i);
+      console.log(`  Source ${i + 1} in context: ${part.substring(0, 100)}...`);
+    });
+    
+    console.log(`[Brain] Embeddings array order (for citations):`);
+    embeddingsForCitations.forEach((e: any, i: number) => {
+      console.log(`  Citation ${i + 1} will be: content_id=${e.content_id}, preview="${e.chunk_text?.substring(0, 50) || 'no text'}..."`);
+    });
+    
+    // #region agent log
+    const firstSourcePreview = contextParts[0] ? contextParts[0].substring(0, 100) : 'none';
+    const contextBuiltLogData = {
+      location: 'trike-server/index.ts:2395',
+      message: 'Context built',
+      data: {
+        contextLength: context.length,
+        sourceCount: contextParts.length,
+        firstSource: firstSourcePreview,
+        embeddingsOrder: embeddingsForCitations.map((e: any, i: number) => ({
+          index: i + 1,
+          contentId: e.content_id,
+          chunkPreview: e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text'
+        }))
+      },
+      timestamp: Date.now(),
+      sessionId: 'debug-session',
+      runId: 'run1',
+      hypothesisId: 'D'
+    };
+    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(contextBuiltLogData)}).catch(()=>{});
+    // #endregion
 
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
+      console.log(`[Brain] Context is empty, checking for fallback embeddings...`);
       // Direct query to check if embeddings exist - search ALL content in org
       // The trackId is only used for context prioritization, not search filtering
       const checkQuery = supabase
         .from("brain_embeddings")
-        .select("id, content_type, chunk_text, content_id")
+        .select("id, content_type, chunk_text, content_id, metadata")
         .eq("organization_id", orgId);
       
       const { data: embeddingsCheck } = await checkQuery.limit(8);
       
+      console.log(`[Brain] Fallback query found ${embeddingsCheck?.length || 0} embeddings`);
+      
       if (embeddingsCheck && embeddingsCheck.length > 0) {
+        // CRITICAL: Update embeddingsForCitations to match the fallback embeddings
+        // This ensures citations match the context that will be sent to GPT
+        const fallbackEmbeddingsForCitations = embeddingsCheck.map((e: any) => ({
+          ...e,
+          chunk_text: e.chunk_text,
+          content_id: e.content_id,
+          metadata: e.metadata ? { ...e.metadata } : null
+        }));
+        
         // Try using the direct query results as fallback (RPC may have failed to match)
         
         // Build numbered context with track titles
-        const contextParts = await Promise.all(embeddingsCheck.map(async (e: any, i: number) => {
+        const fallbackContextParts = await Promise.all(fallbackEmbeddingsForCitations.map(async (e: any, i: number) => {
           let sourceLabel = `Source ${i + 1}`;
           if (e.content_id) {
             const { data: track } = await supabase
@@ -2280,7 +2483,19 @@ ${context}`,
           return `[${sourceLabel}]:\n${e.chunk_text}`;
         }));
 
-        const numberedContext = contextParts.join('\n\n---\n\n');
+        const numberedContext = fallbackContextParts.join('\n\n---\n\n');
+        
+        console.log(`[Brain] Fallback context built with ${fallbackContextParts.length} sources`);
+        console.log(`[Brain] Fallback context sources in order (what GPT will see):`);
+        fallbackContextParts.forEach((part: string, i: number) => {
+          const sourceMatch = part.match(/Source (\d+)/);
+          const titleMatch = part.match(/"([^"]+)"/);
+          console.log(`  Source ${i + 1}: ${titleMatch ? titleMatch[1] : 'no title'} (${part.substring(0, 60)}...)`);
+        });
+        console.log(`[Brain] Fallback embeddings for citations (must match above order):`);
+        fallbackEmbeddingsForCitations.forEach((e: any, i: number) => {
+          console.log(`  Citation [${i + 1}]: content_id=${e.content_id}, preview="${e.chunk_text?.substring(0, 40) || 'no text'}..."`);
+        });
         
         if (numberedContext && numberedContext.trim() !== '') {
           // Continue with the response generation using direct context
@@ -2341,13 +2556,14 @@ ${numberedContext}`,
             console.error("Error saving assistant message (direct fallback):", saveError);
           }
 
-          // Build citations
-          const citations = await buildCitations(embeddingsCheck || []);
+          // Build citations from the SAME embeddings used for context
+          console.log(`[Brain] Building citations from fallback embeddings (${fallbackEmbeddingsForCitations.length} items)`);
+          const citations = await buildCitations(fallbackEmbeddingsForCitations || []);
 
           return jsonResponse({
             message: savedMessage || { id: null, conversation_id: finalConversationId, role: "assistant", content: assistantMessage, created_at: new Date().toISOString() },
             citations: citations,
-            sources: embeddingsCheck || [],
+            sources: fallbackEmbeddingsForCitations || [],
             conversationId: finalConversationId,
           });
         }
@@ -2358,6 +2574,16 @@ ${numberedContext}`,
       return jsonResponse({
         error: "No relevant content found in the knowledge base for this question. The content may not be indexed yet, or the question doesn't match any available information. Please try rephrasing your question or contact support if you believe this content should be available."
       }, 404);
+    }
+
+    // CRITICAL: If we reach here, context should NOT be empty
+    // If it is, something went wrong - log and return error
+    if (!context || context.trim() === '') {
+      console.error(`[Brain] ERROR: Reached main path with empty context! This should not happen.`);
+      console.error(`[Brain] contextParts.length: ${contextParts.length}, embeddings.length: ${embeddings?.length || 0}`);
+      return jsonResponse({
+        error: "Internal error: Context is empty. Please try again."
+      }, 500);
     }
 
     // Generate response with context
@@ -2461,8 +2687,54 @@ ${context}`,
       .update({ updated_at: new Date().toISOString() })
       .eq("id", finalConversationId);
 
-    // Build citations
-    const citations = await buildCitations(embeddings || []);
+    // Build citations from the SAME embeddings array used for context
+    // CRITICAL: Verify contextParts matches embeddingsForCitations length
+    if (contextParts.length !== embeddingsForCitations.length) {
+      console.error(`[Brain] MISMATCH: contextParts.length (${contextParts.length}) != embeddingsForCitations.length (${embeddingsForCitations.length})`);
+      console.error(`[Brain] This will cause citation mismatch!`);
+    }
+    
+    console.log(`[Brain] Building citations from ${embeddingsForCitations.length} embeddings (contextParts: ${contextParts.length})`);
+    console.log(`[Brain] Context sources in order (what GPT sees):`);
+    contextParts.forEach((part: string, i: number) => {
+      const sourceMatch = part.match(/Source (\d+)/);
+      const titleMatch = part.match(/"([^"]+)"/);
+      const contentIdMatch = part.match(/content_id[":\s]+([a-f0-9-]+)/i);
+      console.log(`  Source ${i + 1}: ${titleMatch ? titleMatch[1] : 'no title'} (content_id: ${contentIdMatch ? contentIdMatch[1] : 'unknown'})`);
+    });
+    console.log(`[Brain] Citations will be built in this order (must match above):`);
+    embeddingsForCitations.forEach((e: any, i: number) => {
+      console.log(`  Citation [${i + 1}]: content_id=${e.content_id}, preview="${e.chunk_text?.substring(0, 40) || 'no text'}..."`);
+    });
+    
+    // #region agent log
+    const citationsCount = embeddingsForCitations ? embeddingsForCitations.length : 0;
+    const citationsContentIds = embeddingsForCitations ? embeddingsForCitations.map((e: any, i: number) => {
+      const preview = e.chunk_text ? e.chunk_text.substring(0, 50) : 'no text';
+      return { index: i + 1, contentId: e.content_id, chunkPreview: preview };
+    }) : [];
+    const citationsLogData = {
+      location: 'trike-server/index.ts:2675',
+      message: 'Building citations from embeddings',
+      data: {
+        count: citationsCount,
+        contentIds: citationsContentIds,
+        matchesContext: citationsContentIds.length === contextParts.length,
+        contextPartsCount: contextParts.length
+      },
+      timestamp: Date.now(),
+      sessionId: 'debug-session',
+      runId: 'run1',
+      hypothesisId: 'A'
+    };
+    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(citationsLogData)}).catch(()=>{});
+    // #endregion
+    const citations = await buildCitations(embeddingsForCitations || []);
+    
+    console.log(`[Brain] Citations built. Final order:`);
+    citations.forEach((c: any) => {
+      console.log(`  [${c.index}] ${c.trackTitle} (content_id=${c.trackId})`);
+    });
 
     return jsonResponse({
       message: savedMessage,
