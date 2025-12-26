@@ -37,7 +37,8 @@ import {
   Info,
   MessageSquare,
   Send,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { 
   useTracks,
@@ -449,6 +450,356 @@ const TableOfContents = ({ sections }: { sections: { id: string, title: string, 
           </a>
         ))}
       </nav>
+    </div>
+  );
+};
+
+// =============================================================================
+// BRAIN HERO - Integrated AI Chat at top of Knowledge Base
+// =============================================================================
+
+interface BrainHeroProps {
+  onNavigateToTrack?: (trackId: string) => void;
+}
+
+const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    citations?: any[];
+  }>>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const suggestedPrompts = [
+    "What are the food safety basics?",
+    "How do I handle customer complaints?",
+    "Equipment cleaning procedures",
+    "Age verification requirements"
+  ];
+
+  const handleSend = async (text: string = input) => {
+    if (!text.trim() || isLoading) return;
+
+    const userMessage = text.trim();
+    setInput('');
+    setIsExpanded(true);
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setIsLoading(true);
+
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('Organization not found');
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || publicAnonKey;
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/trike-server/brain/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+            'apikey': publicAnonKey
+          },
+          body: JSON.stringify({
+            message: userMessage,
+            conversationId: conversationId || undefined,
+            organizationId: orgId,
+            // No trackId - general knowledge base query
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed (${response.status})`);
+      }
+
+      const data = await response.json();
+      
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      const aiContent = data.message?.content || data.message || '';
+      
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: aiContent,
+        citations: data.citations || []
+      }]);
+    } catch (error: any) {
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: error.message || "Sorry, I encountered an error." 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setMessages([]);
+    setConversationId(null);
+    setIsExpanded(false);
+    setInput('');
+  };
+
+  const renderCitations = (content: string, citations: any[] = []) => {
+    if (!citations.length) return <span>{content}</span>;
+    
+    const parts = content.split(/(\[\d+\])/g);
+    return (
+      <>
+        {parts.map((part, i) => {
+          const match = part.match(/\[(\d+)\]/);
+          if (match) {
+            const idx = parseInt(match[1]);
+            const citation = citations.find(c => c.index === idx);
+            if (citation) {
+              return (
+                <button
+                  key={i}
+                  onClick={() => onNavigateToTrack?.(citation.trackId)}
+                  className="inline-flex items-center justify-center w-5 h-5 mx-0.5 text-[11px] font-bold text-orange-400 bg-orange-500/20 hover:bg-orange-500/30 rounded-full transition-all cursor-pointer align-middle"
+                  title={`${citation.trackTitle}: "${citation.quote?.substring(0, 100)}..."`}
+                >
+                  {idx}
+                </button>
+              );
+            }
+          }
+          return <span key={i}>{part}</span>;
+        })}
+      </>
+    );
+  };
+
+  return (
+    <div className="relative mb-8">
+      {/* Background glow effects */}
+      <div className="absolute inset-0 overflow-hidden rounded-2xl">
+        <div 
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full opacity-20"
+          style={{
+            background: 'radial-gradient(ellipse, rgba(255,107,0,0.4) 0%, transparent 70%)',
+            filter: 'blur(60px)',
+          }}
+        />
+      </div>
+
+      {/* Main container */}
+      <div 
+        className="relative rounded-2xl border border-white/10 overflow-hidden"
+        style={{
+          background: 'linear-gradient(180deg, rgba(20,20,20,0.95) 0%, rgba(12,12,12,0.98) 100%)',
+          boxShadow: '0 0 80px -20px rgba(255,107,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05)',
+        }}
+      >
+        <div className="p-8 pb-6">
+          {/* Header with animated lightning bolt */}
+          <div className="flex items-center justify-center gap-4 mb-6">
+            {/* Animated lightning bolt container */}
+            <motion.div
+              className="relative"
+              animate={{
+                filter: [
+                  'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
+                  'drop-shadow(0 0 35px rgba(255,107,0,0.8))',
+                  'drop-shadow(0 0 20px rgba(255,107,0,0.6))',
+                ]
+              }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <motion.div
+                animate={{ 
+                  scale: [1, 1.05, 1],
+                  rotate: [0, 2, -2, 0]
+                }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <Zap 
+                  className="w-12 h-12 text-orange-500 fill-orange-500"
+                  style={{ filter: 'drop-shadow(0 0 12px rgba(255,107,0,0.5))' }}
+                />
+              </motion.div>
+              
+              {/* Glow ring */}
+              <motion.div
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background: 'radial-gradient(circle, rgba(255,107,0,0.3) 0%, transparent 70%)',
+                }}
+                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+            </motion.div>
+
+            <div className="text-center">
+              <h2 className="text-2xl font-semibold text-white mb-1">
+                Company Brain
+              </h2>
+              <p className="text-white/50 text-sm">
+                Ask anything about your training materials
+              </p>
+            </div>
+          </div>
+
+          {/* Search/Chat input bar */}
+          <div 
+            className="relative max-w-2xl mx-auto"
+            style={{
+              boxShadow: '0 0 40px -10px rgba(255,107,0,0.3)',
+            }}
+          >
+            <div 
+              className="flex items-center gap-3 px-5 py-4 rounded-xl border border-orange-500/30 bg-black/40 backdrop-blur-sm transition-all focus-within:border-orange-500/50 focus-within:shadow-[0_0_30px_-5px_rgba(255,107,0,0.4)]"
+            >
+              <Search className="w-5 h-5 text-orange-500/70 flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Ask a question about your training content..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
+                className="flex-1 bg-transparent border-none outline-none text-white text-base placeholder:text-white/30"
+              />
+              {input.trim() && (
+                <motion.button
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  onClick={() => handleSend()}
+                  disabled={isLoading}
+                  className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 transition-all disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                </motion.button>
+              )}
+            </div>
+          </div>
+
+          {/* Suggested prompts - only show when no conversation */}
+          {!isExpanded && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-wrap justify-center gap-2 mt-5 max-w-2xl mx-auto"
+            >
+              {suggestedPrompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSend(prompt)}
+                  className="px-4 py-2 text-sm text-white/60 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-full transition-all"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </div>
+
+        {/* Expanded conversation area */}
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="border-t border-white/10"
+            >
+              <div className="p-6 max-h-[400px] overflow-y-auto">
+                {/* Messages */}
+                <div className="space-y-4 max-w-2xl mx-auto">
+                  {messages.map((msg, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={cn(
+                        "flex",
+                        msg.role === 'user' ? 'justify-end' : 'justify-start'
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "max-w-[85%] px-4 py-3 rounded-2xl text-[15px] leading-relaxed",
+                          msg.role === 'user' 
+                            ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-br-sm'
+                            : 'bg-white/5 border border-white/10 text-white/90 rounded-bl-sm'
+                        )}
+                      >
+                        {msg.role === 'assistant' 
+                          ? renderCitations(msg.content, msg.citations)
+                          : msg.content
+                        }
+                      </div>
+                    </motion.div>
+                  ))}
+
+                  {/* Loading indicator */}
+                  {isLoading && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex justify-start"
+                    >
+                      <div className="px-4 py-3 bg-white/5 border border-white/10 rounded-2xl rounded-bl-sm">
+                        <div className="flex items-center gap-2">
+                          <motion.div
+                            className="w-2 h-2 rounded-full bg-orange-500"
+                            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
+                            transition={{ duration: 1, repeat: Infinity }}
+                          />
+                          <span className="text-white/50 text-sm">Thinking...</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* Source citations summary */}
+                {messages.length > 0 && messages[messages.length - 1]?.citations?.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-white/10 max-w-2xl mx-auto">
+                    <p className="text-xs text-white/40 mb-2">Sources referenced:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {messages[messages.length - 1].citations?.map((citation: any, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => onNavigateToTrack?.(citation.trackId)}
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-lg transition-all"
+                        >
+                          <span className="w-4 h-4 flex items-center justify-center bg-orange-500/30 rounded text-[10px] font-bold">
+                            {citation.index}
+                          </span>
+                          {citation.trackTitle}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Clear/New conversation button */}
+              <div className="px-6 pb-4 flex justify-center">
+                <button
+                  onClick={handleClear}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-white/50 hover:text-white/70 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  Clear conversation
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };
@@ -1483,6 +1834,23 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         {/* 3. Main Content Area */}
         <main className="flex-1 min-w-0 pb-12">
           
+          {/* Brain Hero Section - Only show when browsing (not viewing a specific track) */}
+          {!selectedTrack && (
+            <BrainHero 
+              onNavigateToTrack={async (trackId) => {
+                // Find and select the track
+                try {
+                  const tracks = await crud.getTracks({ ids: [trackId], includeAllVersions: true });
+                  if (tracks && tracks.length > 0) {
+                    handleTrackSelect(tracks[0]);
+                  }
+                } catch (err) {
+                  console.error('Failed to navigate to track:', err);
+                }
+              }} 
+            />
+          )}
+
           {/* Breadcrumbs (Mobile/Tablet only or when browsing) */}
           {!selectedTrack && (
             <div className="flex items-center text-sm text-muted-foreground mb-6">

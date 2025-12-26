@@ -91,6 +91,7 @@ export default function App() {
   const [previousView, setPreviousView] =
     useState<AppView | null>(null); // Track where user came from
   const [contentLibraryKey, setContentLibraryKey] = useState(0); // Key to force ContentLibrary reset
+  const [knowledgeBaseKey, setKnowledgeBaseKey] = useState(0); // Key to force KnowledgeBase reset
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -306,6 +307,11 @@ export default function App() {
       setContentLibraryKey(prev => prev + 1);
     }
 
+    // When navigating to knowledge-base view, increment key to force reset
+    if (view === "knowledge-base") {
+      setKnowledgeBaseKey(prev => prev + 1);
+    }
+
     // Store previous view for back navigation
     setPreviousView(currentView);
     setCurrentView(view);
@@ -516,6 +522,7 @@ export default function App() {
       case "knowledge-base":
         return (
           <KnowledgeBaseRevamp
+            key={`knowledge-base-${knowledgeBaseKey}`}
             currentRole={currentRole}
             onEditTrack={handleEditTrack}
             onCreateArticle={() => {
