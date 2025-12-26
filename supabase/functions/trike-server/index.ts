@@ -2008,16 +2008,59 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
     // Generate embedding for the user's question
     const queryEmbedding = await generateEmbedding(message);
 
+    // DEBUG: Check what tracks are actually indexed for this org
+    const { data: indexedTracks } = await supabase
+      .from('brain_embeddings')
+      .select('content_id, metadata')
+      .eq('organization_id', orgId)
+      .limit(100);
+    
+    if (indexedTracks && indexedTracks.length > 0) {
+      const uniqueTracks = [...new Set(indexedTracks.map((e: any) => e.content_id))];
+      console.log(`[Brain DEBUG] Org has ${indexedTracks.length} embeddings across ${uniqueTracks.length} unique tracks`);
+      
+      // Get track titles for the unique content_ids
+      const { data: trackTitles } = await supabase
+        .from('tracks')
+        .select('id, title')
+        .in('id', uniqueTracks);
+      
+      console.log(`[Brain DEBUG] Indexed track titles:`);
+      trackTitles?.forEach((t: any) => {
+        const chunkCount = indexedTracks.filter((e: any) => e.content_id === t.id).length;
+        console.log(`  - "${t.title}" (${chunkCount} chunks)`);
+      });
+    } else {
+      console.warn(`[Brain DEBUG] NO EMBEDDINGS FOUND for org ${orgId}!`);
+    }
+
     // Search for relevant content using vector similarity
+    // Use a lower threshold (0.4) to capture more potential matches
     const { data: embeddingsRaw, error: rpcError } = await supabase.rpc("match_brain_embeddings", {
       query_embedding: queryEmbedding,
-      match_threshold: 0.6,
+      match_threshold: 0.4,
       match_count: 8,
       org_id: orgId,
     });
 
     if (rpcError) {
       console.error("[Brain] RPC error:", rpcError);
+    }
+
+    // Log raw search results BEFORE filtering
+    console.log(`[Brain] RPC search returned ${embeddingsRaw?.length || 0} results (threshold 0.4)`);
+    if (embeddingsRaw && embeddingsRaw.length > 0) {
+      console.log(`[Brain] Top 3 raw results from semantic search:`);
+      for (let i = 0; i < Math.min(3, embeddingsRaw.length); i++) {
+        const e = embeddingsRaw[i];
+        // Fetch track title for logging
+        const { data: track } = await supabase
+          .from('tracks')
+          .select('title')
+          .eq('id', e.content_id)
+          .maybeSingle();
+        console.log(`  [${i+1}] similarity=${e.similarity?.toFixed(3)}, track="${track?.title || 'unknown'}", preview="${e.chunk_text?.substring(0, 60)}..."`);
+      }
     }
 
     // FILTER OUT TEST DATA from search results
