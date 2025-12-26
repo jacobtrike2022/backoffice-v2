@@ -1669,6 +1669,20 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
     // Extract is_system_template from metadata
     const isSystemTemplate = metadata.isSystemTemplate || false;
 
+    // Ensure track title is in metadata for fallback citation display
+    const enrichedMetadata = { ...metadata };
+    if (contentType === 'track' && !enrichedMetadata.trackTitle) {
+      // Try to get track title for metadata
+      const { data: trackInfo } = await supabase
+        .from('tracks')
+        .select('title')
+        .eq('id', contentId)
+        .maybeSingle();
+      if (trackInfo?.title) {
+        enrichedMetadata.trackTitle = trackInfo.title;
+      }
+    }
+
     // Chunk the text
     const chunks = chunkText(text);
     console.log(`📚 Indexing ${chunks.length} chunks for ${contentType}:${contentId} (system: ${isSystemTemplate})`);
@@ -1688,7 +1702,7 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
           chunk_index: i,
           chunk_text: chunk,
           embedding: embedding,
-          metadata: metadata,
+          metadata: enrichedMetadata,
           is_system_template: isSystemTemplate,
         })
         .select()
@@ -1760,43 +1774,75 @@ async function handleBrainRemove(req: Request): Promise<Response> {
 
 /**
  * Build citations array from source chunks
+ * Returns citations in same order as sources array
  */
 async function buildCitations(sources: any[]): Promise<any[]> {
   if (!sources || sources.length === 0) return [];
   
+  console.log(`[Citations] Building ${sources.length} citations`);
+  
   const citationsPromises = sources.map(async (source, index) => {
     try {
-      // Get track metadata
-      const { data: track } = await supabase
+      // Log what we're looking up
+      console.log(`[Citations] Looking up content_id: ${source.content_id} for citation ${index + 1}`);
+      
+      // Get track metadata - use service role client which should have access
+      const { data: track, error: trackError } = await supabase
         .from('tracks')
         .select('id, title, version_number, published_at')
         .eq('id', source.content_id)
         .maybeSingle();
       
+      if (trackError) {
+        console.error(`[Citations] Error looking up track for citation ${index + 1}:`, trackError);
+      }
+      
+      // Log what we found
+      const trackTitle = track?.title || null;
+      console.log(`[Citations] Citation ${index + 1}: content_id=${source.content_id}, title=${trackTitle || 'NOT FOUND'}`);
+      
+      // If no track found, check if this is actually a valid content_id
+      if (!track) {
+        console.warn(`[Citations] No track found for content_id: ${source.content_id}`);
+        // Try to extract title from metadata if available
+        const metadataTitle = source.metadata?.trackTitle || source.metadata?.title || null;
+        if (metadataTitle) {
+          console.log(`[Citations] Using metadata title: ${metadataTitle}`);
+        }
+      }
+      
       return {
         index: index + 1,
-        quote: source.chunk_text?.substring(0, 200) + '...' || 'No preview available',
+        quote: source.chunk_text?.substring(0, 200) + (source.chunk_text?.length > 200 ? '...' : '') || 'No preview available',
         trackId: source.content_id,
-        trackTitle: track?.title || 'Unknown Source',
+        trackTitle: track?.title || source.metadata?.trackTitle || source.metadata?.title || 'Unknown Source',
         version: track?.version_number || 1,
         publishedDate: track?.published_at || null,
         similarity: source.similarity || null,
+        // Add chunk text preview for debugging
+        chunkPreview: source.chunk_text?.substring(0, 50) || null,
       };
     } catch (error) {
-      console.error(`Error building citation ${index + 1}:`, error);
+      console.error(`[Citations] Exception building citation ${index + 1}:`, error);
       return {
         index: index + 1,
         quote: source.chunk_text?.substring(0, 200) + '...' || 'No preview available',
         trackId: source.content_id,
-        trackTitle: 'Unknown Source',
+        trackTitle: source.metadata?.trackTitle || 'Unknown Source',
         version: 1,
         publishedDate: null,
         similarity: source.similarity || null,
+        chunkPreview: null,
       };
     }
   });
   
-  return await Promise.all(citationsPromises);
+  const citations = await Promise.all(citationsPromises);
+  console.log(`[Citations] Built ${citations.length} citations:`, 
+    citations.map(c => `[${c.index}] ${c.trackTitle}`).join(', ')
+  );
+  
+  return citations;
 }
 
 /**
@@ -2762,6 +2808,7 @@ async function handleBrainBackfill(req: Request): Promise<Response> {
               metadata: {
                 trackType: trackType,
                 isSystemTemplate: isSystemTemplate,
+                trackTitle: trackTitle, // Store track title for citation fallback
               },
               is_system_template: isSystemTemplate,
             });
