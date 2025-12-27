@@ -30,8 +30,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { rolesApi } from '../lib/api/roles';
-import type { Role, CreateRoleInput, UpdateRoleInput } from '../types/roles';
+import type { Role, CreateRoleInput, UpdateRoleInput, DuplicateRoleSuggestion } from '../types/roles';
 import { RoleModal } from './RoleModal';
+import { DuplicatesModal } from './DuplicatesModal';
 
 export function RolesManagement() {
   const [roles, setRoles] = useState<Role[]>([]);
@@ -43,6 +44,7 @@ export function RolesManagement() {
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [userListPopover, setUserListPopover] = useState<string | null>(null);
   const [userListData, setUserListData] = useState<{ name: string; email: string }[]>([]);
+  const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
 
   useEffect(() => {
     loadRoles();
@@ -219,8 +221,7 @@ export function RolesManagement() {
           <Button
             variant="outline"
             size="sm"
-            disabled
-            className="opacity-50 cursor-not-allowed"
+            onClick={() => setShowDuplicatesModal(true)}
           >
             Find Duplicates
           </Button>
@@ -450,6 +451,14 @@ export function RolesManagement() {
         onClose={handleCloseModal}
         onSave={editingRole ? handleUpdateRole : handleCreateRole}
         editingRole={editingRole}
+      />
+
+      {/* Duplicates Modal */}
+      <DuplicatesModal
+        isOpen={showDuplicatesModal}
+        onClose={() => setShowDuplicatesModal(false)}
+        onRolesChanged={loadRoles}
+        roles={roles}
       />
     </div>
   );

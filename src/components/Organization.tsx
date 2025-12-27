@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { Plus, Eye, Tag, Users, Building2, Edit, Trash2 } from 'lucide-react';
+import { Plus, Eye, Tag, Users, Building2, Edit, Trash2, Globe } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
 import { RolesManagement } from './RolesManagement';
 import { Card, CardContent } from './ui/card';
@@ -9,6 +9,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import type { Tag as TagType } from '../lib/crud/tags';
 type OrganizationTab = 'tags' | 'roles' | 'districts';
 
 interface OrganizationProps {
@@ -18,7 +19,8 @@ interface OrganizationProps {
 
 export function Organization({ currentRole, onBackToDashboard }: OrganizationProps) {
   const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [tagSystems, setTagSystems] = useState<TagType[]>([]);
+  const [activeTagSystem, setActiveTagSystem] = useState<string>('');
 
   // Districts state
   const [districts, setDistricts] = useState<any[]>([]);
@@ -38,11 +40,6 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
     { id: 'districts' as OrganizationTab, label: 'Districts', icon: Building2 },
   ];
 
-  const handleViewAll = () => {
-    // Expand all categories in the TagsManagement component
-    // This will be handled by scrolling to the hierarchy view
-    setActiveTab('tags');
-  };
 
   // Fetch districts when tab is active
   useEffect(() => {
@@ -234,51 +231,70 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
             Manage organization-wide settings, tags, and roles
           </p>
         </div>
-        
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button 
-            size="sm"
-            className="hero-primary shadow-brand"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Create Tag
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleViewAll}>
-            <Eye className="w-4 h-4 mr-1.5" />
-            View All
-          </Button>
-        </div>
       </div>
 
       {/* Navigation Tabs - Match Dashboard Design */}
-      <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-[3px]">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
-                activeTab === tab.id
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="flex flex-col gap-3">
+        {/* Main Tabs Row */}
+        <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-[3px]">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Secondary Tags Tabs (separate row, nested below main tabs) */}
+        {activeTab === 'tags' && tagSystems.length > 0 && (
+          <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-[3px]">
+            {tagSystems.map((system) => {
+              const isShared = system.system_category === 'shared';
+              return (
+                <button
+                  key={system.id}
+                  onClick={() => setActiveTagSystem(system.id)}
+                  className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
+                    activeTagSystem === system.id
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {isShared && <Globe className="h-3.5 w-3.5" />}
+                  {system.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+      
 
       {/* Tab Content */}
       <div>
         {activeTab === 'tags' && (
           <TagsManagement 
             currentRole={currentRole}
-            showCreateModal={showCreateModal}
-            onCloseCreateModal={() => setShowCreateModal(false)}
+            activeSystem={activeTagSystem}
+            onSystemChange={setActiveTagSystem}
+            onSystemsLoaded={(systems) => {
+              setTagSystems(systems);
+              // Set first system as active if none is set
+              if (!activeTagSystem && systems.length > 0) {
+                setActiveTagSystem(systems[0].id);
+              }
+            }}
           />
         )}
         

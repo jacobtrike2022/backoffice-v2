@@ -11,7 +11,8 @@ import {
   X,
   Tag as TagIcon,
   MoreVertical,
-  Globe
+  Globe,
+  Eye
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -23,27 +24,33 @@ import { CreateTagModal } from './CreateTagModal';
 
 interface TagsManagementProps {
   currentRole?: string;
-  showCreateModal?: boolean;
-  onCloseCreateModal?: () => void;
+  activeSystem?: string;
+  onSystemChange?: (systemId: string) => void;
+  onSystemsLoaded?: (systems: Tag[]) => void;
 }
 
-export function TagsManagement({ currentRole, showCreateModal, onCloseCreateModal }: TagsManagementProps) {
+export function TagsManagement({ currentRole, activeSystem: externalActiveSystem, onSystemChange, onSystemsLoaded }: TagsManagementProps) {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Tag[]>([]);
-  const [activeSystem, setActiveSystem] = useState<string>('');
+  const [internalActiveSystem, setInternalActiveSystem] = useState<string>('');
+  
+  // Use external activeSystem if provided, otherwise use internal
+  const activeSystem = externalActiveSystem !== undefined ? externalActiveSystem : internalActiveSystem;
+  const setActiveSystem = (id: string) => {
+    if (onSystemChange) {
+      onSystemChange(id);
+    } else {
+      setInternalActiveSystem(id);
+    }
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<Tag | null>(null);
-  const [internalShowCreateModal, setInternalShowCreateModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [preselectedCategoryId, setPreselectedCategoryId] = useState<string | undefined>();
   const [preselectedParentId, setPreselectedParentId] = useState<string | undefined>();
 
-  const isCreateModalOpen = showCreateModal || internalShowCreateModal;
-
   const handleCloseModal = () => {
-    if (onCloseCreateModal) {
-      onCloseCreateModal();
-    }
-    setInternalShowCreateModal(false);
+    setShowCreateModal(false);
     setSelectedTag(null); // Clear selected tag on close
     setPreselectedCategoryId(undefined);
     setPreselectedParentId(undefined);
@@ -53,12 +60,12 @@ export function TagsManagement({ currentRole, showCreateModal, onCloseCreateModa
     setSelectedTag(null); // Ensure we are in create mode
     setPreselectedCategoryId(categoryId);
     setPreselectedParentId(parentId);
-    setInternalShowCreateModal(true);
+    setShowCreateModal(true);
   };
 
   const handleEditTag = (tag: Tag) => {
     setSelectedTag(tag);
-    setInternalShowCreateModal(true);
+    setShowCreateModal(true);
   };
 
   useEffect(() => {
@@ -71,8 +78,15 @@ export function TagsManagement({ currentRole, showCreateModal, onCloseCreateModa
       const data = await getTagHierarchy();
       setCategories(data);
       
-      // Set first system as active
-      const firstSystem = data.find(t => t.type === 'system-category');
+      const systems = data.filter(t => t.type === 'system-category');
+      
+      // Notify parent of systems data
+      if (onSystemsLoaded) {
+        onSystemsLoaded(systems);
+      }
+      
+      // Set first system as active if no external system is set
+      const firstSystem = systems[0];
       if (firstSystem && !activeSystem) {
         setActiveSystem(firstSystem.id);
       }
@@ -116,38 +130,42 @@ export function TagsManagement({ currentRole, showCreateModal, onCloseCreateModa
   
   return (
     <div className="space-y-6">
-      {/* System Tabs (nested below parent tabs) */}
-      <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-full p-[3px]">
-        {systems.map((system) => {
-          const isShared = system.system_category === 'shared';
-          return (
-            <button
-              key={system.id}
-              onClick={() => setActiveSystem(system.id)}
-              className={`inline-flex h-[calc(100%-1px)] items-center justify-center gap-1.5 rounded-full border border-transparent px-4 py-1 text-sm font-medium whitespace-nowrap transition-all ${
-                activeSystem === system.id
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {isShared && <Globe className="h-3.5 w-3.5" />}
-              {system.name}
-            </button>
-          );
-        })}
+      {/* Action Buttons and Search (rendered below secondary tabs in Organization.tsx) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+            onClick={() => setShowCreateModal(true)}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Create Tag
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Scroll to hierarchy view or expand all categories
+              // This can be enhanced based on what "View All" should do
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            View All
+          </Button>
+        </div>
+
+        {/* Search */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+          <Input
+            placeholder="Search tags..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          type="text"
-          placeholder="Search tags..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10"
-        />
-      </div>
 
       {/* Shared System Info Banner */}
       {isSharedSystem && (
@@ -273,10 +291,10 @@ export function TagsManagement({ currentRole, showCreateModal, onCloseCreateModa
       </div>
 
       {/* Create/Edit Tag Modal */}
-      {isCreateModalOpen && (
+      {showCreateModal && (
         <CreateTagModal
           key={selectedTag?.id || 'create-new-tag'}
-          isOpen={isCreateModalOpen}
+          isOpen={showCreateModal}
           onClose={handleCloseModal}
           onSuccess={loadTags}
           categories={categories}
