@@ -73,7 +73,7 @@ export async function getCurrentUserProfile() {
         .from('users')
         .select(`
           *,
-          role:roles(*),
+          role:roles!users_role_id_fkey(*),
           store:stores!users_store_id_fkey(*, district:districts(*))
         `)
         .eq('id', APP_CONFIG.DEMO_USER_ID) // Sarah Admin
@@ -99,7 +99,7 @@ export async function getCurrentUserProfile() {
     .from('users')
     .select(`
       *,
-      role:roles(*),
+      role:roles!users_role_id_fkey(*),
       store:stores!users_store_id_fkey(*, district:districts(*))
     `)
     .eq('auth_user_id', user.id)

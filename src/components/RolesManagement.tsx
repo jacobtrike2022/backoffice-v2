@@ -33,6 +33,7 @@ import { rolesApi } from '../lib/api/roles';
 import type { Role, CreateRoleInput, UpdateRoleInput } from '../types/roles';
 import { RoleModal } from './RoleModal';
 import { DuplicatesModal } from './DuplicatesModal';
+import { MergeRoleWizard } from './MergeRoleWizard';
 
 export function RolesManagement() {
   const [roles, setRoles] = useState<Role[]>([]);

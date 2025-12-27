@@ -119,8 +119,8 @@ export function MergeRoleWizard({
                       flex items-start p-4 border-2 rounded-lg cursor-pointer transition-all
                       ${
                         targetRoleId === role.id
-                          ? 'border-orange-500 bg-orange-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-orange-500 bg-orange-500/10 dark:bg-orange-500/20'
+                          : 'border-border hover:border-primary/50'
                       }
                     `}
                   >
@@ -132,12 +132,16 @@ export function MergeRoleWizard({
                     <div className="ml-3 flex-1">
                       <Label
                         htmlFor={`role-${role.id}`}
-                        className="cursor-pointer font-semibold text-base"
+                        className={`cursor-pointer font-semibold text-base ${
+                          targetRoleId === role.id ? 'text-foreground' : ''
+                        }`}
                       >
                         {targetRoleId === role.id ? 'Keep: ' : ''}
                         {role.name}
                       </Label>
-                      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                      <div className={`mt-2 space-y-1 text-sm ${
+                        targetRoleId === role.id ? 'text-foreground/80' : 'text-muted-foreground'
+                      }`}>
                         {role.department && (
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4" />
@@ -171,11 +175,11 @@ export function MergeRoleWizard({
             <h3 className="font-semibold text-sm">Step 2: What will happen?</h3>
             <Separator />
 
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg">
-              <h4 className="font-medium text-blue-900 mb-2">
+            <div className="bg-muted border-l-4 border-border p-4 rounded-lg">
+              <h4 className="font-medium mb-2">
                 What will happen:
               </h4>
-              <ul className="space-y-1 text-sm text-blue-800">
+              <ul className="space-y-1 text-sm text-muted-foreground">
                 <li>
                   • <strong>{totalUsersToMove} user{totalUsersToMove !== 1 ? 's' : ''}</strong> will be moved to{' '}
                   <strong>"{targetRole?.name}"</strong>
