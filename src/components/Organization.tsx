@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Plus, Eye, Tag, Users, Building2, Edit, Trash2 } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
+import { RolesManagement } from './RolesManagement';
 import { Card, CardContent } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
@@ -281,15 +282,7 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
           />
         )}
         
-        {activeTab === 'roles' && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-medium mb-2">Roles Management</h3>
-              <p className="text-sm text-muted-foreground">Coming soon</p>
-            </CardContent>
-          </Card>
-        )}
+        {activeTab === 'roles' && <RolesManagement />}
         
         {activeTab === 'districts' && (
           <div className="space-y-6">
