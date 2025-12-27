@@ -475,66 +475,456 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const followUpInputRef = useRef<HTMLInputElement>(null);
 
-  // Dynamic suggested prompts from indexed content
-  const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([
-    "What are the key safety procedures?",
-    "Explain the basics",
-    "What should I know first?",
-    "Summarize the main topics"
-  ]);
+  // Search state
+  interface SearchResult {
+    id: string;
+    title: string;
+    type: 'track' | 'kb_article';
+    trackType?: 'video' | 'article' | 'story' | 'checkpoint';
+    excerpt?: string;
+    matchType: 'title' | 'keyword' | 'topic';
+  }
+
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Dynamic suggested prompts from indexed content - with word count for sizing
+  interface PromptWithSize {
+    text: string;
+    wordCount: number; // 3 or 4
+  }
+  const [suggestedPrompts, setSuggestedPrompts] = useState<PromptWithSize[]>([]);
+
+  // Helper: Extract meaningful phrase from title (1-2 words that form a complete concept)
+  const extractKeyWords = (title: string): string | null => {
+    if (!title || title.trim().length === 0) return null;
+    
+    const fillers = ['the', 'a', 'an', 'and', 'or', 'for', 'to', 'in', 'on', 'of', 'with', 'how', 'what', 'is', 'are', 'at', 'by', 'from', 'as', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can'];
+    const actionWords = ['understanding', 'explaining', 'learning', 'managing', 'handling', 'introduction', 'guide', 'basics'];
+    
+    // Split into words and filter
+    const allWords = title.split(/\s+/);
+    const meaningfulWords = allWords.filter(w => 
+      w.length > 2 && !fillers.includes(w.toLowerCase())
+    );
+    
+    if (meaningfulWords.length === 0) return null;
+    
+    // Strategy: Prefer the last 1-2 meaningful words (usually the main topic)
+    // Skip action words at the start (like "Understanding", "Learning", etc.)
+    
+    // Find where meaningful content starts (skip leading action words)
+    let startIdx = 0;
+    for (let i = 0; i < allWords.length; i++) {
+      const word = allWords[i].toLowerCase();
+      if (!fillers.includes(word) && !actionWords.includes(word)) {
+        startIdx = i;
+        break;
+      }
+    }
+    
+    // Get the meaningful portion (skip action words)
+    const relevantWords = allWords.slice(startIdx).filter(w => 
+      w.length > 2 && !fillers.includes(w.toLowerCase()) && !actionWords.includes(w.toLowerCase())
+    );
+    
+    if (relevantWords.length === 0) {
+      // Fallback: use last meaningful word
+      return meaningfulWords[meaningfulWords.length - 1] || null;
+    }
+    
+    // Prefer last 2 words (complete phrase), fallback to last 1 word
+    if (relevantWords.length >= 2) {
+      const phrase = relevantWords.slice(-2).join(' ');
+      if (phrase.length <= 30) {
+        return phrase;
+      }
+    }
+    
+    // Single word fallback
+    return relevantWords[relevantWords.length - 1] || null;
+  };
+
+  // Helper: Normalize capitalization - first word capitalized, rest lowercase (except acronyms)
+  const normalizeCapitalization = (text: string): string => {
+    const words = text.split(/\s+/);
+    
+    return words.map((word, index) => {
+      // Check if word is an acronym:
+      // - All uppercase letters (2+ chars): "HR", "API", "PDF"
+      // - Mixed case with uppercase pattern: "C-Stores", "HR-Policy"
+      // - Single uppercase letter followed by hyphen: "C-", "A-"
+      const isAllUppercase = /^[A-Z]{2,}$/.test(word);
+      const isMixedAcronym = /^[A-Z]+(-[A-Z]+)+$/.test(word) || /^[A-Z](-[A-Z])+$/.test(word);
+      const isShortAcronym = word.length <= 4 && /^[A-Z]/.test(word) && !/[a-z]/.test(word);
+      
+      if (isAllUppercase || isMixedAcronym || isShortAcronym) {
+        // Preserve acronym as-is
+        return word;
+      }
+      
+      if (index === 0) {
+        // First word: capitalize first letter, lowercase rest
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      } else {
+        // Other words: all lowercase
+        return word.toLowerCase();
+      }
+    }).join(' ');
+  };
+
+  // Helper: Validate if prompt makes sense (not cut off mid-phrase)
+  const isValidPrompt = (prompt: string): boolean => {
+    const words = prompt.split(/\s+/).filter(w => w.length > 0);
+    if (words.length < 3 || words.length > 4) return false;
+    
+    const lastWord = words[words.length - 1]?.toLowerCase() || '';
+    
+    // Don't end with filler words, prepositions, or action verbs that suggest incompleteness
+    const invalidEndings = ['about', 'the', 'a', 'an', 'for', 'to', 'in', 'on', 'of', 'with', 'at', 'by', 'from'];
+    if (invalidEndings.includes(lastWord)) {
+      return false;
+    }
+    
+    // Don't end with words that suggest the phrase is incomplete
+    // e.g., "About Understanding Workplace" - "Workplace" alone might be okay, but check context
+    const secondToLast = words.length > 1 ? words[words.length - 2]?.toLowerCase() : '';
+    
+    // If second-to-last is an action word and last is incomplete, it's probably cut off
+    const actionWords = ['understanding', 'explaining', 'learning', 'managing', 'handling'];
+    if (actionWords.includes(secondToLast) && lastWord.length < 6) {
+      // Likely cut off mid-phrase
+      return false;
+    }
+    
+    // Check if prompt ends with ellipsis (truncated)
+    if (prompt.includes('...')) {
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Helper: Create 3-4 word prompt from key words
+  const createPrompt = (keyWords: string | null, templateIndex: number): PromptWithSize | null => {
+    if (!keyWords) return null;
+    
+    const templates = [
+      (kw: string) => `About ${kw}`,
+      (kw: string) => `What is ${kw}`,
+      (kw: string) => `Explain ${kw}`,
+      (kw: string) => `Key points ${kw}`,
+      (kw: string) => `Learn about ${kw}`,
+    ];
+    
+    const template = templates[templateIndex % templates.length];
+    let prompt = template(keyWords);
+    const words = prompt.split(/\s+/).filter(w => w.length > 0);
+    let wordCount = words.length;
+    
+    // Ensure 3-4 words, adjust if needed
+    if (wordCount < 3) {
+      // Try adding a descriptive word
+      const additions = ['basics', 'guide', 'tips', 'overview'];
+      const addition = additions[templateIndex % additions.length];
+      prompt = `${prompt} ${addition}`;
+      wordCount = prompt.split(/\s+/).length;
+    } else if (wordCount > 4) {
+      // Truncate if too long - but check if it makes sense
+      const truncated = words.slice(0, 4).join(' ');
+      // Validate the truncated version
+      if (isValidPrompt(truncated)) {
+        prompt = truncated;
+        wordCount = 4;
+      } else {
+        // If truncation breaks the phrase, try shorter
+        const shorter = words.slice(0, 3).join(' ');
+        if (isValidPrompt(shorter)) {
+          prompt = shorter;
+          wordCount = 3;
+        } else {
+          // Can't make a valid prompt from this
+          return null;
+        }
+      }
+    }
+    
+    // Final validation
+    if (!isValidPrompt(prompt)) {
+      return null;
+    }
+    
+    // Normalize capitalization
+    const normalizedPrompt = normalizeCapitalization(prompt);
+    
+    return { text: normalizedPrompt, wordCount: wordCount === 3 ? 3 : 4 };
+  };
 
   // Fetch dynamic prompts from indexed content
   useEffect(() => {
     const fetchDynamicPrompts = async () => {
+      const fallbackPrompts: PromptWithSize[] = [
+        { text: normalizeCapitalization("Food safety basics"), wordCount: 3 },
+        { text: normalizeCapitalization("Equipment procedures guide"), wordCount: 3 },
+        { text: normalizeCapitalization("Customer service tips"), wordCount: 3 },
+        { text: normalizeCapitalization("Safety guidelines overview"), wordCount: 3 },
+        { text: normalizeCapitalization("Getting started guide"), wordCount: 3 },
+      ];
+
       try {
         const orgId = await getCurrentUserOrgId();
-        if (!orgId) return;
+        if (!orgId) {
+          setSuggestedPrompts(fallbackPrompts);
+          return;
+        }
 
-        // Get recently indexed tracks with good content
+        // Get tracks that have embeddings (are actually indexed)
+        const { data: embeddings } = await supabase
+          .from('brain_embeddings')
+          .select('content_id')
+          .eq('organization_id', orgId)
+          .eq('content_type', 'track');
+
+        if (!embeddings || embeddings.length === 0) {
+          setSuggestedPrompts(fallbackPrompts);
+          return;
+        }
+
+        // Get UNIQUE content_ids
+        const uniqueTrackIds = [...new Set(embeddings.map(e => e.content_id))];
+
+        // Fetch more tracks than needed to have alternatives if some don't work
         const { data: tracks } = await supabase
           .from('tracks')
-          .select('id, title, type')
-          .eq('organization_id', orgId)
+          .select('id, title')
+          .in('id', uniqueTrackIds)
           .eq('status', 'published')
-          .in('type', ['article', 'video'])
-          .order('updated_at', { ascending: false })
-          .limit(20);
+          .limit(10); // Get more to have alternatives
 
         if (tracks && tracks.length > 0) {
-          // Check which tracks are actually indexed in brain_embeddings
-          const { data: indexed } = await supabase
-            .from('brain_embeddings')
-            .select('content_id')
-            .eq('organization_id', orgId)
-            .in('content_id', tracks.map(t => t.id));
-
-          const indexedIds = new Set((indexed || []).map(e => e.content_id));
-          const indexedTracks = tracks.filter(t => indexedIds.has(t.id));
-
-          if (indexedTracks.length >= 4) {
-            // Generate prompts based on actual content
-            const prompts = indexedTracks.slice(0, 4).map((track, index) => {
-              const title = track.title || 'this topic';
-              // Create natural question variants
-              const templates = [
-                `What should I know about ${title}?`,
-                `Explain ${title}`,
-                `Key points from ${title}?`,
-                `Summarize ${title}`,
-              ];
-              // Truncate long titles
-              const prompt = templates[index % templates.length];
-              return prompt.length > 45 ? prompt.substring(0, 42) + '...' : prompt;
-            });
-            setSuggestedPrompts(prompts);
+          const validPrompts: PromptWithSize[] = [];
+          
+          // Try to create valid prompts, skipping tracks that don't work
+          for (let i = 0; i < tracks.length && validPrompts.length < 5; i++) {
+            const track = tracks[i];
+            const keyWords = extractKeyWords(track.title || '');
+            
+            if (keyWords) {
+              // Try different template indices to find one that works
+              let prompt: PromptWithSize | null = null;
+              for (let templateIdx = 0; templateIdx < 5 && !prompt; templateIdx++) {
+                prompt = createPrompt(keyWords, templateIdx);
+              }
+              
+              if (prompt) {
+                validPrompts.push(prompt);
+              }
+            }
           }
+          
+          // If we have at least 3 valid prompts, use them (pad with fallbacks if needed)
+          if (validPrompts.length >= 3) {
+            // Fill remaining slots with fallbacks if needed
+            while (validPrompts.length < 5) {
+              const fallback = fallbackPrompts[validPrompts.length % fallbackPrompts.length];
+              validPrompts.push(fallback);
+            }
+            setSuggestedPrompts(validPrompts.slice(0, 5));
+          } else {
+            // Not enough valid prompts, use fallbacks
+            setSuggestedPrompts(fallbackPrompts);
+          }
+        } else {
+          setSuggestedPrompts(fallbackPrompts);
         }
       } catch (error) {
-        // Keep default prompts on error
+        setSuggestedPrompts(fallbackPrompts);
       }
     };
 
     fetchDynamicPrompts();
+  }, []);
+
+  // Perform prioritized search
+  const performSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setShowSearchDropdown(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setShowSearchDropdown(true);
+
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) return;
+
+      // 1. Title matches (highest priority)
+      const { data: titleTracks } = await supabase
+        .from('tracks')
+        .select('id, title, type, description')
+        .eq('organization_id', orgId)
+        .eq('status', 'published')
+        .eq('show_in_knowledge_base', true)
+        .ilike('title', `%${query}%`)
+        .limit(3);
+
+      const results: SearchResult[] = (titleTracks || []).map(t => ({
+        id: t.id,
+        title: t.title,
+        type: 'track',
+        trackType: t.type as any,
+        excerpt: t.description,
+        matchType: 'title'
+      }));
+
+      // 2. Keyword/Tag matches
+      if (results.length < 3) {
+        const { data: tagTracks } = await supabase
+          .from('tracks')
+          .select('id, title, type, description, tags')
+          .eq('organization_id', orgId)
+          .eq('status', 'published')
+          .eq('show_in_knowledge_base', true)
+          .contains('tags', [query.toLowerCase()])
+          .limit(3 - results.length);
+
+        if (tagTracks) {
+          tagTracks.forEach(t => {
+            if (!results.find(r => r.id === t.id)) {
+              results.push({
+                id: t.id,
+                title: t.title,
+                type: 'track',
+                trackType: t.type as any,
+                excerpt: t.description,
+                matchType: 'keyword'
+              });
+            }
+          });
+        }
+      }
+
+      // 3. Semantic search fallback
+      if (results.length < 3) {
+        try {
+          const semantic = await brainCrud.searchContent({
+            query,
+            limit: 3,
+            contentType: 'track'
+          });
+          
+          if (semantic?.results) {
+            semantic.results.forEach((r: any) => {
+              if (results.length < 3 && !results.find(res => res.id === r.content_id)) {
+                results.push({
+                  id: r.content_id,
+                  title: r.metadata?.title || 'Related Content',
+                  type: 'track',
+                  trackType: r.metadata?.type as any,
+                  excerpt: r.chunk_text,
+                  matchType: 'topic'
+                });
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Semantic search failed:", e);
+        }
+      }
+
+      setSearchResults(results.slice(0, 3));
+    } catch (error) {
+      console.error("Search failed:", error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Update suggested prompts based on input inspiration
+  const updateSuggestedPromptsFromInput = async (query: string) => {
+    if (!query.trim() || query.length < 3) return;
+
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) return;
+
+      // Use brain search to find relevant tracks for prompts
+      const semantic = await brainCrud.searchContent({
+        query,
+        limit: 10,
+        contentType: 'track'
+      });
+
+      if (semantic?.results && semantic.results.length > 0) {
+        const uniqueTrackIds = [...new Set(semantic.results.map((r: any) => r.content_id))];
+        
+        const { data: tracks } = await supabase
+          .from('tracks')
+          .select('id, title')
+          .in('id', uniqueTrackIds)
+          .eq('status', 'published')
+          .limit(10);
+
+        if (tracks && tracks.length > 0) {
+          const validPrompts: PromptWithSize[] = [];
+          for (let i = 0; i < tracks.length && validPrompts.length < 5; i++) {
+            const track = tracks[i];
+            const keyWords = extractKeyWords(track.title || '');
+            if (keyWords) {
+              let prompt: PromptWithSize | null = null;
+              for (let templateIdx = 0; templateIdx < 5 && !prompt; templateIdx++) {
+                prompt = createPrompt(keyWords, templateIdx);
+              }
+              if (prompt) validPrompts.push(prompt);
+            }
+          }
+          if (validPrompts.length >= 3) {
+            setSuggestedPrompts(validPrompts.slice(0, 5));
+          }
+        }
+      }
+    } catch (e) {
+      // Silent error for dynamic prompts
+    }
+  };
+
+  // Debounced search trigger
+  useEffect(() => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    if (input.trim()) {
+      searchDebounceRef.current = setTimeout(() => {
+        performSearch(input);
+        updateSuggestedPromptsFromInput(input);
+      }, 300);
+    } else {
+      setShowSearchDropdown(false);
+      setSearchResults([]);
+    }
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [input]);
+
+  // Outside click handler for search dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Find the search container by a data attribute or ref
+      const container = document.querySelector('[data-search-container="true"]');
+      if (container && !container.contains(event.target as Node)) {
+        setShowSearchDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const handleSend = async (text: string = input) => {
@@ -542,6 +932,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
 
     const userMessage = text.trim();
     setInput('');
+    setShowSearchDropdown(false);
     setIsExpanded(true);
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
@@ -668,83 +1059,90 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
 
       {/* Main container - frosted glass */}
       <div 
-        className="relative rounded-2xl border border-white/10 overflow-hidden"
+        className="relative rounded-2xl border border-white/10"
         style={{
-          background: 'linear-gradient(180deg, rgba(30,30,32,0.80) 0%, rgba(22,22,24,0.85) 100%)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: '0 0 100px -20px rgba(255,107,0,0.32), inset 0 1px 0 rgba(255,255,255,0.05)',
+          background: 'linear-gradient(180deg, rgba(40,40,45,0.75) 0%, rgba(25,25,28,0.85) 100%)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          boxShadow: '0 0 120px -30px rgba(255,107,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2)',
         }}
       >
-        {/* Header - always visible */}
-        <div className="p-8 pb-6">
-          {/* Header with animated lightning bolt - stronger */}
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <motion.div
-              className="relative"
-              animate={{
-                filter: [
-                  'drop-shadow(0 0 15px rgba(255,107,0,0.5))',
-                  'drop-shadow(0 0 40px rgba(255,107,0,0.9))',
-                  'drop-shadow(0 0 15px rgba(255,107,0,0.5))',
-                ]
-              }}
-              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <motion.div
-                animate={{ 
-                  scale: [1, 1.08, 1],
-                  rotate: [0, 3, -3, 0]
-                }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              >
-                <Zap 
-                  className="w-14 h-14 text-orange-500 fill-orange-500"
-                  style={{ filter: 'drop-shadow(0 0 15px rgba(255,107,0,0.6))' }}
-                />
-              </motion.div>
-              
-              {/* More prominent glow ring */}
-              <motion.div
-                className="absolute inset-[-8px] rounded-full"
-                style={{
-                  background: 'radial-gradient(circle, rgba(255,107,0,0.4) 0%, transparent 60%)',
-                }}
-                animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
-                transition={{ duration: 2.5, repeat: Infinity }}
-              />
-            </motion.div>
-
-            <div className="text-center">
-              <h2 className="text-2xl font-semibold text-white mb-1">
-                Company Brain
-              </h2>
-              <p className="text-white/50 text-sm">
-                Ask anything about your training materials
-              </p>
-            </div>
-          </div>
-
-          {/* Input bar - ONLY in empty state */}
+        {/* Hero content area - flex column layout */}
+        <div 
+          className="flex flex-col items-center justify-start px-6 pt-8 pb-8"
+        >
+          {/* ONLY show when NO conversation */}
           {messages.length === 0 && (
             <>
-              {/* Search input - centered hero style */}
-              <div 
-                className="relative max-w-2xl mx-auto"
-                style={{ boxShadow: '0 0 40px -10px rgba(255,107,0,0.3)' }}
-              >
-                <div 
-                  className="flex items-center gap-3 pl-6 pr-4 py-4 rounded-xl border border-orange-500/30 bg-black/60 backdrop-blur-sm transition-all focus-within:border-orange-500/50 focus-within:shadow-[0_0_30px_-5px_rgba(255,107,0,0.4)]"
+              {/* Lightning Bolt - small, centered */}
+              <div className="flex justify-center">
+                <motion.div
+                  className="relative"
+                  animate={{
+                    filter: [
+                      'drop-shadow(0 0 6px rgba(255,107,0,0.3))',
+                      'drop-shadow(0 0 20px rgba(255,107,0,0.9)) drop-shadow(0 0 40px rgba(255,107,0,0.5))',
+                      'drop-shadow(0 0 6px rgba(255,107,0,0.3))',
+                    ]
+                  }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                 >
-                  <Search className="w-5 h-5 text-white/30 flex-shrink-0" />
+                  <motion.div
+                    animate={{ 
+                      scale: [1, 1.08, 1],
+                      rotate: [-2, 2, -2]
+                    }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                  >
+                    <Zap 
+                      className="w-8 h-8"
+                      style={{ 
+                        color: '#FF6B00',
+                        fill: '#FF6B00',
+                        filter: 'drop-shadow(0 0 8px rgba(255,107,0,0.7))',
+                      }}
+                    />
+                  </motion.div>
+                  
+                  {/* Glow ring */}
+                  <motion.div
+                    className="absolute inset-[-8px] rounded-full pointer-events-none"
+                    style={{
+                      background: 'radial-gradient(circle, rgba(255,107,0,0.25) 0%, transparent 70%)',
+                    }}
+                    animate={{ 
+                      scale: [0.8, 1.4, 0.8], 
+                      opacity: [0.7, 0, 0.7] 
+                    }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+                  />
+                </motion.div>
+              </div>
+
+              {/* Search Input Bar - full width */}
+              <div 
+                className="relative w-full max-w-2xl"
+                style={{ marginTop: '30px' }}
+                data-search-container="true"
+              >
+                <div className="flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/20 bg-black/50 backdrop-blur-sm transition-all focus-within:border-orange-500/40">
+                  <Search className="w-5 h-5 text-white/40 flex-shrink-0" />
                   <input
                     ref={inputRef}
                     type="text"
                     placeholder="Ask a question about your training content..."
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-                    className="flex-1 bg-transparent border-none outline-none text-white text-base placeholder:text-white/30"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isLoading) {
+                        handleSend();
+                      }
+                      if (e.key === 'Escape') {
+                        setShowSearchDropdown(false);
+                      }
+                    }}
+                    onFocus={() => input.trim() && setShowSearchDropdown(true)}
+                    className="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder:text-white/40"
                   />
                   {input.trim() && (
                     <motion.button
@@ -752,30 +1150,144 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                       animate={{ scale: 1 }}
                       onClick={() => handleSend()}
                       disabled={isLoading}
-                      className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 transition-all disabled:opacity-50"
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white transition-all disabled:opacity-50"
                     >
                       <Send className="w-4 h-4" />
                     </motion.button>
                   )}
                 </div>
+
+                {/* Search Dropdown */}
+                <AnimatePresence>
+                  {showSearchDropdown && input.trim() && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute z-50 left-0 right-0 mt-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                      style={{
+                        background: 'rgba(25, 25, 28, 0.95)',
+                        backdropFilter: 'blur(16px)',
+                        boxShadow: '0 10px 40px -10px rgba(0,0,0,0.5), 0 0 20px rgba(255,107,0,0.1)'
+                      }}
+                    >
+                      {/* Chat Option */}
+                      <button
+                        onClick={() => handleSend()}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 transition-colors group text-left"
+                      >
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-500/20 text-orange-400 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                          <MessageSquare className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white">Ask Company Brain</p>
+                          <p className="text-xs text-white/50 truncate">"Ask about: {input}"</p>
+                        </div>
+                      </button>
+
+                      {searchResults.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 mt-2">
+                            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            {searchResults.map((result) => (
+                              <button
+                                key={result.id}
+                                onClick={() => {
+                                  onNavigateToTrack?.(result.id);
+                                  setShowSearchDropdown(false);
+                                  setInput('');
+                                }}
+                                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 transition-colors group text-left"
+                              >
+                                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
+                                  {result.trackType === 'video' ? <FileVideo className="w-4 h-4" /> :
+                                   result.trackType === 'article' ? <FileText className="w-4 h-4" /> :
+                                   result.trackType === 'story' ? <Sparkles className="w-4 h-4" /> :
+                                   <Zap className="w-4 h-4" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/40 font-medium">
+                                      {result.matchType}
+                                    </span>
+                                  </div>
+                                  {result.excerpt && (
+                                    <p className="text-xs text-white/40 truncate">{result.excerpt}</p>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {isSearching && searchResults.length === 0 && (
+                        <div className="px-4 py-8 text-center">
+                          <div className="inline-block w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mb-2" />
+                          <p className="text-xs text-white/40">Searching your knowledge base...</p>
+                        </div>
+                      )}
+
+                      {!isSearching && searchResults.length === 0 && input.trim() && (
+                        <div className="px-4 py-4 text-center">
+                          <p className="text-xs text-white/40">No matching articles found. Ask me instead!</p>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* Suggested prompts - orange gradient fill */}
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-wrap justify-center gap-3 mt-7 max-w-2xl mx-auto"
-              >
-                {suggestedPrompts.map((prompt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSend(prompt)}
-                    className="px-4 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500/80 to-orange-600/80 hover:from-orange-500 hover:to-orange-600 rounded-full transition-all shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 hover:scale-105"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </motion.div>
+              {/* Suggested Prompts - auto-sizing buttons, 3 top + 2 bottom */}
+              {suggestedPrompts.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full flex flex-col items-center"
+                  style={{ gap: '8px', marginTop: '30px' }}
+                >
+                  {/* First row - 3 prompts */}
+                  <div className="flex justify-center" style={{ gap: '8px' }}>
+                    {suggestedPrompts.slice(0, 3).map((prompt, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleSend(prompt.text)}
+                        className="py-2 text-xs font-medium text-white rounded-full transition-all hover:opacity-90 px-3"
+                        style={{
+                          background: 'linear-gradient(135deg, #FF6B00 0%, #E85D04 100%)',
+                          opacity: 0.8,
+                        }}
+                        title={prompt.text}
+                      >
+                        {prompt.text}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Second row - 2 prompts */}
+                  {suggestedPrompts.length > 3 && (
+                    <div className="flex justify-center" style={{ gap: '8px' }}>
+                      {suggestedPrompts.slice(3, 5).map((prompt, i) => (
+                        <button
+                          key={i + 3}
+                          onClick={() => handleSend(prompt.text)}
+                          className="py-2 text-xs font-medium text-white rounded-full transition-all hover:opacity-90 px-3"
+                          style={{
+                            background: 'linear-gradient(135deg, #FF6B00 0%, #E85D04 100%)',
+                            opacity: 0.8,
+                          }}
+                          title={prompt.text}
+                        >
+                          {prompt.text}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
             </>
           )}
         </div>
@@ -864,7 +1376,10 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               {/* Input bar - DOCKED AT BOTTOM when in conversation */}
               <div className="px-6 pb-4 pt-2 border-t border-white/5">
                 <div className="max-w-2xl mx-auto">
-                  <div className="flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30">
+                  <div 
+                    className="relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30"
+                    data-search-container="true"
+                  >
                     <Search className="w-4 h-4 text-white/30 flex-shrink-0" />
                     <input
                       ref={followUpInputRef}
@@ -872,7 +1387,15 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                       placeholder="Ask a follow-up question..."
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleSend()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !isLoading) {
+                          handleSend();
+                        }
+                        if (e.key === 'Escape') {
+                          setShowSearchDropdown(false);
+                        }
+                      }}
+                      onFocus={() => input.trim() && setShowSearchDropdown(true)}
                       className="flex-1 bg-transparent border-none outline-none text-white text-sm placeholder:text-white/30"
                     />
                     <button
@@ -882,6 +1405,90 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                     >
                       <Send className="w-3.5 h-3.5" />
                     </button>
+
+                    {/* Search Dropdown for follow-up */}
+                    <AnimatePresence>
+                      {showSearchDropdown && input.trim() && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 10 }}
+                          className="absolute z-50 left-0 right-0 bottom-full mb-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                          style={{
+                            background: 'rgba(25, 25, 28, 0.95)',
+                            backdropFilter: 'blur(16px)',
+                            boxShadow: '0 -10px 40px -10px rgba(0,0,0,0.5), 0 0 20px rgba(255,107,0,0.1)'
+                          }}
+                        >
+                          {/* Chat Option */}
+                          <button
+                            onClick={() => handleSend()}
+                            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 transition-colors group text-left"
+                          >
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-500/20 text-orange-400 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                              <MessageSquare className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white">Ask Company Brain</p>
+                              <p className="text-xs text-white/50 truncate">"Ask about: {input}"</p>
+                            </div>
+                          </button>
+
+                          {searchResults.length > 0 && (
+                            <>
+                              <div className="px-4 py-2 mt-2">
+                                <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
+                              </div>
+                              
+                              <div className="space-y-1">
+                                {searchResults.map((result) => (
+                                  <button
+                                    key={result.id}
+                                    onClick={() => {
+                                      onNavigateToTrack?.(result.id);
+                                      setShowSearchDropdown(false);
+                                      setInput('');
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 transition-colors group text-left"
+                                  >
+                                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
+                                      {result.trackType === 'video' ? <FileVideo className="w-4 h-4" /> :
+                                       result.trackType === 'article' ? <FileText className="w-4 h-4" /> :
+                                       result.trackType === 'story' ? <Sparkles className="w-4 h-4" /> :
+                                       <Zap className="w-4 h-4" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/40 font-medium">
+                                          {result.matchType}
+                                        </span>
+                                      </div>
+                                      {result.excerpt && (
+                                        <p className="text-xs text-white/40 truncate">{result.excerpt}</p>
+                                      )}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+
+                          {isSearching && searchResults.length === 0 && (
+                            <div className="px-4 py-8 text-center">
+                              <div className="inline-block w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mb-2" />
+                              <p className="text-xs text-white/40">Searching your knowledge base...</p>
+                            </div>
+                          )}
+
+                          {!isSearching && searchResults.length === 0 && input.trim() && (
+                            <div className="px-4 py-4 text-center">
+                              <p className="text-xs text-white/40">No matching articles found. Ask me instead!</p>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
                 
@@ -1768,7 +2375,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     <div className="min-h-screen font-sans text-slate-900 dark:text-slate-50">
       
       {/* 1. Top Toolbar / Header */}
-      <div className="flex flex-col gap-6 mb-8">
+      <div className="flex flex-col gap-4 mb-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center text-white shadow-sm">
@@ -1799,22 +2406,6 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
              >
                <Settings className="h-4 w-4" />
              </Button>
-          </div>
-        </div>
-
-        {/* Search Bar - Hero Style */}
-        <div 
-          className="relative group cursor-text max-w-2xl"
-          onClick={() => setIsCommandPaletteOpen(true)}
-        >
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground group-hover:text-slate-600 transition-colors" />
-          <div className="w-full h-12 rounded-xl bg-white dark:bg-slate-800 border shadow-sm group-hover:border-orange-500/50 transition-all flex items-center px-12 text-base text-muted-foreground">
-            Search for answers...
-          </div>
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-            <kbd className="hidden sm:inline-flex h-6 items-center gap-1 rounded border bg-slate-50 dark:bg-slate-900 px-2 font-mono text-xs font-medium text-slate-500">
-              <span className="text-xs">⌘</span>K
-            </kbd>
           </div>
         </div>
       </div>
