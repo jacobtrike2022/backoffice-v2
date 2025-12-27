@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { rolesApi } from '../lib/api/roles';
-import type { Role, CreateRoleInput, UpdateRoleInput, DuplicateRoleSuggestion } from '../types/roles';
+import type { Role, CreateRoleInput, UpdateRoleInput } from '../types/roles';
 import { RoleModal } from './RoleModal';
 import { DuplicatesModal } from './DuplicatesModal';
 
