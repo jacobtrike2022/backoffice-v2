@@ -13,63 +13,57 @@ import type { Role } from '../types/roles';
 interface MergeRoleWizardProps {
   isOpen: boolean;
   onClose: () => void;
-  role1: Role;
-  role2: Role;
+  roles: Role[]; // Changed from role1/role2 to array
   onMergeComplete: () => void;
 }
 
 export function MergeRoleWizard({
   isOpen,
   onClose,
-  role1,
-  role2,
+  roles,
   onMergeComplete,
 }: MergeRoleWizardProps) {
-  const [targetRole, setTargetRole] = useState<'role1' | 'role2'>('role1');
+  const [targetRoleId, setTargetRoleId] = useState<string>('');
   const [reason, setReason] = useState('');
   const [merging, setMerging] = useState(false);
 
-  // Auto-select role with more users as the one to keep
+  // Auto-select role with most users as default
   useEffect(() => {
-    if (role1.user_count && role2.user_count) {
-      if (role1.user_count > role2.user_count) {
-        setTargetRole('role1');
-      } else if (role2.user_count > role1.user_count) {
-        setTargetRole('role2');
-      } else {
-        // If equal users, pick older role (created_at earlier)
-        const role1Date = new Date(role1.created_at);
-        const role2Date = new Date(role2.created_at);
-        setTargetRole(role1Date < role2Date ? 'role1' : 'role2');
-      }
-    } else if (role1.user_count && !role2.user_count) {
-      setTargetRole('role1');
-    } else if (!role1.user_count && role2.user_count) {
-      setTargetRole('role2');
-    } else {
-      // Both have 0 users, pick older one
-      const role1Date = new Date(role1.created_at);
-      const role2Date = new Date(role2.created_at);
-      setTargetRole(role1Date < role2Date ? 'role1' : 'role2');
+    if (roles.length > 0) {
+      const roleWithMostUsers = roles.reduce((prev, current) =>
+        (current.user_count || 0) > (prev.user_count || 0) ? current : prev
+      );
+      setTargetRoleId(roleWithMostUsers.id);
     }
-  }, [role1, role2]);
+  }, [roles]);
 
-  // Determine which is source and which is target
-  const keepRole = targetRole === 'role1' ? role1 : role2;
-  const sourceRole = targetRole === 'role1' ? role2 : role1;
+  const targetRole = roles.find((r) => r.id === targetRoleId);
+  const sourceRoles = roles.filter((r) => r.id !== targetRoleId);
+  const totalUsersToMove = sourceRoles.reduce(
+    (sum, r) => sum + (r.user_count || 0),
+    0
+  );
 
   async function handleMerge() {
+    if (!targetRoleId || sourceRoles.length === 0) return;
+
     try {
       setMerging(true);
 
-      const result = await rolesApi.mergeRoles(
-        sourceRole.id, // FROM this role
-        keepRole.id, // TO this role
-        reason || undefined
-      );
+      // Merge each source role into the target role sequentially
+      let totalUsersMoved = 0;
+      for (const sourceRole of sourceRoles) {
+        const result = await rolesApi.mergeRoles(
+          sourceRole.id,
+          targetRoleId,
+          reason ||
+            `Manual merge: ${sourceRoles.map((r) => r.name).join(', ')} → ${targetRole?.name}`
+        );
+        totalUsersMoved += result.users_migrated;
+      }
 
       toast.success('Roles merged successfully', {
-        description: `${result.users_migrated} user${result.users_migrated !== 1 ? 's' : ''} moved to ${keepRole.name}`,
+        description: `${totalUsersMoved} user${totalUsersMoved !== 1 ? 's' : ''} moved to "${targetRole?.name}". ${sourceRoles.length} role${sourceRoles.length > 1 ? 's' : ''} archived.`,
       });
 
       onMergeComplete();
@@ -93,7 +87,7 @@ export function MergeRoleWizard({
     });
   }
 
-  if (!isOpen) return null;
+  if (!isOpen || roles.length < 2) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -108,70 +102,66 @@ export function MergeRoleWizard({
         <div className="space-y-6">
           {/* Step 1: Select which role to keep */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm">Step 1: Select which role to keep</h3>
+            <h3 className="font-semibold text-sm">
+              Step 1: Select which role to keep
+            </h3>
             <Separator />
 
-            <RadioGroup value={targetRole} onValueChange={(value) => setTargetRole(value as 'role1' | 'role2')}>
-              <div className="space-y-4">
-                {/* Role 1 Option */}
-                <div className="border-2 rounded-lg p-4 cursor-pointer hover:border-primary transition-colors"
-                  onClick={() => setTargetRole('role1')}
-                >
-                  <div className="flex items-start gap-3">
-                    <RadioGroupItem value="role1" id="role1" className="mt-1" />
-                    <div className="flex-1">
-                      <Label htmlFor="role1" className="cursor-pointer font-semibold text-base">
-                        Keep: {role1.name}
+            <RadioGroup
+              value={targetRoleId}
+              onValueChange={(value) => setTargetRoleId(value)}
+            >
+              <div className="space-y-3">
+                {roles.map((role) => (
+                  <label
+                    key={role.id}
+                    className={`
+                      flex items-start p-4 border-2 rounded-lg cursor-pointer transition-all
+                      ${
+                        targetRoleId === role.id
+                          ? 'border-orange-500 bg-orange-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }
+                    `}
+                  >
+                    <RadioGroupItem
+                      value={role.id}
+                      id={`role-${role.id}`}
+                      className="mt-1"
+                    />
+                    <div className="ml-3 flex-1">
+                      <Label
+                        htmlFor={`role-${role.id}`}
+                        className="cursor-pointer font-semibold text-base"
+                      >
+                        {targetRoleId === role.id ? 'Keep: ' : ''}
+                        {role.name}
                       </Label>
                       <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                        {role1.department && (
+                        {role.department && (
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4" />
-                            <span>Department: {role1.department}</span>
+                            <span>Department: {role.department}</span>
+                          </div>
+                        )}
+                        {role.job_family && (
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4" />
+                            <span>Job Family: {role.job_family}</span>
                           </div>
                         )}
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4" />
-                          <span>Users: {role1.user_count || 0}</span>
+                          <span>Users: {role.user_count || 0}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
-                          <span>Created: {formatDate(role1.created_at)}</span>
+                          <span>Created: {formatDate(role.created_at)}</span>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Role 2 Option */}
-                <div className="border-2 rounded-lg p-4 cursor-pointer hover:border-primary transition-colors"
-                  onClick={() => setTargetRole('role2')}
-                >
-                  <div className="flex items-start gap-3">
-                    <RadioGroupItem value="role2" id="role2" className="mt-1" />
-                    <div className="flex-1">
-                      <Label htmlFor="role2" className="cursor-pointer font-semibold text-base">
-                        Merge from: {role2.name}
-                      </Label>
-                      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                        {role2.department && (
-                          <div className="flex items-center gap-2">
-                            <Building2 className="w-4 h-4" />
-                            <span>Department: {role2.department}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4" />
-                          <span>Users: {role2.user_count || 0}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4" />
-                          <span>Created: {formatDate(role2.created_at)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  </label>
+                ))}
               </div>
             </RadioGroup>
           </div>
@@ -181,31 +171,34 @@ export function MergeRoleWizard({
             <h3 className="font-semibold text-sm">Step 2: What will happen?</h3>
             <Separator />
 
-            <div className="bg-muted p-4 rounded-lg space-y-2">
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary mt-1.5"></div>
-                <p className="text-sm">
-                  <strong>{sourceRole.user_count || 0} user{sourceRole.user_count !== 1 ? 's' : ''}</strong> will be moved to{' '}
-                  <strong>"{keepRole.name}"</strong>
-                </p>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary mt-1.5"></div>
-                <p className="text-sm">
-                  <strong>"{sourceRole.name}"</strong> (duplicate) will be archived
-                </p>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary mt-1.5"></div>
-                <p className="text-sm">
-                  An alias will be created to map <strong>"{sourceRole.name}"</strong> → <strong>"{keepRole.name}"</strong> for future matching
-                </p>
-              </div>
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-900 mb-2">
+                What will happen:
+              </h4>
+              <ul className="space-y-1 text-sm text-blue-800">
+                <li>
+                  • <strong>{totalUsersToMove} user{totalUsersToMove !== 1 ? 's' : ''}</strong> will be moved to{' '}
+                  <strong>"{targetRole?.name}"</strong>
+                </li>
+                <li>
+                  • <strong>{sourceRoles.length} role{sourceRoles.length > 1 ? 's' : ''}</strong> will be archived:
+                </li>
+                <ul className="ml-6 mt-1 space-y-1">
+                  {sourceRoles.map((r) => (
+                    <li key={r.id}>
+                      - {r.name} ({r.user_count || 0} user{r.user_count !== 1 ? 's' : ''})
+                    </li>
+                  ))}
+                </ul>
+                <li>• Aliases will be created for future matching</li>
+              </ul>
             </div>
           </div>
 
-          {/* Warnings */}
-          {sourceRole.department !== keepRole.department && (
+          {/* Warnings for Different Properties */}
+          {sourceRoles.some(
+            (r) => r.department !== targetRole?.department
+          ) && (
             <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
@@ -214,14 +207,15 @@ export function MergeRoleWizard({
                     ⚠️ Different Departments
                   </p>
                   <p className="text-sm text-yellow-700 mt-1">
-                    These roles have different departments: <strong>{sourceRole.department || 'None'}</strong> → <strong>{keepRole.department || 'None'}</strong>
+                    Some roles have different departments. Users will keep their
+                    current role assignment after merge.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {sourceRole.user_count && sourceRole.user_count > 0 && (
+          {totalUsersToMove > 0 && (
             <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
@@ -230,7 +224,7 @@ export function MergeRoleWizard({
                     ℹ️ Users Will Be Moved
                   </p>
                   <p className="text-sm text-blue-700 mt-1">
-                    {sourceRole.user_count} user{sourceRole.user_count !== 1 ? 's' : ''} currently assigned to "{sourceRole.name}" will be reassigned to "{keepRole.name}".
+                    {totalUsersToMove} user{totalUsersToMove !== 1 ? 's' : ''} currently assigned to the source role{sourceRoles.length > 1 ? 's' : ''} will be reassigned to "{targetRole?.name}".
                   </p>
                 </div>
               </div>
@@ -267,4 +261,3 @@ export function MergeRoleWizard({
     </Dialog>
   );
 }
-

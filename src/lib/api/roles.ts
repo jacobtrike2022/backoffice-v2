@@ -167,8 +167,27 @@ export const rolesApi = {
         p_threshold: threshold
       });
     
-    if (error) throw error;
-    return data || [];
+    if (error) {
+      // Handle type mismatch error - database returns real but expects numeric
+      if (error.code === '42804' || error.message?.includes('does not match')) {
+        const helpfulError = new Error(
+          'Database function type mismatch: The find_duplicate_roles function returns real type for similarity_score, but PostgREST expects numeric. ' +
+          'Please update the function to cast similarity_score to NUMERIC. ' +
+          'Run this SQL in Supabase: ALTER FUNCTION find_duplicate_roles ... (see error details)'
+        );
+        helpfulError.name = 'TypeMismatchError';
+        throw helpfulError;
+      }
+      throw error;
+    }
+    
+    // Ensure similarity_score is a number (handle real to number conversion)
+    return (data || []).map((item: any) => ({
+      ...item,
+      similarity_score: typeof item.similarity_score === 'number' 
+        ? item.similarity_score 
+        : parseFloat(item.similarity_score) || 0
+    }));
   },
 
   async mergeRoles(

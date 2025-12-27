@@ -45,6 +45,9 @@ export function RolesManagement() {
   const [userListPopover, setUserListPopover] = useState<string | null>(null);
   const [userListData, setUserListData] = useState<{ name: string; email: string }[]>([]);
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
+  const [showManualMergeWizard, setShowManualMergeWizard] = useState(false);
+  const [mergingRoles, setMergingRoles] = useState<Role[]>([]);
 
   useEffect(() => {
     loadRoles();
@@ -218,13 +221,28 @@ export function RolesManagement() {
             <Plus className="w-4 h-4 mr-2" />
             New Role
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDuplicatesModal(true)}
-          >
-            Find Duplicates
-          </Button>
+          {selectedRoleIds.size >= 2 ? (
+            <Button
+              className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+              onClick={() => {
+                const selectedRoles = roles.filter((r) =>
+                  selectedRoleIds.has(r.id)
+                );
+                setMergingRoles(selectedRoles);
+                setShowManualMergeWizard(true);
+              }}
+            >
+              Merge Selected ({selectedRoleIds.size})
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDuplicatesModal(true)}
+            >
+              Find Duplicates
+            </Button>
+          )}
         </div>
 
         {/* Search */}
@@ -274,6 +292,21 @@ export function RolesManagement() {
         </div>
       </div>
 
+      {/* Selection Count Badge */}
+      {selectedRoleIds.size > 0 && (
+        <div className="px-4 py-2 bg-orange-50 border border-orange-200 rounded-lg flex items-center justify-between">
+          <span className="text-sm text-orange-800">
+            {selectedRoleIds.size} role{selectedRoleIds.size > 1 ? 's' : ''} selected
+          </span>
+          <button
+            onClick={() => setSelectedRoleIds(new Set())}
+            className="text-sm text-orange-600 hover:text-orange-800 font-medium"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Roles Table */}
       <Card>
         <CardContent className="p-0">
@@ -311,6 +344,24 @@ export function RolesManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={
+                        selectedRoleIds.size === filteredRoles.length &&
+                        filteredRoles.length > 0
+                      }
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedRoleIds(
+                            new Set(filteredRoles.map((r) => r.id))
+                          );
+                        } else {
+                          setSelectedRoleIds(new Set());
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </TableHead>
                   <TableHead>Role Name</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Job Family</TableHead>
@@ -327,6 +378,24 @@ export function RolesManagement() {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => handleEditRole(role)}
                   >
+                    <TableCell
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-12"
+                    >
+                      <Checkbox
+                        checked={selectedRoleIds.has(role.id)}
+                        onCheckedChange={(checked) => {
+                          const newSelected = new Set(selectedRoleIds);
+                          if (checked) {
+                            newSelected.add(role.id);
+                          } else {
+                            newSelected.delete(role.id);
+                          }
+                          setSelectedRoleIds(newSelected);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex flex-col">
                         <span>{role.display_name || role.name}</span>
@@ -460,6 +529,25 @@ export function RolesManagement() {
         onRolesChanged={loadRoles}
         roles={roles}
       />
+
+      {/* Manual Merge Wizard */}
+      {showManualMergeWizard && mergingRoles.length >= 2 && (
+        <MergeRoleWizard
+          isOpen={showManualMergeWizard}
+          onClose={() => {
+            setShowManualMergeWizard(false);
+            setMergingRoles([]);
+            setSelectedRoleIds(new Set());
+          }}
+          roles={mergingRoles}
+          onMergeComplete={() => {
+            setShowManualMergeWizard(false);
+            setMergingRoles([]);
+            setSelectedRoleIds(new Set());
+            loadRoles();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -42,13 +42,22 @@ export function DuplicatesModal({
   async function scanForDuplicates() {
     try {
       setLoadingDuplicates(true);
-      const results = await rolesApi.findDuplicates(0.6); // 60% similarity threshold
+      const results = await rolesApi.findDuplicates(0.4); // 40% similarity threshold (lower to catch abbreviations)
       setDuplicates(results);
     } catch (error: any) {
       console.error('Error finding duplicates:', error);
-      toast.error('Failed to scan for duplicates', {
-        description: error.message || 'An unexpected error occurred',
-      });
+      
+      // Check for type mismatch error
+      if (error.name === 'TypeMismatchError' || error.message?.includes('type mismatch')) {
+        toast.error('Database function needs update', {
+          description: 'The find_duplicate_roles function returns REAL type but needs NUMERIC. See FIX_DUPLICATE_ROLES_FUNCTION.md for instructions.',
+          duration: 10000,
+        });
+      } else {
+        toast.error('Failed to scan for duplicates', {
+          description: error.message || 'An unexpected error occurred',
+        });
+      }
     } finally {
       setLoadingDuplicates(false);
     }
@@ -284,8 +293,7 @@ export function DuplicatesModal({
             setShowMergeWizard(false);
             setMergingPair(null);
           }}
-          role1={mergingPair.role1}
-          role2={mergingPair.role2}
+          roles={[mergingPair.role1, mergingPair.role2]}
           onMergeComplete={handleMergeComplete}
         />
       )}
