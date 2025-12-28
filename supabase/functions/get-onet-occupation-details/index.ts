@@ -49,51 +49,53 @@ async function getOccupationDetails(onetCode: string): Promise<ONetOccupationDet
   console.log('Fetching details for O*NET code:', onetCode);
 
   // Fetch all data in parallel
-  const [summaryData, tasksData, skillsData, knowledgeData] = await Promise.all([
-    fetchONet(`/online/occupations/${onetCode}/summary`),
-    fetchONet(`/online/occupations/${onetCode}/summary/tasks`),
-    fetchONet(`/online/occupations/${onetCode}/summary/skills`),
-    fetchONet(`/online/occupations/${onetCode}/summary/knowledge`),
+  const [careerData, skillsData, knowledgeData] = await Promise.all([
+    fetchONet(`/mnm/careers/${onetCode}`),
+    fetchONet(`/mnm/careers/${onetCode}/skills`),
+    fetchONet(`/mnm/careers/${onetCode}/knowledge`),
   ]);
 
-  // Extract tasks
-  const tasks = (tasksData.task || [])
-    .map((task: any) => task.description)
-    .filter(Boolean)
-    .slice(0, 10); // Top 10 tasks
+  // Extract tasks from on_the_job array
+  const tasks = (careerData.on_the_job || []).slice(0, 10);
 
-  // Extract skills with importance scores
-  const skills = (skillsData.skill || [])
-    .map((skill: any) => ({
-      name: skill.element_name,
-      importance: skill.scale?.value || 0,
-    }))
-    .sort((a: any, b: any) => b.importance - a.importance)
-    .slice(0, 10); // Top 10 skills
+  // Extract skills - flatten the nested structure
+  const skillElements: any[] = [];
+  (skillsData || []).forEach((category: any) => {
+    (category.element || []).forEach((skill: any) => {
+      skillElements.push(skill);
+    });
+  });
+  const skills = skillElements.map((skill: any) => ({
+    name: skill.name,
+    importance: 50, // v2.0 doesn't provide importance scores in this endpoint
+  })).slice(0, 10);
 
-  // Extract knowledge areas with importance scores
-  const knowledge = (knowledgeData.knowledge || [])
-    .map((know: any) => ({
-      name: know.element_name,
-      importance: know.scale?.value || 0,
-    }))
-    .sort((a: any, b: any) => b.importance - a.importance)
-    .slice(0, 10); // Top 10 knowledge areas
+  // Extract knowledge - flatten the nested structure
+  const knowledgeElements: any[] = [];
+  (knowledgeData || []).forEach((category: any) => {
+    (category.element || []).forEach((know: any) => {
+      knowledgeElements.push(know);
+    });
+  });
+  const knowledge = knowledgeElements.map((know: any) => ({
+    name: know.name,
+    importance: 50, // v2.0 doesn't provide importance scores in this endpoint
+  })).slice(0, 10);
 
-  // Build job description from tasks
-  const jobDescription = tasks.length > 0
-    ? tasks.join(' ')
-    : summaryData.description || '';
+  // Extract sample job titles from also_called
+  const sampleJobTitles = (careerData.also_called || [])
+    .map((job: any) => job.title)
+    .slice(0, 10);
 
   return {
     onet_code: onetCode,
-    title: summaryData.title,
-    description: summaryData.description || '',
+    title: careerData.title,
+    description: careerData.what_they_do || '',
     tasks,
     skills,
     knowledge,
-    job_zone: summaryData.job_zone || 0,
-    sample_job_titles: summaryData.sample_of_reported_job_titles || [],
+    job_zone: 0, // v2.0 doesn't provide this in the basic career endpoint
+    sample_job_titles: sampleJobTitles,
   };
 }
 

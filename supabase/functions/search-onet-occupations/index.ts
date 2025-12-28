@@ -40,14 +40,15 @@ async function searchONetOccupations(query: string): Promise<ONetSearchMatch[]> 
 
   const data = await response.json();
   
-  // Extract occupations from response
-  const occupations = data.occupation || [];
+  // Extract careers from response (v2.0 API uses "career" not "occupation")
+  const occupations = data.career || [];
   
   // Map to our format with relevance scores
-  const matches: ONetSearchMatch[] = occupations.map((occ: any) => ({
+  // O*NET already sorts by relevance, so use array index for scoring
+  const matches: ONetSearchMatch[] = occupations.map((occ: any, index: number) => ({
     onet_code: occ.code,
     title: occ.title,
-    relevance_score: occ.tags?.title || 0, // O*NET provides relevance in tags
+    relevance_score: 100 - index, // Higher score for earlier results
   }));
 
   // Sort by relevance and take top 5
