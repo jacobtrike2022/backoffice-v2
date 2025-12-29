@@ -36,7 +36,11 @@ import { RoleModal } from './RoleModal';
 import { DuplicatesModal } from './DuplicatesModal';
 import { MergeRoleWizard } from './MergeRoleWizard';
 
-export function RolesManagement() {
+interface RolesManagementProps {
+  onRoleClick?: (roleId: string) => void;
+}
+
+export function RolesManagement({ onRoleClick }: RolesManagementProps) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -140,8 +144,14 @@ export function RolesManagement() {
   };
 
   const handleEditRole = (role: Role) => {
-    setEditingRole(role);
-    setIsModalOpen(true);
+    // If onRoleClick is provided, navigate to detail page
+    // Otherwise, open modal for quick edit (backward compatibility)
+    if (onRoleClick) {
+      onRoleClick(role.id);
+    } else {
+      setEditingRole(role);
+      setIsModalOpen(true);
+    }
   };
 
   const handleOpenCreateModal = () => {
@@ -378,7 +388,13 @@ export function RolesManagement() {
                   <TableRow
                     key={role.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleEditRole(role)}
+                    onClick={() => {
+                      if (onRoleClick) {
+                        onRoleClick(role.id);
+                      } else {
+                        handleEditRole(role);
+                      }
+                    }}
                   >
                     <TableCell
                       onClick={(e) => e.stopPropagation()}

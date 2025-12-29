@@ -1,0 +1,140 @@
+import React from 'react';
+import { Checkbox } from './ui/checkbox';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Label } from './ui/label';
+import { Edit2, Trash2, RotateCcw } from 'lucide-react';
+import { cn } from './ui/utils';
+
+interface CompetencyItemProps {
+  id: string;
+  description: string;
+  source: 'standard' | 'modified' | 'custom' | 'excluded';
+  isActive: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete?: () => void; // Only provided for custom items
+  onRevert?: () => void; // Only provided for modified items
+  importance?: number;
+  category?: string;
+}
+
+export function CompetencyItem({
+  id,
+  description,
+  source,
+  isActive,
+  onToggle,
+  onEdit,
+  onDelete,
+  onRevert,
+  importance,
+  category,
+}: CompetencyItemProps) {
+  const getSourceBadge = () => {
+    if (source === 'standard') return null;
+    
+    const variants = {
+      modified: { variant: 'outline' as const, className: 'border-blue-300 text-blue-700 bg-blue-50' },
+      custom: { variant: 'outline' as const, className: 'border-green-300 text-green-700 bg-green-50' },
+      excluded: { variant: 'outline' as const, className: 'border-gray-300 text-gray-500 bg-gray-50' },
+    };
+
+    const config = variants[source];
+    const labels = {
+      modified: 'Modified',
+      custom: 'Custom',
+      excluded: 'Excluded',
+    };
+
+    return (
+      <Badge {...config} className={cn('text-xs', config.className)}>
+        {labels[source]}
+      </Badge>
+    );
+  };
+
+  const getBorderColor = () => {
+    if (source === 'modified') return 'border-l-blue-500';
+    if (source === 'custom') return 'border-l-green-500';
+    return '';
+  };
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-3 p-3 rounded-md transition-colors',
+        getBorderColor(),
+        isActive
+          ? 'hover:bg-muted/50 border-l-4'
+          : 'opacity-60 hover:bg-muted/30 border-l-4',
+        source === 'excluded' && !isActive && 'line-through'
+      )}
+    >
+      <Checkbox
+        id={`competency-${id}`}
+        checked={isActive}
+        onCheckedChange={onToggle}
+        className="mt-0.5"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <Label
+            htmlFor={`competency-${id}`}
+            className={cn(
+              'text-sm cursor-pointer flex-1',
+              !isActive && 'text-muted-foreground'
+            )}
+          >
+            {description}
+          </Label>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {getSourceBadge()}
+            {importance !== undefined && (
+              <Badge variant="outline" className="text-xs">
+                {Math.round(importance)}%
+              </Badge>
+            )}
+          </div>
+        </div>
+        {category && (
+          <p className="text-xs text-muted-foreground mt-1">{category}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {source === 'modified' && onRevert && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRevert}
+            className="h-7 w-7 p-0"
+            title="Revert to standard"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onEdit}
+          className="h-7 w-7 p-0"
+          title="Edit"
+        >
+          <Edit2 className="h-3.5 w-3.5" />
+        </Button>
+        {source === 'custom' && onDelete && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+

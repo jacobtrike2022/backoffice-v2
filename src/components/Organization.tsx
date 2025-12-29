@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Plus, Eye, Tag, Users, Building2, Edit, Trash2, Globe } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
 import { RolesManagement } from './RolesManagement';
+import { RoleDetailPage } from './RoleDetailPage';
 import { Card, CardContent } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
@@ -34,6 +35,7 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
   const [newDistrictName, setNewDistrictName] = useState('');
   const [editDistrictName, setEditDistrictName] = useState('');
   const [unassignedStores, setUnassignedStores] = useState<any[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
 
   const tabs = [
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
@@ -299,7 +301,16 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
           />
         )}
         
-        {activeTab === 'roles' && <RolesManagement />}
+        {activeTab === 'roles' && (
+          selectedRoleId ? (
+            <RoleDetailPage
+              roleId={selectedRoleId}
+              onBack={() => setSelectedRoleId(null)}
+            />
+          ) : (
+            <RolesManagement onRoleClick={(roleId) => setSelectedRoleId(roleId)} />
+          )
+        )}
         
         {activeTab === 'districts' && (
           <div className="space-y-6">
