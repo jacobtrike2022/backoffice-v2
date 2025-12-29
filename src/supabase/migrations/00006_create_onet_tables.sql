@@ -2,9 +2,9 @@
 -- CREATE O*NET COMPETENCY TAXONOMY TABLES
 -- =====================================================
 -- Purpose: Store O*NET competency taxonomy data for skills-based training recommendations
--- Data Source: O*NET API v2.0 (https://api-v2.onetcenter.org)
--- Update Frequency: Twice yearly (manual sync via Edge Functions)
--- Related Edge Functions: get-onet-occupation-details, search-onet-occupations, sync-onet-data
+-- Data Source: O*NET SQL Server database exports (imported locally via scripts/import-onet-data.ts)
+-- Update Frequency: Twice yearly (manual import via import script)
+-- Note: O*NET data is now stored locally in Supabase tables, not fetched via API
 -- =====================================================
 
 -- =====================================================

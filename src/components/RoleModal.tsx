@@ -440,20 +440,6 @@ export function RoleModal({
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="onet_code">O*NET Code (optional)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="onet_code"
-                    disabled
-                    placeholder="Will be populated via O*NET matching"
-                    className="flex-1"
-                  />
-                  <Button type="button" variant="outline" disabled>
-                    Search O*NET
-                  </Button>
-                </div>
-              </div>
             </CollapsibleContent>
           </Collapsible>
 
