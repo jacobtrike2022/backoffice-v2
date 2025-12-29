@@ -17,16 +17,53 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Load .env file if it exists
+try {
+  const envPath = path.join(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    envContent.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const [key, ...valueParts] = trimmed.split('=');
+        if (key && valueParts.length > 0) {
+          const value = valueParts.join('=').replace(/^["']|["']$/g, ''); // Remove quotes
+          if (!process.env[key]) {
+            process.env[key] = value;
+          }
+        }
+      }
+    });
+  }
+} catch (error) {
+  // Silently fail if .env can't be read
+}
+
 // =====================================================
 // CONFIGURATION
 // =====================================================
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+// Construct SUPABASE_URL from project ID if available, otherwise use explicit URL
+const projectId = process.env.VITE_SUPABASE_PROJECT_ID || process.env.SUPABASE_PROJECT_ID;
+const explicitUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_URL = explicitUrl || (projectId ? `https://${projectId}.supabase.co` : null);
+
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('❌ Missing required environment variables:');
-  console.error('   SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
+  console.error('');
+  console.error('   Option 1: Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+  console.error('   Option 2: Set VITE_SUPABASE_PROJECT_ID and SUPABASE_SERVICE_ROLE_KEY');
+  console.error('');
+  console.error('   Example:');
+  console.error('   SUPABASE_URL="https://kgzhlvxzdlexsrozbbxs.supabase.co" \\');
+  console.error('   SUPABASE_SERVICE_ROLE_KEY="your-service-role-key" \\');
+  console.error('   npm run import:onet');
+  console.error('');
+  console.error('   Or add to .env file:');
+  console.error('   SUPABASE_URL=https://kgzhlvxzdlexsrozbbxs.supabase.co');
+  console.error('   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key');
   process.exit(1);
 }
 
@@ -37,7 +74,23 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   }
 });
 
-const ONET_DATA_DIR = path.join(process.cwd(), 'Onet Data');
+// O*NET data directory - check parent directory first, then project directory
+// O*NET data directory - check parent directory first (where files are located), then project directory
+const ONET_DATA_DIR = (() => {
+  const parentDir = path.join(process.cwd(), '..', 'Onet Data');
+  const projectDir = path.join(process.cwd(), 'Onet Data');
+  
+  // Check parent directory first (typical location)
+  if (fs.existsSync(parentDir)) {
+    return parentDir;
+  }
+  // Fallback to project directory
+  if (fs.existsSync(projectDir)) {
+    return projectDir;
+  }
+  // Default to parent directory for error message
+  return parentDir;
+})();
 const BATCH_SIZE = 500;
 
 // =====================================================
@@ -124,29 +177,28 @@ function parseSQLInserts(filePath: string): any[] {
     const startPos = match.index + match[0].length;
     
     // Find matching closing parenthesis for VALUES clause
+    // Handle SQL Server escaped quotes ('') properly
     let depth = 1;
     let endPos = startPos;
     let inQuotes = false;
-    let escapeNext = false;
     
     for (let i = startPos; i < cleaned.length && depth > 0; i++) {
       const char = cleaned[i];
+      const nextChar = i < cleaned.length - 1 ? cleaned[i + 1] : null;
       
-      if (escapeNext) {
-        escapeNext = false;
+      // Handle SQL Server escaped quotes ('')
+      if (char === "'" && nextChar === "'" && inQuotes) {
+        i++; // Skip next character (second quote)
         continue;
       }
       
-      if (char === '\\') {
-        escapeNext = true;
-        continue;
-      }
-      
+      // Toggle quote state
       if (char === "'") {
         inQuotes = !inQuotes;
         continue;
       }
       
+      // Only track parentheses when outside quotes
       if (!inQuotes) {
         if (char === '(') depth++;
         if (char === ')') depth--;
@@ -157,49 +209,40 @@ function parseSQLInserts(filePath: string): any[] {
     
     const valuesStr = cleaned.substring(startPos, endPos);
     
-    // Parse values - handle quoted strings, numbers, NULL, nested structures
+    // Parse values - handle quoted strings, numbers, NULL
+    // SQL Server uses '' for escaped single quotes within strings
     const values: any[] = [];
     let current = '';
     inQuotes = false;
-    escapeNext = false;
-    let parenDepth = 0;
     
     for (let i = 0; i < valuesStr.length; i++) {
       const char = valuesStr[i];
+      const nextChar = i < valuesStr.length - 1 ? valuesStr[i + 1] : null;
       
-      if (escapeNext) {
-        current += char;
-        escapeNext = false;
+      // Handle SQL Server escaped quotes ('')
+      if (char === "'" && nextChar === "'" && inQuotes) {
+        current += "'"; // Add single quote, skip the next one
+        i++; // Skip next character
         continue;
       }
       
-      if (char === '\\') {
-        escapeNext = true;
-        current += char;
-        continue;
-      }
-      
-      if (char === "'" && !escapeNext) {
+      // Toggle quote state
+      if (char === "'") {
         inQuotes = !inQuotes;
         current += char;
         continue;
       }
       
-      if (!inQuotes) {
-        if (char === '(') parenDepth++;
-        if (char === ')') parenDepth--;
-      }
-      
-      if (!inQuotes && parenDepth === 0 && char === ',') {
-        // End of value
+      // If we're outside quotes and hit a comma, it's a value separator
+      if (!inQuotes && char === ',') {
         const trimmed = current.trim();
         if (trimmed === 'NULL' || trimmed === '') {
           values.push(null);
         } else if (trimmed.match(/^-?\d+\.?\d*$/)) {
           values.push(parseFloat(trimmed));
         } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-          // Remove surrounding quotes and handle escaped quotes
-          const unquoted = trimmed.slice(1, -1).replace(/''/g, "'");
+          // Remove surrounding quotes and handle escaped quotes (already handled above)
+          const unquoted = trimmed.slice(1, -1);
           values.push(unquoted);
         } else {
           values.push(trimmed);
@@ -211,7 +254,7 @@ function parseSQLInserts(filePath: string): any[] {
       current += char;
     }
     
-    // Handle last value
+    // Handle last value (no trailing comma)
     if (current.trim()) {
       const trimmed = current.trim();
       if (trimmed === 'NULL' || trimmed === '') {
@@ -219,7 +262,7 @@ function parseSQLInserts(filePath: string): any[] {
       } else if (trimmed.match(/^-?\d+\.?\d*$/)) {
         values.push(parseFloat(trimmed));
       } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-        const unquoted = trimmed.slice(1, -1).replace(/''/g, "'");
+        const unquoted = trimmed.slice(1, -1);
         values.push(unquoted);
       } else {
         values.push(trimmed);
@@ -234,19 +277,63 @@ function parseSQLInserts(filePath: string): any[] {
 
 /**
  * Extract column names from CREATE TABLE statement
+ * Handles MS SQL Server format: column_name TYPE, column_name TYPE, ...
  */
 function extractColumns(filePath: string): string[] {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const createMatch = content.match(/CREATE TABLE\s+\w+\s*\(([^)]+)\)/is);
-  if (!createMatch) return [];
   
+  // Find CREATE TABLE and extract the full column definition block
+  const createTableRegex = /CREATE TABLE\s+\w+\s*\(/i;
+  const match = createTableRegex.exec(content);
+  if (!match) return [];
+  
+  const startPos = match.index + match[0].length;
+  let depth = 1;
+  let endPos = startPos;
+  
+  // Find matching closing parenthesis (handle nested parentheses)
+  for (let i = startPos; i < content.length && depth > 0; i++) {
+    if (content[i] === '(') depth++;
+    if (content[i] === ')') depth--;
+    endPos = i;
+  }
+  
+  const columnDefs = content.substring(startPos, endPos);
+  
+  // Split by comma, but handle nested parentheses
+  let current = '';
+  depth = 0;
+  const parts: string[] = [];
+  
+  for (let i = 0; i < columnDefs.length; i++) {
+    const char = columnDefs[i];
+    if (char === '(') depth++;
+    if (char === ')') depth--;
+    
+    if (char === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+  
+  // Extract column name from each part (first word before space)
   const columns: string[] = [];
-  const columnDefs = createMatch[1];
-  const columnRegex = /(\w+)\s+[^,]+/g;
-  let match;
-  
-  while ((match = columnRegex.exec(columnDefs)) !== null) {
-    columns.push(match[1]);
+  for (const part of parts) {
+    const trimmed = part.trim();
+    // Skip constraint definitions (PRIMARY KEY, FOREIGN KEY, etc.)
+    if (trimmed.match(/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\s+KEY/i)) {
+      continue;
+    }
+    // Extract column name (first identifier)
+    const nameMatch = trimmed.match(/^(\w+)/);
+    if (nameMatch) {
+      columns.push(nameMatch[1]);
+    }
   }
   
   return columns;
@@ -370,6 +457,14 @@ async function importOccupations(): Promise<number> {
   const records = parseSQLInserts(filePath);
   const columns = extractColumns(filePath);
   
+  console.log(`   Found ${records.length} INSERT statements`);
+  console.log(`   Columns: ${columns.join(', ')}`);
+  
+  if (records.length > 0) {
+    console.log(`   Sample record values count: ${records[0].values.length}`);
+    console.log(`   Sample first 3 values: ${records[0].values.slice(0, 3).join(', ')}`);
+  }
+  
   const occupations: Occupation[] = [];
   
   for (const record of records) {
@@ -378,7 +473,13 @@ async function importOccupations(): Promise<number> {
     const descriptionIdx = columns.indexOf('description');
     const jobZoneIdx = columns.indexOf('job_zone');
     
-    if (onetsocCodeIdx === -1 || titleIdx === -1) continue;
+    if (onetsocCodeIdx === -1 || titleIdx === -1) {
+      if (occupations.length === 0) {
+        console.log(`   ⚠️  Missing required columns. onetsoc_code: ${onetsocCodeIdx}, title: ${titleIdx}`);
+        console.log(`   Available columns: ${columns.join(', ')}`);
+      }
+      continue;
+    }
     
     occupations.push({
       onet_code: record.values[onetsocCodeIdx],
@@ -387,6 +488,8 @@ async function importOccupations(): Promise<number> {
       job_zone: jobZoneIdx >= 0 ? (record.values[jobZoneIdx] ?? null) : null,
     });
   }
+  
+  console.log(`   Parsed ${occupations.length} occupations from ${records.length} records`);
   
   // Batch upsert
   let imported = 0;
@@ -508,12 +611,13 @@ async function importTasks(): Promise<number> {
   }
   
   // Batch upsert
+  // Uses unique constraint on (onet_code, task_description) for proper deduplication
   let imported = 0;
   for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
     const batch = tasks.slice(i, i + BATCH_SIZE);
     const { error } = await supabase
       .from('onet_tasks')
-      .upsert(batch, { onConflict: 'id', ignoreDuplicates: true });
+      .upsert(batch, { onConflict: 'onet_code,task_description', ignoreDuplicates: false });
     
     if (error) {
       console.error(`❌ Error importing tasks batch ${i / BATCH_SIZE + 1}:`, error);
@@ -542,14 +646,24 @@ async function importTechnologySkills(): Promise<number> {
   const records = parseSQLInserts(filePath);
   const columns = extractColumns(filePath);
   
+  console.log(`   Found ${records.length} INSERT statements`);
+  console.log(`   Columns: ${columns.join(', ')}`);
+  
   const technologies: TechnologySkill[] = [];
   
   for (const record of records) {
     const onetsocCodeIdx = columns.indexOf('onetsoc_code');
-    const technologyIdx = columns.indexOf('technology');
+    // O*NET uses 'example' as the column name, not 'technology'
+    const technologyIdx = columns.indexOf('example') >= 0 ? columns.indexOf('example') : columns.indexOf('technology');
     const hotTechIdx = columns.indexOf('hot_technology');
     
-    if (onetsocCodeIdx === -1 || technologyIdx === -1) continue;
+    if (onetsocCodeIdx === -1 || technologyIdx === -1) {
+      if (technologies.length === 0) {
+        console.log(`   ⚠️  Missing required columns. onetsoc_code: ${onetsocCodeIdx}, example/technology: ${technologyIdx}`);
+        console.log(`   Available columns: ${columns.join(', ')}`);
+      }
+      continue;
+    }
     
     technologies.push({
       onet_code: record.values[onetsocCodeIdx],
@@ -559,13 +673,16 @@ async function importTechnologySkills(): Promise<number> {
     });
   }
   
+  console.log(`   Parsed ${technologies.length} technology skills from ${records.length} records`);
+  
   // Batch upsert
+  // Uses unique constraint on (onet_code, technology_name) for proper deduplication
   let imported = 0;
   for (let i = 0; i < technologies.length; i += BATCH_SIZE) {
     const batch = technologies.slice(i, i + BATCH_SIZE);
     const { error } = await supabase
       .from('onet_technology_skills')
-      .upsert(batch, { onConflict: 'id', ignoreDuplicates: true });
+      .upsert(batch, { onConflict: 'onet_code,technology_name', ignoreDuplicates: false });
     
     if (error) {
       console.error(`❌ Error importing technology skills batch ${i / BATCH_SIZE + 1}:`, error);
@@ -594,27 +711,44 @@ async function importDetailedActivities(contentModelRef: Map<string, ContentMode
   const records = parseSQLInserts(filePath);
   const columns = extractColumns(filePath);
   
+  console.log(`   Found ${records.length} INSERT statements`);
+  console.log(`   Columns: ${columns.join(', ')}`);
+  
   const activities: DetailedActivity[] = [];
   const seen = new Set<string>();
   
   for (const record of records) {
+    // The SQL file uses dwa_id as the primary key, not element_id
+    const dwaIdIdx = columns.indexOf('dwa_id');
+    const dwaTitleIdx = columns.indexOf('dwa_title');
     const elementIdIdx = columns.indexOf('element_id');
     
-    if (elementIdIdx === -1) continue;
+    if (dwaIdIdx === -1 || dwaTitleIdx === -1) {
+      if (activities.length === 0) {
+        console.log(`   ⚠️  Missing required columns. dwa_id: ${dwaIdIdx}, dwa_title: ${dwaTitleIdx}`);
+        console.log(`   Available columns: ${columns.join(', ')}`);
+      }
+      continue;
+    }
     
-    const activity_id = record.values[elementIdIdx];
+    const activity_id = record.values[dwaIdIdx];
+    // Deduplicate by dwa_id (the primary key)
     if (seen.has(activity_id)) continue;
     seen.add(activity_id);
     
-    const ref = contentModelRef.get(activity_id);
+    const name = record.values[dwaTitleIdx];
+    const element_id = elementIdIdx >= 0 ? record.values[elementIdIdx] : null;
+    const ref = element_id ? contentModelRef.get(element_id) : null;
     
     activities.push({
       activity_id,
-      name: ref?.element_name || activity_id,
-      category: null, // Extract from element_id pattern if needed
+      name,
+      category: null, // Could extract from element_id pattern if needed
       description: ref?.description || null,
     });
   }
+  
+  console.log(`   Parsed ${activities.length} unique detailed activities from ${records.length} records`);
   
   // Batch upsert
   let imported = 0;
