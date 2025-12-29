@@ -6,6 +6,7 @@ import { FormAssignments } from './forms/FormAssignments';
 import { FormSubmissions } from './forms/FormSubmissions';
 import { FormDetail } from './forms/FormDetail';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Footer } from './Footer';
 
 interface FormsProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
@@ -46,6 +47,7 @@ export function Forms({ currentRole = 'admin' }: FormsProps) {
           onEdit={handleEditForm}
           currentRole={currentRole}
         />
+        <Footer />
       </div>
     );
   }
@@ -94,6 +96,7 @@ export function Forms({ currentRole = 'admin' }: FormsProps) {
           <FormSubmissions currentRole={currentRole} />
         </TabsContent>
       </Tabs>
+      <Footer />
     </div>
   );
 }

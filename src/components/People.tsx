@@ -77,11 +77,12 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   const { stores } = useStores({ organization_id: currentUser?.organization_id });
 
   // Fetch users from Supabase
+  // For Trike Super Admin, don't filter by status unless explicitly selected
   const { users: fetchedUsers, loading, error, refetch } = useUsers({
     search: searchQuery || undefined,
     role_id: selectedRoles.length > 0 ? selectedRoles[0] : undefined,
     store_id: selectedStores.length > 0 ? selectedStores[0] : undefined,
-    status: selectedStatus.length > 0 ? selectedStatus[0] as any : 'active'
+    status: selectedStatus.length > 0 ? selectedStatus[0] as any : (currentRole === 'trike-super-admin' ? undefined : 'active')
   });
 
   // State for users with calculated progress

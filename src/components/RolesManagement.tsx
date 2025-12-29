@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
+import { Footer } from './Footer';
 import {
   Table,
   TableBody,
@@ -545,10 +546,11 @@ export function RolesManagement() {
             setShowManualMergeWizard(false);
             setMergingRoles([]);
             setSelectedRoleIds(new Set());
-            loadRoles();
-          }}
-        />
-      )}
+          loadRoles();
+        }}
+      />
+    )}
+      <Footer />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
+import { Footer } from './Footer';
 import { 
   FileText, 
   Video, 
@@ -581,6 +582,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           </div>
         </div>
       )}
+      <Footer />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Footer } from './Footer';
 import { 
   ArrowLeft,
   Building,
@@ -787,6 +788,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
         onTagsChange={handleTagsChange}
         systemCategory="units"
       />
+      <Footer />
     </div>
   );
 }

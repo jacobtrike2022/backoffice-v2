@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Footer } from './Footer';
 import { 
   CreditCard, 
   Building2, 
@@ -1323,6 +1324,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
           </div>
         </DialogContent>
       </Dialog>
+      <Footer />
     </div>
   );
 }

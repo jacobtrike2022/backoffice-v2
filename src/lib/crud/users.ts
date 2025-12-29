@@ -148,7 +148,7 @@ export async function getUsers(filters: {
     .from('users')
     .select(`
       *,
-      role:roles(name),
+      role:roles!users_role_id_fkey(name),
       store:stores!store_id(name, code, district:districts(name))
     `)
     .eq('organization_id', orgId);

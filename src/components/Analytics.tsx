@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Calendar } from './ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Footer } from './Footer';
 import { 
   BarChart, 
   LineChart, 
@@ -926,6 +927,7 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
           </Card>
         </TabsContent>
       </Tabs>
+      <Footer />
     </div>
   );
 }

@@ -1011,6 +1011,329 @@ async function importAbilities(contentModelRef: Map<string, ContentModelRef>): P
   return mappingImported;
 }
 
+/**
+ * Import work activities with pivot transformation
+ */
+async function importWorkActivities(contentModelRef: Map<string, ContentModelRef>): Promise<number> {
+  const filePath = path.join(ONET_DATA_DIR, '011 Work Activities.sql');
+  
+  if (!fs.existsSync(filePath)) {
+    console.warn('⚠️  Work Activities file not found');
+    return 0;
+  }
+  
+  console.log('⚙️  Importing work activities...');
+  const records = parseSQLInserts(filePath);
+  const columns = extractColumns(filePath);
+  
+  // Pivot the data (same pattern as knowledge/skills/abilities)
+  const pivoted = pivotRatings(records, columns, contentModelRef);
+  
+  // Extract unique activities for master table (element IDs start with "4.A")
+  const activitiesMap = new Map<string, { name: string; category: string | null }>();
+  for (const item of pivoted) {
+    if (item.element_id.startsWith('4.A') && !activitiesMap.has(item.element_id)) {
+      activitiesMap.set(item.element_id, {
+        name: item.element_name,
+        category: null,
+      });
+    }
+  }
+  
+  // Upsert master detailed_activities table
+  const activitiesMaster = Array.from(activitiesMap.entries()).map(([activity_id, data]) => ({
+    activity_id,
+    name: data.name,
+    category: data.category,
+    description: null,
+  }));
+  
+  let masterImported = 0;
+  for (let i = 0; i < activitiesMaster.length; i += BATCH_SIZE) {
+    const batch = activitiesMaster.slice(i, i + BATCH_SIZE);
+    const { error } = await supabase
+      .from('onet_detailed_activities')
+      .upsert(batch, { onConflict: 'activity_id' });
+    
+    if (error) {
+      console.error(`❌ Error importing activities master batch ${i / BATCH_SIZE + 1}:`, error);
+    } else {
+      masterImported += batch.length;
+    }
+  }
+  
+  console.log(`   ✅ Imported ${masterImported} activities (master table)`);
+  
+  // Upsert occupation-activities mappings
+  const mappings = pivoted
+    .filter(item => item.element_id.startsWith('4.A'))
+    .map(item => ({
+      onet_code: item.onet_code,
+      activity_id: item.element_id,
+      importance: item.importance,
+      level: item.level,
+    }));
+  
+  let mappingImported = 0;
+  for (let i = 0; i < mappings.length; i += BATCH_SIZE) {
+    const batch = mappings.slice(i, i + BATCH_SIZE);
+    const { error } = await supabase
+      .from('onet_occupation_activities')
+      .upsert(batch, { onConflict: 'onet_code,activity_id' });
+    
+    if (error) {
+      console.error(`❌ Error importing activities mappings batch ${i / BATCH_SIZE + 1}:`, error);
+    } else {
+      mappingImported += batch.length;
+      process.stdout.write(`\r   Progress: ${mappingImported}/${mappings.length} mappings`);
+    }
+  }
+  
+  console.log(`\n✅ Imported ${mappingImported} work activities mappings`);
+  return mappingImported;
+}
+
+/**
+ * Import work context data
+ */
+async function importWorkContext(contentModelRef: Map<string, ContentModelRef>): Promise<number> {
+  const dataFilePath = path.join(ONET_DATA_DIR, '015 Work Context Data.sql');
+  const categoriesFilePath = path.join(ONET_DATA_DIR, '016 Work Context Categories.sql');
+  
+  if (!fs.existsSync(dataFilePath)) {
+    console.warn('⚠️  Work Context Data file not found');
+    return 0;
+  }
+  
+  console.log('🏭 Importing work context...');
+  
+  // Load categories into memory Map
+  const categoriesMap = new Map<string, string>();
+  if (fs.existsSync(categoriesFilePath)) {
+    const categoryRecords = parseSQLInserts(categoriesFilePath);
+    const categoryColumns = extractColumns(categoriesFilePath);
+    
+    const elementIdIdx = categoryColumns.indexOf('element_id');
+    const scaleIdIdx = categoryColumns.indexOf('scale_id');
+    const categoryIdx = categoryColumns.indexOf('category');
+    const descriptionIdx = categoryColumns.indexOf('category_description');
+    
+    for (const record of categoryRecords) {
+      if (elementIdIdx >= 0 && scaleIdIdx >= 0 && categoryIdx >= 0 && descriptionIdx >= 0) {
+        const element_id = record.values[elementIdIdx];
+        const scale_id = record.values[scaleIdIdx];
+        const category = record.values[categoryIdx];
+        const description = record.values[descriptionIdx];
+        const key = `${element_id}|${scale_id}|${category}`;
+        categoriesMap.set(key, description);
+      }
+    }
+  }
+  
+  // Parse work context data
+  const records = parseSQLInserts(dataFilePath);
+  const columns = extractColumns(dataFilePath);
+  
+  const onetsocCodeIdx = columns.indexOf('onetsoc_code');
+  const elementIdIdx = columns.indexOf('element_id');
+  const scaleIdIdx = columns.indexOf('scale_id');
+  const dataValueIdx = columns.indexOf('data_value');
+  const recommendSuppressIdx = columns.indexOf('recommend_suppress');
+  
+  if (onetsocCodeIdx === -1 || elementIdIdx === -1 || scaleIdIdx === -1 || dataValueIdx === -1) {
+    console.error('❌ Missing required columns in work context data');
+    return 0;
+  }
+  
+  // Filter for CX scale only (ignore CXP percentage breakdowns)
+  const workContext: Array<{
+    onet_code: string;
+    context_category: string;
+    context_item: string;
+    percentage: number;
+  }> = [];
+  
+  for (const record of records) {
+    const onetsoc_code = record.values[onetsocCodeIdx];
+    const element_id = record.values[elementIdIdx];
+    const scale_id = record.values[scaleIdIdx];
+    const data_value = record.values[dataValueIdx];
+    const recommend_suppress = recommendSuppressIdx >= 0 ? record.values[recommendSuppressIdx] : 'N';
+    
+    // Only process CX scale (not CXP)
+    if (scale_id !== 'CX' || recommend_suppress === 'Y') {
+      continue;
+    }
+    
+    // Get context item name from content model reference
+    const ref = contentModelRef.get(element_id);
+    const context_item = ref?.element_name || element_id;
+    
+    // Determine context category from element_id prefix
+    let context_category = 'Other';
+    if (element_id.startsWith('4.C.1')) {
+      context_category = 'Interpersonal Relationships';
+    } else if (element_id.startsWith('4.C.2')) {
+      context_category = 'Physical Work Conditions';
+    } else if (element_id.startsWith('4.C.3')) {
+      context_category = 'Structural Job Characteristics';
+    }
+    
+    workContext.push({
+      onet_code: onetsoc_code,
+      context_category,
+      context_item,
+      percentage: data_value,
+    });
+  }
+  
+  // Delete all existing records for occupations we're importing (to avoid duplicates)
+  const uniqueOnetCodes = [...new Set(workContext.map(wc => wc.onet_code))];
+  if (uniqueOnetCodes.length > 0) {
+    await supabase
+      .from('onet_work_context')
+      .delete()
+      .in('onet_code', uniqueOnetCodes);
+  }
+  
+  // Batch insert
+  let imported = 0;
+  for (let i = 0; i < workContext.length; i += BATCH_SIZE) {
+    const batch = workContext.slice(i, i + BATCH_SIZE);
+    const { error } = await supabase
+      .from('onet_work_context')
+      .insert(batch);
+    
+    if (error) {
+      console.error(`❌ Error importing work context batch ${i / BATCH_SIZE + 1}:`, error);
+    } else {
+      imported += batch.length;
+      process.stdout.write(`\r   Progress: ${imported}/${workContext.length}`);
+    }
+  }
+  
+  console.log(`\n✅ Imported ${imported} work context records`);
+  return imported;
+}
+
+/**
+ * Import education requirements
+ */
+async function importEducation(): Promise<number> {
+  const dataFilePath = path.join(ONET_DATA_DIR, '004 Education Training Experience.sql');
+  const categoriesFilePath = path.join(ONET_DATA_DIR, '005 Education, Training, and Experience Categories.sql');
+  
+  if (!fs.existsSync(dataFilePath)) {
+    console.warn('⚠️  Education Training Experience file not found');
+    return 0;
+  }
+  
+  console.log('🎓 Importing education requirements...');
+  
+  // Load categories into memory Map
+  const categoriesMap = new Map<string, string>();
+  if (fs.existsSync(categoriesFilePath)) {
+    const categoryRecords = parseSQLInserts(categoriesFilePath);
+    const categoryColumns = extractColumns(categoriesFilePath);
+    
+    const elementIdIdx = categoryColumns.indexOf('element_id');
+    const scaleIdIdx = categoryColumns.indexOf('scale_id');
+    const categoryIdx = categoryColumns.indexOf('category');
+    const descriptionIdx = categoryColumns.indexOf('category_description');
+    
+    for (const record of categoryRecords) {
+      if (elementIdIdx >= 0 && scaleIdIdx >= 0 && categoryIdx >= 0 && descriptionIdx >= 0) {
+        const element_id = record.values[elementIdIdx];
+        const scale_id = record.values[scaleIdIdx];
+        const category = record.values[categoryIdx];
+        const description = record.values[descriptionIdx];
+        const key = `${element_id}|${scale_id}|${category}`;
+        categoriesMap.set(key, description);
+      }
+    }
+  }
+  
+  // Parse education data
+  const records = parseSQLInserts(dataFilePath);
+  const columns = extractColumns(dataFilePath);
+  
+  const onetsocCodeIdx = columns.indexOf('onetsoc_code');
+  const elementIdIdx = columns.indexOf('element_id');
+  const scaleIdIdx = columns.indexOf('scale_id');
+  const categoryIdx = columns.indexOf('category');
+  const dataValueIdx = columns.indexOf('data_value');
+  const recommendSuppressIdx = columns.indexOf('recommend_suppress');
+  
+  if (onetsocCodeIdx === -1 || elementIdIdx === -1 || scaleIdIdx === -1 || categoryIdx === -1 || dataValueIdx === -1) {
+    console.error('❌ Missing required columns in education data');
+    return 0;
+  }
+  
+  // Filter for element_id = '2.D.1' AND scale_id = 'RL' (Required Level of Education)
+  const education: Array<{
+    onet_code: string;
+    education_level: string;
+    required: boolean;
+    percentage: number;
+  }> = [];
+  
+  for (const record of records) {
+    const onetsoc_code = record.values[onetsocCodeIdx];
+    const element_id = record.values[elementIdIdx];
+    const scale_id = record.values[scaleIdIdx];
+    const category = record.values[categoryIdx];
+    const data_value = record.values[dataValueIdx];
+    const recommend_suppress = recommendSuppressIdx >= 0 ? record.values[recommendSuppressIdx] : 'N';
+    
+    // Only process Required Level (RL) scale for education element
+    if (element_id !== '2.D.1' || scale_id !== 'RL' || recommend_suppress === 'Y') {
+      continue;
+    }
+    
+    // Get education level from categories map
+    const key = `${element_id}|${scale_id}|${category}`;
+    const education_level = categoriesMap.get(key) || `Category ${category}`;
+    
+    // Consider "required" = true if percentage > 50%
+    const required = data_value > 50;
+    
+    education.push({
+      onet_code: onetsoc_code,
+      education_level,
+      required,
+      percentage: data_value,
+    });
+  }
+  
+  // Delete all existing records for occupations we're importing (to avoid duplicates)
+  const uniqueOnetCodes = [...new Set(education.map(ed => ed.onet_code))];
+  if (uniqueOnetCodes.length > 0) {
+    await supabase
+      .from('onet_education')
+      .delete()
+      .in('onet_code', uniqueOnetCodes);
+  }
+  
+  // Batch insert
+  let imported = 0;
+  for (let i = 0; i < education.length; i += BATCH_SIZE) {
+    const batch = education.slice(i, i + BATCH_SIZE);
+    const { error } = await supabase
+      .from('onet_education')
+      .insert(batch);
+    
+    if (error) {
+      console.error(`❌ Error importing education batch ${i / BATCH_SIZE + 1}:`, error);
+    } else {
+      imported += batch.length;
+      process.stdout.write(`\r   Progress: ${imported}/${education.length}`);
+    }
+  }
+  
+  console.log(`\n✅ Imported ${imported} education records`);
+  return imported;
+}
+
 // =====================================================
 // MAIN EXECUTION
 // =====================================================
@@ -1035,6 +1358,9 @@ async function main() {
     knowledge: 0,
     skills: 0,
     abilities: 0,
+    workActivities: 0,
+    workContext: 0,
+    education: 0,
   };
   
   try {
@@ -1050,6 +1376,9 @@ async function main() {
     stats.knowledge = await importKnowledge(contentModelRef);
     stats.skills = await importSkills(contentModelRef);
     stats.abilities = await importAbilities(contentModelRef);
+    stats.workActivities = await importWorkActivities(contentModelRef);
+    stats.workContext = await importWorkContext(contentModelRef);
+    stats.education = await importEducation();
     
     // Summary
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -1065,6 +1394,9 @@ async function main() {
     console.log(`   Knowledge Mappings: ${stats.knowledge}`);
     console.log(`   Skills Mappings: ${stats.skills}`);
     console.log(`   Abilities Mappings: ${stats.abilities}`);
+    console.log(`   Work Activities Mappings: ${stats.workActivities}`);
+    console.log(`   Work Context: ${stats.workContext}`);
+    console.log(`   Education: ${stats.education}`);
     console.log(`\n⏱️  Duration: ${duration}s`);
     console.log('='.repeat(60));
     

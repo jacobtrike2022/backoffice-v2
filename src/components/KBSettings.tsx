@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
+import { Footer } from './Footer';
 import { 
   Upload, 
   X,
@@ -512,6 +513,7 @@ export function KBSettings() {
           {saving ? 'Saving...' : 'Save Changes'}
         </Button>
       </div>
+      <Footer />
     </div>
   );
 }

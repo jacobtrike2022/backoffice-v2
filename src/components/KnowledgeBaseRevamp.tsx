@@ -44,6 +44,7 @@ import {
   useTracks,
   useCurrentUser 
 } from '../lib/hooks/useSupabase';
+import { Footer } from './Footer';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
@@ -3225,6 +3226,8 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           findAndSelect();
         }}
       />
+
+      <Footer />
     </div>
   );
 }

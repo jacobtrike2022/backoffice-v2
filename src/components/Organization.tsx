@@ -10,6 +10,7 @@ import { Label } from './ui/label';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import type { Tag as TagType } from '../lib/crud/tags';
+import { Footer } from './Footer';
 type OrganizationTab = 'tags' | 'roles' | 'districts';
 
 interface OrganizationProps {
@@ -560,6 +561,7 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
           </div>
         </DialogContent>
       </Dialog>
+      <Footer />
     </div>
   );
 }
