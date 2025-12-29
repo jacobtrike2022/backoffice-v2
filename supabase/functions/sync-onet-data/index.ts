@@ -172,16 +172,38 @@ async function syncOccupationSkills(supabase: any, onetCode: string): Promise<nu
     });
     
     if (allSkills.length === 0) {
+      console.log(`No skills found in response for ${onetCode}. Response structure:`, JSON.stringify(skillsData).substring(0, 500));
       return 0;
     }
     
+    console.log(`Found ${allSkills.length} skills for ${onetCode}. Sample skill structure:`, JSON.stringify(allSkills[0]).substring(0, 300));
+    
     // 1. Upsert skills into master table
-    const skills = allSkills.map((skill: any) => ({
-      skill_id: skill.id || skill.element_id,
-      name: skill.name,
-      category: skill.category || null,
-      description: skill.description || null,
-    })).filter((s: any) => s.skill_id && s.name); // Filter out invalid entries
+    // O*NET v2.0 might use different field names - try multiple possibilities
+    const skills = allSkills.map((skill: any) => {
+      // Try various ID field names
+      const skillId = skill.id || skill.element_id || skill.skill_id || skill.code || 
+                     (skill.name ? skill.name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) : null);
+      
+      if (!skillId) {
+        console.warn(`Skill missing ID field:`, JSON.stringify(skill).substring(0, 200));
+        return null;
+      }
+      
+      return {
+        skill_id: skillId,
+        name: skill.name || skill.title || 'Unknown Skill',
+        category: skill.category || null,
+        description: skill.description || null,
+      };
+    }).filter((s: any) => s !== null && s.skill_id && s.name); // Filter out invalid entries
+    
+    if (skills.length === 0) {
+      console.error(`No valid skills extracted for ${onetCode}. All skills filtered out.`);
+      return 0;
+    }
+    
+    console.log(`Upserting ${skills.length} skills for ${onetCode}`);
     
     if (skills.length > 0) {
       const { error: skillsError } = await supabase
@@ -196,13 +218,21 @@ async function syncOccupationSkills(supabase: any, onetCode: string): Promise<nu
     
     // 2. Create occupation → skill mappings
     const mappings = allSkills
-      .filter((skill: any) => skill.id || skill.element_id)
-      .map((skill: any) => ({
-        onet_code: onetCode,
-        skill_id: skill.id || skill.element_id,
-        importance: skill.importance || skill.value || 50, // Default to 50 if not provided
-        level: skill.level || skill.scale?.value || 50,
-      }));
+      .map((skill: any) => {
+        // Use same ID extraction logic as above
+        const skillId = skill.id || skill.element_id || skill.skill_id || skill.code || 
+                       (skill.name ? skill.name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) : null);
+        
+        if (!skillId) return null;
+        
+        return {
+          onet_code: onetCode,
+          skill_id: skillId,
+          importance: skill.importance || skill.value || skill.scale?.importance || 50,
+          level: skill.level || skill.scale?.value || skill.scale?.level || 50,
+        };
+      })
+      .filter((m: any) => m !== null);
     
     if (mappings.length > 0) {
       const { error: mappingError } = await supabase
@@ -254,16 +284,37 @@ async function syncOccupationKnowledge(supabase: any, onetCode: string): Promise
     });
     
     if (allKnowledge.length === 0) {
+      console.log(`No knowledge found in response for ${onetCode}. Response structure:`, JSON.stringify(knowledgeData).substring(0, 500));
       return 0;
     }
     
+    console.log(`Found ${allKnowledge.length} knowledge areas for ${onetCode}`);
+    
     // 1. Upsert knowledge into master table
-    const knowledge = allKnowledge.map((know: any) => ({
-      knowledge_id: know.id || know.element_id,
-      name: know.name,
-      category: know.category || null,
-      description: know.description || null,
-    })).filter((k: any) => k.knowledge_id && k.name);
+    const knowledge = allKnowledge.map((know: any) => {
+      // Try various ID field names
+      const knowledgeId = know.id || know.element_id || know.knowledge_id || know.code || 
+                         (know.name ? know.name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) : null);
+      
+      if (!knowledgeId) {
+        console.warn(`Knowledge missing ID field:`, JSON.stringify(know).substring(0, 200));
+        return null;
+      }
+      
+      return {
+        knowledge_id: knowledgeId,
+        name: know.name || know.title || 'Unknown Knowledge',
+        category: know.category || null,
+        description: know.description || null,
+      };
+    }).filter((k: any) => k !== null && k.knowledge_id && k.name);
+    
+    if (knowledge.length === 0) {
+      console.error(`No valid knowledge extracted for ${onetCode}. All knowledge filtered out.`);
+      return 0;
+    }
+    
+    console.log(`Upserting ${knowledge.length} knowledge areas for ${onetCode}`);
     
     if (knowledge.length > 0) {
       const { error: knowledgeError } = await supabase
@@ -278,13 +329,21 @@ async function syncOccupationKnowledge(supabase: any, onetCode: string): Promise
     
     // 2. Create occupation → knowledge mappings
     const mappings = allKnowledge
-      .filter((know: any) => know.id || know.element_id)
-      .map((know: any) => ({
-        onet_code: onetCode,
-        knowledge_id: know.id || know.element_id,
-        importance: know.importance || know.value || 50,
-        level: know.level || know.scale?.value || 50,
-      }));
+      .map((know: any) => {
+        // Use same ID extraction logic as above
+        const knowledgeId = know.id || know.element_id || know.knowledge_id || know.code || 
+                           (know.name ? know.name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20) : null);
+        
+        if (!knowledgeId) return null;
+        
+        return {
+          onet_code: onetCode,
+          knowledge_id: knowledgeId,
+          importance: know.importance || know.value || know.scale?.importance || 50,
+          level: know.level || know.scale?.value || know.scale?.level || 50,
+        };
+      })
+      .filter((m: any) => m !== null);
     
     if (mappings.length > 0) {
       const { error: mappingError } = await supabase
@@ -315,9 +374,30 @@ async function syncOccupationTasks(supabase: any, onetCode: string): Promise<num
   
   try {
     const careerData = await fetchONet(`/mnm/careers/${onetCode}`);
-    const tasks = careerData.on_the_job || [];
+    
+    // O*NET v2.0 might have tasks in different fields
+    // Try multiple possible field names
+    let tasks: any[] = [];
+    
+    if (careerData.on_the_job && Array.isArray(careerData.on_the_job)) {
+      tasks = careerData.on_the_job;
+    } else if (careerData.tasks && Array.isArray(careerData.tasks)) {
+      tasks = careerData.tasks;
+    } else if (careerData.task && Array.isArray(careerData.task)) {
+      tasks = careerData.task;
+    } else if (careerData.work_activities && Array.isArray(careerData.work_activities)) {
+      tasks = careerData.work_activities;
+    }
+    
+    // If tasks are objects, extract descriptions
+    if (tasks.length > 0 && typeof tasks[0] === 'object') {
+      tasks = tasks.map((t: any) => t.description || t.task || t.name || t.title || JSON.stringify(t));
+    }
+    
+    console.log(`Found ${tasks.length} tasks for ${onetCode}. Sample fields in careerData:`, Object.keys(careerData).join(', '));
     
     if (!Array.isArray(tasks) || tasks.length === 0) {
+      console.log(`No tasks found for ${onetCode}. Available fields:`, Object.keys(careerData));
       return 0;
     }
     
@@ -328,11 +408,13 @@ async function syncOccupationTasks(supabase: any, onetCode: string): Promise<num
       .eq('onet_code', onetCode);
     
     // Insert new tasks
-    const taskRecords = tasks.map((task: string, index: number) => ({
-      onet_code: onetCode,
-      task_description: task,
-      task_order: index + 1,
-    }));
+    const taskRecords = tasks
+      .filter((task: any) => task && (typeof task === 'string' ? task.trim() : true)) // Filter out empty tasks
+      .map((task: any, index: number) => ({
+        onet_code: onetCode,
+        task_description: typeof task === 'string' ? task : (task.description || task.task || task.name || JSON.stringify(task)),
+        task_order: index + 1,
+      }));
     
     const { error } = await supabase
       .from('onet_tasks')
