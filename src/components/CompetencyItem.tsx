@@ -43,14 +43,16 @@ export function CompetencyItem({
   const getSourceBadge = () => {
     if (source === 'standard') return null;
     
-    const variants = {
+    const variants: Record<string, { variant: 'outline'; className: string }> = {
       modified: { variant: 'outline' as const, className: 'border-blue-300 text-blue-700 bg-blue-50' },
       custom: { variant: 'outline' as const, className: 'border-green-300 text-green-700 bg-green-50' },
       excluded: { variant: 'outline' as const, className: 'border-gray-300 text-gray-500 bg-gray-50' },
     };
 
     const config = variants[source];
-    const labels = {
+    if (!config) return null; // Safety check for unexpected source values
+    
+    const labels: Record<string, string> = {
       modified: 'Modified',
       custom: 'Custom',
       excluded: 'Excluded',
@@ -58,7 +60,7 @@ export function CompetencyItem({
 
     return (
       <Badge {...config} className={cn('text-xs', config.className)}>
-        {labels[source]}
+        {labels[source] || source}
       </Badge>
     );
   };
