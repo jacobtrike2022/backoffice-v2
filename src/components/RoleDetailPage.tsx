@@ -792,7 +792,6 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                         description={task.description}
                         source={task.source}
                         isActive={task.is_active}
-                        importance={task.importance}
                         dwas={task.dwas}
                         onToggle={() => handleToggleTask(task)}
                         onEdit={() => {
