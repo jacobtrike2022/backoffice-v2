@@ -38,7 +38,7 @@ export function CompetencyItem({
   category,
   dwas,
 }: CompetencyItemProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const hasDWAs = dwas && dwas.length > 0;
   const getSourceBadge = () => {
     if (source === 'standard') return null;
@@ -137,9 +137,9 @@ export function CompetencyItem({
             {dwas.map((dwa) => (
               <div
                 key={dwa.dwa_id}
-                className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md px-2 py-1.5"
+                className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 dark:bg-white/5 rounded-md px-2 py-1.5 border-l-2 border-l-orange-500/30"
               >
-                <span className="text-[#F64A05]">🔹</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500/60 flex-shrink-0" />
                 <span className="flex-1">{dwa.dwa_title}</span>
               </div>
             ))}
