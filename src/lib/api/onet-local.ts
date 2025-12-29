@@ -58,6 +58,7 @@ export interface MergedTask {
   is_active: boolean;
   customization_id: string | null;
   notes: string | null;
+  dwas?: { dwa_id: string; dwa_title: string }[];
 }
 
 export interface MergedSkill {

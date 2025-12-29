@@ -1,10 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Checkbox } from './ui/checkbox';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
-import { Edit2, Trash2, RotateCcw } from 'lucide-react';
+import { Edit2, Trash2, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from './ui/utils';
+
+interface DWA {
+  dwa_id: string;
+  dwa_title: string;
+}
 
 interface CompetencyItemProps {
   id: string;
@@ -17,6 +22,7 @@ interface CompetencyItemProps {
   onRevert?: () => void; // Only provided for modified items
   importance?: number;
   category?: string;
+  dwas?: DWA[]; // Detailed Work Activities (only for tasks)
 }
 
 export function CompetencyItem({
@@ -30,7 +36,10 @@ export function CompetencyItem({
   onRevert,
   importance,
   category,
+  dwas,
 }: CompetencyItemProps) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDWAs = dwas && dwas.length > 0;
   const getSourceBadge = () => {
     if (source === 'standard') return null;
     
@@ -79,15 +88,35 @@ export function CompetencyItem({
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
-          <Label
-            htmlFor={`competency-${id}`}
-            className={cn(
-              'text-sm cursor-pointer flex-1',
-              !isActive && 'text-muted-foreground'
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            {hasDWAs && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded(!expanded);
+                }}
+                className="h-6 w-6 p-0 flex-shrink-0 mt-0.5"
+                title={expanded ? 'Collapse DWAs' : 'Expand DWAs'}
+              >
+                {expanded ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </Button>
             )}
-          >
-            {description}
-          </Label>
+            <Label
+              htmlFor={`competency-${id}`}
+              className={cn(
+                'text-sm cursor-pointer flex-1',
+                !isActive && 'text-muted-foreground'
+              )}
+            >
+              {description}
+            </Label>
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {getSourceBadge()}
             {importance !== undefined && (
@@ -99,6 +128,20 @@ export function CompetencyItem({
         </div>
         {category && (
           <p className="text-xs text-muted-foreground mt-1">{category}</p>
+        )}
+        {/* DWAs (Detailed Work Activities) */}
+        {hasDWAs && expanded && (
+          <div className="mt-3 ml-8 space-y-1.5">
+            {dwas.map((dwa) => (
+              <div
+                key={dwa.dwa_id}
+                className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md px-2 py-1.5"
+              >
+                <span className="text-[#F64A05]">🔹</span>
+                <span className="flex-1">{dwa.dwa_title}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
