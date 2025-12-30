@@ -22,7 +22,6 @@ import {
   Search,
   Save,
   MoreVertical,
-  Edit2,
   Loader2,
   ClipboardList,
   Wrench,
@@ -819,16 +818,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               />
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold">{role!.name}</h1>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsEditingCoreData(true)}
-                title="Edit role details"
-              >
-                <Edit2 className="w-4 h-4" />
-              </Button>
+              {role && (
+                <Badge className={`${getStatusColor(role.status)} border text-xs px-2 py-0.5`}>
+                  {role.status.charAt(0).toUpperCase() + role.status.slice(1).replace('_', ' ')}
+                </Badge>
+              )}
             </div>
           )}
         </div>
@@ -1183,14 +1179,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         <Card className="mt-4">
           <CardHeader>
             <CardTitle>Role Details</CardTitle>
-            <CardDescription>Core role information</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {/* Basic Information */}
               <div className="space-y-4">
-                <h3 className="font-semibold text-sm">Basic Information</h3>
-                <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-muted-foreground">Role Name</Label>
@@ -1207,9 +1199,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </div>
               </div>
 
-              {/* Classification */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm">Classification</h3>
+              <div className="space-y-3">
                 <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1268,17 +1258,6 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </Collapsible>
               )}
 
-              {/* Status */}
-              <div className="space-y-2">
-                <Label className="text-muted-foreground">Status</Label>
-                <div>
-                  {role && (
-                    <Badge className={`${getStatusColor(role.status)} border text-sm`}>
-                      {role.status.charAt(0).toUpperCase() + role.status.slice(1).replace('_', ' ')}
-                    </Badge>
-                  )}
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
