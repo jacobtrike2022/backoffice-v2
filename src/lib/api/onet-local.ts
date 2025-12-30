@@ -54,6 +54,7 @@ export interface MergedTask {
   task_id: string;
   description: string;
   importance: number;
+  relevance: number; // 0-100 percentage from O*NET
   source: 'standard' | 'modified' | 'custom' | 'excluded';
   is_active: boolean;
   customization_id: string | null;

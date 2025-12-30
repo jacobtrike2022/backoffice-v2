@@ -23,6 +23,7 @@ interface CompetencyItemProps {
   importance?: number;
   category?: string;
   dwas?: DWA[]; // Detailed Work Activities (only for tasks)
+  weightedPriority?: number; // 0-100 scale for bar fill percentage
 }
 
 export function CompetencyItem({
@@ -37,6 +38,7 @@ export function CompetencyItem({
   importance,
   category,
   dwas,
+  weightedPriority,
 }: CompetencyItemProps) {
   const [expanded, setExpanded] = useState(true);
   const hasDWAs = dwas && dwas.length > 0;
@@ -120,6 +122,17 @@ export function CompetencyItem({
             </Label>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {weightedPriority !== undefined && (
+              <div 
+                className="w-12 h-1 bg-muted/30 rounded-full overflow-hidden flex-shrink-0" 
+                title={`Priority: ${Math.round(weightedPriority)}%`}
+              >
+                <div 
+                  className="h-full bg-gradient-to-r from-[#F64A05] to-[#FF733C] rounded-full transition-all"
+                  style={{ width: `${Math.min(100, Math.max(0, weightedPriority))}%` }}
+                />
+              </div>
+            )}
             {getSourceBadge()}
             {importance !== undefined && (
               <Badge variant="outline" className="text-xs">

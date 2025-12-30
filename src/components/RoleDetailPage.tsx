@@ -785,31 +785,48 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       No tasks defined for this profile
                     </p>
                   ) : (
-                    mergedTasks.map(task => (
-                      <CompetencyItem
-                        key={task.task_id}
-                        id={task.task_id}
-                        description={task.description}
-                        source={task.source}
-                        isActive={task.is_active}
-                        dwas={task.dwas}
-                        onToggle={() => handleToggleTask(task)}
-                        onEdit={() => {
-                          setEditingTask(task);
-                          setEditingItem({ type: 'task', item: task });
-                        }}
-                        onDelete={
-                          task.source === 'custom' && task.customization_id
-                            ? () => handleDeleteTask(task.customization_id!)
-                            : undefined
-                        }
-                        onRevert={
-                          task.source === 'modified' && task.customization_id
-                            ? () => handleRevertTask(task.customization_id!)
-                            : undefined
-                        }
-                      />
-                    ))
+                    [...mergedTasks]
+                      .sort((a, b) => {
+                        // Calculate weighted priority for both tasks
+                        const priorityA = a.importance && a.relevance
+                          ? ((a.importance * a.relevance / 100) / 5) * 100
+                          : 0;
+                        const priorityB = b.importance && b.relevance
+                          ? ((b.importance * b.relevance / 100) / 5) * 100
+                          : 0;
+                        // Sort in descending order (highest priority first)
+                        return priorityB - priorityA;
+                      })
+                      .map(task => (
+                        <CompetencyItem
+                          key={task.task_id}
+                          id={task.task_id}
+                          description={task.description}
+                          source={task.source}
+                          isActive={task.is_active}
+                          dwas={task.dwas}
+                          weightedPriority={
+                            task.importance && task.relevance
+                              ? ((task.importance * task.relevance / 100) / 5) * 100
+                              : undefined
+                          }
+                          onToggle={() => handleToggleTask(task)}
+                          onEdit={() => {
+                            setEditingTask(task);
+                            setEditingItem({ type: 'task', item: task });
+                          }}
+                          onDelete={
+                            task.source === 'custom' && task.customization_id
+                              ? () => handleDeleteTask(task.customization_id!)
+                              : undefined
+                          }
+                          onRevert={
+                            task.source === 'modified' && task.customization_id
+                              ? () => handleRevertTask(task.customization_id!)
+                              : undefined
+                          }
+                        />
+                      ))
                   )}
                   <Button
                     variant="outline"
