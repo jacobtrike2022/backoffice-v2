@@ -92,7 +92,7 @@ export const rolesApi = {
       .insert({
         organization_id: orgId,
         name: input.name,
-        display_name: input.display_name,
+        job_code: input.job_code,
         description: input.description,
         department: input.department,
         job_family: input.job_family,
@@ -102,6 +102,7 @@ export const rolesApi = {
         permission_level: input.permission_level ?? 1,
         job_description: input.job_description,
         job_description_source: input.job_description_source,
+        reports_to_role_id: input.reports_to_role_id ?? null,
         created_by: userData?.id,
         status: 'active',
         permissions: [],
@@ -294,6 +295,29 @@ export const rolesApi = {
     
     if (error) throw error;
     return data?.length || 0;
+  },
+
+  // ========== Reporting Structure ==========
+
+  async getDirectReports(roleId: string): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await supabase
+      .from('roles')
+      .select('id, name')
+      .eq('reports_to_role_id', roleId)
+      .eq('status', 'active')
+      .order('name');
+    
+    if (error) throw error;
+    return data || [];
+  },
+
+  async setReportsTo(roleId: string, reportsToRoleId: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('roles')
+      .update({ reports_to_role_id: reportsToRoleId })
+      .eq('id', roleId);
+    
+    if (error) throw error;
   }
 };
 

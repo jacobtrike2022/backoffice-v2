@@ -71,6 +71,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { X } from 'lucide-react';
 
 interface RoleDetailPageProps {
   roleId: string | 'new';
@@ -133,14 +134,23 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [capabilityExpanded, setCapabilityExpanded] = useState<Record<string, boolean>>({});
   const [workContextExpanded, setWorkContextExpanded] = useState<Record<string, boolean>>({});
   const [capabilityExcludedExpanded, setCapabilityExcludedExpanded] = useState<Record<string, boolean>>({});
+  const [directReports, setDirectReports] = useState<{ id: string; name: string }[]>([]);
 
   const toPercentFromFive = (value?: number | null) =>
     value === undefined || value === null ? undefined : Number(value) * 20;
+
+  const navigateToRole = (targetRoleId: string) => {
+    const path = window.location.pathname;
+    const marker = '/roles';
+    const idx = path.indexOf(marker);
+    const base = idx !== -1 ? path.slice(0, idx + marker.length) : marker;
+    window.location.href = `${base}/${targetRoleId}`;
+  };
   const [isEditingCoreData, setIsEditingCoreData] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formData, setFormData] = useState<{
     name: string;
-    display_name: string;
+    job_code: string;
     description: string;
     department: string;
     job_family: string;
@@ -151,9 +161,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     job_description: string;
     job_description_source: 'manual' | 'hris' | 'uploaded';
     status: 'active' | 'inactive' | 'archived' | 'pending_review';
+    reports_to_role_id: string | null;
   }>({
     name: '',
-    display_name: '',
+    job_code: '',
     description: '',
     department: '',
     job_family: '',
@@ -164,7 +175,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     job_description: '',
     job_description_source: 'manual',
     status: 'active',
+    reports_to_role_id: null,
   });
+  const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
 
   // Load role data and organization ID
   useEffect(() => {
@@ -176,6 +189,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       loadRole();
     }
     loadOrganizationId();
+    loadAvailableRoles();
   }, [roleId]);
 
   // Load merged data when role has onet_code
@@ -216,7 +230,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       // Reset form for new role
       setFormData({
         name: '',
-        display_name: '',
+        job_code: '',
         description: '',
         department: '',
         job_family: '',
@@ -227,13 +241,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         job_description: '',
         job_description_source: 'manual',
         status: 'active',
+        reports_to_role_id: null,
       });
       setIsEditingCoreData(true);
     } else if (role) {
       // Populate form data from loaded role
       setFormData({
         name: role.name || '',
-        display_name: role.display_name || '',
+        job_code: role.job_code || '',
         description: role.description || '',
         department: role.department || '',
         job_family: role.job_family || '',
@@ -244,6 +259,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         job_description: role.job_description || '',
         job_description_source: role.job_description_source || 'manual',
         status: role.status,
+        reports_to_role_id: role.reports_to_role_id ?? null,
       });
       setEditedName(role.name || '');
     }
@@ -255,10 +271,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     setOrganizationId(orgId);
   }
 
+  async function loadAvailableRoles() {
+    try {
+      const roles = await rolesApi.list(true);
+      setAvailableRoles(roles);
+    } catch (error: any) {
+      console.error('Error loading roles list:', error);
+      toast.error('Failed to load roles list', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
   async function loadRole() {
     try {
       setLoading(true);
       const data = await rolesApi.get(roleId);
+      const reports = await rolesApi.getDirectReports(roleId);
+      setDirectReports(reports);
       setRole(data);
       setEditedName(data.name);
       setIsChangingProfile(false);
@@ -385,7 +415,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         // Create new role
         const newRole = await rolesApi.create({
           name: formData.name,
-          display_name: formData.display_name,
+          job_code: formData.job_code,
           description: formData.description,
           department: formData.department,
           job_family: formData.job_family,
@@ -395,6 +425,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           permission_level: formData.permission_level,
           job_description: formData.job_description,
           job_description_source: formData.job_description_source,
+          reports_to_role_id: formData.reports_to_role_id,
         });
         
         toast.success('Role created successfully');
@@ -422,7 +453,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         id: role.id,
         name: isEditingCoreData ? formData.name : editedName,
         ...(isEditingCoreData ? {
-          display_name: formData.display_name,
+          job_code: formData.job_code,
           description: formData.description,
           department: formData.department,
           job_family: formData.job_family,
@@ -433,7 +464,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           job_description: formData.job_description,
           job_description_source: formData.job_description_source,
           status: formData.status,
-        } : {}),
+          reports_to_role_id: formData.reports_to_role_id,
+        } : {
+          reports_to_role_id: formData.reports_to_role_id,
+        }),
       };
 
       // If a profile is selected, update onet_code and match_confidence
@@ -968,6 +1002,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     return 'Not Set';
   }
 
+  const reportsToRoleName =
+    role?.reports_to_role_id
+      ? availableRoles.find((r) => r.id === role.reports_to_role_id)?.name || '—'
+      : '—';
+
   if (loading && roleId !== 'new') {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1101,15 +1140,18 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="edit-display_name">Display Name (optional)</Label>
+                    <Label htmlFor="edit-job_code">Job Code</Label>
                     <Input
-                      id="edit-display_name"
-                      value={formData.display_name}
+                      id="edit-job_code"
+                      value={formData.job_code}
                       onChange={(e) =>
-                        setFormData({ ...formData, display_name: e.target.value })
+                        setFormData({ ...formData, job_code: e.target.value })
                       }
-                      placeholder="Shorter version for display"
+                      placeholder="e.g., MGR-001, CSR-100"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Internal identifier (e.g., MGR-001, CSR-100)
+                    </p>
                   </div>
                 </div>
 
@@ -1173,6 +1215,109 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-reports_to">Reports To</Label>
+                  <Select
+                    value={formData.reports_to_role_id ?? 'none'}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, reports_to_role_id: value === 'none' ? null : value })
+                    }
+                  >
+                    <SelectTrigger id="edit-reports_to">
+                      <SelectValue placeholder="Select supervisor role..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {availableRoles
+                        .filter((r) => r.id !== roleId)
+                        .map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Direct Reports */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Direct Reports</Label>
+                    {isEditingCoreData && (
+                      <Select
+                        onValueChange={async (value) => {
+                          if (value) {
+                            try {
+                              await rolesApi.setReportsTo(value, roleId as string);
+                              const updated = await rolesApi.getDirectReports(roleId as string);
+                              setDirectReports(updated);
+                              toast.success('Added direct report');
+                            } catch (error: any) {
+                              console.error('Error adding direct report:', error);
+                              toast.error('Failed to add direct report', {
+                                description: error.message || 'An unexpected error occurred',
+                              });
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-[200px]">
+                          <SelectValue placeholder="+ Add direct report..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableRoles
+                            .filter((r) => r.id !== roleId)
+                            .filter((r) => !directReports.some((dr) => dr.id === r.id))
+                            .filter((r) => r.id !== formData.reports_to_role_id)
+                            .map((r) => (
+                              <SelectItem key={r.id} value={r.id}>
+                                {r.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  {directReports.length > 0 ? (
+                    <div className="space-y-1">
+                      {directReports.map((report) => (
+                        <div
+                          key={report.id}
+                          className="flex items-center justify-between p-2 rounded-md bg-muted/40"
+                        >
+                          <Badge className="text-xs font-medium bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 shadow-sm">
+                            {report.name}
+                          </Badge>
+                          {isEditingCoreData && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  await rolesApi.setReportsTo(report.id, null);
+                                  setDirectReports(directReports.filter((r) => r.id !== report.id));
+                                  toast.success(`Removed ${report.name} from direct reports`);
+                                } catch (error: any) {
+                                  console.error('Error removing direct report:', error);
+                                  toast.error('Failed to remove direct report', {
+                                    description: error.message || 'An unexpected error occurred',
+                                  });
+                                }
+                              }}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No direct reports</p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-6">
@@ -1348,7 +1493,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       if (role) {
                         setFormData({
                           name: role.name || '',
-                          display_name: role.display_name || '',
+                          job_code: role.job_code || '',
                           description: role.description || '',
                           department: role.department || '',
                           job_family: role.job_family || '',
@@ -1359,6 +1504,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                           job_description: role.job_description || '',
                           job_description_source: role.job_description_source || 'manual',
                           status: role.status,
+                          reports_to_role_id: role.reports_to_role_id ?? null,
                         });
                       }
                     }
@@ -1391,8 +1537,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     <div className="text-sm font-medium">{role?.name || '—'}</div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Display Name</Label>
-                    <div className="text-sm font-medium">{role?.display_name || '—'}</div>
+                    <Label className="text-muted-foreground">Job Code</Label>
+                    <div className="text-sm font-medium">{role?.job_code || '—'}</div>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1412,6 +1558,25 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     <Label className="text-muted-foreground">Job Family</Label>
                     <div className="text-sm font-medium">{role?.job_family || '—'}</div>
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Reports To</Label>
+                {role?.reports_to_role_id ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigateToRole(role.reports_to_role_id!);
+                    }}
+                    className="h-7 px-2 bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 shadow-sm"
+                  >
+                    {reportsToRoleName}
+                  </Button>
+                ) : (
+                  <Badge className="text-xs font-medium bg-muted text-foreground border">
+                    —
+                  </Badge>
+                )}
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="space-y-2">

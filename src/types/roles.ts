@@ -2,8 +2,10 @@ export interface Role {
   id: string;
   organization_id: string;
   name: string;
-  display_name?: string | null;
+  job_code?: string | null;
   description?: string | null;
+  reports_to_role_id?: string | null;
+  reports_to_role?: { id: string; name: string } | null;
   
   // O*NET Integration
   onet_code?: string | null;
@@ -104,7 +106,7 @@ export interface RoleMergeHistory {
 // Form data types
 export interface CreateRoleInput {
   name: string;
-  display_name?: string;
+  job_code?: string;
   description?: string;
   department?: string;
   job_family?: string;
@@ -114,6 +116,7 @@ export interface CreateRoleInput {
   permission_level?: number;
   job_description?: string;
   job_description_source?: 'manual' | 'hris' | 'uploaded';
+  reports_to_role_id?: string | null;
 }
 
 export interface UpdateRoleInput extends Partial<CreateRoleInput> {
