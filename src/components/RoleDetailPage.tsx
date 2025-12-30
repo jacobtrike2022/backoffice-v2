@@ -1535,6 +1535,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               isSelected={true}
               showSelectButton={true}
               isApplied={role?.onet_code === selectedProfile.onet_code}
+              showMatchBadge={false}
               onPreview={() => {
                 // Always allow preview, even if applied
                 handlePreviewProfile(selectedProfile);

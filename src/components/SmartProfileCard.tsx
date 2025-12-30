@@ -14,6 +14,7 @@ interface SmartProfileCardProps {
   onSelect: () => void;
   showSelectButton?: boolean; // If true, show "Select Profile" instead of "Preview"
   isApplied?: boolean; // If true, show gradient orange button to indicate it's applied
+  showMatchBadge?: boolean; // If false, hides the match badge (used when already applied)
 }
 
 export function SmartProfileCard({
@@ -25,6 +26,7 @@ export function SmartProfileCard({
   onSelect,
   showSelectButton = false,
   isApplied = false,
+  showMatchBadge = true,
 }: SmartProfileCardProps) {
   const getMatchColor = (percentage: number) => {
     if (percentage >= 80) return 'bg-green-100 text-green-800 border-green-300';
@@ -47,16 +49,18 @@ export function SmartProfileCard({
     >
       <CardContent className="p-4 space-y-3">
         {/* Match Badge */}
-        <div className="flex items-center justify-between">
-          <Badge
-            className={cn(
-              'font-semibold',
-              getMatchColor(matchPercentage)
-            )}
-          >
-            {matchPercentage}% Match
-          </Badge>
-        </div>
+        {showMatchBadge && (
+          <div className="flex items-center justify-between">
+            <Badge
+              className={cn(
+                'font-semibold',
+                getMatchColor(matchPercentage)
+              )}
+            >
+              {matchPercentage}% Match
+            </Badge>
+          </div>
+        )}
 
         {/* Title */}
         <h3 className="font-semibold text-sm leading-tight line-clamp-2">
