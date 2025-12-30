@@ -94,6 +94,23 @@ export interface MergedAbility {
   notes: string | null;
 }
 
+export interface MergedWorkStyle {
+  work_style_id: string;
+  name: string;
+  impact: number;
+  distinctiveness_rank: number | null;
+  source: 'standard' | 'modified' | 'custom' | 'excluded';
+  is_active: boolean;
+  customization_id: string | null;
+  notes: string | null;
+}
+
+export interface WorkContextItem {
+  context_category: string;
+  context_item: string;
+  percentage: number;
+}
+
 export const onetLocal = {
   /**
    * Search for matching occupational profiles
@@ -289,6 +306,38 @@ export const onetLocal = {
     });
     if (error) {
       console.error('Error fetching role abilities:', error);
+      throw error;
+    }
+    return data || [];
+  },
+
+  /**
+   * Get merged work styles for a role
+   */
+  async getRoleWorkStyles(roleId: string): Promise<MergedWorkStyle[]> {
+    const { data, error } = await supabase.rpc('get_role_work_styles', {
+      p_role_id: roleId,
+    });
+    if (error) {
+      console.error('Error fetching role work styles:', error);
+      throw error;
+    }
+    return data || [];
+  },
+
+  /**
+   * Get work context items for a role's onet code
+   */
+  async getWorkContext(onetCode: string): Promise<WorkContextItem[]> {
+    if (!onetCode) return [];
+    const { data, error } = await supabase
+      .from('onet_work_context')
+      .select('context_category, context_item, percentage')
+      .eq('onet_code', onetCode)
+      .order('context_category', { ascending: true })
+      .order('percentage', { ascending: false });
+    if (error) {
+      console.error('Error fetching work context:', error);
       throw error;
     }
     return data || [];
@@ -737,6 +786,101 @@ export const onetLocal = {
       .eq('id', customizationId);
     if (error) {
       console.error('Error reverting ability modification:', error);
+      throw error;
+    }
+  },
+
+  // Work style operations
+  async excludeWorkStyle(roleId: string, workStyleId: string): Promise<void> {
+    const { error } = await supabase.from('role_work_style_customizations').upsert(
+      {
+        role_id: roleId,
+        work_style_id: workStyleId,
+        action: 'exclude',
+      },
+      { onConflict: 'role_id,work_style_id' }
+    );
+    if (error) {
+      console.error('Error excluding work style:', error);
+      throw error;
+    }
+  },
+
+  async includeWorkStyle(roleId: string, workStyleId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_work_style_customizations')
+      .delete()
+      .eq('role_id', roleId)
+      .eq('work_style_id', workStyleId)
+      .eq('action', 'exclude');
+    if (error) {
+      console.error('Error including work style:', error);
+      throw error;
+    }
+  },
+
+  async modifyWorkStyle(
+    roleId: string,
+    workStyleId: string,
+    customName: string,
+    customImpact?: number,
+    notes?: string
+  ): Promise<void> {
+    const { error } = await supabase.from('role_work_style_customizations').upsert(
+      {
+        role_id: roleId,
+        work_style_id: workStyleId,
+        action: 'modify',
+        custom_name: customName,
+        custom_impact: customImpact,
+        notes,
+      },
+      { onConflict: 'role_id,work_style_id' }
+    );
+    if (error) {
+      console.error('Error modifying work style:', error);
+      throw error;
+    }
+  },
+
+  async addCustomWorkStyle(
+    roleId: string,
+    name: string,
+    impact?: number,
+    notes?: string
+  ): Promise<void> {
+    const { error } = await supabase.from('role_work_style_customizations').insert({
+      role_id: roleId,
+      work_style_id: null,
+      action: 'add',
+      custom_name: name,
+      custom_impact: impact ?? 50,
+      notes,
+    });
+    if (error) {
+      console.error('Error adding custom work style:', error);
+      throw error;
+    }
+  },
+
+  async deleteCustomWorkStyle(customizationId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_work_style_customizations')
+      .delete()
+      .eq('id', customizationId);
+    if (error) {
+      console.error('Error deleting work style:', error);
+      throw error;
+    }
+  },
+
+  async revertWorkStyleModification(customizationId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_work_style_customizations')
+      .delete()
+      .eq('id', customizationId);
+    if (error) {
+      console.error('Error reverting work style modification:', error);
       throw error;
     }
   },

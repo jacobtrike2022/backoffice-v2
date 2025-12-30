@@ -30,6 +30,8 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
+  Sparkles,
+  HardHat,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { rolesApi } from '../lib/api/roles';
@@ -42,6 +44,8 @@ import {
   type MergedSkill,
   type MergedKnowledge,
   type MergedAbility,
+  type MergedWorkStyle,
+  type WorkContextItem,
 } from '../lib/api/onet-local';
 import { getCurrentUserOrgId } from '../lib/supabase';
 import type { Role, UpdateRoleInput } from '../types/roles';
@@ -89,18 +93,23 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [editedName, setEditedName] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [mergedTasks, setMergedTasks] = useState<MergedTask[]>([]);
+  const [mergedWorkStyles, setMergedWorkStyles] = useState<MergedWorkStyle[]>([]);
   const [mergedSkills, setMergedSkills] = useState<MergedSkill[]>([]);
   const [mergedKnowledge, setMergedKnowledge] = useState<MergedKnowledge[]>([]);
   const [mergedAbilities, setMergedAbilities] = useState<MergedAbility[]>([]);
+  const [workContextItems, setWorkContextItems] = useState<WorkContextItem[]>([]);
   const [loadingMerged, setLoadingMerged] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showAddWorkStyle, setShowAddWorkStyle] = useState(false);
   const [showAddSkill, setShowAddSkill] = useState(false);
   const [showAddKnowledge, setShowAddKnowledge] = useState(false);
   const [showAddAbility, setShowAddAbility] = useState(false);
   const [showEditTask, setShowEditTask] = useState(false);
+  const [showEditWorkStyle, setShowEditWorkStyle] = useState(false);
   const [showEditSkill, setShowEditSkill] = useState(false);
   const [showEditKnowledge, setShowEditKnowledge] = useState(false);
   const [editingAbility, setEditingAbility] = useState<MergedAbility | null>(null);
+  const [editingWorkStyle, setEditingWorkStyle] = useState<MergedWorkStyle | null>(null);
   const [editingTask, setEditingTask] = useState<MergedTask | null>(null);
   const [editingSkill, setEditingSkill] = useState<MergedSkill | null>(null);
   const [editingKnowledge, setEditingKnowledge] = useState<MergedKnowledge | null>(null);
@@ -112,14 +121,17 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     return 'bg-yellow-100 text-yellow-800 border-yellow-300';
   };
   const [editingItem, setEditingItem] = useState<{
-    type: 'task' | 'skill' | 'knowledge' | 'ability';
-    item: MergedTask | MergedSkill | MergedKnowledge | MergedAbility;
+    type: 'task' | 'skill' | 'knowledge' | 'ability' | 'work_style';
+    item: MergedTask | MergedSkill | MergedKnowledge | MergedAbility | MergedWorkStyle;
   } | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [excludedTasksExpanded, setExcludedTasksExpanded] = useState(false);
+  const [excludedWorkStylesExpanded, setExcludedWorkStylesExpanded] = useState(false);
   const [excludedSkillsExpanded, setExcludedSkillsExpanded] = useState(false);
   const [excludedKnowledgeExpanded, setExcludedKnowledgeExpanded] = useState(false);
   const [excludedAbilitiesExpanded, setExcludedAbilitiesExpanded] = useState(false);
+  const [capabilityExpanded, setCapabilityExpanded] = useState<Record<string, boolean>>({});
+  const [workContextExpanded, setWorkContextExpanded] = useState<Record<string, boolean>>({});
   const [isEditingCoreData, setIsEditingCoreData] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formData, setFormData] = useState<{
@@ -166,6 +178,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   useEffect(() => {
     if (role?.onet_code) {
       loadMergedData();
+      loadWorkContext(role.onet_code);
     }
   }, [role?.onet_code, roleId]);
 
@@ -281,16 +294,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     
     try {
       setLoadingMerged(true);
-      const [tasks, abilities, skills, knowledge] = await Promise.all([
+      const [tasks, workStyles, abilities, skills, knowledge] = await Promise.all([
         onetLocal.getRoleTasks(roleId),
+        onetLocal.getRoleWorkStyles(roleId),
         onetLocal.getRoleAbilities(roleId),
         onetLocal.getRoleSkills(roleId),
         onetLocal.getRoleKnowledge(roleId),
       ]);
       setMergedTasks(tasks);
+      setMergedWorkStyles(workStyles);
       setMergedAbilities(abilities);
       setMergedSkills(skills);
       setMergedKnowledge(knowledge);
+      // default expand capability categories
+      const capabilityMap: Record<string, boolean> = {};
+      abilities.forEach((a) => {
+        if (a.category) capabilityMap[a.category] = true;
+      });
+      setCapabilityExpanded((prev) => ({ ...capabilityMap, ...prev }));
     } catch (error: any) {
       console.error('Error loading merged data:', error);
       toast.error('Failed to load role competencies', {
@@ -298,6 +319,23 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       });
     } finally {
       setLoadingMerged(false);
+    }
+  }
+
+  async function loadWorkContext(onetCode: string) {
+    try {
+      const context = await onetLocal.getWorkContext(onetCode);
+      setWorkContextItems(context);
+      const expanded: Record<string, boolean> = {};
+      context.forEach((item) => {
+        expanded[item.context_category] = expanded[item.context_category] ?? true;
+      });
+      setWorkContextExpanded((prev) => ({ ...expanded, ...prev }));
+    } catch (error: any) {
+      console.error('Error loading work context:', error);
+      toast.error('Failed to load work context', {
+        description: error.message || 'An unexpected error occurred',
+      });
     }
   }
 
@@ -538,6 +576,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleToggleWorkStyle(workStyle: MergedWorkStyle) {
+    if (!role) return;
+    
+    try {
+      if (workStyle.is_active) {
+        await onetLocal.excludeWorkStyle(role.id, workStyle.work_style_id);
+      } else {
+        await onetLocal.includeWorkStyle(role.id, workStyle.work_style_id);
+      }
+      await loadMergedData();
+    } catch (error: any) {
+      console.error('Error toggling work style:', error);
+      toast.error('Failed to update work style', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
   async function handleToggleSkill(skill: MergedSkill) {
     if (!role || !organizationId) return;
     
@@ -600,6 +656,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     } catch (error: any) {
       console.error('Error adding ability:', error);
       toast.error('Failed to add ability', {
+        description: error.message || 'An unexpected error occurred',
+      });
+      throw error;
+    }
+  }
+
+  async function handleAddWorkStyle(name: string, _description?: string, impact?: number) {
+    if (!role) return;
+    
+    try {
+      await onetLocal.addCustomWorkStyle(role.id, name, impact);
+      await loadMergedData();
+      toast.success('Custom work style added');
+    } catch (error: any) {
+      console.error('Error adding work style:', error);
+      toast.error('Failed to add work style', {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -676,6 +748,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleEditWorkStyle(workStyle: MergedWorkStyle, customName: string, _customDescription?: string, notes?: string) {
+    if (!role) return;
+    
+    try {
+      await onetLocal.modifyWorkStyle(role.id, workStyle.work_style_id, customName, undefined, notes);
+      await loadMergedData();
+      toast.success('Work style updated');
+    } catch (error: any) {
+      console.error('Error editing work style:', error);
+      toast.error('Failed to update work style', {
+        description: error.message || 'An unexpected error occurred',
+      });
+      throw error;
+    }
+  }
+
   async function handleEditSkill(skill: MergedSkill, customName: string, customDescription?: string, notes?: string) {
     if (!role || !organizationId) return;
     
@@ -734,6 +822,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleDeleteWorkStyle(customizationId: string) {
+    try {
+      await onetLocal.deleteCustomWorkStyle(customizationId);
+      await loadMergedData();
+      toast.success('Work style deleted');
+    } catch (error: any) {
+      console.error('Error deleting work style:', error);
+      toast.error('Failed to delete work style', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
   async function handleDeleteSkill(customizationId: string) {
     try {
       await onetLocal.deleteCustomSkill(customizationId);
@@ -781,6 +882,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     } catch (error: any) {
       console.error('Error reverting ability:', error);
       toast.error('Failed to revert ability', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
+  async function handleRevertWorkStyle(customizationId: string) {
+    try {
+      await onetLocal.revertWorkStyleModification(customizationId);
+      await loadMergedData();
+      toast.success('Work style reverted to standard');
+    } catch (error: any) {
+      console.error('Error reverting work style:', error);
+      toast.error('Failed to revert work style', {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1684,9 +1798,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   <ClipboardList className="h-4 w-4" />
                   Tasks ({mergedTasks.filter(t => t.is_active).length}/{mergedTasks.length})
                 </TabsTrigger>
-                <TabsTrigger value="abilities" className="flex items-center gap-2">
-                  <Zap className="h-4 w-4" />
-                  Abilities ({mergedAbilities.filter(a => a.is_active).length}/{mergedAbilities.length})
+                <TabsTrigger value="work_styles" className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Work Styles ({mergedWorkStyles.filter(ws => ws.is_active).length}/{mergedWorkStyles.length})
                 </TabsTrigger>
                 <TabsTrigger value="skills" className="flex items-center gap-2">
                   <Wrench className="h-4 w-4" />
@@ -1822,94 +1936,107 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </div>
               </TabsContent>
 
-              {/* Abilities Tab */}
-              <TabsContent value="abilities" className="mt-4">
+              {/* Work Styles Tab */}
+              <TabsContent value="work_styles" className="mt-4">
                 <div className="space-y-2">
-                  {mergedAbilities.length === 0 ? (
+                  {mergedWorkStyles.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No abilities defined for this profile
+                      No work styles defined for this profile
                     </p>
                   ) : (
                     <>
-                      {/* Active Abilities */}
-                      {[...mergedAbilities]
-                        .filter(ability => ability.is_active)
-                        .sort((a, b) => (Number(b.importance ?? 0) - Number(a.importance ?? 0)))
-                        .map(ability => (
+                      {[...mergedWorkStyles]
+                        .filter(ws => ws.is_active)
+                        .sort((a, b) => (Number(b.impact ?? 0) - Number(a.impact ?? 0)))
+                        .map(ws => (
+                          (() => {
+                            const impactPercent =
+                              ws.impact !== undefined && ws.impact !== null
+                                ? Number(ws.impact) * 20
+                                : undefined;
+                            return (
                           <CompetencyItem
-                            key={ability.ability_id}
-                            id={ability.ability_id}
-                            description={ability.name}
-                            source={ability.source}
-                            isActive={ability.is_active}
-                            importance={ability.importance}
-                            category={ability.category || undefined}
-                            onToggle={() => handleToggleAbility(ability)}
+                            key={ws.work_style_id}
+                            id={ws.work_style_id}
+                            description={ws.name}
+                            source={ws.source}
+                            isActive={ws.is_active}
+                            importance={impactPercent}
+                            onToggle={() => handleToggleWorkStyle(ws)}
                             onEdit={() => {
-                              setEditingAbility(ability);
-                              setEditingItem({ type: 'ability', item: ability });
+                              setEditingWorkStyle(ws);
+                              setEditingItem({ type: 'work_style', item: ws });
                             }}
                             onDelete={
-                              ability.source === 'custom' && ability.customization_id
-                                ? () => handleDeleteAbility(ability.customization_id!)
+                              ws.source === 'custom' && ws.customization_id
+                                ? () => handleDeleteWorkStyle(ws.customization_id!)
                                 : undefined
                             }
                             onRevert={
-                              ability.source === 'modified' && ability.customization_id
-                                ? () => handleRevertAbility(ability.customization_id!)
+                              ws.source === 'modified' && ws.customization_id
+                                ? () => handleRevertWorkStyle(ws.customization_id!)
                                 : undefined
                             }
                           />
+                            );
+                          })()
                         ))}
-                      
-                      {/* Excluded Abilities Section */}
-                      {mergedAbilities.filter(ability => !ability.is_active).length > 0 && (
+
+                      {/* Excluded Work Styles Section */}
+                      {mergedWorkStyles.filter(ws => !ws.is_active).length > 0 && (
                         <div className="mt-4 pt-4 border-t">
                           <Button
                             variant="ghost"
                             size="sm"
                             className="w-full justify-between text-muted-foreground hover:text-foreground"
-                            onClick={() => setExcludedAbilitiesExpanded(!excludedAbilitiesExpanded)}
+                            onClick={() => setExcludedWorkStylesExpanded(!excludedWorkStylesExpanded)}
                           >
                             <span className="flex items-center gap-2">
-                              {excludedAbilitiesExpanded ? (
+                              {excludedWorkStylesExpanded ? (
                                 <ChevronDown className="h-4 w-4" />
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <span>Excluded Abilities ({mergedAbilities.filter(ability => !ability.is_active).length})</span>
+                              <span>Excluded Work Styles ({mergedWorkStyles.filter(ws => !ws.is_active).length})</span>
                             </span>
                           </Button>
-                          {excludedAbilitiesExpanded && (
+                          {excludedWorkStylesExpanded && (
                             <div className="mt-2 space-y-2">
-                              {[...mergedAbilities]
-                                .filter(ability => !ability.is_active)
-                                .sort((a, b) => (Number(b.importance ?? 0) - Number(a.importance ?? 0)))
-                                .map(ability => (
+                              {[...mergedWorkStyles]
+                                .filter(ws => !ws.is_active)
+                                .sort((a, b) => (Number(b.impact ?? 0) - Number(a.impact ?? 0)))
+                                .map(ws => (
+                                  (() => {
+                                    const impactPercent =
+                                      ws.impact !== undefined && ws.impact !== null
+                                        ? Number(ws.impact) * 20
+                                        : undefined;
+                                    return (
                                   <CompetencyItem
-                                    key={ability.ability_id}
-                                    id={ability.ability_id}
-                                    description={ability.name}
-                                    source={ability.source}
-                                    isActive={ability.is_active}
-                                    importance={ability.importance}
-                                    category={ability.category || undefined}
-                                    onToggle={() => handleToggleAbility(ability)}
+                                    key={ws.work_style_id}
+                                    id={ws.work_style_id}
+                                    description={ws.name}
+                                    source={ws.source}
+                                    isActive={ws.is_active}
+                                    importance={impactPercent}
+                                    onToggle={() => handleToggleWorkStyle(ws)}
                                     onEdit={() => {
-                                      setEditingAbility(ability);
-                                      setEditingItem({ type: 'ability', item: ability });
+                                      setEditingWorkStyle(ws);
+                                      setEditingItem({ type: 'work_style', item: ws });
                                     }}
                                     onDelete={
-                                      ability.source === 'custom' && ability.customization_id
-                                        ? () => handleDeleteAbility(ability.customization_id!)
+                                      ws.source === 'custom' && ws.customization_id
+                                        ? () => handleDeleteWorkStyle(ws.customization_id!)
                                         : undefined
                                     }
                                     onRevert={
-                                      ability.source === 'modified' && ability.customization_id
-                                        ? () => handleRevertAbility(ability.customization_id!)
+                                      ws.source === 'modified' && ws.customization_id
+                                        ? () => handleRevertWorkStyle(ws.customization_id!)
                                         : undefined
                                     }
                                   />
+                                    );
+                                  })()
                                 ))}
                             </div>
                           )}
@@ -1921,10 +2048,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     variant="outline"
                     size="sm"
                     className="w-full mt-4"
-                    onClick={() => setShowAddAbility(true)}
+                    onClick={() => setShowAddWorkStyle(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Ability
+                    Add Custom Work Style
                   </Button>
                 </div>
               </TabsContent>
@@ -2139,6 +2266,183 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         </Card>
       )}
 
+      {/* Job Conditions Section */}
+      {role && role.onet_code && (
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  Job Conditions
+                  {loadingMerged && <Loader2 className="h-4 w-4 animate-spin" />}
+                </CardTitle>
+                <CardDescription>
+                  Review work environment and capabilities for this role
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="font-mono text-xs">
+                  {role.onet_code}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="work_context">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="work_context" className="flex items-center gap-2">
+                  <HardHat className="h-4 w-4" />
+                  Work Context
+                </TabsTrigger>
+                <TabsTrigger value="capabilities" className="flex items-center gap-2">
+                  <Zap className="h-4 w-4" />
+                  Capabilities ({mergedAbilities.filter(a => a.is_active).length}/{mergedAbilities.length})
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Work Context Tab */}
+              <TabsContent value="work_context" className="mt-4">
+                {workContextItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No work context data available for this profile
+                  </p>
+                ) : (
+                  Object.entries(
+                    workContextItems.reduce<Record<string, WorkContextItem[]>>((acc, item) => {
+                      acc[item.context_category] = acc[item.context_category] || [];
+                      acc[item.context_category].push(item);
+                      return acc;
+                    }, {})
+                  ).map(([category, items]) => {
+                    const expanded = workContextExpanded[category] ?? true;
+                    return (
+                      <div key={category} className="mb-4">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-between text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            setWorkContextExpanded({
+                              ...workContextExpanded,
+                              [category]: !expanded,
+                            })
+                          }
+                        >
+                          <span className="flex items-center gap-2">
+                            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            <span className="font-semibold">{category} ({items.length})</span>
+                          </span>
+                        </Button>
+                        {expanded && (
+                          <div className="mt-2 space-y-2">
+                            {items
+                              .sort((a, b) => Number(b.percentage ?? 0) - Number(a.percentage ?? 0))
+                              .map((item, idx) => (
+                                <div
+                                  key={`${category}-${idx}-${item.context_item}`}
+                                  className="flex items-center justify-between p-2 rounded-md bg-muted/40"
+                                >
+                                  <span className="text-sm text-foreground">{item.context_item}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {Math.round(Number(item.percentage ?? 0))}%
+                                  </Badge>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </TabsContent>
+
+              {/* Capabilities Tab (Abilities grouped by category) */}
+              <TabsContent value="capabilities" className="mt-4">
+                <div className="space-y-3">
+                  {mergedAbilities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      No capabilities defined for this profile
+                    </p>
+                  ) : (
+                    Object.entries(
+                      mergedAbilities.reduce<Record<string, MergedAbility[]>>((acc, ability) => {
+                        const key = ability.category || 'Other';
+                        acc[key] = acc[key] || [];
+                        acc[key].push(ability);
+                        return acc;
+                      }, {})
+                    ).map(([category, abilities]) => {
+                      const expanded = capabilityExpanded[category] ?? true;
+                      return (
+                        <div key={category} className="border rounded-md p-2 bg-muted/30">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-between text-foreground"
+                            onClick={() =>
+                              setCapabilityExpanded({
+                                ...capabilityExpanded,
+                                [category]: !expanded,
+                              })
+                            }
+                          >
+                            <span className="flex items-center gap-2 font-semibold">
+                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              {category} ({abilities.length})
+                            </span>
+                          </Button>
+                          {expanded && (
+                            <div className="mt-2 space-y-2">
+                              {abilities
+                                .sort((a, b) => Number(b.importance ?? 0) - Number(a.importance ?? 0))
+                                .map(ability => (
+                                  <CompetencyItem
+                                    key={ability.ability_id}
+                                    id={ability.ability_id}
+                                    description={ability.name}
+                                    source={ability.source}
+                                    isActive={ability.is_active}
+                                    importance={ability.importance}
+                                    category={ability.category || undefined}
+                                    onToggle={() => handleToggleAbility(ability)}
+                                    onEdit={() => {
+                                      setEditingAbility(ability);
+                                      setEditingItem({ type: 'ability', item: ability });
+                                    }}
+                                    onDelete={
+                                      ability.source === 'custom' && ability.customization_id
+                                        ? () => handleDeleteAbility(ability.customization_id!)
+                                        : undefined
+                                    }
+                                    onRevert={
+                                      ability.source === 'modified' && ability.customization_id
+                                        ? () => handleRevertAbility(ability.customization_id!)
+                                        : undefined
+                                    }
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-4"
+                  onClick={() => setShowAddAbility(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Custom Capability
+                </Button>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
       {renderDrawer && (
         <ProfilePreviewDrawer
           isOpen={isPreviewOpen}
@@ -2178,6 +2482,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         type="task"
       />
       <AddCompetencyModal
+        isOpen={showAddWorkStyle}
+        onClose={() => setShowAddWorkStyle(false)}
+        onSave={(name, impact) => handleAddWorkStyle(name, undefined, impact)}
+        type="work_style"
+      />
+      <AddCompetencyModal
         isOpen={showAddAbility}
         onClose={() => setShowAddAbility(false)}
         onSave={(name, importance) => handleAddAbility(name, undefined, importance)}
@@ -2210,6 +2520,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           onSave={async (customDescription, notes) => {
             if (editingItem.type === 'task') {
               await handleEditTask(editingItem.item as MergedTask, customDescription, notes);
+            } else if (editingItem.type === 'work_style') {
+              const workStyle = editingItem.item as MergedWorkStyle;
+              await handleEditWorkStyle(workStyle, customDescription, undefined, notes);
             } else if (editingItem.type === 'ability') {
               const ability = editingItem.item as MergedAbility;
               await handleEditAbility(ability, customDescription, undefined, notes);
@@ -2222,6 +2535,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             }
             setEditingItem(null);
             setEditingTask(null);
+            setEditingWorkStyle(null);
             setEditingAbility(null);
             setEditingSkill(null);
             setEditingKnowledge(null);
@@ -2231,6 +2545,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               ? async () => {
                   if (editingItem.type === 'task') {
                     await handleRevertTask(editingItem.item.customization_id!);
+                  } else if (editingItem.type === 'work_style') {
+                    await handleRevertWorkStyle(editingItem.item.customization_id!);
                   } else if (editingItem.type === 'ability') {
                     await handleRevertAbility(editingItem.item.customization_id!);
                   } else if (editingItem.type === 'skill') {
@@ -2240,6 +2556,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   }
                   setEditingItem(null);
                   setEditingTask(null);
+                  setEditingWorkStyle(null);
                   setEditingAbility(null);
                   setEditingSkill(null);
                   setEditingKnowledge(null);
@@ -2249,6 +2566,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           originalDescription={
             editingItem.type === 'task'
               ? (editingItem.item as MergedTask).description
+              : editingItem.type === 'work_style'
+              ? (editingItem.item as MergedWorkStyle).name
               : editingItem.type === 'ability'
               ? (editingItem.item as MergedAbility).name
               : editingItem.type === 'skill'
@@ -2258,6 +2577,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           currentDescription={
             editingItem.type === 'task'
               ? (editingItem.item as MergedTask).description
+              : editingItem.type === 'work_style'
+              ? (editingItem.item as MergedWorkStyle).name
               : editingItem.type === 'ability'
               ? (editingItem.item as MergedAbility).name
               : editingItem.type === 'skill'

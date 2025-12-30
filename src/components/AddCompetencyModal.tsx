@@ -17,7 +17,7 @@ interface AddCompetencyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (description: string, importance?: number) => Promise<void>;
-  type: 'task' | 'skill' | 'knowledge' | 'ability';
+  type: 'task' | 'skill' | 'knowledge' | 'ability' | 'work_style';
   loading?: boolean;
 }
 
@@ -56,6 +56,7 @@ export function AddCompetencyModal({
     skill: { singular: 'Skill', plural: 'Skills' },
     knowledge: { singular: 'Knowledge Area', plural: 'Knowledge Areas' },
     ability: { singular: 'Ability', plural: 'Abilities' },
+    work_style: { singular: 'Work Style', plural: 'Work Styles' },
   };
 
   const labels = typeLabels[type];
