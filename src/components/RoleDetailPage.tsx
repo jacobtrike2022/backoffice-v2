@@ -31,8 +31,9 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { rolesApi } from '../lib/api/roles';
+import { cn } from './ui/utils';
 import {
   onetLocal,
   type SmartProfileMatch,
@@ -77,6 +78,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [saving, setSaving] = useState(false);
   const [profileMatches, setProfileMatches] = useState<SmartProfileMatch[]>([]);
   const [selectedProfile, setSelectedProfile] = useState<SmartProfileMatch | null>(null);
+  const [isChangingProfile, setIsChangingProfile] = useState(false);
   const [profileDetails, setProfileDetails] = useState<ProfileDetails | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -98,6 +100,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [editingTask, setEditingTask] = useState<MergedTask | null>(null);
   const [editingSkill, setEditingSkill] = useState<MergedSkill | null>(null);
   const [editingKnowledge, setEditingKnowledge] = useState<MergedKnowledge | null>(null);
+  const renderDrawer = false; // disable overlay drawer; using inline preview instead
+
+  const getImportanceColor = (importance: number) => {
+    if (importance >= 75) return 'bg-red-100 text-red-800 border-red-300';
+    if (importance >= 50) return 'bg-orange-100 text-orange-800 border-orange-300';
+    return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+  };
   const [editingItem, setEditingItem] = useState<{
     type: 'task' | 'skill' | 'knowledge';
     item: MergedTask | MergedSkill | MergedKnowledge;
@@ -153,16 +162,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }, [role?.onet_code, roleId]);
 
-  // Auto-search profiles when role name changes
+  // Auto-search profiles when role name changes (only if no profile selected or changing profile)
   useEffect(() => {
-    if (role?.name) {
+    if (roleId === 'new' && formData.name && !selectedProfile) {
+      const timer = setTimeout(() => {
+        searchProfiles(formData.name);
+      }, 500); // Debounce 500ms
+
+      return () => clearTimeout(timer);
+    } else if (role?.name && (!role.onet_code || isChangingProfile)) {
       const timer = setTimeout(() => {
         searchProfiles(role.name);
       }, 500); // Debounce 500ms
 
       return () => clearTimeout(timer);
     }
-  }, [role?.name]);
+  }, [role?.name, formData.name, roleId, selectedProfile, isChangingProfile, role?.onet_code]);
 
   // Load profile details when a profile is selected (for preview only)
   useEffect(() => {
@@ -208,6 +223,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }, [role, roleId]);
 
+
   async function loadOrganizationId() {
     const orgId = await getCurrentUserOrgId();
     setOrganizationId(orgId);
@@ -219,13 +235,26 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       const data = await rolesApi.get(roleId);
       setRole(data);
       setEditedName(data.name);
+      setIsChangingProfile(false);
       
       // If role already has an onet_code, find matching profile
       if (data.onet_code) {
-        const matches = await onetLocal.searchProfiles(data.name || '', 4);
-        const match = matches.find((m) => m.onet_code === data.onet_code);
-        if (match) {
-          setSelectedProfile(match);
+        const details = await onetLocal.getProfileDetails(data.onet_code);
+        if (details) {
+          setSelectedProfile({
+            onet_code: data.onet_code,
+            title: details.title,
+            also_called: details.also_called || [],
+            description: details.description || '',
+            match_percentage: data.onet_match_confidence ?? 0,
+          });
+        } else {
+          // fallback to search-based match
+          const matches = await onetLocal.searchProfiles(data.name || '', 4);
+          const match = matches.find((m) => m.onet_code === data.onet_code);
+          if (match) {
+            setSelectedProfile(match);
+          }
         }
       }
     } catch (error: any) {
@@ -281,15 +310,17 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
-  async function loadProfileDetails(onetCode: string) {
+  async function loadProfileDetails(onetCode: string): Promise<ProfileDetails | null> {
     try {
       const details = await onetLocal.getProfileDetails(onetCode);
       setProfileDetails(details);
+      return details;
     } catch (error: any) {
       console.error('Error loading profile details:', error);
       toast.error('Failed to load profile details', {
         description: error.message || 'An unexpected error occurred',
       });
+      return null;
     }
   }
 
@@ -333,7 +364,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
       if (!role) return;
 
-      const updates: UpdateRoleInput = {
+      const updates: UpdateRoleInput & { onet_code?: string; onet_match_confidence?: number } = {
         id: role.id,
         name: isEditingCoreData ? formData.name : editedName,
         ...(isEditingCoreData ? {
@@ -409,10 +440,21 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   }
 
   async function handlePreviewProfile(match: SmartProfileMatch) {
-    const details = await loadProfileDetails(match.onet_code);
-    if (details) {
-      setPreviewProfile(details);
+    try {
+      // Open drawer first with loading state
       setIsPreviewOpen(true);
+      // Then load the details
+      const details = await loadProfileDetails(match.onet_code);
+      if (details) {
+        setPreviewProfile(details);
+      } else {
+        toast.error('Failed to load profile details');
+        setIsPreviewOpen(false);
+      }
+    } catch (error) {
+      console.error('Error loading profile details for preview:', error);
+      toast.error('Failed to load profile details');
+      setIsPreviewOpen(false);
     }
   }
 
@@ -423,6 +465,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       if (roleId === 'new') {
         // For new roles, just set the selected profile - will be saved when role is created
         setSelectedProfile(match);
+        setIsChangingProfile(false); // Hide suggestions after selection
         toast.success('Profile selected. Create the role to apply it.');
       } else if (role) {
         // Apply profile to existing role
@@ -431,6 +474,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         // Update role state
         setRole({ ...role, onet_code: match.onet_code });
         setSelectedProfile(match);
+        setIsChangingProfile(false); // Hide suggestions after selection
         
         // Load merged data
         await loadMergedData();
@@ -1203,84 +1247,309 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
       {/* Smart Role Profiles Section - Only show if role exists or is being created */}
       {(role || roleId === 'new') && (
-        <div className="space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Smart Role Profiles</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Automatically matched profiles based on role name
+              {role?.onet_code && !isChangingProfile
+                ? 'Current role profile match'
+                : 'Automatically matched profiles based on role name'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Search profiles..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                const timer = setTimeout(() => {
-                  if (e.target.value.trim()) {
-                    searchProfiles(e.target.value);
-                  } else if (role?.name || formData.name) {
-                    searchProfiles(role?.name || formData.name);
-                  }
-                }, 500);
-                return () => clearTimeout(timer);
-              }}
-              className="w-64"
-            />
+          {role?.onet_code && !isChangingProfile ? (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                if (searchTerm.trim()) {
-                  searchProfiles(searchTerm);
-                } else if (role?.name || formData.name) {
-                  searchProfiles(role?.name || formData.name);
+                setIsChangingProfile(true);
+                // Re-search to show suggestions
+                if (role?.name) {
+                  searchProfiles(role.name);
                 }
               }}
             >
-              <Search className="w-4 h-4" />
+              <Search className="w-4 h-4 mr-2" />
+              Change Profile
             </Button>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Search profiles..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  const timer = setTimeout(() => {
+                    if (e.target.value.trim()) {
+                      searchProfiles(e.target.value);
+                    } else if (role?.name || formData.name) {
+                      searchProfiles(role?.name || formData.name);
+                    }
+                  }, 500);
+                  return () => clearTimeout(timer);
+                }}
+                className="w-64"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (searchTerm.trim()) {
+                    searchProfiles(searchTerm);
+                  } else if (role?.name || formData.name) {
+                    searchProfiles(role?.name || formData.name);
+                  }
+                }}
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Profile Cards Grid */}
-        {isSearching ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i} className="animate-pulse">
-                <CardContent className="p-4 space-y-3">
-                  <div className="h-6 bg-muted rounded w-20" />
-                  <div className="h-4 bg-muted rounded w-3/4" />
-                  <div className="h-8 bg-muted rounded" />
+        {/* Show selected profile (centered) when profile is selected and not changing */}
+        {role?.onet_code && selectedProfile && !isChangingProfile ? (
+          <div className="w-full px-3 md:px-4">
+            <SmartProfileCard
+              title={selectedProfile.title}
+              matchPercentage={selectedProfile.match_percentage}
+              alternativeTitles={selectedProfile.also_called}
+              isSelected={true}
+              showSelectButton={true}
+              isApplied={role?.onet_code === selectedProfile.onet_code}
+              onPreview={() => {
+                // Always allow preview, even if applied
+                handlePreviewProfile(selectedProfile);
+              }}
+              onSelect={async () => {
+                // If already applied, just open preview instead
+                if (role && role.onet_code === selectedProfile.onet_code) {
+                  handlePreviewProfile(selectedProfile);
+                  return;
+                }
+                // Apply the profile (auto-save)
+                await handleSelectProfile(selectedProfile);
+              }}
+            />
+          </div>
+        ) : (
+          /* Profile Cards Grid - Show when searching or changing profile */
+          <>
+            {isSearching ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Card key={i} className="animate-pulse">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="h-6 bg-muted rounded w-20" />
+                      <div className="h-4 bg-muted rounded w-3/4" />
+                      <div className="h-8 bg-muted rounded" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : profileMatches.length === 0 ? (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <p className="text-muted-foreground">
+                    No matching profiles found. Try a different search term.
+                  </p>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        ) : profileMatches.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-muted-foreground">
-                No matching profiles found. Try a different search term.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {profileMatches.map((match) => (
-              <SmartProfileCard
-                key={match.onet_code}
-                title={match.title}
-                matchPercentage={match.match_percentage}
-                alternativeTitles={match.also_called}
-                isSelected={selectedProfile?.onet_code === match.onet_code}
-                onPreview={() => handlePreviewProfile(match)}
-                onSelect={() => handleSelectProfile(match)}
-              />
-            ))}
-          </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
+                {profileMatches.map((match) => (
+                  <SmartProfileCard
+                    key={match.onet_code}
+                    title={match.title}
+                    matchPercentage={match.match_percentage}
+                    alternativeTitles={match.also_called}
+                    isSelected={selectedProfile?.onet_code === match.onet_code}
+                    onPreview={() => handlePreviewProfile(match)}
+                    onSelect={() => {
+                      // Don't auto-apply - just open preview
+                      handlePreviewProfile(match);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
+      )}
+
+      {/* Inline Profile Preview Panel (replaces drawer) */}
+      {previewProfile && (
+        <Card className="border-primary/20 shadow-sm">
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle className="text-lg">{previewProfile.title}</CardTitle>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="outline" className="text-xs">
+                    Code: {previewProfile.onet_code || 'N/A'}
+                  </Badge>
+                  {previewProfile.job_zone && (
+                    <Badge variant="outline" className="text-xs">
+                      Job Zone {previewProfile.job_zone}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsPreviewOpen(false);
+                    setPreviewProfile(null);
+                  }}
+                >
+                  Close
+                </Button>
+                <Button
+                  className={cn(
+                    'bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0'
+                  )}
+                  onClick={async () => {
+                    if (previewProfile) {
+                      const match = profileMatches.find(
+                        (m) => m.onet_code === previewProfile.onet_code
+                      );
+                      if (match) {
+                        if (role?.onet_code === match.onet_code) {
+                          setIsPreviewOpen(false);
+                          setPreviewProfile(null);
+                          return;
+                        }
+                        await handleSelectProfile(match);
+                        setIsPreviewOpen(false);
+                        setPreviewProfile(null);
+                      }
+                    }
+                  }}
+                >
+                  {role?.onet_code === previewProfile.onet_code
+                    ? 'Profile Applied'
+                    : 'Apply Profile'}
+                </Button>
+              </div>
+            </div>
+            {previewProfile.description && (
+              <CardDescription className="mt-2">
+                {previewProfile.description}
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Alternative Titles */}
+            {previewProfile.also_called && previewProfile.also_called.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-2">Also known as</h3>
+                <div className="flex flex-wrap gap-2">
+                  {previewProfile.also_called.map((title, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">
+                      {title}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Tasks */}
+            {previewProfile.tasks && previewProfile.tasks.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-3">
+                  Key Tasks ({previewProfile.tasks.length})
+                </h3>
+                <ul className="space-y-2">
+                  {previewProfile.tasks.map((task) => (
+                    <li
+                      key={task.id}
+                      className="text-sm text-muted-foreground flex items-start gap-2"
+                    >
+                      <span className="text-[#F64A05] mt-0.5">•</span>
+                      <span>{task.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Skills */}
+            {previewProfile.skills && previewProfile.skills.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-3">
+                  Required Skills ({previewProfile.skills.length})
+                </h3>
+                <div className="space-y-2">
+                  {previewProfile.skills.map((skill) => (
+                    <div
+                      key={skill.id}
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                    >
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{skill.name}</p>
+                        {skill.category && (
+                          <p className="text-xs text-muted-foreground">
+                            {skill.category}
+                          </p>
+                        )}
+                      </div>
+                      <Badge
+                        className={cn(
+                          'text-xs',
+                          getImportanceColor(skill.importance)
+                        )}
+                      >
+                        {Math.round(skill.importance)}%
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Knowledge */}
+            {previewProfile.knowledge && previewProfile.knowledge.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-3">
+                  Required Knowledge ({previewProfile.knowledge.length})
+                </h3>
+                <div className="space-y-2">
+                  {previewProfile.knowledge.map((know) => (
+                    <div
+                      key={know.id}
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                    >
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{know.name}</p>
+                        {know.category && (
+                          <p className="text-xs text-muted-foreground">
+                            {know.category}
+                          </p>
+                        )}
+                      </div>
+                      <Badge
+                        className={cn(
+                          'text-xs',
+                          getImportanceColor(know.importance)
+                        )}
+                      >
+                        {Math.round(know.importance)}%
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Role Competencies Section - Shows when profile is applied */}
@@ -1301,17 +1570,6 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <Badge variant="outline" className="font-mono text-xs">
                   {role.onet_code}
                 </Badge>
-                {selectedProfile && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedProfile(null);
-                    }}
-                  >
-                    Change Profile
-                  </Button>
-                )}
               </div>
             </div>
           </CardHeader>
@@ -1666,27 +1924,36 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         </Card>
       )}
 
-      {/* Profile Preview Drawer */}
-      <ProfilePreviewDrawer
-        isOpen={isPreviewOpen}
-        onClose={() => {
-          setIsPreviewOpen(false);
-          setPreviewProfile(null);
-        }}
-        profile={previewProfile}
-        onSelect={() => {
-          if (previewProfile) {
-            const match = profileMatches.find(
-              (m) => m.onet_code === previewProfile.onet_code
-            );
-            if (match) {
-              handleSelectProfile(match);
+      {renderDrawer && (
+        <ProfilePreviewDrawer
+          isOpen={isPreviewOpen}
+          onClose={() => {
+            setIsPreviewOpen(false);
+            setPreviewProfile(null);
+          }}
+          profile={previewProfile}
+          isApplied={previewProfile ? role?.onet_code === previewProfile.onet_code : false}
+          onSelect={async () => {
+            if (previewProfile) {
+              const match = profileMatches.find(
+                (m) => m.onet_code === previewProfile.onet_code
+              );
+              if (match) {
+                // If already applied, just close the drawer
+                if (role?.onet_code === match.onet_code) {
+                  setIsPreviewOpen(false);
+                  setPreviewProfile(null);
+                  return;
+                }
+                // Apply the profile and close the drawer
+                await handleSelectProfile(match);
+                setIsPreviewOpen(false);
+                setPreviewProfile(null);
+              }
             }
-          }
-          setIsPreviewOpen(false);
-          setPreviewProfile(null);
-        }}
-      />
+          }}
+        />
+      )}
 
       {/* Add Competency Modals */}
       <AddCompetencyModal
@@ -1765,7 +2032,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               : (editingItem.item as MergedKnowledge).knowledge_name
           }
           type={editingItem.type}
-          source={editingItem.item.source}
+          source={editingItem.item.source as 'standard' | 'modified' | 'custom'}
         />
       )}
 

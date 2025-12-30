@@ -6,7 +6,6 @@ import {
   DrawerTitle,
   DrawerDescription,
   DrawerFooter,
-  DrawerClose,
 } from './ui/drawer';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -20,6 +19,7 @@ interface ProfilePreviewDrawerProps {
   onClose: () => void;
   profile: ProfileDetails | null;
   onSelect: () => void;
+  isApplied?: boolean; // Whether this profile is already applied to the role
 }
 
 export function ProfilePreviewDrawer({
@@ -27,8 +27,8 @@ export function ProfilePreviewDrawer({
   onClose,
   profile,
   onSelect,
+  isApplied = false,
 }: ProfilePreviewDrawerProps) {
-  if (!profile) return null;
 
   const getImportanceColor = (importance: number) => {
     if (importance >= 75) return 'bg-red-100 text-red-800 border-red-300';
@@ -37,38 +37,62 @@ export function ProfilePreviewDrawer({
   };
 
   return (
-    <Drawer open={isOpen} onOpenChange={onClose} direction="right">
-      <DrawerContent className="h-full w-full sm:max-w-lg">
+    <Drawer 
+      open={isOpen} 
+      onOpenChange={() => {}} 
+      direction="right"
+      modal={true}
+      dismissible={false}
+      shouldScaleBackground={false}
+    >
+      <DrawerContent 
+        className="flex flex-col fixed inset-y-0 right-0 w-full sm:w-[500px] max-w-[500px] h-screen z-[9999] bg-background data-[vaul-drawer-direction=right]:!w-full data-[vaul-drawer-direction=right]:!h-screen"
+        data-hide-overlay
+      >
         <DrawerHeader>
-          <DrawerTitle className="text-xl">{profile.title}</DrawerTitle>
-          <DrawerDescription>
-            <div className="space-y-1 mt-2">
-              <Badge variant="outline" className="text-xs">
-                Code: {profile.onet_code}
-              </Badge>
-              {profile.job_zone && (
-                <Badge variant="outline" className="text-xs ml-2">
-                  Job Zone {profile.job_zone}
+          {!profile ? (
+            <>
+              <DrawerTitle>Loading Profile...</DrawerTitle>
+              <DrawerDescription>Please wait while we load the profile details.</DrawerDescription>
+            </>
+          ) : (
+            <>
+              <DrawerTitle className="text-xl">{profile?.title || 'No Title'}</DrawerTitle>
+              <div className="space-y-1 mt-2">
+                <Badge variant="outline" className="text-xs">
+                  Code: {profile?.onet_code || 'N/A'}
                 </Badge>
+                {profile?.job_zone && (
+                  <Badge variant="outline" className="text-xs ml-2">
+                    Job Zone {profile.job_zone}
+                  </Badge>
+                )}
+              </div>
+              {profile?.description && profile.description.length > 200 && (
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {profile.description.substring(0, 200)}...
+                </div>
               )}
-            </div>
-          </DrawerDescription>
+            </>
+          )}
         </DrawerHeader>
 
-        <div className="flex-1 px-4 overflow-y-auto">
-          <div className="space-y-6 pb-6">
-            {/* Description */}
-            {profile.description && (
-              <div>
-                <h3 className="font-semibold text-sm mb-2">What they do</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {profile.description}
-                </p>
-              </div>
-            )}
+        {profile && (
+          <>
+            <div className="flex-1 px-4 overflow-y-auto min-h-0">
+              <div className="space-y-6 pb-6">
+                {/* Description */}
+                {profile?.description && (
+                  <div>
+                    <h3 className="font-semibold text-sm mb-2">What they do</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      {profile.description}
+                    </p>
+                  </div>
+                )}
 
             {/* Alternative Titles */}
-            {profile.also_called && profile.also_called.length > 0 && (
+            {profile?.also_called && profile.also_called.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-2">Also known as</h3>
                 <div className="flex flex-wrap gap-2">
@@ -84,7 +108,7 @@ export function ProfilePreviewDrawer({
             <Separator />
 
             {/* Tasks */}
-            {profile.tasks.length > 0 && (
+            {profile?.tasks && profile.tasks.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
                   Key Tasks ({profile.tasks.length})
@@ -106,7 +130,7 @@ export function ProfilePreviewDrawer({
             <Separator />
 
             {/* Skills */}
-            {profile.skills.length > 0 && (
+            {profile?.skills && profile.skills.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
                   Required Skills ({profile.skills.length})
@@ -142,7 +166,7 @@ export function ProfilePreviewDrawer({
             <Separator />
 
             {/* Knowledge */}
-            {profile.knowledge.length > 0 && (
+            {profile?.knowledge && profile.knowledge.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
                   Required Knowledge ({profile.knowledge.length})
@@ -174,21 +198,31 @@ export function ProfilePreviewDrawer({
                 </div>
               </div>
             )}
-          </div>
-        </div>
+              </div>
+            </div>
 
-        <DrawerFooter>
-          <Button
-            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
-            onClick={onSelect}
-          >
-            <CheckCircle2 className="w-4 h-4 mr-2" />
-            Select This Profile
-          </Button>
-          <DrawerClose asChild>
-            <Button variant="outline">Close</Button>
-          </DrawerClose>
-        </DrawerFooter>
+            <DrawerFooter>
+              <Button
+                className={cn(
+                  "shadow-sm hover:opacity-90 border-0",
+                  isApplied 
+                    ? "bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
+                    : "bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
+                )}
+                onClick={onSelect}
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                {isApplied ? 'Profile Applied' : 'Apply Profile'}
+              </Button>
+            <Button
+              variant="outline"
+              onClick={onClose}
+            >
+              Close
+            </Button>
+            </DrawerFooter>
+          </>
+        )}
       </DrawerContent>
     </Drawer>
   );

@@ -50,9 +50,14 @@ function DrawerContent({
   children,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+  // Allow opt-out of overlay via data-hide-overlay flag
+  const hideOverlay = (props as any)['data-hide-overlay'];
+  if ('data-hide-overlay' in props) {
+    delete (props as any)['data-hide-overlay'];
+  }
   return (
     <DrawerPortal data-slot="drawer-portal">
-      <DrawerOverlay />
+      {!hideOverlay && <DrawerOverlay />}
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(

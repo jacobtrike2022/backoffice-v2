@@ -12,6 +12,8 @@ interface SmartProfileCardProps {
   isSelected: boolean;
   onPreview: () => void;
   onSelect: () => void;
+  showSelectButton?: boolean; // If true, show "Select Profile" instead of "Preview"
+  isApplied?: boolean; // If true, show gradient orange button to indicate it's applied
 }
 
 export function SmartProfileCard({
@@ -21,6 +23,8 @@ export function SmartProfileCard({
   isSelected,
   onPreview,
   onSelect,
+  showSelectButton = false,
+  isApplied = false,
 }: SmartProfileCardProps) {
   const getMatchColor = (percentage: number) => {
     if (percentage >= 80) return 'bg-green-100 text-green-800 border-green-300';
@@ -36,7 +40,10 @@ export function SmartProfileCard({
         'transition-all hover:shadow-md cursor-pointer',
         isSelected && 'ring-2 ring-[#F64A05] border-[#F64A05]'
       )}
-      onClick={onSelect}
+      onClick={(e) => {
+        // Clicking the card opens preview (doesn't auto-apply)
+        onPreview();
+      }}
     >
       <CardContent className="p-4 space-y-3">
         {/* Match Badge */}
@@ -64,19 +71,46 @@ export function SmartProfileCard({
           </p>
         )}
 
-        {/* Preview Button */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPreview();
-          }}
-        >
-          <Eye className="w-3 h-3 mr-1.5" />
-          Preview
-        </Button>
+        {/* Preview/Select Button */}
+        {showSelectButton ? (
+          <Button
+            variant={isApplied ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "w-full",
+              isApplied && "bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
+            {isApplied ? (
+              <>
+                <Eye className="w-3 h-3 mr-1.5" />
+                Profile Applied
+              </>
+            ) : (
+              <>
+                <Eye className="w-3 h-3 mr-1.5" />
+                Select Profile
+              </>
+            )}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPreview();
+            }}
+          >
+            <Eye className="w-3 h-3 mr-1.5" />
+            Preview
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
