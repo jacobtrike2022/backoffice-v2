@@ -123,6 +123,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     description: string;
     department: string;
     job_family: string;
+    flsa_status: 'exempt' | 'non_exempt' | null;
     is_manager: boolean;
     is_frontline: boolean;
     permission_level: number;
@@ -135,6 +136,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     description: '',
     department: '',
     job_family: '',
+    flsa_status: null,
     is_manager: false,
     is_frontline: true,
     permission_level: 1,
@@ -196,6 +198,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         description: '',
         department: '',
         job_family: '',
+        flsa_status: null,
         is_manager: false,
         is_frontline: true,
         permission_level: 1,
@@ -212,6 +215,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         description: role.description || '',
         department: role.department || '',
         job_family: role.job_family || '',
+        flsa_status: role.flsa_status ?? null,
         is_manager: role.is_manager || false,
         is_frontline: role.is_frontline ?? true,
         permission_level: role.permission_level || 1,
@@ -336,6 +340,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           description: formData.description,
           department: formData.department,
           job_family: formData.job_family,
+        flsa_status: formData.flsa_status,
           is_manager: formData.is_manager,
           is_frontline: formData.is_frontline,
           permission_level: formData.permission_level,
@@ -372,6 +377,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           description: formData.description,
           department: formData.department,
           job_family: formData.job_family,
+        flsa_status: formData.flsa_status,
           is_manager: formData.is_manager,
           is_frontline: formData.is_frontline,
           permission_level: formData.permission_level,
@@ -755,6 +761,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  function getFlsaStatusLabel(value: 'exempt' | 'non_exempt' | null | undefined) {
+    if (value === 'non_exempt') return 'Hourly';
+    if (value === 'exempt') return 'Salary';
+    return 'Not Set';
+  }
+
   if (loading && roleId !== 'new') {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1014,6 +1026,28 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-flsa_status">FLSA Status</Label>
+                  <Select
+                    value={formData.flsa_status ?? 'not_set'}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        flsa_status: value === 'not_set' ? null : (value as 'exempt' | 'non_exempt'),
+                      })
+                    }
+                  >
+                    <SelectTrigger id="edit-flsa_status">
+                      <SelectValue placeholder="Select FLSA status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="not_set">Not Set</SelectItem>
+                      <SelectItem value="non_exempt">Hourly</SelectItem>
+                      <SelectItem value="exempt">Salary</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {/* Advanced Section */}
@@ -1120,6 +1154,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                           description: role.description || '',
                           department: role.department || '',
                           job_family: role.job_family || '',
+                        flsa_status: role.flsa_status ?? null,
                           is_manager: role.is_manager || false,
                           is_frontline: role.is_frontline ?? true,
                           permission_level: role.permission_level || 1,
@@ -1200,6 +1235,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   <Label className="text-muted-foreground">Permission Level</Label>
                   <div className="text-sm font-medium">
                     {role?.permission_level ? `${role.permission_level} - ${getPermissionLevelLabel(role.permission_level)}` : '—'}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">FLSA Status</Label>
+                  <div className="text-sm font-medium">
+                    {getFlsaStatusLabel(role?.flsa_status)}
                   </div>
                 </div>
               </div>

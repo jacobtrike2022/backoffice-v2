@@ -19,6 +19,7 @@ export interface Role {
   is_frontline: boolean;
   department?: string | null;
   job_family?: string | null;
+  flsa_status?: 'exempt' | 'non_exempt' | null;
   
   // Permissions (dual system - keeping both for backward compatibility)
   permissions: string[]; // Legacy array format
@@ -107,6 +108,7 @@ export interface CreateRoleInput {
   description?: string;
   department?: string;
   job_family?: string;
+  flsa_status?: 'exempt' | 'non_exempt' | null;
   is_manager?: boolean;
   is_frontline?: boolean;
   permission_level?: number;

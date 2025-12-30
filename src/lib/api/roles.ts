@@ -96,6 +96,7 @@ export const rolesApi = {
         description: input.description,
         department: input.department,
         job_family: input.job_family,
+        flsa_status: input.flsa_status,
         is_manager: input.is_manager ?? false,
         is_frontline: input.is_frontline ?? true,
         permission_level: input.permission_level ?? 1,
