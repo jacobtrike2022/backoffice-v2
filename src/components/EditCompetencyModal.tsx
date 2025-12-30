@@ -21,7 +21,7 @@ interface EditCompetencyModalProps {
   onRevert?: () => Promise<void>;
   originalDescription: string;
   currentDescription: string;
-  type: 'task' | 'skill' | 'knowledge';
+  type: 'task' | 'skill' | 'knowledge' | 'ability';
   source: 'standard' | 'modified' | 'custom';
   loading?: boolean;
 }
@@ -81,6 +81,7 @@ export function EditCompetencyModal({
     task: { singular: 'Task', plural: 'Tasks' },
     skill: { singular: 'Skill', plural: 'Skills' },
     knowledge: { singular: 'Knowledge Area', plural: 'Knowledge Areas' },
+    ability: { singular: 'Ability', plural: 'Abilities' },
   };
 
   const labels = typeLabels[type];

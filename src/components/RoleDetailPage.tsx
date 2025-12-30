@@ -29,6 +29,7 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { rolesApi } from '../lib/api/roles';
@@ -40,6 +41,7 @@ import {
   type MergedTask,
   type MergedSkill,
   type MergedKnowledge,
+  type MergedAbility,
 } from '../lib/api/onet-local';
 import { getCurrentUserOrgId } from '../lib/supabase';
 import type { Role, UpdateRoleInput } from '../types/roles';
@@ -89,13 +91,16 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [mergedTasks, setMergedTasks] = useState<MergedTask[]>([]);
   const [mergedSkills, setMergedSkills] = useState<MergedSkill[]>([]);
   const [mergedKnowledge, setMergedKnowledge] = useState<MergedKnowledge[]>([]);
+  const [mergedAbilities, setMergedAbilities] = useState<MergedAbility[]>([]);
   const [loadingMerged, setLoadingMerged] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddSkill, setShowAddSkill] = useState(false);
   const [showAddKnowledge, setShowAddKnowledge] = useState(false);
+  const [showAddAbility, setShowAddAbility] = useState(false);
   const [showEditTask, setShowEditTask] = useState(false);
   const [showEditSkill, setShowEditSkill] = useState(false);
   const [showEditKnowledge, setShowEditKnowledge] = useState(false);
+  const [editingAbility, setEditingAbility] = useState<MergedAbility | null>(null);
   const [editingTask, setEditingTask] = useState<MergedTask | null>(null);
   const [editingSkill, setEditingSkill] = useState<MergedSkill | null>(null);
   const [editingKnowledge, setEditingKnowledge] = useState<MergedKnowledge | null>(null);
@@ -107,13 +112,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     return 'bg-yellow-100 text-yellow-800 border-yellow-300';
   };
   const [editingItem, setEditingItem] = useState<{
-    type: 'task' | 'skill' | 'knowledge';
-    item: MergedTask | MergedSkill | MergedKnowledge;
+    type: 'task' | 'skill' | 'knowledge' | 'ability';
+    item: MergedTask | MergedSkill | MergedKnowledge | MergedAbility;
   } | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [excludedTasksExpanded, setExcludedTasksExpanded] = useState(false);
   const [excludedSkillsExpanded, setExcludedSkillsExpanded] = useState(false);
   const [excludedKnowledgeExpanded, setExcludedKnowledgeExpanded] = useState(false);
+  const [excludedAbilitiesExpanded, setExcludedAbilitiesExpanded] = useState(false);
   const [isEditingCoreData, setIsEditingCoreData] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formData, setFormData] = useState<{
@@ -275,12 +281,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     
     try {
       setLoadingMerged(true);
-      const [tasks, skills, knowledge] = await Promise.all([
+      const [tasks, abilities, skills, knowledge] = await Promise.all([
         onetLocal.getRoleTasks(roleId),
+        onetLocal.getRoleAbilities(roleId),
         onetLocal.getRoleSkills(roleId),
         onetLocal.getRoleKnowledge(roleId),
       ]);
       setMergedTasks(tasks);
+      setMergedAbilities(abilities);
       setMergedSkills(skills);
       setMergedKnowledge(knowledge);
     } catch (error: any) {
@@ -512,6 +520,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleToggleAbility(ability: MergedAbility) {
+    if (!role) return;
+    
+    try {
+      if (ability.is_active) {
+        await onetLocal.excludeAbility(role.id, ability.ability_id);
+      } else {
+        await onetLocal.includeAbility(role.id, ability.ability_id);
+      }
+      await loadMergedData();
+    } catch (error: any) {
+      console.error('Error toggling ability:', error);
+      toast.error('Failed to update ability', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
   async function handleToggleSkill(skill: MergedSkill) {
     if (!role || !organizationId) return;
     
@@ -558,6 +584,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     } catch (error: any) {
       console.error('Error adding task:', error);
       toast.error('Failed to add task', {
+        description: error.message || 'An unexpected error occurred',
+      });
+      throw error;
+    }
+  }
+
+  async function handleAddAbility(name: string, _description?: string, importance?: number) {
+    if (!role) return;
+    
+    try {
+      await onetLocal.addCustomAbility(role.id, name, importance);
+      await loadMergedData();
+      toast.success('Custom ability added');
+    } catch (error: any) {
+      console.error('Error adding ability:', error);
+      toast.error('Failed to add ability', {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -618,6 +660,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleEditAbility(ability: MergedAbility, customName: string, _customDescription?: string, notes?: string) {
+    if (!role) return;
+    
+    try {
+      await onetLocal.modifyAbility(role.id, ability.ability_id, customName, undefined, undefined, notes);
+      await loadMergedData();
+      toast.success('Ability updated');
+    } catch (error: any) {
+      console.error('Error editing ability:', error);
+      toast.error('Failed to update ability', {
+        description: error.message || 'An unexpected error occurred',
+      });
+      throw error;
+    }
+  }
+
   async function handleEditSkill(skill: MergedSkill, customName: string, customDescription?: string, notes?: string) {
     if (!role || !organizationId) return;
     
@@ -663,6 +721,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
+  async function handleDeleteAbility(customizationId: string) {
+    try {
+      await onetLocal.deleteCustomAbility(customizationId);
+      await loadMergedData();
+      toast.success('Ability deleted');
+    } catch (error: any) {
+      console.error('Error deleting ability:', error);
+      toast.error('Failed to delete ability', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
   async function handleDeleteSkill(customizationId: string) {
     try {
       await onetLocal.deleteCustomSkill(customizationId);
@@ -697,6 +768,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     } catch (error: any) {
       console.error('Error reverting task:', error);
       toast.error('Failed to revert task', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
+  }
+
+  async function handleRevertAbility(customizationId: string) {
+    try {
+      await onetLocal.revertAbilityModification(customizationId);
+      await loadMergedData();
+      toast.success('Ability reverted to standard');
+    } catch (error: any) {
+      console.error('Error reverting ability:', error);
+      toast.error('Failed to revert ability', {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1595,10 +1679,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="tasks">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="tasks" className="flex items-center gap-2">
                   <ClipboardList className="h-4 w-4" />
                   Tasks ({mergedTasks.filter(t => t.is_active).length}/{mergedTasks.length})
+                </TabsTrigger>
+                <TabsTrigger value="abilities" className="flex items-center gap-2">
+                  <Zap className="h-4 w-4" />
+                  Abilities ({mergedAbilities.filter(a => a.is_active).length}/{mergedAbilities.length})
                 </TabsTrigger>
                 <TabsTrigger value="skills" className="flex items-center gap-2">
                   <Wrench className="h-4 w-4" />
@@ -1730,6 +1818,113 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Custom Task
+                  </Button>
+                </div>
+              </TabsContent>
+
+              {/* Abilities Tab */}
+              <TabsContent value="abilities" className="mt-4">
+                <div className="space-y-2">
+                  {mergedAbilities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      No abilities defined for this profile
+                    </p>
+                  ) : (
+                    <>
+                      {/* Active Abilities */}
+                      {[...mergedAbilities]
+                        .filter(ability => ability.is_active)
+                        .sort((a, b) => (Number(b.importance ?? 0) - Number(a.importance ?? 0)))
+                        .map(ability => (
+                          <CompetencyItem
+                            key={ability.ability_id}
+                            id={ability.ability_id}
+                            description={ability.name}
+                            source={ability.source}
+                            isActive={ability.is_active}
+                            importance={ability.importance}
+                            category={ability.category || undefined}
+                            onToggle={() => handleToggleAbility(ability)}
+                            onEdit={() => {
+                              setEditingAbility(ability);
+                              setEditingItem({ type: 'ability', item: ability });
+                            }}
+                            onDelete={
+                              ability.source === 'custom' && ability.customization_id
+                                ? () => handleDeleteAbility(ability.customization_id!)
+                                : undefined
+                            }
+                            onRevert={
+                              ability.source === 'modified' && ability.customization_id
+                                ? () => handleRevertAbility(ability.customization_id!)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      
+                      {/* Excluded Abilities Section */}
+                      {mergedAbilities.filter(ability => !ability.is_active).length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-between text-muted-foreground hover:text-foreground"
+                            onClick={() => setExcludedAbilitiesExpanded(!excludedAbilitiesExpanded)}
+                          >
+                            <span className="flex items-center gap-2">
+                              {excludedAbilitiesExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              <span>Excluded Abilities ({mergedAbilities.filter(ability => !ability.is_active).length})</span>
+                            </span>
+                          </Button>
+                          {excludedAbilitiesExpanded && (
+                            <div className="mt-2 space-y-2">
+                              {[...mergedAbilities]
+                                .filter(ability => !ability.is_active)
+                                .sort((a, b) => (Number(b.importance ?? 0) - Number(a.importance ?? 0)))
+                                .map(ability => (
+                                  <CompetencyItem
+                                    key={ability.ability_id}
+                                    id={ability.ability_id}
+                                    description={ability.name}
+                                    source={ability.source}
+                                    isActive={ability.is_active}
+                                    importance={ability.importance}
+                                    category={ability.category || undefined}
+                                    onToggle={() => handleToggleAbility(ability)}
+                                    onEdit={() => {
+                                      setEditingAbility(ability);
+                                      setEditingItem({ type: 'ability', item: ability });
+                                    }}
+                                    onDelete={
+                                      ability.source === 'custom' && ability.customization_id
+                                        ? () => handleDeleteAbility(ability.customization_id!)
+                                        : undefined
+                                    }
+                                    onRevert={
+                                      ability.source === 'modified' && ability.customization_id
+                                        ? () => handleRevertAbility(ability.customization_id!)
+                                        : undefined
+                                    }
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-4"
+                    onClick={() => setShowAddAbility(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Custom Ability
                   </Button>
                 </div>
               </TabsContent>
@@ -1983,6 +2178,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         type="task"
       />
       <AddCompetencyModal
+        isOpen={showAddAbility}
+        onClose={() => setShowAddAbility(false)}
+        onSave={(name, importance) => handleAddAbility(name, undefined, importance)}
+        type="ability"
+      />
+      <AddCompetencyModal
         isOpen={showAddSkill}
         onClose={() => setShowAddSkill(false)}
         onSave={(name, importance) => handleAddSkill(name, undefined, importance)}
@@ -2002,12 +2203,16 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           onClose={() => {
             setEditingItem(null);
             setEditingTask(null);
+            setEditingAbility(null);
             setEditingSkill(null);
             setEditingKnowledge(null);
           }}
           onSave={async (customDescription, notes) => {
             if (editingItem.type === 'task') {
               await handleEditTask(editingItem.item as MergedTask, customDescription, notes);
+            } else if (editingItem.type === 'ability') {
+              const ability = editingItem.item as MergedAbility;
+              await handleEditAbility(ability, customDescription, undefined, notes);
             } else if (editingItem.type === 'skill') {
               const skill = editingItem.item as MergedSkill;
               await handleEditSkill(skill, customDescription, undefined, notes);
@@ -2017,6 +2222,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             }
             setEditingItem(null);
             setEditingTask(null);
+            setEditingAbility(null);
             setEditingSkill(null);
             setEditingKnowledge(null);
           }}
@@ -2025,6 +2231,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               ? async () => {
                   if (editingItem.type === 'task') {
                     await handleRevertTask(editingItem.item.customization_id!);
+                  } else if (editingItem.type === 'ability') {
+                    await handleRevertAbility(editingItem.item.customization_id!);
                   } else if (editingItem.type === 'skill') {
                     await handleRevertSkill(editingItem.item.customization_id!);
                   } else {
@@ -2032,6 +2240,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   }
                   setEditingItem(null);
                   setEditingTask(null);
+                  setEditingAbility(null);
                   setEditingSkill(null);
                   setEditingKnowledge(null);
                 }
@@ -2040,6 +2249,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           originalDescription={
             editingItem.type === 'task'
               ? (editingItem.item as MergedTask).description
+              : editingItem.type === 'ability'
+              ? (editingItem.item as MergedAbility).name
               : editingItem.type === 'skill'
               ? (editingItem.item as MergedSkill).skill_name
               : (editingItem.item as MergedKnowledge).knowledge_name
@@ -2047,6 +2258,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           currentDescription={
             editingItem.type === 'task'
               ? (editingItem.item as MergedTask).description
+              : editingItem.type === 'ability'
+              ? (editingItem.item as MergedAbility).name
               : editingItem.type === 'skill'
               ? (editingItem.item as MergedSkill).skill_name
               : (editingItem.item as MergedKnowledge).knowledge_name

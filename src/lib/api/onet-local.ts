@@ -82,6 +82,18 @@ export interface MergedKnowledge {
   customization_id: string | null;
 }
 
+export interface MergedAbility {
+  ability_id: string;
+  name: string;
+  importance: number;
+  level: number;
+  category: string | null;
+  source: 'standard' | 'modified' | 'custom' | 'excluded';
+  is_active: boolean;
+  customization_id: string | null;
+  notes: string | null;
+}
+
 export const onetLocal = {
   /**
    * Search for matching occupational profiles
@@ -263,6 +275,20 @@ export const onetLocal = {
     });
     if (error) {
       console.error('Error fetching role knowledge:', error);
+      throw error;
+    }
+    return data || [];
+  },
+
+  /**
+   * Get merged abilities for a role
+   */
+  async getRoleAbilities(roleId: string): Promise<MergedAbility[]> {
+    const { data, error } = await supabase.rpc('get_role_abilities', {
+      p_role_id: roleId,
+    });
+    if (error) {
+      console.error('Error fetching role abilities:', error);
       throw error;
     }
     return data || [];
@@ -612,6 +638,105 @@ export const onetLocal = {
       .eq('id', customizationId);
     if (error) {
       console.error('Error reverting knowledge modification:', error);
+      throw error;
+    }
+  },
+
+  // Ability operations
+  async excludeAbility(roleId: string, abilityId: string): Promise<void> {
+    const { error } = await supabase.from('role_ability_customizations').upsert(
+      {
+        role_id: roleId,
+        ability_id: abilityId,
+        action: 'exclude',
+      },
+      { onConflict: 'role_id,ability_id' }
+    );
+    if (error) {
+      console.error('Error excluding ability:', error);
+      throw error;
+    }
+  },
+
+  async includeAbility(roleId: string, abilityId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_ability_customizations')
+      .delete()
+      .eq('role_id', roleId)
+      .eq('ability_id', abilityId)
+      .eq('action', 'exclude');
+    if (error) {
+      console.error('Error including ability:', error);
+      throw error;
+    }
+  },
+
+  async modifyAbility(
+    roleId: string,
+    abilityId: string,
+    customName: string,
+    customImportance?: number,
+    customLevel?: number,
+    notes?: string
+  ): Promise<void> {
+    const { error } = await supabase.from('role_ability_customizations').upsert(
+      {
+        role_id: roleId,
+        ability_id: abilityId,
+        action: 'modify',
+        custom_name: customName,
+        custom_importance: customImportance,
+        custom_level: customLevel,
+        notes,
+      },
+      { onConflict: 'role_id,ability_id' }
+    );
+    if (error) {
+      console.error('Error modifying ability:', error);
+      throw error;
+    }
+  },
+
+  async addCustomAbility(
+    roleId: string,
+    name: string,
+    importance?: number,
+    level?: number,
+    notes?: string
+  ): Promise<void> {
+    const { error } = await supabase.from('role_ability_customizations').insert({
+      role_id: roleId,
+      ability_id: null,
+      action: 'add',
+      custom_name: name,
+      custom_importance: importance ?? 50,
+      custom_level: level,
+      notes,
+    });
+    if (error) {
+      console.error('Error adding custom ability:', error);
+      throw error;
+    }
+  },
+
+  async deleteCustomAbility(customizationId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_ability_customizations')
+      .delete()
+      .eq('id', customizationId);
+    if (error) {
+      console.error('Error deleting ability:', error);
+      throw error;
+    }
+  },
+
+  async revertAbilityModification(customizationId: string): Promise<void> {
+    const { error } = await supabase
+      .from('role_ability_customizations')
+      .delete()
+      .eq('id', customizationId);
+    if (error) {
+      console.error('Error reverting ability modification:', error);
       throw error;
     }
   },
