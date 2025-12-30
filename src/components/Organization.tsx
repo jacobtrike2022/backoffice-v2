@@ -308,7 +308,10 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
               onBack={() => setSelectedRoleId(null)}
             />
           ) : (
-            <RolesManagement onRoleClick={(roleId) => setSelectedRoleId(roleId)} />
+            <RolesManagement 
+              onRoleClick={(roleId) => setSelectedRoleId(roleId)}
+              onCreateNew={() => setSelectedRoleId('new')}
+            />
           )
         )}
         

@@ -38,9 +38,10 @@ import { MergeRoleWizard } from './MergeRoleWizard';
 
 interface RolesManagementProps {
   onRoleClick?: (roleId: string) => void;
+  onCreateNew?: () => void;
 }
 
-export function RolesManagement({ onRoleClick }: RolesManagementProps) {
+export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementProps) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -155,8 +156,12 @@ export function RolesManagement({ onRoleClick }: RolesManagementProps) {
   };
 
   const handleOpenCreateModal = () => {
-    setEditingRole(null);
-    setIsModalOpen(true);
+    if (onCreateNew) {
+      onCreateNew();
+    } else {
+      setEditingRole(null);
+      setIsModalOpen(true);
+    }
   };
 
   const handleCloseModal = () => {

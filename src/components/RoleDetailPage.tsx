@@ -7,6 +7,16 @@ import { Separator } from './ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import {
   ArrowLeft,
   Search,
@@ -18,6 +28,8 @@ import {
   Wrench,
   BookOpen,
   Plus,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { rolesApi } from '../lib/api/roles';
@@ -55,7 +67,7 @@ import {
 } from './ui/alert-dialog';
 
 interface RoleDetailPageProps {
-  roleId: string;
+  roleId: string | 'new';
   onBack: () => void;
 }
 
@@ -91,10 +103,46 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     item: MergedTask | MergedSkill | MergedKnowledge;
   } | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [excludedTasksExpanded, setExcludedTasksExpanded] = useState(false);
+  const [excludedSkillsExpanded, setExcludedSkillsExpanded] = useState(false);
+  const [excludedKnowledgeExpanded, setExcludedKnowledgeExpanded] = useState(false);
+  const [isEditingCoreData, setIsEditingCoreData] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [formData, setFormData] = useState<{
+    name: string;
+    display_name: string;
+    description: string;
+    department: string;
+    job_family: string;
+    is_manager: boolean;
+    is_frontline: boolean;
+    permission_level: number;
+    job_description: string;
+    job_description_source: 'manual' | 'hris' | 'uploaded';
+    status: 'active' | 'inactive' | 'archived' | 'pending_review';
+  }>({
+    name: '',
+    display_name: '',
+    description: '',
+    department: '',
+    job_family: '',
+    is_manager: false,
+    is_frontline: true,
+    permission_level: 1,
+    job_description: '',
+    job_description_source: 'manual',
+    status: 'active',
+  });
 
   // Load role data and organization ID
   useEffect(() => {
-    loadRole();
+    if (roleId === 'new') {
+      setLoading(false);
+      setIsEditingCoreData(true);
+      setRole(null);
+    } else {
+      loadRole();
+    }
     loadOrganizationId();
   }, [roleId]);
 
@@ -122,6 +170,43 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       loadProfileDetails(selectedProfile.onet_code);
     }
   }, [selectedProfile]);
+
+  // Load form data when role is loaded or when creating new
+  useEffect(() => {
+    if (roleId === 'new') {
+      // Reset form for new role
+      setFormData({
+        name: '',
+        display_name: '',
+        description: '',
+        department: '',
+        job_family: '',
+        is_manager: false,
+        is_frontline: true,
+        permission_level: 1,
+        job_description: '',
+        job_description_source: 'manual',
+        status: 'active',
+      });
+      setIsEditingCoreData(true);
+    } else if (role) {
+      // Populate form data from loaded role
+      setFormData({
+        name: role.name || '',
+        display_name: role.display_name || '',
+        description: role.description || '',
+        department: role.department || '',
+        job_family: role.job_family || '',
+        is_manager: role.is_manager || false,
+        is_frontline: role.is_frontline ?? true,
+        permission_level: role.permission_level || 1,
+        job_description: role.job_description || '',
+        job_description_source: role.job_description_source || 'manual',
+        status: role.status,
+      });
+      setEditedName(role.name || '');
+    }
+  }, [role, roleId]);
 
   async function loadOrganizationId() {
     const orgId = await getCurrentUserOrgId();
@@ -209,13 +294,60 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   }
 
   async function handleSave() {
-    if (!role) return;
-
     try {
       setSaving(true);
+      
+      if (roleId === 'new') {
+        // Create new role
+        const newRole = await rolesApi.create({
+          name: formData.name,
+          display_name: formData.display_name,
+          description: formData.description,
+          department: formData.department,
+          job_family: formData.job_family,
+          is_manager: formData.is_manager,
+          is_frontline: formData.is_frontline,
+          permission_level: formData.permission_level,
+          job_description: formData.job_description,
+          job_description_source: formData.job_description_source,
+        });
+        
+        toast.success('Role created successfully');
+        // Set the role and exit edit mode, then trigger profile search
+        setRole(newRole);
+        setIsEditingCoreData(false);
+        // If a profile was selected before creation, apply it now
+        if (selectedProfile) {
+          await onetLocal.applyProfileToRole(newRole.id, selectedProfile.onet_code);
+          setRole({ ...newRole, onet_code: selectedProfile.onet_code });
+          await loadMergedData();
+        }
+        // Trigger profile search based on role name
+        if (newRole.name) {
+          searchProfiles(newRole.name);
+        }
+        // Update the URL to reflect the new role ID (but stay on same page)
+        // The parent component should handle navigation if needed
+        return;
+      }
+
+      if (!role) return;
+
       const updates: UpdateRoleInput = {
         id: role.id,
-        name: editedName,
+        name: isEditingCoreData ? formData.name : editedName,
+        ...(isEditingCoreData ? {
+          display_name: formData.display_name,
+          description: formData.description,
+          department: formData.department,
+          job_family: formData.job_family,
+          is_manager: formData.is_manager,
+          is_frontline: formData.is_frontline,
+          permission_level: formData.permission_level,
+          job_description: formData.job_description,
+          job_description_source: formData.job_description_source,
+          status: formData.status,
+        } : {}),
       };
 
       // If a profile is selected, update onet_code and match_confidence
@@ -226,6 +358,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
       await rolesApi.update(updates);
       await loadRole();
+      setIsEditingCoreData(false);
       toast.success('Role updated successfully');
     } catch (error: any) {
       console.error('Error saving role:', error);
@@ -235,6 +368,28 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       throw error;
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handlePermissionLevelChange(value: string) {
+    const level = parseInt(value);
+    setFormData({ ...formData, permission_level: level });
+
+    // Auto-check is_manager if level >= 3
+    if (level >= 3 && !formData.is_manager) {
+      setFormData({ ...formData, permission_level: level, is_manager: true });
+    }
+  }
+
+  function handleIsManagerChange(checked: boolean) {
+    setFormData({ ...formData, is_manager: checked });
+    // If checking is_manager, ensure permission_level >= 3
+    if (checked && formData.permission_level < 3) {
+      setFormData({
+        ...formData,
+        is_manager: checked,
+        permission_level: 3,
+      });
     }
   }
 
@@ -253,30 +408,35 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
-  function handlePreviewProfile(match: SmartProfileMatch) {
-    loadProfileDetails(match.onet_code).then((details) => {
-      if (details) {
-        setPreviewProfile(details);
-        setIsPreviewOpen(true);
-      }
-    });
+  async function handlePreviewProfile(match: SmartProfileMatch) {
+    const details = await loadProfileDetails(match.onet_code);
+    if (details) {
+      setPreviewProfile(details);
+      setIsPreviewOpen(true);
+    }
   }
 
   async function handleSelectProfile(match: SmartProfileMatch) {
-    if (!role || !organizationId) return;
+    if ((!role && roleId !== 'new') || !organizationId) return;
     
     try {
-      // Apply profile to role
-      await onetLocal.applyProfileToRole(role.id, match.onet_code);
-      
-      // Update role state
-      setRole({ ...role, onet_code: match.onet_code });
-      setSelectedProfile(match);
-      
-      // Load merged data
-      await loadMergedData();
-      
-      toast.success('Profile applied successfully');
+      if (roleId === 'new') {
+        // For new roles, just set the selected profile - will be saved when role is created
+        setSelectedProfile(match);
+        toast.success('Profile selected. Create the role to apply it.');
+      } else if (role) {
+        // Apply profile to existing role
+        await onetLocal.applyProfileToRole(role.id, match.onet_code);
+        
+        // Update role state
+        setRole({ ...role, onet_code: match.onet_code });
+        setSelectedProfile(match);
+        
+        // Load merged data
+        await loadMergedData();
+        
+        toast.success('Profile applied successfully');
+      }
     } catch (error: any) {
       console.error('Error applying profile:', error);
       toast.error('Failed to apply profile', {
@@ -534,7 +694,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
-  if (loading) {
+  function getPermissionLevelLabel(level: number): string {
+    switch (level) {
+      case 1:
+        return 'Basic Employee';
+      case 2:
+        return 'Team Lead';
+      case 3:
+        return 'Manager';
+      case 4:
+        return 'District/Regional Manager';
+      case 5:
+        return 'Corporate/Executive';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  if (loading && roleId !== 'new') {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -542,7 +719,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     );
   }
 
-  if (!role) {
+  if (!role && roleId !== 'new') {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">Role not found</p>
@@ -564,7 +741,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             Back to Roles
           </Button>
           <Separator orientation="vertical" className="h-6" />
-          {isEditingName ? (
+          {roleId === 'new' ? (
+            <h1 className="text-2xl font-semibold">Create New Role</h1>
+          ) : isEditingName ? (
             <div className="flex items-center gap-2">
               <Input
                 value={editedName}
@@ -575,7 +754,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     setIsEditingName(false);
                   }
                   if (e.key === 'Escape') {
-                    setEditedName(role.name);
+                    setEditedName(role!.name);
                     setIsEditingName(false);
                   }
                 }}
@@ -585,11 +764,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold">{role.name}</h1>
+              <h1 className="text-2xl font-semibold">{role!.name}</h1>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setIsEditingName(true)}
+                onClick={() => setIsEditingCoreData(true)}
+                title="Edit role details"
               >
                 <Edit2 className="w-4 h-4" />
               </Button>
@@ -614,42 +794,416 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               </>
             )}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <MoreVertical className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setShowDeleteDialog(true)}>
-                Archive Role
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {roleId !== 'new' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsEditingCoreData(true)}>
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowDeleteDialog(true)}>
+                  Archive Role
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
-      {/* Role Info */}
-      <div className="flex items-center gap-4 flex-wrap">
-        {role.department && (
-          <Badge variant="outline" className="text-sm">
-            {role.department}
-          </Badge>
-        )}
-        {role.job_family && (
-          <Badge variant="outline" className="text-sm">
-            {role.job_family}
-          </Badge>
-        )}
-        <Badge className={`${getStatusColor(role.status)} border text-sm`}>
-          {role.status.charAt(0).toUpperCase() + role.status.slice(1).replace('_', ' ')}
-        </Badge>
-      </div>
+      {/* Role Info / Edit Form */}
+      {(isEditingCoreData || roleId === 'new') ? (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>{roleId === 'new' ? 'Create Role' : 'Edit Role Details'}</CardTitle>
+            <CardDescription>
+              {roleId === 'new' ? 'Enter core role information, then select a Smart Role Profile below' : 'Update core role information'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Basic Information</h3>
+                <Separator />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-name">
+                      Role Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="edit-name"
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                      placeholder="e.g., Store Manager"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-display_name">Display Name (optional)</Label>
+                    <Input
+                      id="edit-display_name"
+                      value={formData.display_name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, display_name: e.target.value })
+                      }
+                      placeholder="Shorter version for display"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-description">Description</Label>
+                  <Textarea
+                    id="edit-description"
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                    placeholder="Brief description of this role"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              {/* Classification */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Classification</h3>
+                <Separator />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-department">Department</Label>
+                    <Select
+                      value={formData.department || undefined}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, department: value || '' })
+                      }
+                    >
+                      <SelectTrigger id="edit-department">
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Operations">Operations</SelectItem>
+                        <SelectItem value="Kitchen">Kitchen</SelectItem>
+                        <SelectItem value="Management">Management</SelectItem>
+                        <SelectItem value="Sales">Sales</SelectItem>
+                        <SelectItem value="Corporate">Corporate</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-job_family">Job Family</Label>
+                    <Select
+                      value={formData.job_family || undefined}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, job_family: value || '' })
+                      }
+                    >
+                      <SelectTrigger id="edit-job_family">
+                        <SelectValue placeholder="Select job family" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Food Service">Food Service</SelectItem>
+                        <SelectItem value="Retail">Retail</SelectItem>
+                        <SelectItem value="Management">Management</SelectItem>
+                        <SelectItem value="Leadership">Leadership</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="edit-is_manager"
+                      checked={formData.is_manager}
+                      onCheckedChange={(checked) =>
+                        handleIsManagerChange(checked === true)
+                      }
+                    />
+                    <Label htmlFor="edit-is_manager" className="cursor-pointer">
+                      Manager Role
+                    </Label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="edit-is_frontline"
+                      checked={formData.is_frontline}
+                      onCheckedChange={(checked) =>
+                        setFormData({
+                          ...formData,
+                          is_frontline: checked === true,
+                        })
+                      }
+                    />
+                    <Label htmlFor="edit-is_frontline" className="cursor-pointer">
+                      Frontline
+                    </Label>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-permission_level">Permission Level</Label>
+                  <Select
+                    value={formData.permission_level.toString()}
+                    onValueChange={handlePermissionLevelChange}
+                  >
+                    <SelectTrigger id="edit-permission_level">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 - Basic Employee</SelectItem>
+                      <SelectItem value="2">2 - Team Lead</SelectItem>
+                      <SelectItem value="3">3 - Manager</SelectItem>
+                      <SelectItem value="4">4 - District/Regional Manager</SelectItem>
+                      <SelectItem value="5">5 - Corporate/Executive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Advanced Section */}
+              <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                <CollapsibleTrigger className="flex items-center gap-2 text-sm font-semibold hover:text-foreground">
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${
+                      showAdvanced ? 'transform rotate-180' : ''
+                    }`}
+                  />
+                  Advanced
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-4 mt-4">
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-job_description">Job Description</Label>
+                    <Textarea
+                      id="edit-job_description"
+                      value={formData.job_description}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          job_description: e.target.value,
+                        })
+                      }
+                      placeholder="Full job description for RAG indexing and reference"
+                      rows={10}
+                    />
+                  </div>
+
+                  {formData.job_description && (
+                    <div className="space-y-2">
+                      <Label>Job Description Source</Label>
+                      <RadioGroup
+                        value={formData.job_description_source || 'manual'}
+                        onValueChange={(value) =>
+                          setFormData({
+                            ...formData,
+                            job_description_source: value as
+                              | 'manual'
+                              | 'hris'
+                              | 'uploaded',
+                          })
+                        }
+                        className="flex items-center gap-4"
+                      >
+                        <div className="flex items-center gap-2">
+                          <RadioGroupItem value="manual" id="edit-source-manual" />
+                          <Label htmlFor="edit-source-manual" className="cursor-pointer">
+                            Manual
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <RadioGroupItem value="hris" id="edit-source-hris" />
+                          <Label htmlFor="edit-source-hris" className="cursor-pointer">
+                            HRIS
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <RadioGroupItem value="uploaded" id="edit-source-uploaded" />
+                          <Label htmlFor="edit-source-uploaded" className="cursor-pointer">
+                            Uploaded
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+
+              {/* Status (only for existing roles) */}
+              {roleId !== 'new' && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-status">Status</Label>
+                  <Select value={formData.status} onValueChange={(value: any) => setFormData({ ...formData, status: value })}>
+                    <SelectTrigger id="edit-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                      <SelectItem value="pending_review">Pending Review</SelectItem>
+                      <SelectItem value="archived">Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (roleId === 'new') {
+                      onBack();
+                    } else {
+                      setIsEditingCoreData(false);
+                      // Reset form data to current role values
+                      if (role) {
+                        setFormData({
+                          name: role.name || '',
+                          display_name: role.display_name || '',
+                          description: role.description || '',
+                          department: role.department || '',
+                          job_family: role.job_family || '',
+                          is_manager: role.is_manager || false,
+                          is_frontline: role.is_frontline ?? true,
+                          permission_level: role.permission_level || 1,
+                          job_description: role.job_description || '',
+                          job_description_source: role.job_description_source || 'manual',
+                          status: role.status,
+                        });
+                      }
+                    }
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+                >
+                  {saving ? (roleId === 'new' ? 'Creating...' : 'Saving...') : (roleId === 'new' ? 'Create Role' : 'Save Changes')}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>Role Details</CardTitle>
+            <CardDescription>Core role information</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Basic Information</h3>
+                <Separator />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Role Name</Label>
+                    <div className="text-sm font-medium">{role?.name || '—'}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Display Name</Label>
+                    <div className="text-sm font-medium">{role?.display_name || '—'}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Description</Label>
+                  <div className="text-sm text-muted-foreground">{role?.description || '—'}</div>
+                </div>
+              </div>
+
+              {/* Classification */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm">Classification</h3>
+                <Separator />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Department</Label>
+                    <div className="text-sm font-medium">{role?.department || '—'}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Job Family</Label>
+                    <div className="text-sm font-medium">{role?.job_family || '—'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Manager Role</Label>
+                    <div className="text-sm font-medium">{role?.is_manager ? 'Yes' : 'No'}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Frontline</Label>
+                    <div className="text-sm font-medium">{role?.is_frontline ? 'Yes' : 'No'}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Permission Level</Label>
+                  <div className="text-sm font-medium">
+                    {role?.permission_level ? `${role.permission_level} - ${getPermissionLevelLabel(role.permission_level)}` : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Advanced Section */}
+              {role?.job_description && (
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center gap-2 text-sm font-semibold hover:text-foreground">
+                    <ChevronDown className="w-4 h-4" />
+                    Advanced
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-4 mt-4">
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Job Description</Label>
+                      <div className="text-sm text-muted-foreground whitespace-pre-wrap">{role.job_description}</div>
+                    </div>
+                    {role.job_description_source && (
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">Job Description Source</Label>
+                        <div className="text-sm font-medium capitalize">{role.job_description_source}</div>
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Status */}
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Status</Label>
+                <div>
+                  {role && (
+                    <Badge className={`${getStatusColor(role.status)} border text-sm`}>
+                      {role.status.charAt(0).toUpperCase() + role.status.slice(1).replace('_', ' ')}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Separator />
 
-      {/* Smart Role Profiles Section */}
-      <div className="space-y-4">
+      {/* Smart Role Profiles Section - Only show if role exists or is being created */}
+      {(role || roleId === 'new') && (
+        <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Smart Role Profiles</h2>
@@ -666,8 +1220,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 const timer = setTimeout(() => {
                   if (e.target.value.trim()) {
                     searchProfiles(e.target.value);
-                  } else if (role.name) {
-                    searchProfiles(role.name);
+                  } else if (role?.name || formData.name) {
+                    searchProfiles(role?.name || formData.name);
                   }
                 }, 500);
                 return () => clearTimeout(timer);
@@ -680,8 +1234,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               onClick={() => {
                 if (searchTerm.trim()) {
                   searchProfiles(searchTerm);
-                } else if (role.name) {
-                  searchProfiles(role.name);
+                } else if (role?.name || formData.name) {
+                  searchProfiles(role?.name || formData.name);
                 }
               }}
             >
@@ -727,9 +1281,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           </div>
         )}
       </div>
+      )}
 
       {/* Role Competencies Section - Shows when profile is applied */}
-      {role?.onet_code && (
+      {role && role.onet_code && (
         <Card>
           <CardHeader>
             <div className="flex justify-between items-center">
@@ -785,48 +1340,109 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       No tasks defined for this profile
                     </p>
                   ) : (
-                    [...mergedTasks]
-                      .sort((a, b) => {
-                        // Calculate weighted priority for both tasks
-                        const priorityA = a.importance && a.relevance
-                          ? ((a.importance * a.relevance / 100) / 5) * 100
-                          : 0;
-                        const priorityB = b.importance && b.relevance
-                          ? ((b.importance * b.relevance / 100) / 5) * 100
-                          : 0;
-                        // Sort in descending order (highest priority first)
-                        return priorityB - priorityA;
-                      })
-                      .map(task => (
-                        <CompetencyItem
-                          key={task.task_id}
-                          id={task.task_id}
-                          description={task.description}
-                          source={task.source}
-                          isActive={task.is_active}
-                          dwas={task.dwas}
-                          weightedPriority={
-                            task.importance && task.relevance
-                              ? ((task.importance * task.relevance / 100) / 5) * 100
-                              : undefined
-                          }
-                          onToggle={() => handleToggleTask(task)}
-                          onEdit={() => {
-                            setEditingTask(task);
-                            setEditingItem({ type: 'task', item: task });
-                          }}
-                          onDelete={
-                            task.source === 'custom' && task.customization_id
-                              ? () => handleDeleteTask(task.customization_id!)
-                              : undefined
-                          }
-                          onRevert={
-                            task.source === 'modified' && task.customization_id
-                              ? () => handleRevertTask(task.customization_id!)
-                              : undefined
-                          }
-                        />
-                      ))
+                    <>
+                      {/* Active Tasks */}
+                      {[...mergedTasks]
+                        .filter(task => task.is_active)
+                        .sort((a, b) => {
+                          // Calculate weighted priority for both tasks
+                          const priorityA = a.importance && a.relevance
+                            ? ((a.importance * a.relevance / 100) / 5) * 100
+                            : 0;
+                          const priorityB = b.importance && b.relevance
+                            ? ((b.importance * b.relevance / 100) / 5) * 100
+                            : 0;
+                          // Sort in descending order (highest priority first)
+                          return priorityB - priorityA;
+                        })
+                        .map(task => (
+                          <CompetencyItem
+                            key={task.task_id}
+                            id={task.task_id}
+                            description={task.description}
+                            source={task.source}
+                            isActive={task.is_active}
+                            dwas={task.dwas}
+                            weightedPriority={
+                              task.importance && task.relevance
+                                ? ((task.importance * task.relevance / 100) / 5) * 100
+                                : undefined
+                            }
+                            onToggle={() => handleToggleTask(task)}
+                            onEdit={() => {
+                              setEditingTask(task);
+                              setEditingItem({ type: 'task', item: task });
+                            }}
+                            onDelete={
+                              task.source === 'custom' && task.customization_id
+                                ? () => handleDeleteTask(task.customization_id!)
+                                : undefined
+                            }
+                            onRevert={
+                              task.source === 'modified' && task.customization_id
+                                ? () => handleRevertTask(task.customization_id!)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      
+                      {/* Excluded Tasks Section */}
+                      {mergedTasks.filter(task => !task.is_active).length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-between text-muted-foreground hover:text-foreground"
+                            onClick={() => setExcludedTasksExpanded(!excludedTasksExpanded)}
+                          >
+                            <span className="flex items-center gap-2">
+                              {excludedTasksExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              <span>Excluded Tasks ({mergedTasks.filter(task => !task.is_active).length})</span>
+                            </span>
+                          </Button>
+                          {excludedTasksExpanded && (
+                            <div className="mt-2 space-y-2">
+                              {mergedTasks
+                                .filter(task => !task.is_active)
+                                .map(task => (
+                                  <CompetencyItem
+                                    key={task.task_id}
+                                    id={task.task_id}
+                                    description={task.description}
+                                    source={task.source}
+                                    isActive={task.is_active}
+                                    dwas={task.dwas}
+                                    weightedPriority={
+                                      task.importance && task.relevance
+                                        ? ((task.importance * task.relevance / 100) / 5) * 100
+                                        : undefined
+                                    }
+                                    onToggle={() => handleToggleTask(task)}
+                                    onEdit={() => {
+                                      setEditingTask(task);
+                                      setEditingItem({ type: 'task', item: task });
+                                    }}
+                                    onDelete={
+                                      task.source === 'custom' && task.customization_id
+                                        ? () => handleDeleteTask(task.customization_id!)
+                                        : undefined
+                                    }
+                                    onRevert={
+                                      task.source === 'modified' && task.customization_id
+                                        ? () => handleRevertTask(task.customization_id!)
+                                        : undefined
+                                    }
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                   <Button
                     variant="outline"
@@ -848,31 +1464,88 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       No skills defined for this profile
                     </p>
                   ) : (
-                    mergedSkills.map(skill => (
-                      <CompetencyItem
-                        key={skill.skill_id}
-                        id={skill.skill_id}
-                        description={`${skill.skill_name}${skill.description ? `: ${skill.description}` : ''}`}
-                        source={skill.source}
-                        isActive={skill.is_active}
-                        importance={skill.importance}
-                        onToggle={() => handleToggleSkill(skill)}
-                        onEdit={() => {
-                          setEditingSkill(skill);
-                          setEditingItem({ type: 'skill', item: skill });
-                        }}
-                        onDelete={
-                          skill.source === 'custom' && skill.customization_id
-                            ? () => handleDeleteSkill(skill.customization_id!)
-                            : undefined
-                        }
-                        onRevert={
-                          skill.source === 'modified' && skill.customization_id
-                            ? () => handleRevertSkill(skill.customization_id!)
-                            : undefined
-                        }
-                      />
-                    ))
+                    <>
+                      {/* Active Skills */}
+                      {mergedSkills
+                        .filter(skill => skill.is_active)
+                        .map(skill => (
+                          <CompetencyItem
+                            key={skill.skill_id}
+                            id={skill.skill_id}
+                            description={`${skill.skill_name}${skill.description ? `: ${skill.description}` : ''}`}
+                            source={skill.source}
+                            isActive={skill.is_active}
+                            importance={skill.importance}
+                            onToggle={() => handleToggleSkill(skill)}
+                            onEdit={() => {
+                              setEditingSkill(skill);
+                              setEditingItem({ type: 'skill', item: skill });
+                            }}
+                            onDelete={
+                              skill.source === 'custom' && skill.customization_id
+                                ? () => handleDeleteSkill(skill.customization_id!)
+                                : undefined
+                            }
+                            onRevert={
+                              skill.source === 'modified' && skill.customization_id
+                                ? () => handleRevertSkill(skill.customization_id!)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      
+                      {/* Excluded Skills Section */}
+                      {mergedSkills.filter(skill => !skill.is_active).length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-between text-muted-foreground hover:text-foreground"
+                            onClick={() => setExcludedSkillsExpanded(!excludedSkillsExpanded)}
+                          >
+                            <span className="flex items-center gap-2">
+                              {excludedSkillsExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              <span>Excluded Skills ({mergedSkills.filter(skill => !skill.is_active).length})</span>
+                            </span>
+                          </Button>
+                          {excludedSkillsExpanded && (
+                            <div className="mt-2 space-y-2">
+                              {mergedSkills
+                                .filter(skill => !skill.is_active)
+                                .map(skill => (
+                                  <CompetencyItem
+                                    key={skill.skill_id}
+                                    id={skill.skill_id}
+                                    description={`${skill.skill_name}${skill.description ? `: ${skill.description}` : ''}`}
+                                    source={skill.source}
+                                    isActive={skill.is_active}
+                                    importance={skill.importance}
+                                    onToggle={() => handleToggleSkill(skill)}
+                                    onEdit={() => {
+                                      setEditingSkill(skill);
+                                      setEditingItem({ type: 'skill', item: skill });
+                                    }}
+                                    onDelete={
+                                      skill.source === 'custom' && skill.customization_id
+                                        ? () => handleDeleteSkill(skill.customization_id!)
+                                        : undefined
+                                    }
+                                    onRevert={
+                                      skill.source === 'modified' && skill.customization_id
+                                        ? () => handleRevertSkill(skill.customization_id!)
+                                        : undefined
+                                    }
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                   <Button
                     variant="outline"
@@ -894,31 +1567,88 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       No knowledge areas defined for this profile
                     </p>
                   ) : (
-                    mergedKnowledge.map(know => (
-                      <CompetencyItem
-                        key={know.knowledge_id}
-                        id={know.knowledge_id}
-                        description={`${know.knowledge_name}${know.description ? `: ${know.description}` : ''}`}
-                        source={know.source}
-                        isActive={know.is_active}
-                        importance={know.importance}
-                        onToggle={() => handleToggleKnowledge(know)}
-                        onEdit={() => {
-                          setEditingKnowledge(know);
-                          setEditingItem({ type: 'knowledge', item: know });
-                        }}
-                        onDelete={
-                          know.source === 'custom' && know.customization_id
-                            ? () => handleDeleteKnowledge(know.customization_id!)
-                            : undefined
-                        }
-                        onRevert={
-                          know.source === 'modified' && know.customization_id
-                            ? () => handleRevertKnowledge(know.customization_id!)
-                            : undefined
-                        }
-                      />
-                    ))
+                    <>
+                      {/* Active Knowledge */}
+                      {mergedKnowledge
+                        .filter(know => know.is_active)
+                        .map(know => (
+                          <CompetencyItem
+                            key={know.knowledge_id}
+                            id={know.knowledge_id}
+                            description={`${know.knowledge_name}${know.description ? `: ${know.description}` : ''}`}
+                            source={know.source}
+                            isActive={know.is_active}
+                            importance={know.importance}
+                            onToggle={() => handleToggleKnowledge(know)}
+                            onEdit={() => {
+                              setEditingKnowledge(know);
+                              setEditingItem({ type: 'knowledge', item: know });
+                            }}
+                            onDelete={
+                              know.source === 'custom' && know.customization_id
+                                ? () => handleDeleteKnowledge(know.customization_id!)
+                                : undefined
+                            }
+                            onRevert={
+                              know.source === 'modified' && know.customization_id
+                                ? () => handleRevertKnowledge(know.customization_id!)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      
+                      {/* Excluded Knowledge Section */}
+                      {mergedKnowledge.filter(know => !know.is_active).length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-between text-muted-foreground hover:text-foreground"
+                            onClick={() => setExcludedKnowledgeExpanded(!excludedKnowledgeExpanded)}
+                          >
+                            <span className="flex items-center gap-2">
+                              {excludedKnowledgeExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              <span>Excluded Knowledge ({mergedKnowledge.filter(know => !know.is_active).length})</span>
+                            </span>
+                          </Button>
+                          {excludedKnowledgeExpanded && (
+                            <div className="mt-2 space-y-2">
+                              {mergedKnowledge
+                                .filter(know => !know.is_active)
+                                .map(know => (
+                                  <CompetencyItem
+                                    key={know.knowledge_id}
+                                    id={know.knowledge_id}
+                                    description={`${know.knowledge_name}${know.description ? `: ${know.description}` : ''}`}
+                                    source={know.source}
+                                    isActive={know.is_active}
+                                    importance={know.importance}
+                                    onToggle={() => handleToggleKnowledge(know)}
+                                    onEdit={() => {
+                                      setEditingKnowledge(know);
+                                      setEditingItem({ type: 'knowledge', item: know });
+                                    }}
+                                    onDelete={
+                                      know.source === 'custom' && know.customization_id
+                                        ? () => handleDeleteKnowledge(know.customization_id!)
+                                        : undefined
+                                    }
+                                    onRevert={
+                                      know.source === 'modified' && know.customization_id
+                                        ? () => handleRevertKnowledge(know.customization_id!)
+                                        : undefined
+                                    }
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                   <Button
                     variant="outline"
@@ -1045,7 +1775,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Archive Role</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to archive "{role.name}"? This will mark it as
+              Are you sure you want to archive "{role?.name}"? This will mark it as
               archived and hide it from active lists. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
