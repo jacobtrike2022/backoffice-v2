@@ -132,6 +132,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [excludedAbilitiesExpanded, setExcludedAbilitiesExpanded] = useState(false);
   const [capabilityExpanded, setCapabilityExpanded] = useState<Record<string, boolean>>({});
   const [workContextExpanded, setWorkContextExpanded] = useState<Record<string, boolean>>({});
+  const [capabilityExcludedExpanded, setCapabilityExcludedExpanded] = useState<Record<string, boolean>>({});
+
+  const toPercentFromFive = (value?: number | null) =>
+    value === undefined || value === null ? undefined : Number(value) * 20;
   const [isEditingCoreData, setIsEditingCoreData] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formData, setFormData] = useState<{
@@ -1950,19 +1954,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                         .filter(ws => ws.is_active)
                         .sort((a, b) => (Number(b.impact ?? 0) - Number(a.impact ?? 0)))
                         .map(ws => (
-                          (() => {
-                            const impactPercent =
-                              ws.impact !== undefined && ws.impact !== null
-                                ? Number(ws.impact) * 20
-                                : undefined;
-                            return (
                           <CompetencyItem
                             key={ws.work_style_id}
                             id={ws.work_style_id}
                             description={ws.name}
                             source={ws.source}
                             isActive={ws.is_active}
-                            importance={impactPercent}
+                            importance={toPercentFromFive(ws.impact)}
                             onToggle={() => handleToggleWorkStyle(ws)}
                             onEdit={() => {
                               setEditingWorkStyle(ws);
@@ -1979,8 +1977,6 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                 : undefined
                             }
                           />
-                            );
-                          })()
                         ))}
 
                       {/* Excluded Work Styles Section */}
@@ -2007,19 +2003,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                 .filter(ws => !ws.is_active)
                                 .sort((a, b) => (Number(b.impact ?? 0) - Number(a.impact ?? 0)))
                                 .map(ws => (
-                                  (() => {
-                                    const impactPercent =
-                                      ws.impact !== undefined && ws.impact !== null
-                                        ? Number(ws.impact) * 20
-                                        : undefined;
-                                    return (
                                   <CompetencyItem
                                     key={ws.work_style_id}
                                     id={ws.work_style_id}
                                     description={ws.name}
                                     source={ws.source}
                                     isActive={ws.is_active}
-                                    importance={impactPercent}
+                                    importance={toPercentFromFive(ws.impact)}
                                     onToggle={() => handleToggleWorkStyle(ws)}
                                     onEdit={() => {
                                       setEditingWorkStyle(ws);
@@ -2036,8 +2026,6 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                         : undefined
                                     }
                                   />
-                                    );
-                                  })()
                                 ))}
                             </div>
                           )}
@@ -2124,7 +2112,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                     description={`${skill.skill_name}${skill.description ? `: ${skill.description}` : ''}`}
                                     source={skill.source}
                                     isActive={skill.is_active}
-                                    importance={skill.importance}
+                            importance={skill.importance}
                                     onToggle={() => handleToggleSkill(skill)}
                                     onEdit={() => {
                                       setEditingSkill(skill);
@@ -2227,7 +2215,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                     description={`${know.knowledge_name}${know.description ? `: ${know.description}` : ''}`}
                                     source={know.source}
                                     isActive={know.is_active}
-                                    importance={know.importance}
+                            importance={know.importance}
                                     onToggle={() => handleToggleKnowledge(know)}
                                     onEdit={() => {
                                       setEditingKnowledge(know);
@@ -2263,6 +2251,25 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </div>
               </TabsContent>
             </Tabs>
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -2345,7 +2352,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                 >
                                   <span className="text-sm text-foreground">{item.context_item}</span>
                                   <Badge variant="outline" className="text-xs">
-                                    {Math.round(Number(item.percentage ?? 0))}%
+                                    {Math.round(Number(item.percentage ?? 0) * 20)}%
                                   </Badge>
                                 </div>
                               ))}
@@ -2374,6 +2381,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       }, {})
                     ).map(([category, abilities]) => {
                       const expanded = capabilityExpanded[category] ?? true;
+                      const excludedExpanded = capabilityExcludedExpanded[category] ?? false;
+                      const activeAbilities = abilities.filter(a => a.is_active);
+                      const excludedAbilities = abilities.filter(a => !a.is_active);
                       return (
                         <div key={category} className="border rounded-md p-2 bg-muted/30">
                           <Button
@@ -2394,7 +2404,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                           </Button>
                           {expanded && (
                             <div className="mt-2 space-y-2">
-                              {abilities
+                              {activeAbilities
                                 .sort((a, b) => Number(b.importance ?? 0) - Number(a.importance ?? 0))
                                 .map(ability => (
                                   <CompetencyItem
@@ -2403,7 +2413,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                     description={ability.name}
                                     source={ability.source}
                                     isActive={ability.is_active}
-                                    importance={ability.importance}
+                                    importance={toPercentFromFive(ability.importance)}
                                     category={ability.category || undefined}
                                     onToggle={() => handleToggleAbility(ability)}
                                     onEdit={() => {
@@ -2422,6 +2432,65 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                     }
                                   />
                                 ))}
+
+                              {excludedAbilities.length > 0 && (
+                                <div className="mt-4 pt-4 border-t">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full justify-between text-muted-foreground hover:text-foreground"
+                                    onClick={() =>
+                                      setCapabilityExcludedExpanded({
+                                        ...capabilityExcludedExpanded,
+                                        [category]: !excludedExpanded,
+                                      })
+                                    }
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      {excludedExpanded ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4" />
+                                      )}
+                                      <span>
+                                        Excluded {category} ({excludedAbilities.length})
+                                      </span>
+                                    </span>
+                                  </Button>
+                                  {excludedExpanded && (
+                                    <div className="mt-2 space-y-2">
+                                      {excludedAbilities
+                                        .sort((a, b) => Number(b.importance ?? 0) - Number(a.importance ?? 0))
+                                        .map(ability => (
+                                          <CompetencyItem
+                                            key={ability.ability_id}
+                                            id={ability.ability_id}
+                                            description={ability.name}
+                                            source={ability.source}
+                                            isActive={ability.is_active}
+                                            importance={toPercentFromFive(ability.importance)}
+                                            category={ability.category || undefined}
+                                            onToggle={() => handleToggleAbility(ability)}
+                                            onEdit={() => {
+                                              setEditingAbility(ability);
+                                              setEditingItem({ type: 'ability', item: ability });
+                                            }}
+                                            onDelete={
+                                              ability.source === 'custom' && ability.customization_id
+                                                ? () => handleDeleteAbility(ability.customization_id!)
+                                                : undefined
+                                            }
+                                            onRevert={
+                                              ability.source === 'modified' && ability.customization_id
+                                                ? () => handleRevertAbility(ability.customization_id!)
+                                                : undefined
+                                            }
+                                          />
+                                        ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -2440,6 +2509,25 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </Button>
               </TabsContent>
             </Tabs>
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
