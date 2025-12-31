@@ -30,7 +30,6 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Zap,
   HardHat,
 } from 'lucide-react';
 import { toast } from 'sonner';
