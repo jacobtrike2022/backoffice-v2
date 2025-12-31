@@ -140,10 +140,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     value === undefined || value === null ? undefined : Number(value) * 20;
 
   const navigateToRole = (targetRoleId: string) => {
-    const path = window.location.pathname;
+    const { origin, pathname } = window.location;
     const marker = '/roles';
-    const idx = path.indexOf(marker);
-    const base = idx !== -1 ? path.slice(0, idx + marker.length) : marker;
+    const idx = pathname.indexOf(marker);
+    const base =
+      idx !== -1
+        ? `${origin}${pathname.slice(0, idx + marker.length)}`
+        : `${origin}${marker}`;
     window.location.href = `${base}/${targetRoleId}`;
   };
   const [isEditingCoreData, setIsEditingCoreData] = useState(false);

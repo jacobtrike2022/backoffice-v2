@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Skeleton } from './ui/skeleton';
-import { Footer } from './Footer';
 import {
   Plus,
   Search,
@@ -304,7 +303,6 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
           tagToEdit={selectedTag}
         />
       )}
-      <Footer />
     </div>
   );
 }
