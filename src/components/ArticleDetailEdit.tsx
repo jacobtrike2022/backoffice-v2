@@ -1383,6 +1383,21 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                             {tag}
                           </Badge>
                         ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTagSelectorConfig({
+                              systemCategory: 'content',
+                              restrictToParentName: 'Training Topics'
+                            });
+                            setIsTagSelectorOpen(true);
+                          }}
+                          className="h-6"
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add Tag
+                        </Button>
                       </>
                     )}
                   </div>

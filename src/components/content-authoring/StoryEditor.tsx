@@ -2464,6 +2464,15 @@ export function StoryEditor({
                 {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsTagSelectorOpen(true)}
+                  className="w-full mt-2"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Tags
+                </Button>
               </div>
             </CardContent>
           </Card>

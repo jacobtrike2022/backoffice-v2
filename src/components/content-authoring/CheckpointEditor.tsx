@@ -1262,6 +1262,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                     <p className="text-sm text-muted-foreground">No tags added</p>
                   )}
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsTagSelectorOpen(true)}
+                  className="w-full mt-2"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Tags
+                </Button>
               </CardContent>
             </Card>
             
@@ -1788,7 +1797,31 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         isOpen={isTagSelectorOpen}
         onClose={() => setIsTagSelectorOpen(false)}
         selectedTags={tags}
-        onTagsChange={setTags}
+        onTagsChange={async (newTags) => {
+          if (isEditMode) {
+            setTags(newTags);
+          } else {
+            // In view mode, save directly to database
+            try {
+              if (!currentTrackId) return;
+              
+              await crud.updateTrack({
+                id: currentTrackId,
+                tags: newTags
+              });
+              setTags(newTags); // Update local state
+              toast.success('Tags updated');
+              if (onUpdate) {
+                onUpdate(); // Refresh track data
+              }
+            } catch (error: any) {
+              console.error('Error updating tags:', error);
+              toast.error('Failed to update tags', {
+                description: error.message || 'Please try again'
+              });
+            }
+          }
+        }}
         systemCategory="content"
         // AI Recommendation props
         showAISuggest={true}

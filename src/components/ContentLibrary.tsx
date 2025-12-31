@@ -795,6 +795,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       // Otherwise, refetch the current selected track
       const trackIdToFetch = newTrackId || selectedTrack.id;
       console.log('ContentLibrary - fetching track ID:', trackIdToFetch);
+      
+      // Refetch the tracks list first to ensure it's up to date when user goes back
+      console.log('ContentLibrary - refetching tracks list...');
+      await refetch();
+      
+      // Then update the selected track
       const updatedTrack = await crud.getTrackById(trackIdToFetch) as any;
       setSelectedTrack(updatedTrack);
       console.log('ContentLibrary - updated track:', updatedTrack);

@@ -34,9 +34,17 @@ CREATE POLICY "Users can view analysis logs for their org"
 ON ai_analysis_log FOR SELECT
 USING (organization_id = get_user_organization_id());
 
+CREATE POLICY "Users can insert analysis logs for their org"
+ON ai_analysis_log FOR INSERT
+WITH CHECK (organization_id = get_user_organization_id());
+
 -- Function to enqueue tag analysis on track change
+-- SECURITY DEFINER allows the trigger to bypass RLS when inserting into ai_analysis_log
 CREATE OR REPLACE FUNCTION enqueue_track_tag_analysis()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   -- Only enqueue if title or description or transcript changed significantly
   IF (TG_OP = 'INSERT') OR 

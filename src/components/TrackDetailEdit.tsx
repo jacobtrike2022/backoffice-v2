@@ -1624,6 +1624,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !(track.tags || []).includes('system:show_in_knowledge_base') && (
                       <p className="text-sm text-muted-foreground">No tags</p>
                     )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsTagSelectorOpen(true)}
+                      className="h-6"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Tag
+                    </Button>
                   </>
                 )}
               </div>
