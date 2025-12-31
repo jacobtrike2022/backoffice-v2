@@ -1243,25 +1243,27 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             </Card>
 
             {/* Tags */}
-            {tags.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <TagIcon className="h-4 w-4 mr-2" />
-                    Tags
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {tags.map((tag, index) => (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center">
+                  <TagIcon className="h-4 w-4 mr-2" />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {tags.length > 0 ? (
+                    tags.map((tag, index) => (
                       <Badge key={index} variant="secondary">
                         {tag}
                       </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No tags added</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
             
             {/* Associated Playlists */}
             {currentTrackId && (
@@ -1788,6 +1790,31 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         selectedTags={tags}
         onTagsChange={setTags}
         systemCategory="content"
+        // AI Recommendation props
+        showAISuggest={true}
+        contentContext={{
+          title: isEditMode ? title : (existingTrack?.title || ''),
+          description: isEditMode ? description : (existingTrack?.description || ''),
+          transcript: (() => {
+            // For checkpoints, extract question text as transcript-like content
+            if (isEditMode) {
+              return questions.map((q, idx) => `Question ${idx + 1}: ${q.question}`).join('\n\n');
+            } else if (existingTrack?.transcript) {
+              try {
+                const checkpointData = JSON.parse(existingTrack.transcript);
+                if (checkpointData.questions) {
+                  return checkpointData.questions.map((q: any, idx: number) => `Question ${idx + 1}: ${q.question}`).join('\n\n');
+                }
+              } catch (e) {
+                return '';
+              }
+            }
+            return '';
+          })(),
+          keyFacts: [], // Checkpoints don't have key facts
+          trackId: currentTrackId,
+          organizationId: existingTrack?.organization_id,
+        }}
       />
       
       {/* Version Decision Modal */}
