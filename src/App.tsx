@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
 import { DashboardLayout } from "./components/DashboardLayout";
