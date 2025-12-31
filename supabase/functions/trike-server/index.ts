@@ -243,6 +243,8 @@ Deno.serve(async (req: Request) => {
         "GET /transcript/:transcriptId",
         "GET /facts/track/:trackId",
         "POST /generate-key-facts",
+        "POST /recommend-tags",
+        "POST /brain/process-analysis-queue",
         "PUT /facts/:factId",
         "DELETE /facts/:factId/track/:trackId",
         "GET /track-relationships/source/:trackId",
@@ -1377,40 +1379,6 @@ Analyze this content and provide tag recommendations. Remember:
     response_hash: responseHash,
     processing_time_ms: processingTime
   };
-}
-
-async function handleRecommendTags(req: Request): Promise<Response> {
-  try {
-    const { 
-      title, 
-      description, 
-      transcript, 
-      keyFacts,
-      trackId,
-      organizationId,
-      parentTagId = '2f13a667-a2f6-49ee-85b8-094e354b0ebb' // Training Topics default
-    } = await req.json();
-
-    const analysisResult = await performTagAnalysis({
-      title,
-      description,
-      transcript,
-      keyFacts,
-      trackId,
-      organizationId,
-      parentTagId
-    });
-
-    return jsonResponse(analysisResult);
-
-  } catch (error: any) {
-    console.error('Error in handleRecommendTags:', error);
-    return jsonResponse({ 
-      error: error.message || 'Failed to generate tag recommendations',
-      recommendations: [],
-      new_tag_suggestions: [],
-    }, 500);
-  }
 }
 
 function buildContentContextForTags(
