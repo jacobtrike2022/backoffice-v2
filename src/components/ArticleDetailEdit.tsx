@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -178,10 +178,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   useEffect(() => {
     if (isEditMode) {
       const loadArticleData = async () => {
-        console.log('📝 ArticleDetailEdit - Initializing form data in edit mode');
-        console.log('📝 Track object:', track);
-        console.log('📝 Track transcript:', track.transcript);
-        console.log('📝 Track article_body:', track.article_body);
+        // Removed console.log statements that were firing on every render
         
         // Fetch facts from database (new facts table)
         let facts: any[] = [];
@@ -336,7 +333,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   };
 
   // Check if there are unsaved changes
-  const hasUnsavedChanges = () => {
+  const hasUnsavedChanges = useCallback(() => {
     if (!isEditMode || !isFormDataLoaded) return false;
     
     return (
@@ -349,7 +346,18 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       !areArraysEqual(editFormData.learning_objectives, originalFacts) ||
       !areArraysEqual(editFormData.tags, track.tags)
     );
-  };
+  }, [isEditMode, isFormDataLoaded, editFormData, track, originalFacts]);
+
+  // Store the latest hasUnsavedChanges function in a ref to avoid infinite loops
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+
+  // Create a stable wrapper function that uses the ref
+  const hasUnsavedChangesStable = useCallback(() => {
+    return hasUnsavedChangesRef.current();
+  }, []);
 
   // Warn user before leaving with unsaved changes
   useEffect(() => {
@@ -365,13 +373,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   }, [isEditMode, isFormDataLoaded, editFormData, track]);
 
   // Register unsaved changes check with parent
+  // Only re-register when isEditMode changes, not when hasUnsavedChanges function changes
   useEffect(() => {
     if (registerUnsavedChangesCheck) {
       if (isEditMode) {
-        console.log('📝 ArticleDetailEdit: Registering hasUnsavedChanges function');
-        registerUnsavedChangesCheck(hasUnsavedChanges);
+        // Use the stable wrapper function
+        registerUnsavedChangesCheck(hasUnsavedChangesStable);
       } else {
-        console.log('📝 ArticleDetailEdit: Unregistering hasUnsavedChanges function');
         registerUnsavedChangesCheck(null);
       }
     }
@@ -382,7 +390,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         registerUnsavedChangesCheck(null);
       }
     };
-  }, [isEditMode, registerUnsavedChangesCheck]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, registerUnsavedChangesCheck]); // hasUnsavedChangesStable is stable (empty deps), no need to include it
 
   const handleSave = async () => {
     console.log('💾 handleSave called in ArticleDetailEdit');
@@ -1417,8 +1426,6 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               
               <Card>
                 <CardContent className="p-8">
-                  {/* Debug: Log what we're trying to render */}
-                  {console.log('ArticleDetailEdit - Rendering article body from track.transcript:', track.transcript)}
                   <div 
                     className="article-content"
                     dangerouslySetInnerHTML={{ __html: track.transcript || '<p class="text-muted-foreground">No content available</p>' }}

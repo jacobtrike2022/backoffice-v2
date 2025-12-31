@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -154,26 +154,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const filterAlbumTracksSet = useMemo(() => new Set(filterAlbumTracks), [filterAlbumTracks]);
 
   // Register unsaved changes check from child editors
-  const registerUnsavedChangesCheckLocal = useCallback((checkFn: (() => boolean) | null) => {
-    console.log('📝 ContentLibrary: Registering unsaved changes check:', !!checkFn);
-    setHasUnsavedChangesRef(() => checkFn);
-    if (registerUnsavedChangesCheck) {
-      registerUnsavedChangesCheck(checkFn);
-    }
+  // Use a ref to store the parent callback to avoid infinite loops
+  const registerUnsavedChangesCheckRef = useRef(registerUnsavedChangesCheck);
+  useEffect(() => {
+    registerUnsavedChangesCheckRef.current = registerUnsavedChangesCheck;
   }, [registerUnsavedChangesCheck]);
+
+  const registerUnsavedChangesCheckLocal = useCallback((checkFn: (() => boolean) | null) => {
+    setHasUnsavedChangesRef(() => checkFn);
+    if (registerUnsavedChangesCheckRef.current) {
+      registerUnsavedChangesCheckRef.current(checkFn);
+    }
+  }, []); // Empty deps - we use ref to access latest parent callback
 
   // Check for unsaved changes before navigation
   const checkUnsavedBeforeNavigate = (navigationFn: () => void): boolean => {
-    console.log('🔍 Checking for unsaved changes...', { hasRef: !!hasUnsavedChangesRef });
-    
     if (hasUnsavedChangesRef && hasUnsavedChangesRef()) {
-      console.log('⚠️ Unsaved changes detected, showing warning');
       setPendingNavigation(() => navigationFn);
       setShowNavigationWarning(true);
       return false; // Navigation blocked
     }
     
-    console.log('✅ No unsaved changes, allowing navigation');
     return true; // Navigation allowed
   };
 

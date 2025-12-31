@@ -377,6 +377,10 @@ export default function App() {
     setCurrentView(targetView);
   };
 
+  const handleRegisterUnsavedChangesCheck = useCallback((checkFn: (() => boolean) | null) => {
+    setHasUnsavedChangesRef(() => checkFn);
+  }, []);
+
   const renderContent = () => {
     switch (currentView) {
       case "dashboard":
@@ -407,9 +411,7 @@ export default function App() {
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             initialTrackId={initialTrackId}
             onBackToLibrary={handleBackFromContentAuthoring}
-            registerUnsavedChangesCheck={(checkFn) =>
-              setHasUnsavedChangesRef(() => checkFn)
-            }
+            registerUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
             onNavigateToPlaylist={(playlistId: string) => {
               setSelectedPlaylistId(playlistId);
               setPreviousView('content');
@@ -514,9 +516,7 @@ export default function App() {
             initialMode={initialMode}
             onBackClick={handleBackFromContentAuthoring}
             previousView={previousView}
-            onRegisterUnsavedChangesCheck={(checkFn) =>
-              setHasUnsavedChangesRef(() => checkFn)
-            }
+            onRegisterUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
           />
         );
       case "ai-review":

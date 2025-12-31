@@ -14,6 +14,7 @@ import {
 } from '../lib/crud/tags';
 import { CreateTagModal } from './CreateTagModal';
 import { TagRecommendationPanel } from './TagRecommendationPanel';
+import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface TagSelectorDialogProps {

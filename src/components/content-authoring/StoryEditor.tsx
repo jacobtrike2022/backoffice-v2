@@ -434,7 +434,7 @@ export function StoryEditor({
   };
 
   // Check if there are unsaved changes
-  const hasUnsavedChanges = () => {
+  const hasUnsavedChanges = useCallback(() => {
     if (!initialState || !isEditMode) return false;
     
     const arraysEqual = (a: any[], b: any[]) => {
@@ -451,7 +451,7 @@ export function StoryEditor({
       JSON.stringify(slides) !== JSON.stringify(initialState.slides) ||
       JSON.stringify(objectives) !== JSON.stringify(initialState.objectives)
     );
-  };
+  }, [initialState, isEditMode, title, description, tags, thumbnailUrl, notes, slides, objectives]);
 
   // Warn user before leaving with unsaved changes
   useEffect(() => {
@@ -470,10 +470,8 @@ export function StoryEditor({
   useEffect(() => {
     if (registerUnsavedChangesCheck) {
       if (isEditMode) {
-        console.log('📝 StoryEditor: Registering hasUnsavedChanges function');
         registerUnsavedChangesCheck(hasUnsavedChanges);
       } else {
-        console.log('📝 StoryEditor: Unregistering hasUnsavedChanges function');
         registerUnsavedChangesCheck(null);
       }
     }
@@ -484,7 +482,7 @@ export function StoryEditor({
         registerUnsavedChangesCheck(null);
       }
     };
-  }, [isEditMode, registerUnsavedChangesCheck]);
+  }, [isEditMode, registerUnsavedChangesCheck, hasUnsavedChanges]);
 
   const handleMediaUpload = async (file: File, type: 'image' | 'video', slideId?: string) => {
     if (!file) return;

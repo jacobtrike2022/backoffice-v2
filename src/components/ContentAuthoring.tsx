@@ -79,9 +79,25 @@ interface ContentAuthoringProps {
   initialTrackId?: string; // For URL-based track loading
   initialMode?: 'create-article' | null;
   onNavigateToPlaylist?: (playlistId: string) => void;
+  onBackClick?: () => void;
+  previousView?: string | null;
+  onRegisterUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void;
+  editingArticle?: any;
+  onClearEditingArticle?: () => void;
 }
 
-export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrackId, initialMode, onNavigateToPlaylist }: ContentAuthoringProps) {
+export function ContentAuthoring({ 
+  onNavigateToLibrary, 
+  currentRole, 
+  initialTrackId, 
+  initialMode, 
+  onNavigateToPlaylist,
+  onBackClick,
+  previousView,
+  onRegisterUnsavedChangesCheck,
+  editingArticle,
+  onClearEditingArticle
+}: ContentAuthoringProps) {
   const [selectedType, setSelectedType] = useState<ContentType>(null);
   const [editingTrack, setEditingTrack] = useState<any>(null);
   const [draftTracks, setDraftTracks] = useState<any[]>([]);
@@ -94,6 +110,13 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
   const [hasUnsavedChangesCheckFn, setHasUnsavedChangesCheckFn] = useState<(() => boolean) | null>(null);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavAction, setPendingNavAction] = useState<(() => void) | null>(null);
+
+  const handleRegisterLocal = useCallback((checkFn: (() => boolean) | null) => {
+    setHasUnsavedChangesCheckFn(() => checkFn);
+    if (onRegisterUnsavedChangesCheck) {
+      onRegisterUnsavedChangesCheck(checkFn);
+    }
+  }, [onRegisterUnsavedChangesCheck]);
 
   const isSuperAdmin = currentRole === 'Trike Super Admin';
 
@@ -273,6 +296,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           isSuperAdminAuthenticated={isSuperAdmin}
           isNewContent={false}
           onNavigateToPlaylist={onNavigateToPlaylist}
+          registerUnsavedChangesCheck={handleRegisterLocal}
         />
       );
     } else if (editingTrack.type === 'video') {
@@ -284,6 +308,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           isSuperAdminAuthenticated={isSuperAdmin}
           isNewContent={false}
           onNavigateToPlaylist={onNavigateToPlaylist}
+          registerUnsavedChangesCheck={handleRegisterLocal}
         />
       );
     } else if (editingTrack.type === 'story') {
@@ -295,6 +320,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           currentRole={currentRole}
           isSuperAdminAuthenticated={isSuperAdmin}
           onNavigateToPlaylist={onNavigateToPlaylist}
+          registerUnsavedChangesCheck={handleRegisterLocal}
         />
       );
     } else if (editingTrack.type === 'checkpoint') {
@@ -305,7 +331,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
           isNewContent={false}
           currentRole={currentRole}
           onNavigateToPlaylist={onNavigateToPlaylist}
-          registerUnsavedChangesCheck={(fn) => setHasUnsavedChangesCheckFn(() => fn)}
+          registerUnsavedChangesCheck={handleRegisterLocal}
         />
       );
     }
@@ -345,7 +371,7 @@ export function ContentAuthoring({ onNavigateToLibrary, currentRole, initialTrac
             onClose={handleClose}
             isNewContent={true}
             currentRole={currentRole}
-            registerUnsavedChangesCheck={(fn) => setHasUnsavedChangesCheckFn(() => fn)}
+            registerUnsavedChangesCheck={handleRegisterLocal}
           />
         );
       default:

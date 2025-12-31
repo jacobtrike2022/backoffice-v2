@@ -379,22 +379,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   };
 
   // Check if there are unsaved changes
-  const hasUnsavedChanges = () => {
-    console.log('🔍 hasUnsavedChanges check:', {
-      isEditMode,
-      titleChanged: editFormData.title !== (track.title || ''),
-      descChanged: editFormData.description !== (track.description || ''),
-      durationChanged: editFormData.duration_minutes !== (track.duration_minutes || ''),
-      urlChanged: editFormData.content_url !== (track.content_url || ''),
-      thumbChanged: editFormData.thumbnail_url !== (track.thumbnail_url || ''),
-      objectivesChanged: !areArraysEqual(editFormData.learning_objectives, originalFacts),
-      tagsChanged: !areArraysEqual(editFormData.tags, track.tags),
-      editFormData,
-      trackData: { title: track.title, description: track.description, duration_minutes: track.duration_minutes, tags: track.tags }
-    });
-    
+  const hasUnsavedChanges = useCallback(() => {
     if (!isEditMode) {
-      console.log('⚠️ hasUnsavedChanges returning false - not in edit mode');
       return false;
     }
     
@@ -408,9 +394,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       !areArraysEqual(editFormData.tags, track.tags)
     );
     
-    console.log('✅ hasUnsavedChanges result:', hasChanges);
     return hasChanges;
-  };
+  }, [isEditMode, editFormData, track, originalFacts]);
 
   // Warn user before leaving with unsaved changes
   useEffect(() => {
@@ -429,10 +414,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   useEffect(() => {
     if (registerUnsavedChangesCheck) {
       if (isEditMode) {
-        console.log('📝 TrackDetailEdit: Registering hasUnsavedChanges function');
         registerUnsavedChangesCheck(hasUnsavedChanges);
       } else {
-        console.log('📝 TrackDetailEdit: Unregistering hasUnsavedChanges function');
         registerUnsavedChangesCheck(null);
       }
     }
@@ -443,7 +426,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         registerUnsavedChangesCheck(null);
       }
     };
-  }, [isEditMode, registerUnsavedChangesCheck]);
+  }, [isEditMode, registerUnsavedChangesCheck, hasUnsavedChanges]);
 
   const handleSave = async () => {
     if (!editFormData.title.trim()) {
