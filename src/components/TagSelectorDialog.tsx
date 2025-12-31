@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Check, Plus, X, Tag as TagIcon, Folder, AlertCircle, Edit, Trash2 } from 'lucide-react';
+import { Check, Plus, Tag as TagIcon, Folder, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { 
   getTagHierarchy, 
-  getSystemCategories,
+  buildTagHierarchyStructure,
   deleteTag,
   type Tag, 
-  type SystemCategory 
+  type SystemCategory,
+  type TagHierarchy
 } from '../lib/crud/tags';
 import { CreateTagModal } from './CreateTagModal';
 
@@ -34,11 +35,12 @@ export function TagSelectorDialog({
   canManageSystemTags = false,
   restrictToParentName
 }: TagSelectorDialogProps) {
-  const [categories, setCategories] = useState<Tag[]>([]); // These are the parent tags/categories
+  const [parentGroups, setParentGroups] = useState<TagHierarchy[number]['parents']>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tagToEdit, setTagToEdit] = useState<Tag | null>(null);
   const [localSelectedTags, setLocalSelectedTags] = useState<string[]>(selectedTags); // Local state for tag selection
+  const [rawHierarchy, setRawHierarchy] = useState<Tag[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -50,65 +52,26 @@ export function TagSelectorDialog({
   const loadTags = async () => {
     setIsLoading(true);
     try {
-      const [hierarchy, systemCats] = await Promise.all([
-        getTagHierarchy(systemCategory),
-        getSystemCategories()
-      ]);
-      
-      // We need to construct a structure where:
-      // 1. System Categories contain their Parent Tags (roots of hierarchy)
-      // 2. Parent Tags contain their Child Tags
-      
-      // Create a clean map of system categories
-      const combined = systemCats.map(sc => ({...sc, children: [] as Tag[]}));
-      
-      // Helper to find matching system category
-      const findSystemCat = (tag: Tag) => {
-        // 1. Try by parent_id if exists
-        if (tag.parent_id) {
-          const found = combined.find(sc => sc.id === tag.parent_id);
-          if (found) return found;
-        }
-        // 2. Try by name matching the system_category string (e.g. "knowledge-base" -> "Knowledge Base")
-        if (tag.system_category === systemCategory) {
-          const normalizedSysCatName = systemCategory.replace(/-/g, ' ').toLowerCase();
-          const found = combined.find(sc => sc.name.toLowerCase() === normalizedSysCatName);
-          if (found) return found;
-        }
-        return null;
+      const hierarchy = await getTagHierarchy(systemCategory);
+      setRawHierarchy(hierarchy);
+
+      const flatten = (nodes: Tag[]): Tag[] => {
+        const result: Tag[] = [];
+        nodes.forEach(n => {
+          result.push({ ...n, children: undefined });
+          if (n.children && n.children.length > 0) {
+            result.push(...flatten(n.children));
+          }
+        });
+        return result;
       };
 
-      // Distribute hierarchy roots to their system categories
-      hierarchy.forEach(rootTag => {
-        // Special handling: If the root itself IS a system category tag (type='system-category'),
-        // we want to extract its children (the actual Parent Tags) and put them into the
-        // combined structure's matching bucket. This prevents "System Cat -> System Cat -> Content" nesting.
-        if (rootTag.type === 'system-category') {
-          const sysCat = findSystemCat(rootTag);
-          // If matched (it should match itself), push its children
-          if (sysCat && rootTag.children) {
-            sysCat.children.push(...rootTag.children);
-          }
-          return;
-        }
+      const structured = buildTagHierarchyStructure(flatten(hierarchy));
+      // Find the system category bucket for the requested system
+      const matchingSystem = structured.find(entry => entry.systemCategory.system_category === systemCategory)
+        || structured[0];
 
-        // Original logic for loose roots (e.g. Parent Tags that are roots)
-        const sysCat = findSystemCat(rootTag);
-        if (sysCat) {
-          sysCat.children!.push(rootTag);
-        } else {
-          // If no system category found (orphaned root?), 
-          // we might want to add it to a "Other" bucket or just keep it if we can't place it.
-          // For now, if we can't place it in a System Category container, 
-          // CreateTagModal might struggle, but we should at least let it be displayed if possible.
-          
-          // IMPORTANT: If we are in restricted mode, we MUST ensure the target parent is available.
-          // If 'rootTag' is the target parent (e.g. "KB Category"), we should include it even if orphaned.
-          combined.push(rootTag);
-        }
-      });
-      
-      setCategories(combined);
+      setParentGroups(matchingSystem ? matchingSystem.parents : []);
     } catch (error: any) {
       console.error('Error loading tags:', error);
       toast.error('Failed to load tags');
@@ -125,6 +88,22 @@ export function TagSelectorDialog({
     } else {
       // Add to local selection only
       setLocalSelectedTags([...localSelectedTags, tagName]);
+    }
+  };
+
+  const handleToggleSubcategory = (subcategory: Tag, children: Tag[]) => {
+    if (!children || children.length === 0) return;
+    const childNames = children.map(c => c.name);
+    const allSelected = childNames.every(name => localSelectedTags.includes(name));
+
+    if (allSelected) {
+      setLocalSelectedTags(prev => prev.filter(name => !childNames.includes(name)));
+    } else {
+      setLocalSelectedTags(prev => {
+        const next = new Set(prev);
+        childNames.forEach(name => next.add(name));
+        return Array.from(next);
+      });
     }
   };
 
@@ -155,11 +134,11 @@ export function TagSelectorDialog({
 
   const handleSave = () => {
     // Only call onTagsChange when user clicks "Apply Tags"
-    const allTags = categories.flatMap(c => c.children || []).flatMap(parent => {
-      const tags = [parent];
-      if (parent.children) {
-        tags.push(...parent.children);
-      }
+    const allTags = parentGroups.flatMap(parentGroup => {
+      const tags = [parentGroup.tag, ...parentGroup.directChildren];
+      parentGroup.subcategories.forEach(sc => {
+        tags.push(sc.tag, ...sc.children);
+      });
       return tags;
     });
     const selectedObjects = allTags.filter(t => localSelectedTags.includes(t.name));
@@ -171,28 +150,11 @@ export function TagSelectorDialog({
   // This ensures we show the actual tag categories (e.g. "Department") as headers
   // instead of the top-level system container (e.g. "UNITS")
   const displayCategories = React.useMemo(() => {
-    const result: Tag[] = [];
-    
-    // Helper to recursively find relevant tags if nested unexpectedly
-    // But for now, rely on the flat structure 'combined' produced
-    categories.forEach(cat => {
-      if (cat.type === 'system-category') {
-        if (cat.children) {
-          result.push(...cat.children);
-        }
-      } else {
-        result.push(cat);
-      }
-    });
-
-    // Filter by restrictToParentName if provided
-    if (restrictToParentName) {
-      const normalizedName = restrictToParentName.toLowerCase().trim();
-      return result.filter(cat => cat.name.toLowerCase().trim() === normalizedName);
-    }
-
-    return result;
-  }, [categories, restrictToParentName]);
+    const parents = restrictToParentName
+      ? parentGroups.filter(pg => pg.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())
+      : parentGroups;
+    return parents;
+  }, [parentGroups, restrictToParentName]);
 
   return (
     <>
@@ -244,68 +206,157 @@ export function TagSelectorDialog({
 
             {/* Tag Categories (Parents) */}
             {!isLoading && displayCategories.map((category) => {
-              // Get child tags for this category
-              const childTags = category.children || [];
-              
-              // In restricted mode, we might want to show the category even if empty so users can add tags
-              if (childTags.length === 0 && !restrictToParentName) return null; 
+              const parent = category.tag;
+              const directChildren = category.directChildren || [];
+              const subcategories = category.subcategories || [];
+
+              const hasContent =
+                directChildren.length > 0 ||
+                subcategories.length > 0 ||
+                subcategories.some(sc => (sc.children || []).length > 0);
+
+              if (!hasContent && !restrictToParentName) return null;
 
               return (
-                <div key={category.id} className="space-y-3">
+                <div key={parent.id} className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Folder className="h-4 w-4 text-muted-foreground" />
                     <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">
-                      {category.name}
+                      {parent.name}
                     </h3>
                   </div>
                   
-                  <div className="flex flex-wrap gap-2 pl-6">
-                    {childTags.map((tag) => {
-                      const isSelected = localSelectedTags.includes(tag.name);
-                      const tagColor = tag.color || '#F74A05'; // Default to brand orange
+                  {/* Direct children (no subcategory) */}
+                  {directChildren.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pl-6">
+                      {directChildren.map((tag) => {
+                        const isSelected = localSelectedTags.includes(tag.name);
+                        const tagColor = tag.color || '#F74A05'; // Default to brand orange
 
-                      return (
-                        <div
-                          key={tag.id}
-                          onClick={() => handleToggleTag(tag)}
-                          className={`
-                            group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all cursor-pointer border
-                            ${isSelected 
-                              ? 'border-transparent text-white shadow-sm' 
-                              : 'hover:opacity-80'
-                            }
-                          `}
-                          style={isSelected ? {
-                            background: `linear-gradient(135deg, ${tagColor} 0%, ${tagColor}dd 100%)`,
-                          } : {
-                            backgroundColor: `${tagColor}15`,
-                            borderColor: `${tagColor}40`,
-                            color: tagColor
-                          }}
+                        return (
+                          <div
+                            key={tag.id}
+                            onClick={() => handleToggleTag(tag)}
+                            className={`
+                              group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all cursor-pointer border
+                              ${isSelected 
+                                ? 'border-transparent text-white shadow-sm' 
+                                : 'hover:opacity-80'
+                              }
+                            `}
+                            style={isSelected ? {
+                              background: `linear-gradient(135deg, ${tagColor} 0%, ${tagColor}dd 100%)`,
+                            } : {
+                              backgroundColor: `${tagColor}15`,
+                              borderColor: `${tagColor}40`,
+                              color: tagColor
+                            }}
+                          >
+                            {isSelected && <Check className="h-3.5 w-3.5" />}
+                            <span className="text-sm font-medium">{tag.name}</span>
+
+                            {allowManagement && (!tag.is_system_locked || canManageSystemTags) && (
+                              <div className="flex items-center gap-1 ml-1 pl-1 border-l border-current/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={(e) => handleEditTag(e, tag)}
+                                  className="p-0.5 hover:bg-black/10 rounded"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                                <button 
+                                  onClick={(e) => handleDeleteTag(e, tag)}
+                                  className="p-0.5 hover:bg-red-500/20 rounded text-current"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Subcategories */}
+                  {subcategories.map(subcategory => {
+                    const children = subcategory.children || [];
+                    const allSelected = children.length > 0 && children.every(c => localSelectedTags.includes(c.name));
+                    const partiallySelected = !allSelected && children.some(c => localSelectedTags.includes(c.name));
+
+                    return (
+                      <div key={subcategory.tag.id} className="space-y-2 pl-4">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSubcategory(subcategory.tag, children)}
+                          className="flex items-center gap-2 text-sm font-medium text-left"
                         >
-                          {isSelected && <Check className="h-3.5 w-3.5" />}
-                          <span className="text-sm font-medium">{tag.name}</span>
+                          <div className={`
+                            w-5 h-5 rounded-full border flex items-center justify-center
+                            ${allSelected ? 'bg-primary text-white border-primary' : 'border-muted-foreground/40'}
+                            ${partiallySelected ? 'bg-primary/10 border-primary/60' : ''}
+                          `}>
+                            {(allSelected || partiallySelected) && <Check className="h-3 w-3" />}
+                          </div>
+                          <span>{subcategory.tag.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({children.length} tag{children.length !== 1 ? 's' : ''})
+                          </span>
+                        </button>
 
-                          {allowManagement && (!tag.is_system_locked || canManageSystemTags) && (
-                            <div className="flex items-center gap-1 ml-1 pl-1 border-l border-current/20 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={(e) => handleEditTag(e, tag)}
-                                className="p-0.5 hover:bg-black/10 rounded"
-                              >
-                                <Edit className="h-3 w-3" />
-                              </button>
-                              <button 
-                                onClick={(e) => handleDeleteTag(e, tag)}
-                                className="p-0.5 hover:bg-red-500/20 rounded text-current"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
+                        <div className="flex flex-wrap gap-2 pl-6">
+                          {children.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">No tags yet</span>
+                          ) : (
+                            children.map(tag => {
+                              const isSelected = localSelectedTags.includes(tag.name);
+                              const tagColor = tag.color || '#F74A05';
+
+                              return (
+                                <div
+                                  key={tag.id}
+                                  onClick={() => handleToggleTag(tag)}
+                                  className={`
+                                    group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all cursor-pointer border
+                                    ${isSelected 
+                                      ? 'border-transparent text-white shadow-sm' 
+                                      : 'hover:opacity-80'
+                                    }
+                                  `}
+                                  style={isSelected ? {
+                                    background: `linear-gradient(135deg, ${tagColor} 0%, ${tagColor}dd 100%)`,
+                                  } : {
+                                    backgroundColor: `${tagColor}15`,
+                                    borderColor: `${tagColor}40`,
+                                    color: tagColor
+                                  }}
+                                >
+                                  {isSelected && <Check className="h-3.5 w-3.5" />}
+                                  <span className="text-sm font-medium">{tag.name}</span>
+
+                                  {allowManagement && (!tag.is_system_locked || canManageSystemTags) && (
+                                    <div className="flex items-center gap-1 ml-1 pl-1 border-l border-current/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button 
+                                        onClick={(e) => handleEditTag(e, tag)}
+                                        className="p-0.5 hover:bg-black/10 rounded"
+                                      >
+                                        <Edit className="h-3 w-3" />
+                                      </button>
+                                      <button 
+                                        onClick={(e) => handleDeleteTag(e, tag)}
+                                        className="p-0.5 hover:bg-red-500/20 rounded text-current"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -337,11 +388,11 @@ export function TagSelectorDialog({
             setTagToEdit(null);
           }}
           onSuccess={handleCreateSuccess}
-          categories={categories} // Pass the current system categories
+          categories={rawHierarchy} // Pass the full hierarchy for parent selection
           tagToEdit={tagToEdit}
           // If restricted, we preselect the parent
           preselectedParentId={restrictToParentName 
-            ? displayCategories.find(c => c.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.id 
+            ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id 
             : undefined}
         />
       )}

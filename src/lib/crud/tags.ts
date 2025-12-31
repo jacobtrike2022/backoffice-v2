@@ -1,13 +1,13 @@
 // ============================================================================
 // TAG MANAGEMENT CRUD OPERATIONS
-// Hierarchical: System Category → Tag Parent → Tag (Child)
+// Hierarchical: System Category → Parent → Subcategory → Child
 // ============================================================================
 
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 export type SystemCategory = 'content' | 'playlists' | 'forms' | 'knowledge-base' | 'people' | 'units' | 'shared';
-export type TagType = 'system-category' | 'parent' | 'child';
+export type TagType = 'system-category' | 'parent' | 'subcategory' | 'child';
 
 export interface Tag {
   id: string;
@@ -27,6 +27,18 @@ export interface Tag {
   // Nested relationships
   parent?: Tag;
   children?: Tag[];
+}
+
+export interface TagHierarchy {
+  systemCategory: Tag;
+  parents: {
+    tag: Tag;
+    subcategories: {
+      tag: Tag;
+      children: Tag[];
+    }[];
+    directChildren: Tag[];
+  }[];
 }
 
 /**
@@ -107,11 +119,11 @@ export async function getTagHierarchy(category?: SystemCategory): Promise<Tag[]>
   
   if (error) throw error;
   
-  // Build tree structure
+  // Build tree structure (supports arbitrary depth)
   const tags = data || [];
-  const tagMap = new Map(tags.map(t => [t.id, { ...t, children: [] }]));
+  const tagMap = new Map(tags.map(t => [t.id, { ...t, children: [] as Tag[] }]));
   const roots: Tag[] = [];
-  
+
   tags.forEach(tag => {
     const node = tagMap.get(tag.id)!;
     if (tag.parent_id && tagMap.has(tag.parent_id)) {
@@ -120,8 +132,92 @@ export async function getTagHierarchy(category?: SystemCategory): Promise<Tag[]>
       roots.push(node);
     }
   });
-  
+
+  // Preserve display order for nested children as well
+  tagMap.forEach(node => {
+    if (node.children) {
+      node.children.sort((a, b) => a.display_order - b.display_order);
+    }
+  });
+
   return roots;
+}
+
+/**
+ * Convert a flat or tree list of tags into a structured 4-level hierarchy.
+ */
+export function buildTagHierarchyStructure(tags: Tag[]): TagHierarchy[] {
+  const byId = new Map(tags.map(t => [t.id, t]));
+  const systemCategories = tags.filter(t => t.type === 'system-category');
+
+  const makeParents = (systemCat: Tag) => {
+    const parents = tags.filter(t => t.parent_id === systemCat.id && t.type === 'parent');
+
+    return parents.map(parent => {
+      const subcategories = tags
+        .filter(t => t.parent_id === parent.id && t.type === 'subcategory')
+        .map(sub => ({
+          tag: sub,
+          children: tags.filter(t => t.parent_id === sub.id && t.type === 'child')
+        }));
+
+      const directChildren = tags.filter(t => t.parent_id === parent.id && t.type === 'child');
+
+      return { tag: parent, subcategories, directChildren };
+    });
+  };
+
+  // If we don't have explicit system category rows, infer them from parents
+  const inferredSystems: Tag[] = [];
+  tags
+    .filter(t => t.type === 'parent')
+    .forEach(parent => {
+      if (!parent.parent_id) return;
+      const maybeSystem = byId.get(parent.parent_id);
+      if (maybeSystem && maybeSystem.type === 'system-category') return;
+      // Parent references a missing/unknown system category – infer a placeholder
+      if (!inferredSystems.find(s => s.id === parent.parent_id)) {
+        inferredSystems.push({
+          id: parent.parent_id,
+          name: maybeSystem?.name || 'Uncategorized',
+          parent_id: null as any,
+          system_category: maybeSystem?.system_category,
+          is_system_locked: false,
+          type: 'system-category',
+          display_order: 0,
+          created_at: '',
+          updated_at: '',
+        });
+      }
+    });
+
+  const systems = [...systemCategories, ...inferredSystems];
+
+  return systems.map(systemCategory => ({
+    systemCategory,
+    parents: makeParents(systemCategory),
+  }));
+}
+
+/**
+ * Convenience helper to fetch tags and return the structured hierarchy.
+ */
+export async function getTagHierarchyStructured(category?: SystemCategory): Promise<TagHierarchy[]> {
+  const roots = await getTagHierarchy(category);
+
+  // Flatten roots for the struct builder since it works on flat arrays
+  const flatten = (nodes: Tag[]): Tag[] => {
+    const result: Tag[] = [];
+    nodes.forEach(n => {
+      result.push({ ...n, children: undefined });
+      if (n.children && n.children.length > 0) {
+        result.push(...flatten(n.children));
+      }
+    });
+    return result;
+  };
+
+  return buildTagHierarchyStructure(flatten(roots));
 }
 
 /**
@@ -141,19 +237,51 @@ export async function createTag(input: {
   
   if (!orgId || !userProfile) throw new Error('User not authenticated');
   
-  // Determine type based on parent
+  // Determine type based on parent while enforcing hierarchy rules
   let tagType: TagType = input.type || 'child';
+  let systemCategory = input.system_category;
+
   if (input.parent_id) {
-    const { data: parent } = await supabase
+    const { data: parent, error: parentError } = await supabase
       .from('tags')
-      .select('type')
+      .select('type, system_category')
       .eq('id', input.parent_id)
       .single();
-    
-    if (parent?.type === 'system-category') {
-      tagType = 'parent';
-    } else if (parent?.type === 'parent') {
-      tagType = 'child';
+
+    if (parentError || !parent) {
+      throw new Error('Parent tag not found');
+    }
+
+    const parentType = parent.type as TagType;
+    systemCategory = parent.system_category as SystemCategory | undefined;
+
+    switch (parentType) {
+      case 'system-category':
+        if (tagType !== 'parent') {
+          // Parents are the only allowed children of a system category
+          tagType = 'parent';
+        }
+        break;
+      case 'parent':
+        if (tagType === 'system-category') {
+          throw new Error('Cannot create a system category under a parent tag');
+        }
+        if (tagType !== 'subcategory' && tagType !== 'child') {
+          tagType = 'child';
+        }
+        break;
+      case 'subcategory':
+        if (tagType !== 'child') {
+          throw new Error('Only child tags can be created under a subcategory');
+        }
+        break;
+      case 'child':
+        throw new Error('Child tags cannot have children');
+    }
+  } else {
+    // No parent provided - only allow system categories
+    if (!tagType || tagType !== 'system-category') {
+      throw new Error('Parent tags must belong to a system category');
     }
   }
   
@@ -163,7 +291,7 @@ export async function createTag(input: {
       organization_id: orgId,
       name: input.name,
       parent_id: input.parent_id,
-      system_category: input.system_category,
+      system_category: systemCategory,
       description: input.description,
       color: input.color,
       type: tagType,
@@ -218,7 +346,7 @@ export async function deleteTag(tagId: string): Promise<void> {
   // Check if tag is system-locked and get children
   const { data: existingTag } = await supabase
     .from('tags')
-    .select('is_system_locked')
+    .select('is_system_locked, type')
     .eq('id', tagId)
     .single();
   
@@ -226,6 +354,30 @@ export async function deleteTag(tagId: string): Promise<void> {
     throw new Error('Cannot delete system-locked tags');
   }
   
+  if (!existingTag) {
+    throw new Error('Tag not found');
+  }
+
+  // Allow cascading deletes for subcategories (and their descendants)
+  if (existingTag.type === 'subcategory') {
+    const subtree = await getTagWithDescendants(tagId);
+    const idsToDelete: string[] = [];
+    const collectIds = (node?: Tag) => {
+      if (!node) return;
+      node.children?.forEach(child => collectIds(child));
+      idsToDelete.push(node.id);
+    };
+    collectIds(subtree || undefined);
+
+    const { error } = await supabase
+      .from('tags')
+      .delete()
+      .in('id', idsToDelete);
+
+    if (error) throw error;
+    return;
+  }
+
   // Check for children separately
   const { data: children } = await supabase
     .from('tags')
@@ -411,4 +563,50 @@ export async function searchTags(query: string, category?: SystemCategory): Prom
   
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Get the depth of a tag within the hierarchy.
+ * 0 = system-category, 1 = parent, 2 = subcategory, 3 = child
+ */
+export async function getTagDepth(tagId: string): Promise<number> {
+  const tags = await getAllTags(true);
+  const tagMap = new Map(tags.map(t => [t.id, t.parent_id]));
+
+  if (!tagMap.has(tagId)) {
+    throw new Error('Tag not found');
+  }
+
+  const visited = new Set<string>();
+  let depth = 0;
+  let current: string | undefined = tagId;
+
+  while (current) {
+    if (visited.has(current)) {
+      throw new Error('Circular tag hierarchy detected');
+    }
+    visited.add(current);
+    const parentId = tagMap.get(current);
+    if (!parentId) break;
+    depth += 1;
+    current = parentId;
+  }
+
+  return depth;
+}
+
+/**
+ * Return a tag with all of its descendants nested in the children array.
+ */
+export async function getTagWithDescendants(tagId: string, includeSystemLocked: boolean = true): Promise<Tag | null> {
+  const tags = await getAllTags(includeSystemLocked);
+  const tagMap = new Map(tags.map(t => [t.id, { ...t, children: [] as Tag[] }]));
+
+  tags.forEach(tag => {
+    if (tag.parent_id && tagMap.has(tag.parent_id)) {
+      tagMap.get(tag.parent_id)!.children!.push(tagMap.get(tag.id)!);
+    }
+  });
+
+  return tagMap.get(tagId) || null;
 }

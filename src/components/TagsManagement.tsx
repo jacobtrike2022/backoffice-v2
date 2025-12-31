@@ -10,15 +10,20 @@ import {
   Trash2,
   X,
   Tag as TagIcon,
-  MoreVertical,
   Globe,
-  Eye
+  Eye,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
+  buildTagHierarchyStructure,
   getTagHierarchy,
   deleteTag,
-  type Tag
+  type Tag,
+  type TagHierarchy,
+  type TagType
 } from '../lib/crud/tags';
 import { CreateTagModal } from './CreateTagModal';
 
@@ -31,8 +36,10 @@ interface TagsManagementProps {
 
 export function TagsManagement({ currentRole, activeSystem: externalActiveSystem, onSystemChange, onSystemsLoaded }: TagsManagementProps) {
   const [loading, setLoading] = useState(true);
-  const [categories, setCategories] = useState<Tag[]>([]);
+  const [rawCategories, setRawCategories] = useState<Tag[]>([]);
+  const [hierarchy, setHierarchy] = useState<TagHierarchy[]>([]);
   const [internalActiveSystem, setInternalActiveSystem] = useState<string>('');
+  const [collapsedSubcategories, setCollapsedSubcategories] = useState<Record<string, boolean>>({});
   
   // Use external activeSystem if provided, otherwise use internal
   const activeSystem = externalActiveSystem !== undefined ? externalActiveSystem : internalActiveSystem;
@@ -48,18 +55,21 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [preselectedCategoryId, setPreselectedCategoryId] = useState<string | undefined>();
   const [preselectedParentId, setPreselectedParentId] = useState<string | undefined>();
+  const [preselectedType, setPreselectedType] = useState<TagType | undefined>();
 
   const handleCloseModal = () => {
     setShowCreateModal(false);
     setSelectedTag(null); // Clear selected tag on close
     setPreselectedCategoryId(undefined);
     setPreselectedParentId(undefined);
+    setPreselectedType(undefined);
   };
 
-  const handleOpenModal = (categoryId?: string, parentId?: string) => {
+  const handleOpenModal = (categoryId?: string, parentId?: string, type?: TagType) => {
     setSelectedTag(null); // Ensure we are in create mode
     setPreselectedCategoryId(categoryId);
     setPreselectedParentId(parentId);
+    setPreselectedType(type);
     setShowCreateModal(true);
   };
 
@@ -76,9 +86,23 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
     try {
       setLoading(true);
       const data = await getTagHierarchy();
-      setCategories(data);
+      setRawCategories(data);
+
+      const flatten = (nodes: Tag[]): Tag[] => {
+        const result: Tag[] = [];
+        nodes.forEach(n => {
+          result.push({ ...n, children: undefined });
+          if (n.children && n.children.length > 0) {
+            result.push(...flatten(n.children));
+          }
+        });
+        return result;
+      };
+
+      const structured = buildTagHierarchyStructure(flatten(data));
+      setHierarchy(structured);
       
-      const systems = data.filter(t => t.type === 'system-category');
+      const systems = structured.map(s => s.systemCategory);
       
       // Notify parent of systems data
       if (onSystemsLoaded) {
@@ -111,7 +135,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
   };
 
   const getActiveSystemData = () => {
-    return categories.find(c => c.id === activeSystem);
+    return hierarchy.find(c => c.systemCategory.id === activeSystem);
   };
 
   if (loading) {
@@ -123,10 +147,17 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
     );
   }
 
-  const systems = categories.filter(t => t.type === 'system-category');
+  const systems = hierarchy.map(h => h.systemCategory);
   const activeSystemData = getActiveSystemData();
-  const categoryGroups = activeSystemData?.children || [];
-  const isSharedSystem = activeSystemData?.system_category === 'shared';
+  const categoryGroups = activeSystemData?.parents || [];
+  const isSharedSystem = activeSystemData?.systemCategory.system_category === 'shared';
+
+  const toggleSubcategory = (id: string) => {
+    setCollapsedSubcategories(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
   
   return (
     <div className="space-y-6">
@@ -187,27 +218,51 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
 
       {/* Category Cards (Bento Grid) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {categoryGroups.map((category) => {
-          const tags = category.children || [];
-          const filteredTags = searchQuery
-            ? tags.filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()))
-            : tags;
+        {categoryGroups.map((categoryGroup) => {
+          const parentTag = categoryGroup.tag;
+          const subcategories = categoryGroup.subcategories || [];
+          const directChildren = categoryGroup.directChildren || [];
+
+          const matchesQuery = (name: string) =>
+            name.toLowerCase().includes(searchQuery.toLowerCase());
+
+          const filteredDirectChildren = searchQuery
+            ? directChildren.filter(t => matchesQuery(t.name))
+            : directChildren;
+
+          const filteredSubcategories = subcategories
+            .map(sc => {
+              const children = sc.children || [];
+              if (!searchQuery) return { ...sc, children };
+
+              const matchesSubcategory = matchesQuery(sc.tag.name);
+              const filtered = children.filter(c => matchesQuery(c.name));
+              return {
+                ...sc,
+                children: matchesSubcategory ? children : filtered
+              };
+            })
+            .filter(sc => searchQuery ? (sc.children?.length ?? 0) > 0 || matchesQuery(sc.tag.name) : true);
+
+          const totalChildrenCount =
+            (categoryGroup.directChildren?.length || 0) +
+            subcategories.reduce((sum, sc) => sum + (sc.children?.length || 0), 0);
 
           return (
-            <Card key={category.id} className="flex flex-col">
+            <Card key={parentTag.id} className="flex flex-col">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <TagIcon className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle className="text-base">{category.name}</CardTitle>
+                    <CardTitle className="text-base">{parentTag.name}</CardTitle>
                   </div>
-                  {!category.is_system_locked && (
+                  {!parentTag.is_system_locked && (
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0"
-                        onClick={() => handleEditTag(category)}
+                        onClick={() => handleEditTag(parentTag)}
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -215,7 +270,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteTag(category)}
+                        onClick={() => handleDeleteTag(parentTag)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -223,20 +278,16 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {filteredTags.length} tag{filteredTags.length !== 1 ? 's' : ''}
+                  {subcategories.length} subcategor{subcategories.length === 1 ? 'y' : 'ies'}, {totalChildrenCount} tag{totalChildrenCount !== 1 ? 's' : ''}
                 </p>
               </CardHeader>
 
               <CardContent className="flex-1 flex flex-col gap-3">
-                {/* Tag Pills */}
-                <div className="flex-1">
-                  {filteredTags.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-6">
-                      No tags yet
-                    </p>
-                  ) : (
+                <div className="flex-1 space-y-3">
+                  {/* Direct children (no subcategory) */}
+                  {filteredDirectChildren.length > 0 && (
                     <div className="flex flex-wrap gap-2">
-                      {filteredTags.map((tag) => (
+                      {filteredDirectChildren.map((tag) => (
                         <div
                           key={tag.id}
                           onClick={() => handleEditTag(tag)}
@@ -263,18 +314,123 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                       ))}
                     </div>
                   )}
+
+                  {/* Subcategory groups */}
+                  {filteredSubcategories.map(({ tag: subcategory, children }) => {
+                    const isCollapsed = collapsedSubcategories[subcategory.id];
+                    const childCount = children?.length || 0;
+
+                    return (
+                      <div key={subcategory.id} className="border border-muted-foreground/10 rounded-lg">
+                        <div className="flex items-center justify-between px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleSubcategory(subcategory.id)}
+                            className="flex items-center gap-2 text-sm font-medium"
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span>{subcategory.name}</span>
+                            <span className="text-xs text-muted-foreground">({childCount} tag{childCount !== 1 ? 's' : ''})</span>
+                          </button>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                              onClick={() => handleOpenModal(activeSystem, subcategory.id, 'child')}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              Add Tag
+                            </Button>
+                            {!subcategory.is_system_locked && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => handleEditTag(subcategory)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => handleDeleteTag(subcategory)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {!isCollapsed && (
+                          <div className="px-3 pb-3">
+                            {childCount === 0 ? (
+                              <p className="text-xs text-muted-foreground py-2">No tags yet</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {children?.map((tag) => (
+                                  <div
+                                    key={tag.id}
+                                    onClick={() => handleEditTag(tag)}
+                                    className="group relative inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full transition-all cursor-pointer bg-gradient-to-r from-[#F74A05] to-[#FF733C] text-white hover:shadow-md hover:scale-[1.02]"
+                                    style={tag.color ? {
+                                      background: `linear-gradient(135deg, ${tag.color} 0%, ${tag.color}dd 100%)`,
+                                    } : {}}
+                                  >
+                                    <span className="text-sm">{tag.name}</span>
+                                    {!tag.is_system_locked && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          handleDeleteTag(tag);
+                                        }}
+                                        className="ml-0.5 p-0.5 hover:bg-black/20 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                      >
+                                        <X className="h-3.5 w-3.5 text-white" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* Add Tag Button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-center text-muted-foreground hover:text-foreground hover:bg-orange-50 hover:border-orange-200 dark:hover:bg-orange-950/20 border border-dashed border-muted-foreground/30"
-                  onClick={() => handleOpenModal(activeSystem, category.id)}
-                >
-                  <Plus className="h-4 w-4 mr-1.5" />
-                  Add Tag
-                </Button>
+                {/* Actions */}
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-center text-muted-foreground hover:text-foreground hover:bg-orange-50 hover:border-orange-200 dark:hover:bg-orange-950/20 border border-dashed border-muted-foreground/30"
+                    onClick={() => handleOpenModal(activeSystem, parentTag.id, 'child')}
+                  >
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Add Tag
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-center"
+                    onClick={() => handleOpenModal(activeSystem, parentTag.id, 'subcategory')}
+                  >
+                    <FolderPlus className="h-4 w-4 mr-1.5" />
+                    Add Subcategory
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -297,9 +453,10 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
           isOpen={showCreateModal}
           onClose={handleCloseModal}
           onSuccess={loadTags}
-          categories={categories}
+          categories={rawCategories}
           preselectedCategoryId={preselectedCategoryId}
           preselectedParentId={preselectedParentId}
+          defaultType={preselectedType}
           tagToEdit={selectedTag}
         />
       )}

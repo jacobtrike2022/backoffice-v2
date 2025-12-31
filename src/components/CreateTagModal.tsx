@@ -6,7 +6,7 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { X, Tag as TagIcon, Folder, FolderOpen, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { createTag, updateTag, type Tag } from '../lib/crud/tags';
+import { createTag, updateTag, type Tag, type TagType } from '../lib/crud/tags';
 
 interface CreateTagModalProps {
   isOpen: boolean;
@@ -15,6 +15,7 @@ interface CreateTagModalProps {
   categories: Tag[];
   preselectedCategoryId?: string;
   preselectedParentId?: string;
+  defaultType?: TagType;
   tagToEdit?: Tag | null;
 }
 
@@ -25,13 +26,19 @@ export function CreateTagModal({
   categories,
   preselectedCategoryId,
   preselectedParentId,
+  defaultType,
   tagToEdit,
 }: CreateTagModalProps) {
   const isEditing = !!tagToEdit;
   
-  const [tagType, setTagType] = useState<'parent' | 'child'>(
-    tagToEdit ? (tagToEdit.type as 'parent' | 'child') : 
-    preselectedParentId ? 'child' : 'parent'
+  const [tagType, setTagType] = useState<TagType>(
+    tagToEdit
+      ? (tagToEdit.type as TagType)
+      : defaultType && defaultType !== 'system-category'
+        ? defaultType
+        : preselectedParentId
+          ? 'child'
+          : 'parent'
   );
   
   const [selectedCategoryId, setSelectedCategoryId] = useState(preselectedCategoryId || '');
@@ -41,41 +48,88 @@ export function CreateTagModal({
   const [color, setColor] = useState('#F74A05');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const findTagById = (id?: string): Tag | undefined => {
+    if (!id) return undefined;
+    const stack = [...categories];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      if (current.id === id) return current;
+      if (current.children) stack.push(...current.children);
+    }
+    return undefined;
+  };
+
+  const getSystemCategories = () => categories.filter(c => c.type === 'system-category');
+
+  const getParentTagsForCategory = (categoryId: string) => {
+    const category = categories.find(c => c.id === categoryId);
+    return category?.children?.filter(c => c.type === 'parent') || [];
+  };
+
+  const getSubcategoriesForParent = (parentId: string) => {
+    const parent = findTagById(parentId);
+    return parent?.children?.filter(c => c.type === 'subcategory') || [];
+  };
+
+  const getChildContainersForCategory = (categoryId: string) => {
+    const parents = getParentTagsForCategory(categoryId);
+    const subcategories = parents.flatMap(parent => getSubcategoriesForParent(parent.id));
+    return [...parents, ...subcategories];
+  };
+
   // Initialize form when tagToEdit changes
   useEffect(() => {
     if (tagToEdit) {
       setTagName(tagToEdit.name);
       setDescription(tagToEdit.description || '');
       setColor(tagToEdit.color || '#F74A05');
-      setTagType(tagToEdit.type as 'parent' | 'child');
+      setTagType(tagToEdit.type as TagType);
 
       if (tagToEdit.type === 'parent') {
-        // If editing a parent, we need to find its system category ID if possible, 
-        // but parent tags are children of system categories.
-        // tagToEdit.parent_id should point to the system category.
         setSelectedCategoryId(tagToEdit.parent_id || '');
-      } else if (tagToEdit.type === 'child') {
+      } else if (tagToEdit.type === 'subcategory') {
         setSelectedParentId(tagToEdit.parent_id || '');
-        
-        // We also need to find the category of that parent
-        const parentTag = categories
-          .flatMap(c => c.children || [])
-          .find(p => p.id === tagToEdit.parent_id);
-          
-        if (parentTag && parentTag.parent_id) {
+        const parentTag = findTagById(tagToEdit.parent_id);
+        if (parentTag?.parent_id) {
           setSelectedCategoryId(parentTag.parent_id);
         }
+      } else if (tagToEdit.type === 'child') {
+        setSelectedParentId(tagToEdit.parent_id || '');
+        const parentTag = findTagById(tagToEdit.parent_id);
+        if (parentTag?.type === 'subcategory') {
+          const grandParent = findTagById(parentTag.parent_id);
+          if (grandParent?.parent_id) {
+            setSelectedCategoryId(grandParent.parent_id);
+          }
+        } else if (parentTag?.parent_id) {
+          setSelectedCategoryId(parentTag.parent_id);
+        }
+      } else {
+        setSelectedCategoryId(preselectedCategoryId || '');
       }
     } else {
       // Reset defaults if not editing
       setTagName('');
       setDescription('');
       setColor('#F74A05');
-      setTagType(preselectedParentId ? 'child' : 'parent');
-      setSelectedCategoryId(preselectedCategoryId || '');
+      const parentTag = findTagById(preselectedParentId);
+      const derivedCategoryId =
+        parentTag?.type === 'system-category'
+          ? parentTag.id
+          : parentTag?.parent_id || preselectedCategoryId || '';
+
+      setTagType(
+        defaultType && defaultType !== 'system-category'
+          ? defaultType
+          : preselectedParentId
+            ? 'child'
+            : 'parent'
+      );
+      setSelectedCategoryId(derivedCategoryId);
       setSelectedParentId(preselectedParentId || '');
     }
-  }, [tagToEdit, preselectedCategoryId, preselectedParentId, categories, isOpen]);
+  }, [tagToEdit, preselectedCategoryId, preselectedParentId, categories, isOpen, defaultType]);
 
   const predefinedColors = [
     '#F74A05', // Trike Orange
@@ -90,11 +144,6 @@ export function CreateTagModal({
     '#14B8A6', // Teal
   ];
 
-  const getParentTagsForCategory = (categoryId: string) => {
-    const category = categories.find(c => c.id === categoryId);
-    return category?.children || [];
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -104,12 +153,12 @@ export function CreateTagModal({
     }
 
     if (tagType === 'parent' && !selectedCategoryId) {
-      toast.error('Please select a category');
+      toast.error('Please select a system category');
       return;
     }
 
-    if (tagType === 'child' && !selectedParentId) {
-      toast.error('Please select a parent tag');
+    if ((tagType === 'subcategory' || tagType === 'child') && !selectedParentId) {
+      toast.error(`Please select a ${tagType === 'child' ? 'parent or subcategory' : 'parent'} tag`);
       return;
     }
 
@@ -134,19 +183,22 @@ export function CreateTagModal({
         };
 
         if (tagType === 'parent') {
-          const category = categories.find(c => c.id === selectedCategoryId);
+          const category = getSystemCategories().find(c => c.id === selectedCategoryId);
           tagData.parent_id = selectedCategoryId;
           tagData.system_category = category?.system_category;
-        } else {
-          const parentTag = categories
-            .flatMap(c => c.children || [])
-            .find(p => p.id === selectedParentId);
+        } else if (tagType === 'subcategory') {
+          const parentTag = findTagById(selectedParentId);
           tagData.parent_id = selectedParentId;
           tagData.system_category = parentTag?.system_category;
+        } else if (tagType === 'child') {
+          const container = findTagById(selectedParentId);
+          tagData.parent_id = selectedParentId;
+          tagData.system_category = container?.system_category;
         }
 
         await createTag(tagData);
-        toast.success(`${tagType === 'parent' ? 'Parent' : 'Child'} tag created successfully`);
+        const label = tagType === 'parent' ? 'Parent' : tagType === 'subcategory' ? 'Subcategory' : 'Child';
+        toast.success(`${label} tag created successfully`);
       }
       
       onSuccess();
@@ -210,7 +262,7 @@ export function CreateTagModal({
             {!isEditing && (
               <div className="space-y-2">
                 <Label>Tag Type</Label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => setTagType('parent')}
@@ -222,10 +274,28 @@ export function CreateTagModal({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <Folder className="h-5 w-5 text-orange-500" />
-                      <span className="font-medium">Parent Tag</span>
+                      <span className="font-medium">Parent</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Creates a group that can contain child tags
+                      Groups subcategories or child tags
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTagType('subcategory')}
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      tagType === 'subcategory'
+                        ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
+                        : 'border-border hover:border-orange-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <FolderOpen className="h-5 w-5 text-orange-500" />
+                      <span className="font-medium">Subcategory</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Nested under a parent and holds child tags
                     </p>
                   </button>
 
@@ -240,33 +310,35 @@ export function CreateTagModal({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <TagIcon className="h-5 w-5 text-orange-500" />
-                      <span className="font-medium">Child Tag</span>
+                      <span className="font-medium">Child</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Creates a tag within an existing parent
+                      Assignable tag under a parent or subcategory
                     </p>
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Category Selection (for Parent Tags) */}
-            {tagType === 'parent' && (
+            {/* Category Selection (for Parent/Subcategory/Child) */}
+            {(tagType === 'parent' || tagType === 'subcategory' || tagType === 'child') && (
               <div className="space-y-2">
                 <Label htmlFor="category">
-                  Select Category <span className="text-destructive">*</span>
+                  Select System Category <span className="text-destructive">*</span>
                 </Label>
                 <select
                   id="category"
                   value={selectedCategoryId}
-                  onChange={(e) => setSelectedCategoryId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedCategoryId(e.target.value);
+                    setSelectedParentId('');
+                  }}
                   className="w-full h-10 px-3 rounded-lg border border-border bg-background text-foreground"
                   required
-                  disabled={isEditing}
+                  disabled={isEditing && tagType === 'parent'}
                 >
                   <option value="">Choose a category...</option>
-                  {categories
-                    .filter(c => c.type === 'system-category')
+                  {getSystemCategories()
                     .map(category => (
                       <option key={category.id} value={category.id}>
                         {category.name}
@@ -275,55 +347,37 @@ export function CreateTagModal({
                 </select>
                 <p className="text-xs text-muted-foreground">
                   {isEditing 
-                    ? 'Parent category cannot be moved after creation' 
-                    : 'Parent tags are organized under system categories'}
+                    ? 'System category cannot be changed after creation' 
+                    : 'System categories define the top-level tag system'}
                 </p>
               </div>
             )}
 
-            {/* Parent Tag Selection (for Child Tags) */}
-            {tagType === 'child' && (
+            {/* Parent Tag Selection (for Subcategory Tags) */}
+            {tagType === 'subcategory' && (
               <div className="space-y-2">
-                <Label htmlFor="parent">
-                  Select Parent Tag <span className="text-destructive">*</span>
+                <Label htmlFor="subcategory-parent">
+                  Select Parent <span className="text-destructive">*</span>
                 </Label>
-                
-                {/* Category selector first */}
-                <select
-                  value={selectedCategoryId}
-                  onChange={(e) => {
-                    setSelectedCategoryId(e.target.value);
-                    setSelectedParentId('');
-                  }}
-                  className="w-full h-10 px-3 rounded-lg border border-border bg-background text-foreground mb-3"
-                  disabled={isEditing}
-                >
-                  <option value="">Choose a category first...</option>
-                  {categories
-                    .filter(c => c.type === 'system-category')
-                    .map(category => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                </select>
 
-                {selectedCategoryId && (
+                {selectedCategoryId ? (
                   <select
-                    id="parent"
+                    id="subcategory-parent"
                     value={selectedParentId}
                     onChange={(e) => setSelectedParentId(e.target.value)}
                     className="w-full h-10 px-3 rounded-lg border border-border bg-background text-foreground"
                     required
                     disabled={isEditing}
                   >
-                    <option value="">Choose a parent tag...</option>
+                    <option value="">Choose a parent...</option>
                     {getParentTagsForCategory(selectedCategoryId).map(parent => (
                       <option key={parent.id} value={parent.id}>
                         {parent.name}
                       </option>
                     ))}
                   </select>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Select a system category first</div>
                 )}
 
                 {selectedCategoryId && getParentTagsForCategory(selectedCategoryId).length === 0 && (
@@ -336,9 +390,49 @@ export function CreateTagModal({
                 )}
 
                 <p className="text-xs text-muted-foreground">
-                  {isEditing
-                    ? 'Parent relationship cannot be changed after creation'
-                    : 'Child tags are specific labels within a parent group'}
+                  Subcategories sit under a parent and contain child tags.
+                </p>
+              </div>
+            )}
+
+            {/* Parent/Subcategory Selection (for Child Tags) */}
+            {tagType === 'child' && (
+              <div className="space-y-2">
+                <Label htmlFor="parent">
+                  Select Parent or Subcategory <span className="text-destructive">*</span>
+                </Label>
+                
+                {selectedCategoryId ? (
+                  <select
+                    id="parent"
+                    value={selectedParentId}
+                    onChange={(e) => setSelectedParentId(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-foreground"
+                    required
+                    disabled={isEditing}
+                  >
+                    <option value="">Choose a parent or subcategory...</option>
+                    {getChildContainersForCategory(selectedCategoryId).map(parent => (
+                      <option key={parent.id} value={parent.id}>
+                        {parent.name} {parent.type === 'subcategory' ? '(Subcategory)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Select a system category first</div>
+                )}
+
+                {selectedCategoryId && getChildContainersForCategory(selectedCategoryId).length === 0 && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                    <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+                    <div className="text-sm text-amber-800 dark:text-amber-200">
+                      No parents or subcategories in this category yet. Create a parent first.
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">
+                  Child tags can live directly under a parent or within a subcategory.
                 </p>
               </div>
             )}
@@ -417,6 +511,8 @@ export function CreateTagModal({
               <div className="flex items-center gap-2">
                 {tagType === 'parent' ? (
                   <FolderOpen className="h-4 w-4" style={{ color }} />
+                ) : tagType === 'subcategory' ? (
+                  <Folder className="h-4 w-4" style={{ color }} />
                 ) : (
                   <TagIcon className="h-4 w-4" style={{ color }} />
                 )}
