@@ -2222,36 +2222,24 @@ export function StoryEditor({
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
-                {showInKnowledgeBase && (
+                {((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
                     In Knowledge Base
                   </Badge>
                 )}
-                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
+                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
-                    className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                    onClick={() => setTags(tags.filter((t) => t !== tag))}
                   >
                     {tag}
-                    <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}
-                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
+                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsTagSelectorOpen(true)}
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Tags
-              </Button>
             </CardContent>
           </Card>
         </div>
@@ -2459,36 +2447,24 @@ export function StoryEditor({
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
-                {showInKnowledgeBase && (
+                {((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
                     In Knowledge Base
                   </Badge>
                 )}
-                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
+                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
-                    className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                    onClick={() => setTags(tags.filter((t) => t !== tag))}
                   >
                     {tag}
-                    <X className="h-3 w-3 ml-1" />
                   </Badge>
                 ))}
-                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
+                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsTagSelectorOpen(true)}
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Tags
-              </Button>
             </CardContent>
           </Card>
 
