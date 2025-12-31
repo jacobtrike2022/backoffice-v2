@@ -118,6 +118,16 @@ Deno.serve(async (req: Request) => {
       return await handleGenerateKeyFacts(req);
     }
 
+    // Recommend tags (AI)
+    if (method === "POST" && path === "/recommend-tags") {
+      return await handleRecommendTags(req);
+    }
+
+    // Process AI analysis queue
+    if (method === "POST" && path === "/brain/process-analysis-queue") {
+      return await handleProcessAnalysisQueue(req);
+    }
+
     // Update a fact
     if (method === "PUT" && path.startsWith("/facts/")) {
       const factId = path.replace("/facts/", "");
@@ -1024,6 +1034,435 @@ ONLY return valid JSON. No explanations or markdown.`,
   }
 }
 
+// ============================================
+// AI TAG RECOMMENDATION HANDLER
+// ============================================
+
+interface TagRecommendation {
+  tag_id: string;
+  tag_name: string;
+  tag_color: string | null;
+  parent_category: string;
+  confidence: number;
+  reasoning: string;
+  auto_select: boolean;
+}
+
+interface NewTagSuggestion {
+  suggested_name: string;
+  suggested_parent: string;
+  reasoning: string;
+}
+
+interface RecommendTagsResponse {
+  recommendations: TagRecommendation[];
+  new_tag_suggestions: NewTagSuggestion[];
+  analysis_summary: string;
+}
+
+async function handleRecommendTags(req: Request): Promise<Response> {
+  try {
+    const { 
+      title, 
+      description, 
+      transcript, 
+      keyFacts,
+      trackId,
+      organizationId,
+      parentTagId = '2f13a667-a2f6-49ee-85b8-094e354b0ebb' // Training Topics default
+    } = await req.json();
+
+    const analysisResult = await performTagAnalysis({
+      title,
+      description,
+      transcript,
+      keyFacts,
+      trackId,
+      organizationId,
+      parentTagId
+    });
+
+    return jsonResponse(analysisResult);
+
+  } catch (error: any) {
+    console.error('Error in handleRecommendTags:', error);
+    return jsonResponse({ 
+      error: error.message || 'Failed to generate tag recommendations',
+      recommendations: [],
+      new_tag_suggestions: [],
+    }, 500);
+  }
+}
+
+async function handleProcessAnalysisQueue(req: Request): Promise<Response> {
+  try {
+    // 1. Fetch pending analysis tasks
+    const { data: pendingTasks, error: fetchError } = await supabase
+      .from('ai_analysis_log')
+      .select('*')
+      .eq('status', 'pending')
+      .limit(5); // Process in small batches
+
+    if (fetchError) throw fetchError;
+    if (!pendingTasks || pendingTasks.length === 0) {
+      return jsonResponse({ message: 'No pending tasks' });
+    }
+
+    const results = [];
+    for (const task of pendingTasks) {
+      // 2. Mark as processing
+      await supabase
+        .from('ai_analysis_log')
+        .update({ status: 'processing', started_at: new Date().toISOString() })
+        .eq('id', task.id);
+
+      try {
+        if (task.analysis_type === 'tags') {
+          // 3. Fetch track data
+          const { data: track, error: trackError } = await supabase
+            .from('tracks')
+            .select('*')
+            .eq('id', task.track_id)
+            .single();
+
+          if (trackError) throw trackError;
+
+          // 4. Fetch facts for context
+          const { data: usageData } = await supabase
+            .from('fact_usage')
+            .select('fact_id')
+            .eq('track_id', task.track_id);
+          
+          const factIds = usageData?.map(u => u.fact_id) || [];
+          const { data: facts } = factIds.length > 0 
+            ? await supabase.from('facts').select('*').in('id', factIds)
+            : { data: [] };
+
+          // 5. Run analysis
+          const analysisResult = await performTagAnalysis({
+            title: track.title,
+            description: track.description,
+            transcript: track.transcript,
+            keyFacts: facts || [],
+            trackId: track.id,
+            organizationId: track.organization_id
+          });
+
+          // 6. Store existing suggestions for Phase 2 surfacing
+          for (const rec of analysisResult.recommendations) {
+            await supabase.from('ai_tag_suggestions').upsert({
+              track_id: track.id,
+              organization_id: track.organization_id,
+              suggested_tag_name: rec.tag_name,
+              suggested_parent_category: rec.parent_category,
+              reasoning: rec.reasoning,
+              confidence: rec.confidence,
+              status: 'pending',
+              prompt_hash: analysisResult.prompt_hash,
+              response_hash: analysisResult.response_hash,
+              processing_time_ms: analysisResult.processing_time_ms
+            }, {
+              onConflict: 'track_id,suggested_tag_name',
+              ignoreDuplicates: true
+            });
+          }
+
+          results.push({ track_id: task.track_id, status: 'completed' });
+          
+          // 7. Mark as completed
+          await supabase
+            .from('ai_analysis_log')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .eq('id', task.id);
+        }
+      } catch (err: any) {
+        console.error(`Error processing task ${task.id}:`, err);
+        await supabase
+          .from('ai_analysis_log')
+          .update({ status: 'failed', error_message: err.message, completed_at: new Date().toISOString() })
+          .eq('id', task.id);
+        results.push({ track_id: task.track_id, status: 'failed', error: err.message });
+      }
+    }
+
+    return jsonResponse({ results });
+  } catch (error: any) {
+    console.error('Error in handleProcessAnalysisQueue:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+async function performTagAnalysis(params: {
+  title: string;
+  description: string;
+  transcript: string;
+  keyFacts: any[];
+  trackId: string;
+  organizationId: string;
+  parentTagId?: string;
+}): Promise<RecommendTagsResponse & { prompt_hash?: string; response_hash?: string; processing_time_ms?: number }> {
+  const startTime = Date.now();
+  const { title, description, transcript, keyFacts, trackId, organizationId, parentTagId = '2f13a667-a2f6-49ee-85b8-094e354b0ebb' } = params;
+
+  // 1. Fetch available child tags
+  const { data: childTags, error: tagsError } = await supabase
+    .from('tags')
+    .select(`
+      id, 
+      name, 
+      description, 
+      color,
+      parent:parent_id (
+        id,
+        name
+      )
+    `)
+    .eq('type', 'child')
+    .eq('system_category', 'content');
+
+  if (tagsError) throw new Error('Failed to fetch available tags');
+
+  const { data: subcategories, error: subError } = await supabase
+    .from('tags')
+    .select('id, name')
+    .eq('parent_id', parentTagId)
+    .eq('type', 'subcategory');
+
+  if (subError) throw subError;
+
+  const subcategoryIds = new Set(subcategories.map((s: any) => s.id));
+  const trainingTopicTags = childTags.filter((tag: any) => 
+    tag.parent && subcategoryIds.has(tag.parent.id)
+  );
+
+  if (trainingTopicTags.length === 0) {
+    return {
+      recommendations: [],
+      new_tag_suggestions: [],
+      analysis_summary: 'No training topic tags available for recommendation.'
+    };
+  }
+
+  // 2. Build content context
+  const contentContext = buildContentContextForTags(title, description, transcript, keyFacts);
+
+  // 3. Build tag list for AI
+  const tagListForAI = trainingTopicTags.map((tag: any) => {
+    const parentName = tag.parent?.name || 'Unknown';
+    return `- "${tag.name}" (Category: ${parentName})${tag.description ? `\n  Context: ${tag.description}` : ''}`;
+  }).join('\n');
+
+  // 4. Build the AI prompt
+  const systemPrompt = `You are an expert training content classifier for convenience store and foodservice operations.
+
+YOUR TASK: Analyze the provided training content and recommend relevant tags from the available list.
+
+CRITICAL RULES:
+
+1. MULTI-TOPIC DETECTION: Training content often covers multiple related topics. A video about "checking customer IDs" should be tagged with Alcohol Service, Tobacco Sales, Vape Sales, AND Age-Restricted Sales. Recommend ALL relevant tags, not just the "best" one. There's no penalty for recommending 5-8 tags if they're genuinely relevant.
+
+2. DESCRIPTIONS ARE CONTEXT, NOT KEYWORDS: Tag descriptions are hints about what content belongs there, not exhaustive definitions. Use your judgment about whether content RELATES to a tag's domain, even if specific keywords don't match exactly. A video about "proper hand washing technique" relates to Food Safety even if it never says "temperature" or "contamination."
+
+3. CONFIDENCE SCORING:
+   - 90-100: Directly and explicitly about this topic
+   - 75-89: Clearly relevant, strong connection
+   - 60-74: Related, would be useful categorization
+   - 50-59: Tangentially related, borderline
+   - Below 50: Don't recommend
+
+4. HIERARCHY AWARENESS: Tags are organized by category (Compliance, Foodservice, Customer Service, etc.). Content can span multiple categories. Don't artificially limit to one category.
+
+5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag. Include:
+   - Suggested name (concise, follows existing naming conventions)
+   - Which parent category it should go under
+   - Brief reasoning
+
+OUTPUT FORMAT (JSON):
+{
+  "analysis_summary": "Brief 1-2 sentence summary of what this content is about",
+  "recommendations": [
+    {
+      "tag_name": "Exact tag name from the list",
+      "confidence": 85,
+      "reasoning": "One sentence explaining why this tag applies"
+    }
+  ],
+  "new_tag_suggestions": [
+    {
+      "suggested_name": "Suggested Tag Name",
+      "suggested_parent": "Parent Category Name",
+      "reasoning": "Why this new tag is needed"
+    }
+  ]
+}
+
+AVAILABLE TAGS BY CATEGORY:
+${tagListForAI}`;
+
+  const userPrompt = `CONTENT TO ANALYZE:
+
+${contentContext}
+
+Analyze this content and provide tag recommendations. Remember:
+- Recommend ALL relevant tags (multi-topic detection)
+- Use judgment, not just keyword matching
+- Suggest new tags only if truly needed`;
+
+  // 5. Call OpenAI
+  if (!OPENAI_API_KEY) throw new Error('OpenAI API key not configured');
+
+  const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+      max_tokens: 2000,
+    }),
+  });
+
+  if (!openaiResponse.ok) throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+
+  const aiResult = await openaiResponse.json();
+  const aiOutput = JSON.parse(aiResult.choices[0].message.content);
+
+  // 6. Enrich recommendations
+  const enrichedRecommendations: TagRecommendation[] = (aiOutput.recommendations || [])
+    .map((rec: any) => {
+      const matchedTag = trainingTopicTags.find((t: any) => 
+        t.name.toLowerCase() === rec.tag_name.toLowerCase()
+      );
+      if (!matchedTag) return null;
+      return {
+        tag_id: matchedTag.id,
+        tag_name: matchedTag.name,
+        tag_color: matchedTag.color,
+        parent_category: matchedTag.parent?.name || 'Unknown',
+        confidence: Math.min(100, Math.max(0, rec.confidence)),
+        reasoning: rec.reasoning,
+        auto_select: rec.confidence >= 85,
+      };
+    })
+    .filter(Boolean)
+    .filter((rec: any) => rec.confidence >= 50)
+    .sort((a: any, b: any) => b.confidence - a.confidence);
+
+  // 7. Process new tag suggestions
+  const newTagSuggestions: NewTagSuggestion[] = (aiOutput.new_tag_suggestions || [])
+    .filter((sug: any) => sug.suggested_name && sug.suggested_parent);
+
+  // 8. Store new tag suggestions
+  if (newTagSuggestions.length > 0 && trackId && organizationId) {
+    storeNewTagSuggestions(trackId, organizationId, newTagSuggestions).catch(console.error);
+  }
+
+  // 9. Observability
+  const promptHash = await hashString(systemPrompt + userPrompt);
+  const responseHash = await hashString(aiResult.choices[0].message.content);
+  const processingTime = Date.now() - startTime;
+
+  return {
+    recommendations: enrichedRecommendations,
+    new_tag_suggestions: newTagSuggestions,
+    analysis_summary: aiOutput.analysis_summary || 'Content analyzed successfully.',
+    prompt_hash: promptHash,
+    response_hash: responseHash,
+    processing_time_ms: processingTime
+  };
+}
+
+async function handleRecommendTags(req: Request): Promise<Response> {
+  try {
+    const { 
+      title, 
+      description, 
+      transcript, 
+      keyFacts,
+      trackId,
+      organizationId,
+      parentTagId = '2f13a667-a2f6-49ee-85b8-094e354b0ebb' // Training Topics default
+    } = await req.json();
+
+    const analysisResult = await performTagAnalysis({
+      title,
+      description,
+      transcript,
+      keyFacts,
+      trackId,
+      organizationId,
+      parentTagId
+    });
+
+    return jsonResponse(analysisResult);
+
+  } catch (error: any) {
+    console.error('Error in handleRecommendTags:', error);
+    return jsonResponse({ 
+      error: error.message || 'Failed to generate tag recommendations',
+      recommendations: [],
+      new_tag_suggestions: [],
+    }, 500);
+  }
+}
+
+function buildContentContextForTags(
+  title: string | null, 
+  description: string | null, 
+  transcript: string | null, 
+  keyFacts: any[] | null
+): string {
+  const parts: string[] = [];
+  
+  if (title) parts.push(`Title: ${title}`);
+  if (description) parts.push(`Description: ${description}`);
+  if (keyFacts && keyFacts.length > 0) {
+    const factsText = keyFacts
+      .map((f: any) => typeof f === 'string' ? f : f.fact || f.content || '')
+      .filter(Boolean)
+      .join('; ');
+    if (factsText) parts.push(`Key Facts: ${factsText}`);
+  }
+  if (transcript) {
+    parts.push(`Transcript: ${transcript.substring(0, 3000)}`);
+  }
+  
+  return parts.join('\n\n');
+}
+
+async function storeNewTagSuggestions(
+  trackId: string,
+  organizationId: string,
+  suggestions: NewTagSuggestion[]
+): Promise<void> {
+  for (const suggestion of suggestions) {
+    try {
+      await supabase
+        .from('ai_tag_suggestions')
+        .upsert({
+          track_id: trackId,
+          organization_id: organizationId,
+          suggested_tag_name: suggestion.suggested_name,
+          suggested_parent_category: suggestion.suggested_parent,
+          reasoning: suggestion.reasoning,
+          status: 'pending',
+        }, {
+          onConflict: 'track_id,suggested_tag_name',
+          ignoreDuplicates: true,
+        });
+    } catch (err) {
+      console.error('Error storing suggestion:', err);
+    }
+  }
+}
+
 async function handleUpdateFact(factId: string, req: Request): Promise<Response> {
   try {
     const updates = await req.json();
@@ -1666,6 +2105,21 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
       return jsonResponse({ error: "contentType, contentId, and text are required" }, 400);
     }
 
+    // Phase 5: Enrich text with accepted tag reasonings for better RAG/citation context
+    let enrichedText = text;
+    if (contentType === 'track') {
+      const { data: suggestions } = await supabase
+        .from('ai_tag_suggestions')
+        .select('suggested_tag_name, reasoning')
+        .eq('track_id', contentId)
+        .eq('status', 'accepted');
+        
+      if (suggestions && suggestions.length > 0) {
+        const tagContext = suggestions.map(s => `Topic: ${s.suggested_tag_name}. Context: ${s.reasoning}`).join('\n');
+        enrichedText += `\n\nAdditional Topic Context:\n${tagContext}`;
+      }
+    }
+
     // Extract is_system_template from metadata
     const isSystemTemplate = metadata.isSystemTemplate || false;
 
@@ -1684,7 +2138,7 @@ async function handleBrainEmbed(req: Request): Promise<Response> {
     }
 
     // Chunk the text
-    const chunks = chunkText(text);
+    const chunks = chunkText(enrichedText);
     console.log(`📚 Indexing ${chunks.length} chunks for ${contentType}:${contentId} (system: ${isSystemTemplate})`);
 
     // Generate embeddings and store

@@ -26,7 +26,7 @@ import {
   User,
   MessageSquare,
   Send,
-  Sparkles
+  Zap
 } from 'lucide-react';
 import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
 import { TTSPlayer } from './content/TTSPlayer';

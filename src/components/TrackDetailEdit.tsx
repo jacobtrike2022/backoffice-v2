@@ -32,7 +32,6 @@ import {
   Plus,
   Upload,
   Link as LinkIcon,
-  Sparkles,
   History,
   Zap,
   ThumbsUp
@@ -495,6 +494,21 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       const kbChanged = editFormData.show_in_knowledge_base !== wasInKb;
 
       console.log('Changes detected:', { contentChanged, tagsChanged, kbChanged });
+
+      // Phase 4: Pre-publish guardrails
+      const isPublishing = track.status === 'published' || (isNewContent && saveData.title);
+      if (saveData.tags.length === 0 && isPublishing) {
+        const confirmTagging = window.confirm(
+          "✨ AI Recommendation:\nThis content doesn't have any training topic tags. " +
+          "Proper tagging helps with reporting and search.\n\n" +
+          "Would you like to run AI tag suggestions before saving?"
+        );
+        if (confirmTagging) {
+          setIsSaving(false);
+          setIsTagSelectorOpen(true);
+          return;
+        }
+      }
 
       // Check for related tracks if content changed
       if (contentChanged) {
@@ -2132,6 +2146,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
+        // NEW: Pass content context for AI suggestions
+        showAISuggest={tagSelectorConfig.systemCategory === 'content'}
+        contentContext={{
+          title: isEditMode ? editFormData.title : track.title,
+          description: isEditMode ? editFormData.description : track.description,
+          transcript: isEditMode 
+            ? (editFormData.transcript_data?.text || editFormData.transcript)
+            : (track.transcript_data?.text || track.transcript),
+          keyFacts: isEditMode ? editFormData.learning_objectives : viewModeFacts,
+          trackId: track.id,
+          organizationId: track.organization_id,
+        }}
       />
       
       {/* Version Decision Modal */}

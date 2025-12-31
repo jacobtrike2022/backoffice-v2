@@ -25,6 +25,7 @@ import {
   Search,
   Bell,
   Wrench,
+  Zap,
   LogOut
 } from 'lucide-react';
 import trikeLogo from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
@@ -123,6 +124,13 @@ const navigationGroups: NavigationGroup[] = [
         label: 'Content Authoring',
         icon: Edit,
         roles: ['admin', 'trike-super-admin']
+      },
+      {
+        id: 'ai-review',
+        label: 'AI Tag Review',
+        icon: Zap,
+        roles: ['admin', 'trike-super-admin'],
+        badge: 'NEW'
       },
       {
         id: 'forms',
@@ -438,6 +446,8 @@ export function DashboardLayout({
                               onNavigate('assignments');
                             } else if (item.id === 'authoring') {
                               onNavigate('authoring');
+                            } else if (item.id === 'ai-review') {
+                              onNavigate('ai-review');
                             } else if (item.id === 'forms') {
                               onNavigate('forms');
                             } else if (item.id === 'knowledge-base') {

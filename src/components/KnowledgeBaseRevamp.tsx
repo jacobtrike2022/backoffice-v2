@@ -37,7 +37,6 @@ import {
   Info,
   MessageSquare,
   Send,
-  Sparkles,
   Zap
 } from 'lucide-react';
 import { 
@@ -1206,7 +1205,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                                 <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
                                   {result.trackType === 'video' ? <FileVideo className="w-4 h-4" /> :
                                    result.trackType === 'article' ? <FileText className="w-4 h-4" /> :
-                                   result.trackType === 'story' ? <Sparkles className="w-4 h-4" /> :
+                                   result.trackType === 'story' ? <Zap className="w-4 h-4 fill-current" /> :
                                    <Zap className="w-4 h-4" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -1455,7 +1454,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                                     <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 text-white/40 group-hover:bg-white/10 group-hover:text-white transition-all">
                                       {result.trackType === 'video' ? <FileVideo className="w-4 h-4" /> :
                                        result.trackType === 'article' ? <FileText className="w-4 h-4" /> :
-                                       result.trackType === 'story' ? <Sparkles className="w-4 h-4" /> :
+                                       result.trackType === 'story' ? <Zap className="w-4 h-4 fill-current" /> :
                                        <Zap className="w-4 h-4" />}
                                     </div>
                                     <div className="flex-1 min-w-0">

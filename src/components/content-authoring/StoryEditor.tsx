@@ -36,7 +36,6 @@ import {
   PlayCircle,
   Loader2,
   History,
-  Sparkles,
   Zap,
   CheckCircle2,
   Eye,

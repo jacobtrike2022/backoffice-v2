@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Check, Plus, Tag as TagIcon, Folder, Edit, Trash2 } from 'lucide-react';
+import { Check, Plus, Tag as TagIcon, Folder, Edit, Trash2, Zap } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { 
   getTagHierarchy, 
@@ -13,6 +13,8 @@ import {
   type TagHierarchy
 } from '../lib/crud/tags';
 import { CreateTagModal } from './CreateTagModal';
+import { TagRecommendationPanel } from './TagRecommendationPanel';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface TagSelectorDialogProps {
   isOpen: boolean;
@@ -23,6 +25,16 @@ interface TagSelectorDialogProps {
   allowManagement?: boolean; // Allow editing/deleting tags directly from the list
   canManageSystemTags?: boolean; // Allow editing/deleting system-locked tags (e.g. super admin)
   restrictToParentName?: string; // Only show tags under this specific Parent Tag name
+  // AI Recommendation props
+  showAISuggest?: boolean;
+  contentContext?: {
+    title?: string;
+    description?: string;
+    transcript?: string;
+    keyFacts?: any[];
+    trackId?: string;
+    organizationId?: string;
+  };
 }
 
 export function TagSelectorDialog({ 
@@ -33,21 +45,207 @@ export function TagSelectorDialog({
   systemCategory = 'content',
   allowManagement = false,
   canManageSystemTags = false,
-  restrictToParentName
+  restrictToParentName,
+  showAISuggest = false,
+  contentContext
 }: TagSelectorDialogProps) {
   const [parentGroups, setParentGroups] = useState<TagHierarchy[number]['parents']>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tagToEdit, setTagToEdit] = useState<Tag | null>(null);
+  const [prefilledTagData, setPrefilledTagData] = useState<{ name: string; description: string; parentName?: string } | null>(null);
   const [localSelectedTags, setLocalSelectedTags] = useState<string[]>(selectedTags); // Local state for tag selection
   const [rawHierarchy, setRawHierarchy] = useState<Tag[]>([]);
+
+  // AI Recommendation state
+  const [aiRecommendations, setAiRecommendations] = useState<any[]>([]);
+  const [newTagSuggestions, setNewTagSuggestions] = useState<any[]>([]);
+  const [analysisSummary, setAnalysisSummary] = useState<string>('');
+  const [isLoadingAI, setIsLoadingAI] = useState(false);
+  const [showAIPanel, setShowAIPanel] = useState(false);
+  const [hasPendingAISuggestions, setHasPendingAISuggestions] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       loadTags();
       setLocalSelectedTags(selectedTags); // Reset local state when modal opens
+      checkPendingSuggestions();
     }
   }, [isOpen, systemCategory, selectedTags]);
+
+  const checkPendingSuggestions = async () => {
+    if (!contentContext?.trackId) return;
+    
+    try {
+      const { count, error } = await supabase
+        .from('ai_tag_suggestions')
+        .select('*', { count: 'exact', head: true })
+        .eq('track_id', contentContext.trackId)
+        .eq('status', 'pending');
+        
+      if (error) throw error;
+      setHasPendingAISuggestions((count || 0) > 0);
+    } catch (err) {
+      console.error('Error checking pending AI suggestions:', err);
+    }
+  };
+
+  const handleAISuggest = async () => {
+    if (!contentContext) {
+      toast.error('No content available to analyze');
+      return;
+    }
+
+    // Check if there's enough content to analyze
+    const hasContent = 
+      contentContext.title || 
+      contentContext.description || 
+      contentContext.transcript ||
+      (contentContext.keyFacts && contentContext.keyFacts.length > 0);
+
+    if (!hasContent) {
+      toast.error('Add a title, description, or transcript first');
+      return;
+    }
+
+    setIsLoadingAI(true);
+    setShowAIPanel(true);
+    setAiRecommendations([]);
+    setNewTagSuggestions([]);
+    setAnalysisSummary('');
+
+    try {
+      // 1. Check if we have pending suggestions in DB first (Phase 2 surfacing)
+      if (hasPendingAISuggestions && contentContext.trackId) {
+        const { data: pending, error: fetchError } = await supabase
+          .from('ai_tag_suggestions')
+          .select('*')
+          .eq('track_id', contentContext.trackId)
+          .eq('status', 'pending');
+          
+        if (!fetchError && pending && pending.length > 0) {
+          // Process existing suggestions from DB
+          // For simplicity in Phase 1->2 transition, we'll map them back to recommendations
+          const matchedRecs = pending.map((p: any) => ({
+            tag_id: '', // Will be filled below if found
+            tag_name: p.suggested_tag_name,
+            tag_color: null,
+            parent_category: p.suggested_parent_category || 'Unknown',
+            confidence: p.confidence || 0,
+            reasoning: p.reasoning || '',
+            auto_select: (p.confidence || 0) >= 85
+          }));
+
+          // Enrich with tag data from rawHierarchy
+          const enriched = matchedRecs.map(rec => {
+            const tag = rawHierarchy.find(t => t.name.toLowerCase() === rec.tag_name.toLowerCase());
+            if (tag) {
+              return { ...rec, tag_id: tag.id, tag_color: tag.color };
+            }
+            return rec;
+          }).filter(r => r.tag_id !== '');
+
+          if (enriched.length > 0) {
+            setAiRecommendations(enriched);
+            setAnalysisSummary('Using pending AI suggestions found for this content.');
+            setIsLoadingAI(false);
+            return;
+          }
+        }
+      }
+
+      // 2. No pending suggestions or error, call OpenAI API
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/trike-server/recommend-tags`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+        body: JSON.stringify({
+          title: contentContext.title,
+          description: contentContext.description,
+          transcript: contentContext.transcript,
+          keyFacts: contentContext.keyFacts,
+          trackId: contentContext.trackId,
+          organizationId: contentContext.organizationId,
+        }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to get recommendations');
+      }
+
+      const data = await response.json();
+      
+      setAiRecommendations(data.recommendations || []);
+      setNewTagSuggestions(data.new_tag_suggestions || []);
+      setAnalysisSummary(data.analysis_summary || '');
+
+      // Auto-select high-confidence tags
+      const autoSelectTags = (data.recommendations || [])
+        .filter((r: any) => r.auto_select && !localSelectedTags.includes(r.tag_name))
+        .map((r: any) => r.tag_name);
+
+      if (autoSelectTags.length > 0) {
+        setLocalSelectedTags(prev => [...new Set([...prev, ...autoSelectTags])]);
+        toast.success(`✨ Auto-selected ${autoSelectTags.length} high-confidence tag${autoSelectTags.length > 1 ? 's' : ''}`);
+      } else if (data.recommendations?.length > 0) {
+        toast.success(`Found ${data.recommendations.length} relevant tags`);
+      }
+
+    } catch (error: any) {
+      console.error('AI tag suggestion failed:', error);
+      toast.error(error.message || 'Failed to get AI suggestions');
+      setShowAIPanel(false);
+    } finally {
+      setIsLoadingAI(false);
+    }
+  };
+
+  const handleToggleAIRecommendedTag = (tagName: string) => {
+    if (localSelectedTags.includes(tagName)) {
+      setLocalSelectedTags(localSelectedTags.filter(t => t !== tagName));
+    } else {
+      setLocalSelectedTags([...localSelectedTags, tagName]);
+    }
+  };
+
+  const handleCreateNewTag = async (suggestion: any) => {
+    setTagToEdit(null);
+    setPrefilledTagData({ 
+      name: suggestion.suggested_name, 
+      description: suggestion.reasoning,
+      parentName: suggestion.suggested_parent 
+    });
+    setShowCreateModal(true);
+  };
+
+  const handleAIFeedback = async (tagName: string, feedback: 'positive' | 'negative') => {
+    if (!contentContext?.trackId) return;
+    
+    try {
+      await supabase
+        .from('ai_tag_suggestions')
+        .update({ 
+          feedback, 
+          feedback_at: new Date().toISOString() 
+        })
+        .eq('track_id', contentContext.trackId)
+        .eq('suggested_tag_name', tagName);
+        
+      if (feedback === 'negative') {
+        toast.info('Feedback received. We will use this to improve recommendations.');
+      } else {
+        toast.success('Glad that was helpful!');
+      }
+    } catch (err) {
+      console.error('Error saving AI feedback:', err);
+    }
+  };
 
   const loadTags = async () => {
     setIsLoading(true);
@@ -168,8 +366,26 @@ export function TagSelectorDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto py-4 space-y-6">
-            {/* Create New Tag Button */}
-            <div className="flex justify-end">
+            {/* Create New Tag Button + AI Suggest Button */}
+            <div className="flex justify-end gap-2">
+              {/* AI Suggest Button - Only show when content context available */}
+              {showAISuggest && contentContext && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAISuggest}
+                  disabled={isLoadingAI}
+                  className="text-orange-600 hover:text-orange-700 border-orange-300 hover:border-orange-400 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-700 dark:hover:bg-orange-950"
+                >
+                      {isLoadingAI ? (
+                        <div className="animate-spin h-4 w-4 mr-2 border-2 border-orange-500 border-t-transparent rounded-full" />
+                      ) : (
+                        <Zap className="h-4 w-4 mr-2 fill-current" />
+                      )}
+                      AI Suggest
+                </Button>
+              )}
+              
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -180,6 +396,21 @@ export function TagSelectorDialog({
                 Create New Tag
               </Button>
             </div>
+
+            {/* AI Recommendations Panel - Show above tag categories */}
+            {showAIPanel && (
+              <TagRecommendationPanel
+                recommendations={aiRecommendations}
+                newTagSuggestions={newTagSuggestions}
+                analysisSummary={analysisSummary}
+                selectedTags={localSelectedTags}
+                onToggleTag={handleToggleAIRecommendedTag}
+                onCreateNewTag={handleCreateNewTag}
+                onDismiss={() => setShowAIPanel(false)}
+                onFeedback={handleAIFeedback}
+                isLoading={isLoadingAI}
+              />
+            )}
 
             {/* Loading State */}
             {isLoading && (
@@ -386,14 +617,19 @@ export function TagSelectorDialog({
           onClose={() => {
             setShowCreateModal(false);
             setTagToEdit(null);
+            setPrefilledTagData(null);
           }}
           onSuccess={handleCreateSuccess}
           categories={rawHierarchy} // Pass the full hierarchy for parent selection
           tagToEdit={tagToEdit}
+          initialTagName={prefilledTagData?.name}
+          initialDescription={prefilledTagData?.description}
           // If restricted, we preselect the parent
-          preselectedParentId={restrictToParentName 
-            ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id 
-            : undefined}
+          preselectedParentId={prefilledTagData?.parentName 
+            ? rawHierarchy.find(t => t.name.toLowerCase() === prefilledTagData.parentName?.toLowerCase())?.id
+            : restrictToParentName 
+              ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id 
+              : undefined}
         />
       )}
     </>

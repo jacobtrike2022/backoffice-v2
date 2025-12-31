@@ -17,6 +17,8 @@ interface CreateTagModalProps {
   preselectedParentId?: string;
   defaultType?: TagType;
   tagToEdit?: Tag | null;
+  initialTagName?: string;
+  initialDescription?: string;
 }
 
 export function CreateTagModal({
@@ -28,6 +30,8 @@ export function CreateTagModal({
   preselectedParentId,
   defaultType,
   tagToEdit,
+  initialTagName,
+  initialDescription,
 }: CreateTagModalProps) {
   const isEditing = !!tagToEdit;
   
@@ -110,8 +114,8 @@ export function CreateTagModal({
       }
     } else {
       // Reset defaults if not editing
-      setTagName('');
-      setDescription('');
+      setTagName(initialTagName || '');
+      setDescription(initialDescription || '');
       setColor('#F74A05');
       const parentTag = findTagById(preselectedParentId);
       const derivedCategoryId =

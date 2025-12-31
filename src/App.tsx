@@ -14,6 +14,7 @@ import { NewUnit } from "./components/NewUnit";
 import { Organization } from "./components/Organization";
 import { ContentAuthoring } from "./components/ContentAuthoring";
 import { ContentLibrary } from "./components/ContentLibrary";
+import { AIReview } from "./components/AIReview";
 import { Playlists } from "./components/Playlists";
 import { PlaylistWizard } from "./components/PlaylistWizard";
 import { KnowledgeBaseRevamp } from "./components/KnowledgeBaseRevamp";
@@ -48,6 +49,7 @@ type AppView =
   | "new-unit"
   | "organization"
   | "authoring"
+  | "ai-review"
   | "forms"
   | "knowledge-base"
   | "settings";
@@ -517,6 +519,8 @@ export default function App() {
             }
           />
         );
+      case "ai-review":
+        return <AIReview />;
       case "forms":
         return <Forms role={currentRole} />;
       case "knowledge-base":

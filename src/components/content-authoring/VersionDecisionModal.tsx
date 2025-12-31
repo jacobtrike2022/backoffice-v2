@@ -20,7 +20,7 @@ import {
   XCircle,
   Save,
   Info,
-  Sparkles
+  Zap
 } from 'lucide-react';
 import * as crud from '../../lib/crud/tracks';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
@@ -363,7 +363,7 @@ export function VersionDecisionModal({
           <Card className="bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800">
             <CardContent className="pt-4 pb-4">
               <h4 className="text-sm font-semibold mb-3 flex items-center">
-                <Sparkles className="h-4 w-4 mr-1.5 text-blue-600" />
+                <Zap className="h-4 w-4 mr-1.5 text-blue-600 fill-current" />
                 What we'll handle for you
               </h4>
               <ul className="space-y-2 text-sm text-muted-foreground">

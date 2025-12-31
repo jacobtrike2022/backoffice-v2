@@ -30,7 +30,7 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Sparkles,
+  Zap,
   HardHat,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -1972,7 +1972,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   Tasks ({mergedTasks.filter(t => t.is_active).length}/{mergedTasks.length})
                 </TabsTrigger>
                 <TabsTrigger value="work_styles" className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" />
+                  <Zap className="h-4 w-4 fill-current" />
                   Work Styles ({mergedWorkStyles.filter(ws => ws.is_active).length}/{mergedWorkStyles.length})
                 </TabsTrigger>
                 <TabsTrigger value="skills" className="flex items-center gap-2">

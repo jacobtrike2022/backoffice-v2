@@ -33,6 +33,7 @@ import {
   MoreVertical,
   Archive,
   Plus,
+  Zap,
   FolderOpen
 } from 'lucide-react';
 import {
@@ -60,7 +61,7 @@ import { CheckpointEditor } from './content-authoring/CheckpointEditor';
 import { StoryEditor } from './content-authoring/StoryEditor';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { ContentLibrarySidebar } from './ContentLibrarySidebar';
-import { useTracks, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useTracks, useCurrentUser, useAITagSuggestionsCount } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -753,6 +754,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     return sortedTracks;
   }, [sortedTracks, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
 
+  const trackIds = useMemo(() => filteredTracks.map(t => t.id), [filteredTracks]);
+  const { counts: aiSuggestionCounts } = useAITagSuggestionsCount(trackIds);
+
   // Loading state - only show skeleton on initial load, not on refetch
   if (loading && (!tracks || tracks.length === 0)) {
     return (
@@ -1241,6 +1245,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
                   </div>
+                  {/* AI Suggestions Badge */}
+                  {aiSuggestionCounts[track.id] > 0 && (
+                    <div className="absolute bottom-2 left-2">
+                      <Badge className="bg-orange-500 hover:bg-orange-600 text-white animate-pulse border-none shadow-md flex items-center gap-1">
+                        <Zap className="h-3 w-3 fill-current" />
+                        {aiSuggestionCounts[track.id]} AI Suggestion{aiSuggestionCounts[track.id] > 1 ? 's' : ''}
+                      </Badge>
+                    </div>
+                  )}
                   {/* Actions Menu (shows on hover) */}
                   <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Popover>

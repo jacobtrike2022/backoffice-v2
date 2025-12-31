@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { MessageSquare, User, Sparkles } from 'lucide-react';
+import { MessageSquare, User, Zap } from 'lucide-react';
 
 interface Word {
   text: string;
@@ -224,7 +224,7 @@ export function InteractiveTranscript({
                 disabled={isTranscribing}
                 className="gap-2"
               >
-                <Sparkles className="h-4 w-4" />
+                <Zap className="h-4 w-4 fill-current" />
                 {isTranscribing ? 'Transcribing...' : 'Generate Transcript'}
               </Button>
             )}
@@ -234,7 +234,7 @@ export function InteractiveTranscript({
           <div className="text-center py-8 text-muted-foreground">
             {isTranscribing ? (
               <div>
-                <Sparkles className="h-8 w-8 mx-auto mb-2 animate-pulse text-primary" />
+                <Zap className="h-8 w-8 mx-auto mb-2 animate-pulse text-primary fill-current" />
                 <p>Generating transcript... This may take 30-60 seconds.</p>
               </div>
             ) : canTranscribe ? (

@@ -479,3 +479,44 @@ export function useDistricts(organizationId?: string) {
 
   return { districts, loading, error, refetch };
 }
+
+/**
+ * Hook to get counts of pending AI tag suggestions for tracks
+ */
+export function useAITagSuggestionsCount(trackIds: string[]) {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!trackIds || trackIds.length === 0) {
+      setLoading(false);
+      return;
+    }
+
+    async function fetchCounts() {
+      try {
+        const { data, error } = await supabase
+          .from('ai_tag_suggestions')
+          .select('track_id')
+          .in('track_id', trackIds)
+          .eq('status', 'pending');
+
+        if (error) throw error;
+
+        const newCounts: Record<string, number> = {};
+        data?.forEach((row: any) => {
+          newCounts[row.track_id] = (newCounts[row.track_id] || 0) + 1;
+        });
+        setCounts(newCounts);
+      } catch (err) {
+        console.error('Error fetching AI tag suggestion counts:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchCounts();
+  }, [JSON.stringify(trackIds)]);
+
+  return { counts, loading };
+}
