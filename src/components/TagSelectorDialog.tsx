@@ -358,7 +358,7 @@ export function TagSelectorDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+        <DialogContent className="sm:max-w-[50vw] max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Select Tags</DialogTitle>
             <DialogDescription>
