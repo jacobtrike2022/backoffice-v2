@@ -2781,6 +2781,35 @@ export function StoryEditor({
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
+        // AI Recommendation props
+        showAISuggest={tagSelectorConfig.systemCategory === 'content'}
+        contentContext={{
+          title: isEditMode ? title : (existingTrack?.title || ''),
+          description: isEditMode ? description : (existingTrack?.description || ''),
+          transcript: (() => {
+            // For stories, extract transcript text from slides
+            if (isEditMode) {
+              // In edit mode, combine transcripts from all video slides
+              const videoSlides = slides.filter((s: any) => s.type === 'video' && s.transcript?.text);
+              return videoSlides.map((s: any) => s.transcript.text).join('\n\n');
+            } else if (existingTrack?.transcript) {
+              // In view mode, parse story data and extract transcripts
+              try {
+                const storyData = typeof existingTrack.transcript === 'string' 
+                  ? JSON.parse(existingTrack.transcript) 
+                  : existingTrack.transcript;
+                const videoSlides = (storyData.slides || []).filter((s: any) => s.type === 'video' && s.transcript?.text);
+                return videoSlides.map((s: any) => s.transcript.text).join('\n\n');
+              } catch (e) {
+                return '';
+              }
+            }
+            return '';
+          })(),
+          keyFacts: isEditMode ? objectives.filter((o: any) => o && typeof o === 'object' ? o.fact || o.title : o) : (existingTrack?.learning_objectives || []),
+          trackId: currentTrackId,
+          organizationId: existingTrack?.organization_id,
+        }}
       />
       
       {/* Version Decision Modal */}
