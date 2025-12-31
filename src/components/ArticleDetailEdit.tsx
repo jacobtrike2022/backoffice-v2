@@ -2069,6 +2069,18 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         restrictToParentName={tagSelectorConfig.restrictToParentName}
         allowManagement={isSuperAdminAuthenticated}
         canManageSystemTags={isSuperAdminAuthenticated}
+        // AI Recommendation props
+        showAISuggest={tagSelectorConfig.systemCategory === 'content'}
+        contentContext={{
+          title: isEditMode ? editFormData.title : track.title,
+          description: isEditMode ? editFormData.description : track.description,
+          transcript: isEditMode 
+            ? (editFormData.article_body || editFormData.transcript)
+            : (track.transcript || ''),
+          keyFacts: isEditMode ? editFormData.learning_objectives : viewModeFacts,
+          trackId: track.id,
+          organizationId: track.organization_id,
+        }}
       />
 
       {/* Version Decision Modal */}
