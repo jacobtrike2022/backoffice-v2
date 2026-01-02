@@ -24,6 +24,7 @@ import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog"
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { PublicKBViewer } from "./components/PublicKBViewer";
+import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
@@ -554,9 +555,19 @@ export default function App() {
   const slug = urlParams.get("slug") || hashParams.get("slug");
   const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
 
+  // Check if this is the onboarding flow (NO AUTH REQUIRED)
+  const isOnboardingView = window.location.pathname.includes("onboarding") ||
+    urlParams.get("view") === "onboarding" ||
+    hashParams.get("view") === "onboarding";
+
   // If public KB view, show it immediately without auth check
   if (isPublicKBView) {
     return <PublicKBViewer />;
+  }
+
+  // If onboarding view, show it without auth check
+  if (isOnboardingView) {
+    return <OnboardingPage />;
   }
 
   return (

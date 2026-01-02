@@ -225,6 +225,40 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // ONBOARDING & COMPANY ENRICHMENT
+    // =========================================================================
+
+    // Start new onboarding session
+    if (method === "POST" && path === "/onboarding/start") {
+      return await handleOnboardingStart(req);
+    }
+
+    // Scrape company info from website
+    if (method === "POST" && path === "/onboarding/enrich-company") {
+      return await handleEnrichCompany(req);
+    }
+
+    // Chat with onboarding agent
+    if (method === "POST" && path === "/onboarding/chat") {
+      return await handleOnboardingChat(req);
+    }
+
+    // Update onboarding session data
+    if (method === "POST" && path === "/onboarding/update") {
+      return await handleOnboardingUpdate(req);
+    }
+
+    // Complete onboarding and create demo org
+    if (method === "POST" && path === "/onboarding/complete") {
+      return await handleOnboardingComplete(req);
+    }
+
+    // Get industries and services for dropdowns
+    if (method === "GET" && path === "/onboarding/options") {
+      return await handleOnboardingOptions(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -3302,7 +3336,7 @@ async function handleBrainBackfill(req: Request): Promise<Response> {
     return jsonResponse(result);
   } catch (error) {
     console.error("[Brain Backfill] Fatal error:", error);
-    return jsonResponse({ 
+    return jsonResponse({
       error: error.message || "Failed to backfill brain index",
       indexed: 0,
       skipped: 0,
@@ -3310,4 +3344,742 @@ async function handleBrainBackfill(req: Request): Promise<Response> {
       details: [],
     }, 500);
   }
+}
+
+// =============================================================================
+// ONBOARDING HANDLERS
+// =============================================================================
+
+/**
+ * Start a new onboarding session
+ */
+async function handleOnboardingStart(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { referrer, utm_params } = body;
+
+    // Generate session token
+    const sessionToken = crypto.randomUUID();
+
+    // Create session
+    const { data: session, error } = await supabase
+      .from("onboarding_sessions")
+      .insert({
+        session_token: sessionToken,
+        status: "started",
+        current_step: "welcome",
+        referrer,
+        utm_params: utm_params || {},
+        ip_address: req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip"),
+        user_agent: req.headers.get("user-agent"),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    console.log(`[Onboarding] Started new session: ${sessionToken}`);
+
+    return jsonResponse({
+      success: true,
+      session_token: sessionToken,
+      session_id: session.id,
+      current_step: "welcome",
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Error starting session:", error);
+    return jsonResponse({ error: error.message || "Failed to start onboarding" }, 500);
+  }
+}
+
+/**
+ * Scrape company info from website URL
+ */
+async function handleEnrichCompany(req: Request): Promise<Response> {
+  try {
+    const { website, session_token } = await req.json();
+
+    if (!website) {
+      return jsonResponse({ error: "website URL is required" }, 400);
+    }
+
+    console.log(`[Onboarding] Enriching company from: ${website}`);
+
+    // Normalize URL
+    let url = website.trim().toLowerCase();
+    if (!url.startsWith("http")) {
+      url = "https://" + url;
+    }
+
+    // Extract domain for company name fallback
+    const domain = new URL(url).hostname.replace("www.", "");
+    const domainName = domain.split(".")[0];
+
+    // Fetch the website
+    let html = "";
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+          "Accept": "text/html,application/xhtml+xml",
+        },
+      });
+      html = await response.text();
+    } catch (fetchError: any) {
+      console.error(`[Onboarding] Failed to fetch ${url}:`, fetchError);
+      // Return partial data even if fetch fails
+      return jsonResponse({
+        success: true,
+        data: {
+          website: url,
+          company_name: capitalizeWords(domainName),
+          scraped: false,
+          error: "Could not fetch website",
+        },
+      });
+    }
+
+    // Extract data from HTML
+    const scrapedData = await extractCompanyDataFromHTML(html, url, domainName);
+
+    // Try to find store locator page and scrape locations
+    const storeLocatorUrls = [
+      "/locations",
+      "/stores",
+      "/find-us",
+      "/store-locator",
+      "/our-locations",
+      "/find-a-store",
+    ];
+
+    let stores: any[] = [];
+    for (const locatorPath of storeLocatorUrls) {
+      try {
+        const locatorUrl = new URL(locatorPath, url).toString();
+        const locatorResponse = await fetch(locatorUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "Accept": "text/html,application/xhtml+xml,application/json",
+          },
+        });
+
+        if (locatorResponse.ok) {
+          const locatorHtml = await locatorResponse.text();
+          stores = extractStoresFromHTML(locatorHtml);
+          if (stores.length > 0) {
+            console.log(`[Onboarding] Found ${stores.length} stores at ${locatorPath}`);
+            break;
+          }
+        }
+      } catch (e) {
+        // Continue to next URL
+      }
+    }
+
+    // Use AI to enhance the scraped data
+    const enrichedData = await enrichWithAI(scrapedData, html, stores);
+
+    // Update session if token provided
+    if (session_token) {
+      await supabase
+        .from("onboarding_sessions")
+        .update({
+          collected_data: enrichedData,
+          last_activity_at: new Date().toISOString(),
+        })
+        .eq("session_token", session_token);
+    }
+
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}`);
+
+    return jsonResponse({
+      success: true,
+      data: enrichedData,
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Error enriching company:", error);
+    return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+  }
+}
+
+/**
+ * Extract company data from HTML
+ */
+function extractCompanyDataFromHTML(html: string, url: string, domainFallback: string): any {
+  const data: any = {
+    website: url,
+    scraped: true,
+  };
+
+  // Try to extract company name from various sources
+  // 1. og:site_name meta tag
+  const ogSiteNameMatch = html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i);
+  if (ogSiteNameMatch) {
+    data.company_name = ogSiteNameMatch[1].trim();
+  }
+
+  // 2. Title tag (fallback)
+  if (!data.company_name) {
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      // Clean up title - remove common suffixes
+      let title = titleMatch[1].trim();
+      title = title.replace(/\s*[-|–—]\s*(home|welcome|official site|official website).*$/i, "").trim();
+      title = title.replace(/\s*(home|welcome|official site|official website)\s*[-|–—]\s*/i, "").trim();
+      if (title.length > 2 && title.length < 50) {
+        data.company_name = title;
+      }
+    }
+  }
+
+  // 3. Use domain name as last resort
+  if (!data.company_name) {
+    data.company_name = capitalizeWords(domainFallback);
+  }
+
+  // Extract logo
+  const logoPatterns = [
+    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+    /<link[^>]*rel=["']icon["'][^>]*href=["']([^"']+)["']/i,
+    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+    /<img[^>]*class=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+  ];
+
+  for (const pattern of logoPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      let logoUrl = match[1];
+      // Make relative URLs absolute
+      if (logoUrl.startsWith("/")) {
+        logoUrl = new URL(logoUrl, url).toString();
+      }
+      data.logo_url = logoUrl;
+      break;
+    }
+  }
+
+  // Extract brand colors from CSS
+  const colorMatches = html.matchAll(/(?:--(?:primary|brand|main)[^:]*:\s*)(#[a-fA-F0-9]{3,6}|rgb[a]?\([^)]+\))/gi);
+  const colors: string[] = [];
+  for (const match of colorMatches) {
+    colors.push(match[1]);
+    if (colors.length >= 2) break;
+  }
+  if (colors.length > 0) {
+    data.brand_colors = {
+      primary: colors[0],
+      secondary: colors[1] || null,
+    };
+  }
+
+  // Extract address from structured data or footer
+  const addressMatch = html.match(/"address":\s*{[^}]*"streetAddress":\s*"([^"]+)"[^}]*"addressLocality":\s*"([^"]+)"[^}]*"addressRegion":\s*"([^"]+)"/i);
+  if (addressMatch) {
+    data.headquarters = {
+      street: addressMatch[1],
+      city: addressMatch[2],
+      state: addressMatch[3],
+    };
+  }
+
+  return data;
+}
+
+/**
+ * Extract store locations from HTML (store locator page)
+ */
+function extractStoresFromHTML(html: string): any[] {
+  const stores: any[] = [];
+
+  // Try to find JSON-LD structured data
+  const jsonLdMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([^<]+)<\/script>/gi);
+  for (const match of jsonLdMatches) {
+    try {
+      const jsonData = JSON.parse(match[1]);
+
+      // Handle array of stores
+      if (Array.isArray(jsonData)) {
+        for (const item of jsonData) {
+          if (item["@type"] === "Store" || item["@type"] === "LocalBusiness" || item["@type"] === "GasStation") {
+            stores.push(parseStructuredStore(item));
+          }
+        }
+      }
+
+      // Handle single store or organization with locations
+      if (jsonData["@type"] === "Store" || jsonData["@type"] === "LocalBusiness") {
+        stores.push(parseStructuredStore(jsonData));
+      }
+
+      // Handle organization with multiple locations
+      if (jsonData.location && Array.isArray(jsonData.location)) {
+        for (const loc of jsonData.location) {
+          stores.push(parseStructuredStore(loc));
+        }
+      }
+    } catch (e) {
+      // Invalid JSON, continue
+    }
+  }
+
+  // Try to find embedded JSON data (many store locators use this)
+  const jsonDataMatch = html.match(/(?:stores|locations|markers)\s*[:=]\s*(\[[^\]]+\])/i);
+  if (jsonDataMatch && stores.length === 0) {
+    try {
+      const jsonStores = JSON.parse(jsonDataMatch[1]);
+      for (const store of jsonStores) {
+        if (store.name || store.title || store.address) {
+          stores.push({
+            name: store.name || store.title || store.storeName,
+            address: store.address || store.streetAddress,
+            city: store.city || store.locality,
+            state: store.state || store.region || store.administrativeArea,
+            zip: store.zip || store.postalCode,
+            phone: store.phone || store.telephone,
+            lat: store.lat || store.latitude,
+            lng: store.lng || store.longitude || store.lon,
+          });
+        }
+      }
+    } catch (e) {
+      // Invalid JSON
+    }
+  }
+
+  return stores.slice(0, 100); // Cap at 100 for performance
+}
+
+/**
+ * Parse a structured data store object
+ */
+function parseStructuredStore(item: any): any {
+  const address = item.address || {};
+  return {
+    name: item.name,
+    address: address.streetAddress || item.streetAddress,
+    city: address.addressLocality || item.addressLocality,
+    state: address.addressRegion || item.addressRegion,
+    zip: address.postalCode || item.postalCode,
+    phone: item.telephone,
+    lat: item.geo?.latitude,
+    lng: item.geo?.longitude,
+  };
+}
+
+/**
+ * Use AI to enhance and classify scraped data
+ */
+async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    console.warn("[Onboarding] No OpenAI key, skipping AI enrichment");
+    return { ...scrapedData, stores, services: [], industry: null };
+  }
+
+  // Truncate HTML to avoid token limits
+  const truncatedHtml = html.substring(0, 15000);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You analyze company websites to classify businesses. Return JSON only.
+
+Industries: convenience_retail, qsr (quick service restaurant), grocery, fuel_retail, hospitality
+Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
+
+Analyze the website content and determine:
+1. The company's industry
+2. What services they likely offer based on the website content
+3. A brief description of the company
+4. Operating states if mentioned`
+          },
+          {
+            role: "user",
+            content: `Company: ${scrapedData.company_name}
+Website: ${scrapedData.website}
+
+Website content (truncated):
+${truncatedHtml}
+
+Return JSON with: { industry, services: [], description, operating_states: [] }`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    const aiData = JSON.parse(aiResult.choices[0].message.content);
+
+    return {
+      ...scrapedData,
+      industry: aiData.industry || null,
+      services: aiData.services || [],
+      description: aiData.description || null,
+      operating_states: aiData.operating_states || [],
+      stores: stores,
+      store_count: stores.length,
+    };
+  } catch (error: any) {
+    console.error("[Onboarding] AI enrichment failed:", error);
+    return { ...scrapedData, stores, services: [], industry: null };
+  }
+}
+
+/**
+ * Chat with onboarding agent
+ */
+async function handleOnboardingChat(req: Request): Promise<Response> {
+  try {
+    const { session_token, message } = await req.json();
+
+    if (!session_token || !message) {
+      return jsonResponse({ error: "session_token and message are required" }, 400);
+    }
+
+    // Get session
+    const { data: session, error: sessionError } = await supabase
+      .from("onboarding_sessions")
+      .select("*")
+      .eq("session_token", session_token)
+      .single();
+
+    if (sessionError || !session) {
+      return jsonResponse({ error: "Invalid session token" }, 404);
+    }
+
+    const conversationHistory = session.conversation_history || [];
+    const collectedData = session.collected_data || {};
+
+    // Build system prompt
+    const systemPrompt = `You are Trike's friendly onboarding assistant. You help companies set up their training platform.
+
+Current collected data: ${JSON.stringify(collectedData)}
+Current step: ${session.current_step}
+
+Your goals:
+1. Collect company website URL if not provided
+2. Confirm scraped company info is correct
+3. Identify their industry and services
+4. Learn about their locations/store count
+5. Get contact info for their account
+
+Be conversational but efficient. Ask one thing at a time.
+When you have enough info, tell them you're ready to create their demo account.
+
+Available industries: convenience_retail, qsr, grocery, fuel_retail, hospitality
+Available services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
+
+Respond with JSON: { "message": "your response", "action": null | "scrape_website" | "update_data" | "create_demo", "data": {} }`;
+
+    // Add user message to history
+    conversationHistory.push({ role: "user", content: message });
+
+    // Call OpenAI
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...conversationHistory.slice(-10), // Last 10 messages for context
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    const aiResponse = JSON.parse(aiResult.choices[0].message.content);
+
+    // Add assistant response to history
+    conversationHistory.push({ role: "assistant", content: aiResponse.message });
+
+    // Update session
+    let updatedData = collectedData;
+    if (aiResponse.data && Object.keys(aiResponse.data).length > 0) {
+      updatedData = { ...collectedData, ...aiResponse.data };
+    }
+
+    await supabase
+      .from("onboarding_sessions")
+      .update({
+        conversation_history: conversationHistory,
+        collected_data: updatedData,
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq("session_token", session_token);
+
+    return jsonResponse({
+      success: true,
+      message: aiResponse.message,
+      action: aiResponse.action,
+      data: aiResponse.data,
+      collected_data: updatedData,
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Chat error:", error);
+    return jsonResponse({ error: error.message || "Chat failed" }, 500);
+  }
+}
+
+/**
+ * Update onboarding session data directly
+ */
+async function handleOnboardingUpdate(req: Request): Promise<Response> {
+  try {
+    const { session_token, data, current_step } = await req.json();
+
+    if (!session_token) {
+      return jsonResponse({ error: "session_token is required" }, 400);
+    }
+
+    // Get current session
+    const { data: session, error: sessionError } = await supabase
+      .from("onboarding_sessions")
+      .select("collected_data")
+      .eq("session_token", session_token)
+      .single();
+
+    if (sessionError || !session) {
+      return jsonResponse({ error: "Invalid session token" }, 404);
+    }
+
+    // Merge new data
+    const updatedData = { ...session.collected_data, ...data };
+
+    const updatePayload: any = {
+      collected_data: updatedData,
+      last_activity_at: new Date().toISOString(),
+    };
+
+    if (current_step) {
+      updatePayload.current_step = current_step;
+      updatePayload.steps_completed = [...(session.steps_completed || []), current_step];
+    }
+
+    const { error: updateError } = await supabase
+      .from("onboarding_sessions")
+      .update(updatePayload)
+      .eq("session_token", session_token);
+
+    if (updateError) throw updateError;
+
+    return jsonResponse({
+      success: true,
+      collected_data: updatedData,
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Update error:", error);
+    return jsonResponse({ error: error.message || "Update failed" }, 500);
+  }
+}
+
+/**
+ * Complete onboarding and create demo organization
+ */
+async function handleOnboardingComplete(req: Request): Promise<Response> {
+  try {
+    const { session_token, demo_days = 14 } = await req.json();
+
+    if (!session_token) {
+      return jsonResponse({ error: "session_token is required" }, 400);
+    }
+
+    // Get session
+    const { data: session, error: sessionError } = await supabase
+      .from("onboarding_sessions")
+      .select("*")
+      .eq("session_token", session_token)
+      .single();
+
+    if (sessionError || !session) {
+      return jsonResponse({ error: "Invalid session token" }, 404);
+    }
+
+    const data = session.collected_data || {};
+
+    if (!data.company_name) {
+      return jsonResponse({ error: "Company name is required" }, 400);
+    }
+
+    // Generate subdomain
+    const subdomain = data.company_name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .substring(0, 30);
+
+    // Check if subdomain exists
+    const { data: existing } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .single();
+
+    const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
+
+    // Create organization
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .insert({
+        name: data.company_name,
+        subdomain: finalSubdomain,
+        website: data.website,
+        status: "demo",
+        demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
+        industry: data.industry,
+        services_offered: data.services || [],
+        operating_states: data.operating_states || [],
+        brand_primary_color: data.brand_colors?.primary,
+        brand_secondary_color: data.brand_colors?.secondary,
+        onboarding_source: "self_service",
+        scraped_data: data,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+
+    // Import stores if we have them
+    if (data.stores && data.stores.length > 0) {
+      const storesToInsert = data.stores.slice(0, 50).map((store: any, index: number) => ({
+        organization_id: org.id,
+        name: store.name || `Store ${index + 1}`,
+        code: store.code || `S${(index + 1).toString().padStart(3, "0")}`,
+        address: store.address,
+        city: store.city,
+        state: store.state,
+        zip: store.zip,
+        phone: store.phone,
+        latitude: store.lat,
+        longitude: store.lng,
+        is_active: true,
+      }));
+
+      const { error: storesError } = await supabase
+        .from("stores")
+        .insert(storesToInsert);
+
+      if (storesError) {
+        console.error("[Onboarding] Failed to import stores:", storesError);
+      } else {
+        console.log(`[Onboarding] Imported ${storesToInsert.length} stores`);
+      }
+    }
+
+    // Update session
+    await supabase
+      .from("onboarding_sessions")
+      .update({
+        organization_id: org.id,
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("session_token", session_token);
+
+    console.log(`[Onboarding] Created demo org: ${org.name} (${org.id})`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        subdomain: org.subdomain,
+        demo_expires_at: org.demo_expires_at,
+      },
+      stores_imported: data.stores?.length || 0,
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Complete error:", error);
+    return jsonResponse({ error: error.message || "Failed to create organization" }, 500);
+  }
+}
+
+/**
+ * Get industries and services for form dropdowns
+ */
+async function handleOnboardingOptions(req: Request): Promise<Response> {
+  try {
+    // Get industries
+    const { data: industries, error: industriesError } = await supabase
+      .from("industries")
+      .select("slug, name, description, default_services, icon, sort_order")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (industriesError) throw industriesError;
+
+    // Get services
+    const { data: services, error: servicesError } = await supabase
+      .from("service_definitions")
+      .select("slug, name, description, compliance_domains, requires_license, icon, sort_order")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (servicesError) throw servicesError;
+
+    // Get US states
+    const states = [
+      { code: "AL", name: "Alabama" }, { code: "AK", name: "Alaska" }, { code: "AZ", name: "Arizona" },
+      { code: "AR", name: "Arkansas" }, { code: "CA", name: "California" }, { code: "CO", name: "Colorado" },
+      { code: "CT", name: "Connecticut" }, { code: "DE", name: "Delaware" }, { code: "FL", name: "Florida" },
+      { code: "GA", name: "Georgia" }, { code: "HI", name: "Hawaii" }, { code: "ID", name: "Idaho" },
+      { code: "IL", name: "Illinois" }, { code: "IN", name: "Indiana" }, { code: "IA", name: "Iowa" },
+      { code: "KS", name: "Kansas" }, { code: "KY", name: "Kentucky" }, { code: "LA", name: "Louisiana" },
+      { code: "ME", name: "Maine" }, { code: "MD", name: "Maryland" }, { code: "MA", name: "Massachusetts" },
+      { code: "MI", name: "Michigan" }, { code: "MN", name: "Minnesota" }, { code: "MS", name: "Mississippi" },
+      { code: "MO", name: "Missouri" }, { code: "MT", name: "Montana" }, { code: "NE", name: "Nebraska" },
+      { code: "NV", name: "Nevada" }, { code: "NH", name: "New Hampshire" }, { code: "NJ", name: "New Jersey" },
+      { code: "NM", name: "New Mexico" }, { code: "NY", name: "New York" }, { code: "NC", name: "North Carolina" },
+      { code: "ND", name: "North Dakota" }, { code: "OH", name: "Ohio" }, { code: "OK", name: "Oklahoma" },
+      { code: "OR", name: "Oregon" }, { code: "PA", name: "Pennsylvania" }, { code: "RI", name: "Rhode Island" },
+      { code: "SC", name: "South Carolina" }, { code: "SD", name: "South Dakota" }, { code: "TN", name: "Tennessee" },
+      { code: "TX", name: "Texas" }, { code: "UT", name: "Utah" }, { code: "VT", name: "Vermont" },
+      { code: "VA", name: "Virginia" }, { code: "WA", name: "Washington" }, { code: "WV", name: "West Virginia" },
+      { code: "WI", name: "Wisconsin" }, { code: "WY", name: "Wyoming" }, { code: "DC", name: "District of Columbia" },
+    ];
+
+    return jsonResponse({
+      industries: industries || [],
+      services: services || [],
+      states,
+    });
+  } catch (error: any) {
+    console.error("[Onboarding] Options error:", error);
+    return jsonResponse({ error: error.message || "Failed to get options" }, 500);
+  }
+}
+
+/**
+ * Capitalize words in a string
+ */
+function capitalizeWords(str: string): string {
+  return str
+    .split(/[-_\s]+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }
