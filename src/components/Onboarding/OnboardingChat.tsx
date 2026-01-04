@@ -1,28 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Card, CardContent } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { Alert, AlertDescription } from '../ui/alert';
+import { ScrollArea } from '../ui/scroll-area';
 import {
-  Box,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  CircularProgress,
-  Chip,
-  Avatar,
-  Fade,
-  Card,
-  CardContent,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-  Alert,
-} from '@mui/material';
-import {
-  Send as SendIcon,
-  Business as BusinessIcon,
-  Store as StoreIcon,
-  CheckCircle as CheckCircleIcon,
-  AutoAwesome as SparkleIcon,
-} from '@mui/icons-material';
+  Send,
+  Building2,
+  Store,
+  CheckCircle,
+  Sparkles,
+  Loader2,
+  X,
+} from 'lucide-react';
 import { getServerUrl, publicAnonKey } from '../../utils/supabase/info';
 
 interface Message {
@@ -316,186 +308,175 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     }
   };
 
+  const renderMessageContent = (content: string) => {
+    // Convert **text** to bold
+    return content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  };
+
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        maxWidth: 800,
-        mx: 'auto',
-        p: 2,
-      }}
-    >
+    <div className="flex flex-col h-full max-w-3xl mx-auto p-4">
       {/* Header */}
-      <Box sx={{ textAlign: 'center', mb: 3 }}>
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
+      <div className="text-center mb-6">
+        <h1 className="text-2xl font-bold text-foreground mb-2">
           Welcome to Trike
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
+        </h1>
+        <p className="text-muted-foreground">
           Let's get your training platform set up in minutes
-        </Typography>
-      </Box>
+        </p>
+      </div>
 
       {/* Messages */}
-      <Paper
-        elevation={0}
-        sx={{
-          flex: 1,
-          overflow: 'auto',
-          p: 2,
-          bgcolor: 'grey.50',
-          borderRadius: 2,
-          mb: 2,
-        }}
-      >
-        {messages.map((msg, index) => (
-          <Fade in key={index}>
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                mb: 2,
-              }}
+      <ScrollArea className="flex-1 rounded-lg bg-muted/30 p-4 mb-4">
+        <div className="space-y-4">
+          {messages.map((msg, index) => (
+            <div
+              key={index}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {msg.role === 'assistant' && (
-                <Avatar
-                  sx={{
-                    bgcolor: 'primary.main',
-                    width: 36,
-                    height: 36,
-                    mr: 1,
-                  }}
-                >
-                  <SparkleIcon fontSize="small" />
+                <Avatar className="h-9 w-9 mr-2 shrink-0">
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    <Sparkles className="h-4 w-4" />
+                  </AvatarFallback>
                 </Avatar>
               )}
-              <Paper
-                elevation={1}
-                sx={{
-                  p: 2,
-                  maxWidth: '80%',
-                  bgcolor: msg.role === 'user' ? 'primary.main' : 'white',
-                  color: msg.role === 'user' ? 'white' : 'text.primary',
-                  borderRadius: 2,
-                }}
+              <div
+                className={`max-w-[80%] rounded-lg p-3 ${
+                  msg.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card border shadow-sm'
+                }`}
               >
-                <Typography
-                  variant="body1"
-                  sx={{ whiteSpace: 'pre-wrap' }}
+                <p
+                  className="text-sm whitespace-pre-wrap"
                   dangerouslySetInnerHTML={{
-                    __html: msg.content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'),
+                    __html: renderMessageContent(msg.content),
                   }}
                 />
-              </Paper>
-            </Box>
-          </Fade>
-        ))}
+              </div>
+            </div>
+          ))}
 
-        {isLoading && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
-              <SparkleIcon fontSize="small" />
-            </Avatar>
-            <CircularProgress size={20} />
-          </Box>
-        )}
+          {isLoading && (
+            <div className="flex items-center gap-2">
+              <Avatar className="h-9 w-9">
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  <Sparkles className="h-4 w-4" />
+                </AvatarFallback>
+              </Avatar>
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
 
-        <div ref={messagesEndRef} />
-      </Paper>
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
 
       {/* Company Card (when data is collected) */}
       {showConfirmation && collectedData.company_name && (
-        <Fade in>
-          <Card sx={{ mb: 2 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                {collectedData.logo_url ? (
-                  <Avatar src={collectedData.logo_url} sx={{ width: 48, height: 48 }} />
-                ) : (
-                  <Avatar sx={{ width: 48, height: 48, bgcolor: 'primary.main' }}>
-                    <BusinessIcon />
-                  </Avatar>
-                )}
-                <Box>
-                  <Typography variant="h6">{collectedData.company_name}</Typography>
-                  {collectedData.industry && (
-                    <Typography variant="body2" color="text.secondary">
-                      {formatIndustry(collectedData.industry)}
-                    </Typography>
-                  )}
-                </Box>
-                {collectedData.store_count && collectedData.store_count > 0 && (
-                  <Chip
-                    icon={<StoreIcon />}
-                    label={`${collectedData.store_count} locations`}
-                    size="small"
-                    sx={{ ml: 'auto' }}
-                  />
-                )}
-              </Box>
-
-              {collectedData.services && collectedData.services.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Services
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {collectedData.services.map((service) => (
-                      <Chip key={service} label={formatService(service)} size="small" variant="outlined" />
-                    ))}
-                  </Box>
-                </Box>
+        <Card className="mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3 mb-4">
+              {collectedData.logo_url ? (
+                <Avatar className="h-12 w-12">
+                  <AvatarImage src={collectedData.logo_url} alt={collectedData.company_name} />
+                  <AvatarFallback>
+                    <Building2 className="h-6 w-6" />
+                  </AvatarFallback>
+                </Avatar>
+              ) : (
+                <Avatar className="h-12 w-12">
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    <Building2 className="h-6 w-6" />
+                  </AvatarFallback>
+                </Avatar>
               )}
+              <div className="flex-1">
+                <h3 className="font-semibold text-lg">{collectedData.company_name}</h3>
+                {collectedData.industry && (
+                  <p className="text-sm text-muted-foreground">
+                    {formatIndustry(collectedData.industry)}
+                  </p>
+                )}
+              </div>
+              {collectedData.store_count && collectedData.store_count > 0 && (
+                <Badge variant="secondary" className="gap-1">
+                  <Store className="h-3 w-3" />
+                  {collectedData.store_count} locations
+                </Badge>
+              )}
+            </div>
 
-              <Button
-                variant="contained"
-                color="primary"
-                fullWidth
-                onClick={handleCreateDemo}
-                disabled={isLoading}
-                startIcon={isLoading ? <CircularProgress size={20} /> : <CheckCircleIcon />}
-              >
-                {isLoading ? 'Creating your account...' : 'Looks good! Create my demo'}
-              </Button>
-            </CardContent>
-          </Card>
-        </Fade>
+            {collectedData.services && collectedData.services.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium mb-2">Services</p>
+                <div className="flex flex-wrap gap-1">
+                  {collectedData.services.map((service) => (
+                    <Badge key={service} variant="outline" className="text-xs">
+                      {formatService(service)}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Button
+              className="w-full"
+              onClick={handleCreateDemo}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating your account...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Looks good! Create my demo
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {/* Error Alert */}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription className="flex items-center justify-between">
+            {error}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setError(null)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
       {/* Input */}
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <TextField
-          fullWidth
-          variant="outlined"
+      <div className="flex gap-2">
+        <Input
           placeholder="Type your message..."
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyPress}
           disabled={isLoading}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 3,
-            },
-          }}
+          className="flex-1"
         />
         <Button
-          variant="contained"
           onClick={sendMessage}
           disabled={!inputValue.trim() || isLoading}
-          sx={{ borderRadius: 3, minWidth: 56 }}
+          size="icon"
         >
-          <SendIcon />
+          <Send className="h-4 w-4" />
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 };
 
