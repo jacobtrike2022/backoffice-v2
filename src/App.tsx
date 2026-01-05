@@ -506,7 +506,7 @@ export default function App() {
           />
         );
       case "organization":
-        return <Organization role={currentRole} />;
+        return <Organization role={currentRole} onNavigate={requestNavigate} />;
       case "authoring":
         return (
           <ContentAuthoring
@@ -521,7 +521,7 @@ export default function App() {
           />
         );
       case "ai-review":
-        return <AIReview />;
+        return <AIReview onBack={() => requestNavigate("organization")} />;
       case "forms":
         return <Forms role={currentRole} />;
       case "knowledge-base":

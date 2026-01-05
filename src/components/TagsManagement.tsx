@@ -11,7 +11,7 @@ import {
   X,
   Tag as TagIcon,
   Globe,
-  Eye,
+  Zap,
   ChevronDown,
   ChevronRight,
   FolderPlus
@@ -26,20 +26,23 @@ import {
   type TagType
 } from '../lib/crud/tags';
 import { CreateTagModal } from './CreateTagModal';
+import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
 interface TagsManagementProps {
   currentRole?: string;
   activeSystem?: string;
   onSystemChange?: (systemId: string) => void;
   onSystemsLoaded?: (systems: Tag[]) => void;
+  onNavigateToTagSuggestions?: () => void;
 }
 
-export function TagsManagement({ currentRole, activeSystem: externalActiveSystem, onSystemChange, onSystemsLoaded }: TagsManagementProps) {
+export function TagsManagement({ currentRole, activeSystem: externalActiveSystem, onSystemChange, onSystemsLoaded, onNavigateToTagSuggestions }: TagsManagementProps) {
   const [loading, setLoading] = useState(true);
   const [rawCategories, setRawCategories] = useState<Tag[]>([]);
   const [hierarchy, setHierarchy] = useState<TagHierarchy[]>([]);
   const [internalActiveSystem, setInternalActiveSystem] = useState<string>('');
   const [collapsedSubcategories, setCollapsedSubcategories] = useState<Record<string, boolean>>({});
+  const [pendingSuggestionsCount, setPendingSuggestionsCount] = useState(0);
   
   // Use external activeSystem if provided, otherwise use internal
   const activeSystem = externalActiveSystem !== undefined ? externalActiveSystem : internalActiveSystem;
@@ -80,7 +83,26 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
 
   useEffect(() => {
     loadTags();
+    fetchPendingSuggestionsCount();
   }, []);
+
+  const fetchPendingSuggestionsCount = async () => {
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) return;
+
+      const { count, error } = await supabase
+        .from('ai_tag_suggestions')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .eq('status', 'pending');
+
+      if (error) throw error;
+      setPendingSuggestionsCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching pending suggestions count:', error);
+    }
+  };
 
   const loadTags = async () => {
     try {
@@ -175,13 +197,22 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
             variant="outline"
             size="sm"
             onClick={() => {
-              // Scroll to hierarchy view or expand all categories
-              // This can be enhanced based on what "View All" should do
-              window.scrollTo({ top: 0, behavior: 'smooth' });
+              if (onNavigateToTagSuggestions) {
+                onNavigateToTagSuggestions();
+              }
             }}
+            className={pendingSuggestionsCount > 0
+              ? "bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 hover:opacity-90"
+              : ""
+            }
           >
-            <Eye className="w-4 h-4 mr-2" />
-            View All
+            <Zap className="w-4 h-4 mr-2" />
+            Tag Suggestions
+            {pendingSuggestionsCount > 0 && (
+              <span className="ml-2 bg-white/20 text-white text-xs px-1.5 py-0.5 rounded-full">
+                {pendingSuggestionsCount}
+              </span>
+            )}
           </Button>
         </div>
 

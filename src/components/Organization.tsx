@@ -16,10 +16,12 @@ type OrganizationTab = 'tags' | 'roles' | 'districts';
 
 interface OrganizationProps {
   currentRole?: string;
+  role?: string;
   onBackToDashboard?: () => void;
+  onNavigate?: (view: string) => void;
 }
 
-export function Organization({ currentRole, onBackToDashboard }: OrganizationProps) {
+export function Organization({ currentRole, role, onBackToDashboard, onNavigate }: OrganizationProps) {
   const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
   const [tagSystems, setTagSystems] = useState<TagType[]>([]);
   const [activeTagSystem, setActiveTagSystem] = useState<string>('');
@@ -287,8 +289,8 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
       {/* Tab Content */}
       <div>
         {activeTab === 'tags' && (
-          <TagsManagement 
-            currentRole={currentRole}
+          <TagsManagement
+            currentRole={currentRole || role}
             activeSystem={activeTagSystem}
             onSystemChange={setActiveTagSystem}
             onSystemsLoaded={(systems) => {
@@ -296,6 +298,11 @@ export function Organization({ currentRole, onBackToDashboard }: OrganizationPro
               // Set first system as active if none is set
               if (!activeTagSystem && systems.length > 0) {
                 setActiveTagSystem(systems[0].id);
+              }
+            }}
+            onNavigateToTagSuggestions={() => {
+              if (onNavigate) {
+                onNavigate('ai-review');
               }
             }}
           />

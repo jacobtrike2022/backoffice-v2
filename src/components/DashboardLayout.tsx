@@ -126,13 +126,6 @@ const navigationGroups: NavigationGroup[] = [
         roles: ['admin', 'trike-super-admin']
       },
       {
-        id: 'ai-review',
-        label: 'AI Tag Review',
-        icon: Zap,
-        roles: ['admin', 'trike-super-admin'],
-        badge: 'NEW'
-      },
-      {
         id: 'forms',
         label: 'Forms',
         icon: ClipboardList,
@@ -446,8 +439,6 @@ export function DashboardLayout({
                               onNavigate('assignments');
                             } else if (item.id === 'authoring') {
                               onNavigate('authoring');
-                            } else if (item.id === 'ai-review') {
-                              onNavigate('ai-review');
                             } else if (item.id === 'forms') {
                               onNavigate('forms');
                             } else if (item.id === 'knowledge-base') {

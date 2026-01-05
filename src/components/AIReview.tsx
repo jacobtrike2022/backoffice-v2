@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Zap, Check, X, ExternalLink, Info, Brain } from 'lucide-react';
+import { Zap, Check, X, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import * as crud from '../lib/crud';
@@ -23,7 +23,11 @@ interface AISuggestion {
   };
 }
 
-export function AIReview() {
+interface AIReviewProps {
+  onBack?: () => void;
+}
+
+export function AIReview({ onBack }: AIReviewProps) {
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -135,14 +139,19 @@ export function AIReview() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Brain className="h-8 w-8 text-primary" />
-            AI Tag Review
-          </h1>
-          <p className="text-muted-foreground">
-            Review and approve tags suggested by AI based on content analysis.
-          </p>
+        <div className="flex items-center gap-4">
+          {onBack && (
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Tags
+            </Button>
+          )}
+          <div>
+            <h1 className="text-3xl">AI Tag Review</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Review and approve tags suggested by AI based on content analysis.
+            </p>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={fetchSuggestions}>
