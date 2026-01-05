@@ -1,5 +1,4 @@
 import React from 'react';
-import { Box, Container, useTheme, useMediaQuery } from '@mui/material';
 import { OnboardingChat } from './OnboardingChat';
 
 /**
@@ -10,9 +9,6 @@ import { OnboardingChat } from './OnboardingChat';
  * - Inbound lead capture
  */
 export const OnboardingPage: React.FC = () => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-
   const handleComplete = (organization: any) => {
     console.log('Onboarding complete:', organization);
     // TODO: Redirect to login or dashboard
@@ -24,27 +20,13 @@ export const OnboardingPage: React.FC = () => {
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        py: isMobile ? 2 : 4,
-      }}
-    >
-      <Container maxWidth="md">
-        <Box
-          sx={{
-            bgcolor: 'white',
-            borderRadius: 3,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-            overflow: 'hidden',
-            minHeight: isMobile ? 'calc(100vh - 32px)' : 'calc(100vh - 64px)',
-          }}
-        >
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 py-4 sm:py-8">
+      <div className="container mx-auto px-4 max-w-3xl">
+        <div className="bg-background rounded-2xl shadow-2xl overflow-hidden min-h-[calc(100vh-4rem)]">
           <OnboardingChat onComplete={handleComplete} />
-        </Box>
-      </Container>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 };
 
