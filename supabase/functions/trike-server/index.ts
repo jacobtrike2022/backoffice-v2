@@ -297,6 +297,18 @@ Deno.serve(async (req: Request) => {
       return await handleDeleteEmailTemplate(templateId, req);
     }
 
+    // Customize system template (create org copy)
+    if (method === "POST" && path.match(/^\/email\/templates\/[^/]+\/customize$/)) {
+      const templateId = path.replace("/email/templates/", "").replace("/customize", "");
+      return await handleCustomizeEmailTemplate(templateId, req);
+    }
+
+    // Send test email for template
+    if (method === "POST" && path.match(/^\/email\/templates\/[^/]+\/test$/)) {
+      const templateId = path.replace("/email/templates/", "").replace("/test", "");
+      return await handleTestEmailTemplate(templateId, req);
+    }
+
     // Get email logs
     if (method === "GET" && path === "/email/logs") {
       return await handleGetEmailLogs(req);
@@ -5028,6 +5040,175 @@ async function handleDeleteEmailTemplate(templateId: string, req: Request): Prom
   } catch (error: any) {
     console.error("[Email] Delete template error:", error);
     return jsonResponse({ error: error.message || "Failed to delete template" }, 500);
+  }
+}
+
+/**
+ * POST /email/templates/:id/customize - Create org copy of system template
+ */
+async function handleCustomizeEmailTemplate(templateId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Get the system template
+    const { data: systemTemplate, error: getError } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("id", templateId)
+      .is("organization_id", null)
+      .eq("template_type", "system")
+      .single();
+
+    if (getError || !systemTemplate) {
+      return jsonResponse({ error: "System template not found" }, 404);
+    }
+
+    // Check if org already has a template with this slug
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("slug", systemTemplate.slug)
+      .single();
+
+    if (existing) {
+      return jsonResponse({ error: "You already have a customized version of this template" }, 409);
+    }
+
+    // Create org copy
+    const { data: newTemplate, error: insertError } = await supabase
+      .from("email_templates")
+      .insert({
+        organization_id: orgId,
+        slug: systemTemplate.slug,
+        name: systemTemplate.name,
+        description: systemTemplate.description,
+        subject: systemTemplate.subject,
+        body_html: systemTemplate.body_html,
+        body_text: systemTemplate.body_text,
+        template_type: "organization",
+        is_locked: false,
+        is_active: true,
+        available_variables: systemTemplate.available_variables,
+      })
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+
+    return jsonResponse({ template: newTemplate }, 201);
+  } catch (error: any) {
+    console.error("[Email] Customize template error:", error);
+    return jsonResponse({ error: error.message || "Failed to customize template" }, 500);
+  }
+}
+
+/**
+ * POST /email/templates/:id/test - Send test email to current user
+ */
+async function handleTestEmailTemplate(templateId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Get current user's email
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError || !user) {
+      return jsonResponse({ error: "Could not get user info" }, 401);
+    }
+
+    // Get the template
+    const { data: template, error: templateError } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("id", templateId)
+      .single();
+
+    if (templateError || !template) {
+      return jsonResponse({ error: "Template not found" }, 404);
+    }
+
+    // Verify access (system template or own org template)
+    if (template.organization_id && template.organization_id !== orgId) {
+      return jsonResponse({ error: "Access denied" }, 403);
+    }
+
+    // Get org name for sample variables
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .single();
+
+    // Get user's name
+    const { data: userData } = await supabase
+      .from("users")
+      .select("first_name, last_name")
+      .eq("auth_id", user.id)
+      .single();
+
+    const userName = userData ? `${userData.first_name} ${userData.last_name}` : "Test User";
+    const companyName = org?.name || "Your Company";
+
+    // Build sample variables based on slug
+    const sampleVariables: Record<string, string> = {
+      admin_name: userName,
+      employee_name: userName,
+      user_name: userName,
+      company_name: companyName,
+      login_email: user.email || "test@example.com",
+      temp_password: "TestPass123!",
+      login_url: "https://app.trike.app",
+      reset_link: "https://app.trike.app/reset?token=test123",
+      expires_in: "1 hour",
+    };
+
+    // Render template
+    const subject = renderEmailTemplate(template.subject, sampleVariables);
+    const bodyHtml = renderEmailTemplate(template.body_html, sampleVariables);
+    const bodyText = template.body_text ? renderEmailTemplate(template.body_text, sampleVariables) : undefined;
+
+    // Send via Resend
+    const sendResult = await sendEmailViaResend({
+      to: user.email!,
+      subject,
+      html: bodyHtml,
+      text: bodyText,
+    });
+
+    if (!sendResult.success) {
+      throw new Error(sendResult.error || "Failed to send email");
+    }
+
+    // Log the test email
+    await supabase.from("email_logs").insert({
+      organization_id: orgId,
+      recipient_email: user.email,
+      template_id: template.id,
+      template_slug: template.slug,
+      subject,
+      body_html: bodyHtml,
+      trigger_type: "test",
+      status: "sent",
+      resend_id: sendResult.id,
+      metadata: { variables: sampleVariables, test: true },
+    });
+
+    return jsonResponse({ success: true, message: `Test email sent to ${user.email}` });
+  } catch (error: any) {
+    console.error("[Email] Test email error:", error);
+    return jsonResponse({ error: error.message || "Failed to send test email" }, 500);
   }
 }
 

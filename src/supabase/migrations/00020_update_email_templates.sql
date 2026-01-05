@@ -1,10 +1,13 @@
 -- =====================================================
--- SEED SYSTEM EMAIL TEMPLATES
+-- UPDATE SYSTEM EMAIL TEMPLATES
 -- =====================================================
--- These are Trike-managed templates that all organizations inherit.
--- Organizations can override by creating their own with the same slug.
+-- Run this to update all system templates with Trike brand colors
+-- This will delete and re-insert all system templates
 -- Brand colors: Primary #F64A05, Secondary #FF733C
 -- =====================================================
+
+-- Delete existing system templates (organization_id IS NULL)
+DELETE FROM email_templates WHERE organization_id IS NULL AND template_type = 'system';
 
 -- Welcome Admin Template
 INSERT INTO email_templates (
@@ -19,7 +22,7 @@ INSERT INTO email_templates (
     is_locked,
     available_variables
 ) VALUES (
-    NULL,  -- System template
+    NULL,
     'welcome_admin',
     'Welcome - Admin Account',
     'Sent when a new admin account is created during onboarding',
@@ -138,14 +141,7 @@ For security, please change your password after first login.
       {"key": "temp_password", "description": "Temporary password"},
       {"key": "login_url", "description": "URL to login page"}
     ]'::jsonb
-) ON CONFLICT (organization_id, slug) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    subject = EXCLUDED.subject,
-    body_html = EXCLUDED.body_html,
-    body_text = EXCLUDED.body_text,
-    available_variables = EXCLUDED.available_variables,
-    updated_at = NOW();
+);
 
 -- Welcome Employee Template
 INSERT INTO email_templates (
@@ -261,14 +257,7 @@ Start Training: {{login_url}}
       {"key": "temp_password", "description": "Temporary password"},
       {"key": "login_url", "description": "URL to login page"}
     ]'::jsonb
-) ON CONFLICT (organization_id, slug) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    subject = EXCLUDED.subject,
-    body_html = EXCLUDED.body_html,
-    body_text = EXCLUDED.body_text,
-    available_variables = EXCLUDED.available_variables,
-    updated_at = NOW();
+);
 
 -- Password Reset Template
 INSERT INTO email_templates (
@@ -370,14 +359,7 @@ If you didn''t request this, ignore this email.
       {"key": "reset_link", "description": "Password reset URL"},
       {"key": "expires_in", "description": "Link expiration time (e.g., 1 hour)"}
     ]'::jsonb
-) ON CONFLICT (organization_id, slug) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    subject = EXCLUDED.subject,
-    body_html = EXCLUDED.body_html,
-    body_text = EXCLUDED.body_text,
-    available_variables = EXCLUDED.available_variables,
-    updated_at = NOW();
+);
 
 -- Password Changed Confirmation Template
 INSERT INTO email_templates (
@@ -462,11 +444,4 @@ If you didn''t make this change, please contact support immediately.
     '[
       {"key": "user_name", "description": "User''s name"}
     ]'::jsonb
-) ON CONFLICT (organization_id, slug) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    subject = EXCLUDED.subject,
-    body_html = EXCLUDED.body_html,
-    body_text = EXCLUDED.body_text,
-    available_variables = EXCLUDED.available_variables,
-    updated_at = NOW();
+);

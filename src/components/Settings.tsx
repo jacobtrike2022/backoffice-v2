@@ -445,10 +445,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
           <TabsTrigger value="company">Company</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          <TabsTrigger value="email" className="flex items-center gap-1">
-            <Mail className="h-4 w-4" />
-            Email
-          </TabsTrigger>
+          <TabsTrigger value="email">Email</TabsTrigger>
         </TabsList>
 
         {/* Billing Tab */}

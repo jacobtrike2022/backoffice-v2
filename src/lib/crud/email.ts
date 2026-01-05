@@ -3,8 +3,9 @@
 // ============================================================================
 
 import { supabase } from '../supabase';
+import { projectId } from '../../utils/supabase/info';
 
-const TRIKE_SERVER_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1/trike-server';
+const TRIKE_SERVER_URL = `https://${projectId}.supabase.co/functions/v1/trike-server`;
 
 // ============================================================================
 // TYPES
@@ -209,6 +210,45 @@ export async function deleteEmailTemplate(templateId: string): Promise<void> {
   }
 }
 
+/**
+ * Customize a system template by creating an org-level copy
+ */
+export async function customizeSystemTemplate(templateId: string): Promise<EmailTemplate> {
+  const headers = await getAuthHeaders();
+
+  const response = await fetch(`${TRIKE_SERVER_URL}/email/templates/${templateId}/customize`, {
+    method: 'POST',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to customize template');
+  }
+
+  const data = await response.json();
+  return data.template;
+}
+
+/**
+ * Send a test email for a template to the current user
+ */
+export async function sendTestEmail(templateId: string): Promise<{ success: boolean; message?: string }> {
+  const headers = await getAuthHeaders();
+
+  const response = await fetch(`${TRIKE_SERVER_URL}/email/templates/${templateId}/test`, {
+    method: 'POST',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send test email');
+  }
+
+  return response.json();
+}
+
 // ============================================================================
 // EMAIL LOGS
 // ============================================================================
@@ -307,32 +347,43 @@ export async function previewEmailTemplate(input: PreviewEmailInput): Promise<{
 // TEMPLATE HELPERS
 // ============================================================================
 
+export interface OrgContext {
+  name: string;
+  adminName?: string;
+  adminEmail?: string;
+}
+
 /**
  * Get sample variables for a template slug
+ * If orgContext is provided, uses real org data instead of dummy data
  */
-export function getSampleVariables(slug: string): Record<string, string> {
+export function getSampleVariables(slug: string, orgContext?: OrgContext): Record<string, string> {
+  const companyName = orgContext?.name || 'Acme Corporation';
+  const adminName = orgContext?.adminName || 'John Smith';
+  const adminEmail = orgContext?.adminEmail || 'john@company.com';
+
   const samples: Record<string, Record<string, string>> = {
     welcome_admin: {
-      admin_name: 'John Smith',
-      company_name: 'Acme Corporation',
-      login_email: 'john@acme.com',
+      admin_name: adminName,
+      company_name: companyName,
+      login_email: adminEmail,
       temp_password: 'TempPass123!',
       login_url: 'https://app.trike.app',
     },
     welcome_employee: {
       employee_name: 'Jane Doe',
-      company_name: 'Acme Corporation',
-      login_email: 'jane@acme.com',
+      company_name: companyName,
+      login_email: `jane@${companyName.toLowerCase().replace(/\s+/g, '')}.com`,
       temp_password: 'TempPass123!',
       login_url: 'https://app.trike.app',
     },
     password_reset: {
-      user_name: 'John Smith',
+      user_name: adminName,
       reset_link: 'https://app.trike.app/reset?token=abc123',
       expires_in: '1 hour',
     },
     password_changed: {
-      user_name: 'John Smith',
+      user_name: adminName,
     },
   };
 

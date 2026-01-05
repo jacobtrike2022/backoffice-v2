@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
-import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
-import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import {
   Mail,
   Send,
@@ -22,10 +25,11 @@ import {
   Plus,
   Search,
   RefreshCw,
-  Copy,
   ExternalLink,
   AlertCircle,
   Lock,
+  MoreHorizontal,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -33,11 +37,17 @@ import {
   getEmailLogs,
   previewEmailTemplate,
   deleteEmailTemplate,
+  createEmailTemplate,
+  updateEmailTemplate,
+  customizeSystemTemplate,
+  sendTestEmail,
   getSampleVariables,
-  getStatusColor,
   type EmailTemplate,
   type EmailLog,
+  type OrgContext,
 } from '../../lib/crud/email';
+import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
+import { EmailTemplateEditorModal, type TemplateFormData } from './EmailTemplateEditorModal';
 
 export function EmailSettings() {
   const [activeSubTab, setActiveSubTab] = useState('templates');
@@ -53,8 +63,56 @@ export function EmailSettings() {
   const [previewSubject, setPreviewSubject] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState<string>('all');
   const [logSearch, setLogSearch] = useState('');
+  const [orgContext, setOrgContext] = useState<OrgContext | undefined>(undefined);
+
+  // Editor modal state
+  const [showEditorModal, setShowEditorModal] = useState(false);
+  const [editorMode, setEditorMode] = useState<'create' | 'edit' | 'customize'>('create');
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<EmailTemplate | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const LOGS_PER_PAGE = 20;
+
+  // Load org context on mount
+  useEffect(() => {
+    async function loadOrgContext() {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+
+        // Fetch organization name
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', orgId)
+          .single();
+
+        // Fetch admin user info (first admin we find)
+        const { data: adminUser } = await supabase
+          .from('users')
+          .select('first_name, last_name, email')
+          .eq('organization_id', orgId)
+          .eq('role', 'admin')
+          .limit(1)
+          .single();
+
+        if (org) {
+          setOrgContext({
+            name: org.name,
+            adminName: adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : undefined,
+            adminEmail: adminUser?.email,
+          });
+        }
+      } catch (error) {
+        console.error('Error loading org context:', error);
+      }
+    }
+    loadOrgContext();
+  }, []);
 
   // Load templates on mount
   useEffect(() => {
@@ -99,7 +157,8 @@ export function EmailSettings() {
 
   async function handlePreviewTemplate(template: EmailTemplate) {
     try {
-      const variables = getSampleVariables(template.slug);
+      // Pass org context to get dynamic preview data instead of dummy "Acme Corporation"
+      const variables = getSampleVariables(template.slug, orgContext);
       const preview = await previewEmailTemplate({
         template_id: template.id,
         variables,
@@ -110,6 +169,104 @@ export function EmailSettings() {
       setShowPreviewModal(true);
     } catch (error: any) {
       toast.error('Failed to preview template', { description: error.message });
+    }
+  }
+
+  // Open editor for creating new template
+  function handleCreateTemplate() {
+    setEditingTemplate(null);
+    setEditorMode('create');
+    setShowEditorModal(true);
+  }
+
+  // Open editor for editing existing template
+  function handleEditTemplate(template: EmailTemplate) {
+    setEditingTemplate(template);
+    setEditorMode('edit');
+    setShowEditorModal(true);
+  }
+
+  // Open editor for customizing system template
+  async function handleCustomizeTemplate(template: EmailTemplate) {
+    try {
+      // Create org copy of system template
+      const customized = await customizeSystemTemplate(template.id);
+      // Open editor with the new org template
+      setEditingTemplate(customized);
+      setEditorMode('edit'); // It's now an org template, so edit mode
+      setShowEditorModal(true);
+      // Reload templates list
+      await loadTemplates();
+      toast.success('Template customized', {
+        description: 'You can now edit your copy of this template.',
+      });
+    } catch (error: any) {
+      toast.error('Failed to customize template', { description: error.message });
+    }
+  }
+
+  // Save template (create or update)
+  async function handleSaveTemplate(formData: TemplateFormData) {
+    if (editorMode === 'create') {
+      await createEmailTemplate({
+        slug: formData.slug,
+        name: formData.name,
+        description: formData.description,
+        subject: formData.subject,
+        body_html: formData.body_html,
+        body_text: formData.body_text,
+        available_variables: formData.available_variables,
+      });
+      toast.success('Template created');
+    } else {
+      if (!formData.id) {
+        throw new Error('Template ID is required for update');
+      }
+      await updateEmailTemplate(formData.id, {
+        name: formData.name,
+        description: formData.description,
+        subject: formData.subject,
+        body_html: formData.body_html,
+        body_text: formData.body_text,
+        available_variables: formData.available_variables,
+      });
+      toast.success('Template updated');
+    }
+    await loadTemplates();
+  }
+
+  // Confirm delete
+  function handleDeleteClick(template: EmailTemplate) {
+    setTemplateToDelete(template);
+    setShowDeleteConfirm(true);
+  }
+
+  // Execute delete
+  async function handleConfirmDelete() {
+    if (!templateToDelete) return;
+    try {
+      setDeleting(true);
+      await deleteEmailTemplate(templateToDelete.id);
+      toast.success('Template deleted');
+      await loadTemplates();
+      setShowDeleteConfirm(false);
+      setTemplateToDelete(null);
+    } catch (error: any) {
+      toast.error('Failed to delete template', { description: error.message });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  // Send test email
+  async function handleSendTestEmail(template: EmailTemplate) {
+    try {
+      await sendTestEmail(template.id);
+      toast.success('Test email sent', {
+        description: 'Check your inbox for the test email.',
+      });
+    } catch (error: any) {
+      toast.error('Failed to send test email', { description: error.message });
     }
   }
 
@@ -144,12 +301,12 @@ export function EmailSettings() {
     <div className="space-y-6">
       {/* Email System Header */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-6">
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary" />
             Email Communication
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="mt-1.5">
             Manage email templates and view email delivery logs
           </CardDescription>
         </CardHeader>
@@ -181,54 +338,7 @@ export function EmailSettings() {
             </Card>
           ) : (
             <>
-              {/* System Templates */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Lock className="h-4 w-4 text-muted-foreground" />
-                    System Templates
-                  </CardTitle>
-                  <CardDescription>
-                    These templates are managed by Trike and cannot be modified
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {templates
-                      .filter(t => t.template_type === 'system')
-                      .map(template => (
-                        <div
-                          key={template.id}
-                          className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">{template.name}</h4>
-                              <Badge variant="outline" className="text-xs">
-                                {template.slug}
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {template.description}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handlePreviewTemplate(template)}
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              Preview
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Organization Templates */}
+              {/* Organization Templates (Custom) - moved above System */}
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -238,7 +348,7 @@ export function EmailSettings() {
                         Create custom email templates for your organization
                       </CardDescription>
                     </div>
-                    <Button size="sm" disabled>
+                    <Button size="sm" onClick={handleCreateTemplate}>
                       <Plus className="h-4 w-4 mr-1" />
                       Create Template
                     </Button>
@@ -281,17 +391,106 @@ export function EmailSettings() {
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" disabled>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditTemplate(template)}
+                              >
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" disabled>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleSendTestEmail(template)}>
+                                    <Send className="h-4 w-4 mr-2" />
+                                    Send Test Email
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteClick(template)}
+                                    className="text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete Template
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                         ))}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* System Templates */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Lock className="h-4 w-4 text-muted-foreground" />
+                    System Templates
+                  </CardTitle>
+                  <CardDescription>
+                    Default templates provided by Trike. Click "Customize" to create your own version.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {templates
+                      .filter(t => t.template_type === 'system' && t.slug !== 'welcome_admin')
+                      .map(template => {
+                        // Check if org has already customized this template
+                        const hasCustomized = templates.some(
+                          t => t.template_type === 'organization' && t.slug === template.slug
+                        );
+                        return (
+                          <div
+                            key={template.id}
+                            className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-medium">{template.name}</h4>
+                                <Badge variant="outline" className="text-xs">
+                                  {template.slug}
+                                </Badge>
+                                {hasCustomized && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    Customized
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {template.description}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handlePreviewTemplate(template)}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                Preview
+                              </Button>
+                              {!hasCustomized && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleCustomizeTemplate(template)}
+                                >
+                                  <Pencil className="h-4 w-4 mr-1" />
+                                  Customize
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -465,11 +664,25 @@ export function EmailSettings() {
               <Eye className="h-5 w-5" />
               Preview: {selectedTemplate?.name}
             </DialogTitle>
-            <DialogDescription>
-              Subject: {previewSubject}
-            </DialogDescription>
           </DialogHeader>
-          <div className="border rounded-lg overflow-auto max-h-[60vh] bg-white">
+
+          {/* Email Header Info - FROM/TO/SUBJECT */}
+          <div className="bg-muted/50 border rounded-lg p-4 space-y-2 text-sm">
+            <div className="flex">
+              <span className="font-medium w-20 text-muted-foreground">From:</span>
+              <span className="font-mono">Trike &lt;noreply@notifications.trike.co&gt;</span>
+            </div>
+            <div className="flex">
+              <span className="font-medium w-20 text-muted-foreground">To:</span>
+              <span className="font-mono text-muted-foreground">{'{{recipient_email}}'}</span>
+            </div>
+            <div className="flex">
+              <span className="font-medium w-20 text-muted-foreground">Subject:</span>
+              <span>{previewSubject}</span>
+            </div>
+          </div>
+
+          <div className="border rounded-lg overflow-auto max-h-[50vh] bg-white">
             <iframe
               srcDoc={previewHtml}
               className="w-full min-h-[400px] border-0"
@@ -479,6 +692,46 @@ export function EmailSettings() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPreviewModal(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Template Editor Modal */}
+      <EmailTemplateEditorModal
+        isOpen={showEditorModal}
+        onClose={() => {
+          setShowEditorModal(false);
+          setEditingTemplate(null);
+        }}
+        onSave={handleSaveTemplate}
+        editingTemplate={editingTemplate}
+        mode={editorMode}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Template</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{templateToDelete?.name}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
