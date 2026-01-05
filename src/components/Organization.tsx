@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { Plus, Eye, Tag, Users, Building2, Edit, Trash2, Globe } from 'lucide-react';
+import { Plus, Eye, Tag, Users, Building2, Edit, Trash2, Globe, FileText } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
 import { RolesManagement } from './RolesManagement';
 import { RoleDetailPage } from './RoleDetailPage';
+import { SourcesManagement } from './SourcesManagement';
 import { Card, CardContent } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
@@ -12,7 +13,7 @@ import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import type { Tag as TagType } from '../lib/crud/tags';
 import { Footer } from './Footer';
-type OrganizationTab = 'tags' | 'roles' | 'districts';
+type OrganizationTab = 'tags' | 'roles' | 'districts' | 'sources';
 
 interface OrganizationProps {
   currentRole?: string;
@@ -43,6 +44,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
     { id: 'roles' as OrganizationTab, label: 'Roles', icon: Users },
     { id: 'districts' as OrganizationTab, label: 'Districts', icon: Building2 },
+    { id: 'sources' as OrganizationTab, label: 'Sources', icon: FileText },
   ];
 
 
@@ -333,7 +335,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                       Organize stores by district or region
                     </p>
                   </div>
-                  <Button 
+                  <Button
                     className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
                     onClick={() => setShowAddDistrictDialog(true)}
                   >
@@ -351,7 +353,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                       <p className="text-sm text-muted-foreground mb-4">
                         Create districts to organize your stores by region or area
                       </p>
-                      <Button 
+                      <Button
                         className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
                         onClick={() => setShowAddDistrictDialog(true)}
                       >
@@ -361,7 +363,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                     </div>
                   ) : (
                     districts.map((district) => (
-                      <div 
+                      <div
                         key={district.id}
                         className="border-2 border-border rounded-lg p-4 hover:border-primary/50 transition-colors"
                         onDragOver={(e) => e.preventDefault()}
@@ -380,8 +382,8 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() => {
                                 setEditingDistrict(district);
@@ -391,8 +393,8 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() => handleDeleteDistrict(district.id)}
                             >
@@ -417,7 +419,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                           ) : (
                             <p className="text-sm text-muted-foreground">No stores assigned</p>
                           )}
-                          
+
                           {/* Add Store button */}
                           <button
                             onClick={() => {
@@ -436,6 +438,18 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {activeTab === 'sources' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold">Source Files</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Upload and manage source documents for content generation
+              </p>
+            </div>
+            <SourcesManagement />
           </div>
         )}
       </div>
