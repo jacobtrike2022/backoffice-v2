@@ -19,6 +19,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
 // Create Supabase client with service role (bypasses RLS)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -260,6 +261,53 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // EMAIL SYSTEM
+    // =========================================================================
+
+    // Send an email using a template
+    if (method === "POST" && path === "/email/send") {
+      return await handleSendEmail(req);
+    }
+
+    // List email templates (system + org)
+    if (method === "GET" && path === "/email/templates") {
+      return await handleGetEmailTemplates(req);
+    }
+
+    // Get single email template
+    if (method === "GET" && path.match(/^\/email\/templates\/[^/]+$/)) {
+      const templateId = path.replace("/email/templates/", "");
+      return await handleGetEmailTemplate(templateId, req);
+    }
+
+    // Create org email template
+    if (method === "POST" && path === "/email/templates") {
+      return await handleCreateEmailTemplate(req);
+    }
+
+    // Update email template
+    if (method === "PUT" && path.match(/^\/email\/templates\/[^/]+$/)) {
+      const templateId = path.replace("/email/templates/", "");
+      return await handleUpdateEmailTemplate(templateId, req);
+    }
+
+    // Delete email template
+    if (method === "DELETE" && path.match(/^\/email\/templates\/[^/]+$/)) {
+      const templateId = path.replace("/email/templates/", "");
+      return await handleDeleteEmailTemplate(templateId, req);
+    }
+
+    // Get email logs
+    if (method === "GET" && path === "/email/logs") {
+      return await handleGetEmailLogs(req);
+    }
+
+    // Preview a template with variables
+    if (method === "POST" && path === "/email/preview") {
+      return await handlePreviewEmailTemplate(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -293,7 +341,15 @@ Deno.serve(async (req: Request) => {
         "POST /brain/chat",
         "POST /brain/search",
         "GET /brain/stats",
-        "POST /brain/backfill"
+        "POST /brain/backfill",
+        "POST /email/send",
+        "GET /email/templates",
+        "GET /email/templates/:id",
+        "POST /email/templates",
+        "PUT /email/templates/:id",
+        "DELETE /email/templates/:id",
+        "GET /email/logs",
+        "POST /email/preview"
       ]
     }, 404);
 
@@ -4404,6 +4460,27 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       } else {
         userRecord = newUser;
         console.log(`[Onboarding] Created user: ${newUser.email} (${newUser.id})`);
+
+        // Send welcome email to admin
+        const emailResult = await sendWelcomeEmail({
+          template_slug: "welcome_admin",
+          organization_id: org.id,
+          recipient_email: data.contact_email,
+          recipient_user_id: newUser.id,
+          variables: {
+            admin_name: data.contact_name || firstName,
+            company_name: org.name,
+            login_email: data.contact_email,
+            temp_password: tempPassword,
+            login_url: "https://app.trike.app",
+          },
+        });
+
+        if (emailResult.success) {
+          console.log(`[Onboarding] Welcome email sent to ${data.contact_email}`);
+        } else {
+          console.error(`[Onboarding] Failed to send welcome email:`, emailResult.error);
+        }
       }
     }
 
@@ -4554,4 +4631,591 @@ function capitalizeWords(str: string): string {
     .split(/[-_\s]+/)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(" ");
+}
+
+// =============================================================================
+// EMAIL SYSTEM HANDLERS
+// =============================================================================
+
+/**
+ * Helper: Send email via Resend API
+ */
+async function sendEmailViaResend(params: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  from?: string;
+  replyTo?: string;
+}): Promise<{ success: boolean; id?: string; error?: string }> {
+  if (!RESEND_API_KEY) {
+    console.error("[Email] RESEND_API_KEY not configured");
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: params.from || "Trike <noreply@trike.app>",
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+        reply_to: params.replyTo,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Email] Resend API error:", errorText);
+      return { success: false, error: errorText };
+    }
+
+    const data = await response.json();
+    console.log(`[Email] Sent successfully: ${data.id}`);
+    return { success: true, id: data.id };
+  } catch (error: any) {
+    console.error("[Email] Send error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Helper: Render template with variables
+ */
+function renderEmailTemplate(template: string, variables: Record<string, string>): string {
+  let rendered = template;
+  for (const [key, value] of Object.entries(variables)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value || '');
+  }
+  return rendered;
+}
+
+/**
+ * Helper: Get organization ID from auth header
+ */
+async function getOrgIdFromAuth(req: Request): Promise<string | null> {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authHeader.replace("Bearer ", "");
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+
+  if (error || !user) {
+    return null;
+  }
+
+  // Get org from user's metadata or users table
+  const orgId = user.user_metadata?.organization_id;
+  if (orgId) return orgId;
+
+  // Fallback: look up in users table
+  const { data: userRecord } = await supabase
+    .from("users")
+    .select("organization_id")
+    .eq("auth_user_id", user.id)
+    .single();
+
+  return userRecord?.organization_id || null;
+}
+
+/**
+ * POST /email/send - Send an email using a template
+ */
+async function handleSendEmail(req: Request): Promise<Response> {
+  try {
+    const {
+      template_slug,
+      recipient_email,
+      recipient_user_id,
+      variables = {},
+      organization_id,
+    } = await req.json();
+
+    if (!template_slug) {
+      return jsonResponse({ error: "template_slug is required" }, 400);
+    }
+    if (!recipient_email) {
+      return jsonResponse({ error: "recipient_email is required" }, 400);
+    }
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    // Get template (org-specific first, then fallback to system)
+    let template = null;
+
+    // Try org-specific template first
+    const { data: orgTemplate } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("slug", template_slug)
+      .eq("organization_id", organization_id)
+      .eq("is_active", true)
+      .single();
+
+    if (orgTemplate) {
+      template = orgTemplate;
+    } else {
+      // Fallback to system template
+      const { data: systemTemplate } = await supabase
+        .from("email_templates")
+        .select("*")
+        .eq("slug", template_slug)
+        .is("organization_id", null)
+        .eq("is_active", true)
+        .single();
+      template = systemTemplate;
+    }
+
+    if (!template) {
+      return jsonResponse({ error: `Template '${template_slug}' not found` }, 404);
+    }
+
+    // Render template with variables
+    const subject = renderEmailTemplate(template.subject, variables);
+    const bodyHtml = renderEmailTemplate(template.body_html, variables);
+    const bodyText = template.body_text ? renderEmailTemplate(template.body_text, variables) : undefined;
+
+    // Send via Resend
+    const result = await sendEmailViaResend({
+      to: recipient_email,
+      subject,
+      html: bodyHtml,
+      text: bodyText,
+    });
+
+    // Log the email
+    const { error: logError } = await supabase.from("email_logs").insert({
+      organization_id,
+      recipient_user_id,
+      recipient_email,
+      template_id: template.id,
+      template_slug,
+      subject,
+      body_html: bodyHtml,
+      trigger_type: template_slug,
+      status: result.success ? "sent" : "failed",
+      resend_id: result.id,
+      error_message: result.error,
+      sent_at: result.success ? new Date().toISOString() : null,
+      metadata: { variables },
+    });
+
+    if (logError) {
+      console.error("[Email] Failed to log email:", logError);
+    }
+
+    if (!result.success) {
+      return jsonResponse({ error: result.error || "Failed to send email" }, 500);
+    }
+
+    return jsonResponse({
+      success: true,
+      message_id: result.id,
+    });
+  } catch (error: any) {
+    console.error("[Email] Send handler error:", error);
+    return jsonResponse({ error: error.message || "Failed to send email" }, 500);
+  }
+}
+
+/**
+ * GET /email/templates - List templates for org
+ */
+async function handleGetEmailTemplates(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Get system templates + org templates
+    const { data: templates, error } = await supabase
+      .from("email_templates")
+      .select("*")
+      .or(`organization_id.is.null,organization_id.eq.${orgId}`)
+      .eq("is_active", true)
+      .order("template_type", { ascending: true })
+      .order("name", { ascending: true });
+
+    if (error) throw error;
+
+    return jsonResponse({ templates: templates || [] });
+  } catch (error: any) {
+    console.error("[Email] Get templates error:", error);
+    return jsonResponse({ error: error.message || "Failed to get templates" }, 500);
+  }
+}
+
+/**
+ * GET /email/templates/:id - Get single template
+ */
+async function handleGetEmailTemplate(templateId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: template, error } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("id", templateId)
+      .or(`organization_id.is.null,organization_id.eq.${orgId}`)
+      .single();
+
+    if (error || !template) {
+      return jsonResponse({ error: "Template not found" }, 404);
+    }
+
+    return jsonResponse({ template });
+  } catch (error: any) {
+    console.error("[Email] Get template error:", error);
+    return jsonResponse({ error: error.message || "Failed to get template" }, 500);
+  }
+}
+
+/**
+ * POST /email/templates - Create org template
+ */
+async function handleCreateEmailTemplate(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json();
+    const { slug, name, description, subject, body_html, body_text, available_variables } = body;
+
+    if (!slug || !name || !subject || !body_html) {
+      return jsonResponse({ error: "slug, name, subject, and body_html are required" }, 400);
+    }
+
+    const { data: template, error } = await supabase
+      .from("email_templates")
+      .insert({
+        organization_id: orgId,
+        slug,
+        name,
+        description,
+        subject,
+        body_html,
+        body_text,
+        template_type: "organization",
+        is_locked: false,
+        available_variables: available_variables || [],
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        return jsonResponse({ error: "A template with this slug already exists" }, 409);
+      }
+      throw error;
+    }
+
+    return jsonResponse({ template }, 201);
+  } catch (error: any) {
+    console.error("[Email] Create template error:", error);
+    return jsonResponse({ error: error.message || "Failed to create template" }, 500);
+  }
+}
+
+/**
+ * PUT /email/templates/:id - Update template
+ */
+async function handleUpdateEmailTemplate(templateId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Verify template exists and belongs to org (not locked)
+    const { data: existing, error: getError } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("id", templateId)
+      .single();
+
+    if (getError || !existing) {
+      return jsonResponse({ error: "Template not found" }, 404);
+    }
+
+    if (existing.is_locked) {
+      return jsonResponse({ error: "This template is locked and cannot be modified" }, 403);
+    }
+
+    if (existing.organization_id !== orgId) {
+      return jsonResponse({ error: "You can only update your organization's templates" }, 403);
+    }
+
+    const body = await req.json();
+    const { name, description, subject, body_html, body_text, available_variables, is_active } = body;
+
+    const updates: Record<string, any> = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (subject !== undefined) updates.subject = subject;
+    if (body_html !== undefined) updates.body_html = body_html;
+    if (body_text !== undefined) updates.body_text = body_text;
+    if (available_variables !== undefined) updates.available_variables = available_variables;
+    if (is_active !== undefined) updates.is_active = is_active;
+
+    const { data: template, error } = await supabase
+      .from("email_templates")
+      .update(updates)
+      .eq("id", templateId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return jsonResponse({ template });
+  } catch (error: any) {
+    console.error("[Email] Update template error:", error);
+    return jsonResponse({ error: error.message || "Failed to update template" }, 500);
+  }
+}
+
+/**
+ * DELETE /email/templates/:id - Delete template
+ */
+async function handleDeleteEmailTemplate(templateId: string, req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Verify template belongs to org and is not locked/system
+    const { data: existing, error: getError } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("id", templateId)
+      .single();
+
+    if (getError || !existing) {
+      return jsonResponse({ error: "Template not found" }, 404);
+    }
+
+    if (existing.template_type === "system") {
+      return jsonResponse({ error: "System templates cannot be deleted" }, 403);
+    }
+
+    if (existing.organization_id !== orgId) {
+      return jsonResponse({ error: "You can only delete your organization's templates" }, 403);
+    }
+
+    const { error } = await supabase
+      .from("email_templates")
+      .delete()
+      .eq("id", templateId);
+
+    if (error) throw error;
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error("[Email] Delete template error:", error);
+    return jsonResponse({ error: error.message || "Failed to delete template" }, 500);
+  }
+}
+
+/**
+ * GET /email/logs - Get email logs for org
+ */
+async function handleGetEmailLogs(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const url = new URL(req.url);
+    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+    const status = url.searchParams.get("status");
+    const trigger_type = url.searchParams.get("trigger_type");
+
+    let query = supabase
+      .from("email_logs")
+      .select("*, recipient:users(first_name, last_name, email)", { count: "exact" })
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+    if (trigger_type) {
+      query = query.eq("trigger_type", trigger_type);
+    }
+
+    const { data: logs, count, error } = await query;
+
+    if (error) throw error;
+
+    return jsonResponse({
+      logs: logs || [],
+      total: count || 0,
+      limit,
+      offset,
+    });
+  } catch (error: any) {
+    console.error("[Email] Get logs error:", error);
+    return jsonResponse({ error: error.message || "Failed to get email logs" }, 500);
+  }
+}
+
+/**
+ * POST /email/preview - Preview a template with variables
+ */
+async function handlePreviewEmailTemplate(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromAuth(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { template_id, template_slug, variables = {} } = await req.json();
+
+    let template = null;
+
+    if (template_id) {
+      const { data } = await supabase
+        .from("email_templates")
+        .select("*")
+        .eq("id", template_id)
+        .or(`organization_id.is.null,organization_id.eq.${orgId}`)
+        .single();
+      template = data;
+    } else if (template_slug) {
+      // Try org-specific first
+      const { data: orgTemplate } = await supabase
+        .from("email_templates")
+        .select("*")
+        .eq("slug", template_slug)
+        .eq("organization_id", orgId)
+        .single();
+
+      if (orgTemplate) {
+        template = orgTemplate;
+      } else {
+        const { data: systemTemplate } = await supabase
+          .from("email_templates")
+          .select("*")
+          .eq("slug", template_slug)
+          .is("organization_id", null)
+          .single();
+        template = systemTemplate;
+      }
+    }
+
+    if (!template) {
+      return jsonResponse({ error: "Template not found" }, 404);
+    }
+
+    // Render with provided variables
+    const subject = renderEmailTemplate(template.subject, variables);
+    const body_html = renderEmailTemplate(template.body_html, variables);
+    const body_text = template.body_text ? renderEmailTemplate(template.body_text, variables) : null;
+
+    return jsonResponse({
+      subject,
+      body_html,
+      body_text,
+      available_variables: template.available_variables,
+    });
+  } catch (error: any) {
+    console.error("[Email] Preview error:", error);
+    return jsonResponse({ error: error.message || "Failed to preview template" }, 500);
+  }
+}
+
+/**
+ * Internal helper: Send welcome email (for use by other handlers)
+ * Called from handleOnboardingComplete
+ */
+async function sendWelcomeEmail(params: {
+  template_slug: "welcome_admin" | "welcome_employee";
+  organization_id: string;
+  recipient_email: string;
+  recipient_user_id?: string;
+  variables: Record<string, string>;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get org-specific or system template
+    let template = null;
+
+    const { data: orgTemplate } = await supabase
+      .from("email_templates")
+      .select("*")
+      .eq("slug", params.template_slug)
+      .eq("organization_id", params.organization_id)
+      .eq("is_active", true)
+      .single();
+
+    if (orgTemplate) {
+      template = orgTemplate;
+    } else {
+      const { data: systemTemplate } = await supabase
+        .from("email_templates")
+        .select("*")
+        .eq("slug", params.template_slug)
+        .is("organization_id", null)
+        .eq("is_active", true)
+        .single();
+      template = systemTemplate;
+    }
+
+    if (!template) {
+      console.error(`[Email] Template '${params.template_slug}' not found`);
+      return { success: false, error: `Template '${params.template_slug}' not found` };
+    }
+
+    // Render template
+    const subject = renderEmailTemplate(template.subject, params.variables);
+    const bodyHtml = renderEmailTemplate(template.body_html, params.variables);
+    const bodyText = template.body_text ? renderEmailTemplate(template.body_text, params.variables) : undefined;
+
+    // Send via Resend
+    const result = await sendEmailViaResend({
+      to: params.recipient_email,
+      subject,
+      html: bodyHtml,
+      text: bodyText,
+    });
+
+    // Log the email
+    await supabase.from("email_logs").insert({
+      organization_id: params.organization_id,
+      recipient_user_id: params.recipient_user_id,
+      recipient_email: params.recipient_email,
+      template_id: template.id,
+      template_slug: params.template_slug,
+      subject,
+      body_html: bodyHtml,
+      trigger_type: params.template_slug,
+      status: result.success ? "sent" : "failed",
+      resend_id: result.id,
+      error_message: result.error,
+      sent_at: result.success ? new Date().toISOString() : null,
+      metadata: { variables: params.variables },
+    });
+
+    return { success: result.success, error: result.error };
+  } catch (error: any) {
+    console.error("[Email] sendWelcomeEmail error:", error);
+    return { success: false, error: error.message };
+  }
 }

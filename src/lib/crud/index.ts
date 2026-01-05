@@ -50,3 +50,6 @@ export * from './attachments';
 
 // Company Brain (RAG)
 export * from './brain';
+
+// Email System
+export * from './email';

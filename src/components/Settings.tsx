@@ -11,10 +11,10 @@ import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Footer } from './Footer';
-import { 
-  CreditCard, 
-  Building2, 
-  FileText, 
+import {
+  CreditCard,
+  Building2,
+  FileText,
   Download,
   ExternalLink,
   Users,
@@ -34,8 +34,10 @@ import {
   AlertCircle,
   Image,
   Upload,
-  ImageIcon
+  ImageIcon,
+  Mail
 } from 'lucide-react';
+import { EmailSettings } from './Settings/EmailSettings';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
@@ -438,11 +440,15 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="company">Company</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          <TabsTrigger value="email" className="flex items-center gap-1">
+            <Mail className="h-4 w-4" />
+            Email
+          </TabsTrigger>
         </TabsList>
 
         {/* Billing Tab */}
@@ -1220,6 +1226,11 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Email Tab */}
+        <TabsContent value="email" className="space-y-6">
+          <EmailSettings />
         </TabsContent>
       </Tabs>
 
