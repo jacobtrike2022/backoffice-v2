@@ -882,24 +882,15 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               <CardDescription>How many people work across all your locations?</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: '1-50', label: '1-50' },
-                  { value: '51-200', label: '51-200' },
-                  { value: '201-500', label: '201-500' },
-                  { value: '501-1000', label: '501-1,000' },
-                  { value: '1001-5000', label: '1,001-5,000' },
-                  { value: '5000+', label: '5,000+' },
-                ].map((option) => (
-                  <Button
-                    key={option.value}
-                    variant={employeeCount === option.value ? 'default' : 'outline'}
-                    className="h-12"
-                    onClick={() => setEmployeeCount(option.value)}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
+              <div className="space-y-2">
+                <Input
+                  type="number"
+                  placeholder="e.g., 150"
+                  value={employeeCount}
+                  onChange={(e) => setEmployeeCount(e.target.value)}
+                  min="1"
+                  className="text-lg h-12"
+                />
               </div>
 
               <div className="flex justify-between pt-2">
