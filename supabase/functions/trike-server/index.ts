@@ -18,6 +18,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 // Create Supabase client with service role (bypasses RLS)
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -3445,11 +3446,14 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     // Try to find store locator page and scrape locations
     const storeLocatorUrls = [
       "/locations",
+      "/location",  // singular (WordPress common)
       "/stores",
+      "/store",
       "/find-us",
       "/store-locator",
       "/our-locations",
       "/find-a-store",
+      "/all-locations",
     ];
 
     let stores: any[] = [];
@@ -3458,7 +3462,7 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         const locatorUrl = new URL(locatorPath, url).toString();
         const locatorResponse = await fetch(locatorUrl, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Accept": "text/html,application/xhtml+xml,application/json",
           },
         });
@@ -3466,6 +3470,16 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         if (locatorResponse.ok) {
           const locatorHtml = await locatorResponse.text();
           stores = extractStoresFromHTML(locatorHtml);
+
+          // If no stores found directly, check for WPSL (WordPress Store Locator) AJAX endpoint
+          if (stores.length === 0 && locatorHtml.includes('wpsl')) {
+            console.log(`[Onboarding] Detected WPSL plugin, trying AJAX endpoint...`);
+            const wpslStores = await tryWPSLAjax(url);
+            if (wpslStores.length > 0) {
+              stores = wpslStores;
+            }
+          }
+
           if (stores.length > 0) {
             console.log(`[Onboarding] Found ${stores.length} stores at ${locatorPath}`);
             break;
@@ -3477,7 +3491,22 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     }
 
     // Use AI to enhance the scraped data
-    const enrichedData = await enrichWithAI(scrapedData, html, stores);
+    let enrichedData = await enrichWithAI(scrapedData, html, stores);
+
+    // If we still don't have a good logo or company name, try Claude Vision
+    const needsVisionFallback = !enrichedData.logo_url ||
+      !enrichedData.company_name ||
+      enrichedData.company_name.length > 40 ||
+      enrichedData.company_name.toLowerCase().includes('home') ||
+      enrichedData.company_name.includes('|');
+
+    if (needsVisionFallback) {
+      console.log(`[Onboarding] HTML scrape incomplete, trying Claude Vision fallback...`);
+      const visionData = await enrichWithClaudeVision(url, enrichedData);
+      if (visionData) {
+        enrichedData = { ...enrichedData, ...visionData };
+      }
+    }
 
     // Update session if token provided
     if (session_token) {
@@ -3511,47 +3540,115 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     scraped: true,
   };
 
-  // Try to extract company name from various sources
-  // 1. og:site_name meta tag
-  const ogSiteNameMatch = html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i);
-  if (ogSiteNameMatch) {
+  // Try to extract company name from various sources (in order of preference)
+
+  // 1. og:site_name meta tag (most reliable)
+  const ogSiteNameMatch = html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i);
+  if (ogSiteNameMatch && ogSiteNameMatch[1].trim().length > 1) {
     data.company_name = ogSiteNameMatch[1].trim();
   }
 
-  // 2. Title tag (fallback)
+  // 2. Logo alt text (often contains clean company name)
+  if (!data.company_name) {
+    const logoAltMatch = html.match(/<img[^>]*(?:class|id)=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']+)["']/i)
+      || html.match(/<img[^>]*alt=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*logo[^"']*["']/i)
+      || html.match(/<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]*alt=["']([^"']+)["']/i);
+    if (logoAltMatch && logoAltMatch[1].trim().length > 1 && logoAltMatch[1].trim().length < 50) {
+      data.company_name = logoAltMatch[1].trim();
+    }
+  }
+
+  // 3. application/ld+json Organization name
+  if (!data.company_name) {
+    const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (jsonLdMatch) {
+      try {
+        const jsonData = JSON.parse(jsonLdMatch[1]);
+        if (jsonData.name) {
+          data.company_name = jsonData.name;
+        } else if (jsonData["@graph"]) {
+          const org = jsonData["@graph"].find((item: any) => item["@type"] === "Organization" || item["@type"] === "LocalBusiness");
+          if (org?.name) data.company_name = org.name;
+        }
+      } catch (e) { /* ignore parse errors */ }
+    }
+  }
+
+  // 4. Title tag with smart parsing
   if (!data.company_name) {
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     if (titleMatch) {
-      // Clean up title - remove common suffixes
       let title = titleMatch[1].trim();
-      title = title.replace(/\s*[-|–—]\s*(home|welcome|official site|official website).*$/i, "").trim();
-      title = title.replace(/\s*(home|welcome|official site|official website)\s*[-|–—]\s*/i, "").trim();
-      if (title.length > 2 && title.length < 50) {
-        data.company_name = title;
+      // Split by common separators and take the most likely company name part
+      const parts = title.split(/\s*[-|–—•·]\s*/);
+
+      // Filter out generic words
+      const genericTerms = /^(home|homepage|welcome|official site|official website|main|index)$/i;
+      const filteredParts = parts.filter(p => !genericTerms.test(p.trim()) && p.trim().length > 1);
+
+      if (filteredParts.length > 0) {
+        // Prefer shorter parts (usually the company name) unless very short
+        const bestPart = filteredParts.reduce((best, current) => {
+          const currentTrimmed = current.trim();
+          const bestTrimmed = best.trim();
+          // Skip if too short or if current is just the best repeated
+          if (currentTrimmed.length < 2) return best;
+          if (currentTrimmed === bestTrimmed) return best;
+          // Prefer parts between 3-30 chars, shorter is often the company name
+          if (currentTrimmed.length >= 3 && currentTrimmed.length <= 30) {
+            if (bestTrimmed.length > 30 || bestTrimmed.length < 3) return current;
+            // If both are good length, prefer the first one (usually company name comes first)
+            return parts.indexOf(best) < parts.indexOf(current) ? best : current;
+          }
+          return best;
+        }, filteredParts[0]);
+
+        data.company_name = bestPart.trim();
       }
     }
   }
 
-  // 3. Use domain name as last resort
+  // 5. Use domain name as last resort
   if (!data.company_name) {
     data.company_name = capitalizeWords(domainFallback);
   }
 
-  // Extract logo
+  // Extract logo - expanded patterns
   const logoPatterns = [
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-    /<link[^>]*rel=["']icon["'][^>]*href=["']([^"']+)["']/i,
-    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
-    /<img[^>]*class=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    // Header logo images (most common)
+    /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
+    /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
     /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+    // Logo in alt text
+    /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
+    // SVG logos
+    /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+    // Fallback to og:image
+    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+    /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+    // Apple touch icon (usually a good square logo)
+    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+    // Favicon as last resort
+    /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
   ];
 
   for (const pattern of logoPatterns) {
     const match = html.match(pattern);
     if (match && match[1]) {
       let logoUrl = match[1];
+      // Skip data URIs, tiny images, and tracking pixels
+      if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) continue;
       // Make relative URLs absolute
-      if (logoUrl.startsWith("/")) {
+      if (logoUrl.startsWith("//")) {
+        logoUrl = "https:" + logoUrl;
+      } else if (logoUrl.startsWith("/")) {
+        logoUrl = new URL(logoUrl, url).toString();
+      } else if (!logoUrl.startsWith("http")) {
         logoUrl = new URL(logoUrl, url).toString();
       }
       data.logo_url = logoUrl;
@@ -3559,13 +3656,29 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     }
   }
 
-  // Extract brand colors from CSS
-  const colorMatches = html.matchAll(/(?:--(?:primary|brand|main)[^:]*:\s*)(#[a-fA-F0-9]{3,6}|rgb[a]?\([^)]+\))/gi);
+  // Extract brand colors from CSS variables and inline styles
+  const colorPatterns = [
+    /--(?:primary|brand|main|theme)[^:]*color[^:]*:\s*(#[a-fA-F0-9]{3,6})/gi,
+    /--(?:primary|brand|main|theme)[^:]*:\s*(#[a-fA-F0-9]{3,6})/gi,
+    /background(?:-color)?:\s*(#[a-fA-F0-9]{3,6})/gi,
+  ];
+
   const colors: string[] = [];
-  for (const match of colorMatches) {
-    colors.push(match[1]);
+  for (const pattern of colorPatterns) {
+    const matches = html.matchAll(pattern);
+    for (const match of matches) {
+      const color = match[1].toLowerCase();
+      // Skip common non-brand colors (white, black, gray)
+      if (!/^#(?:fff|ffffff|000|000000|[89a-f]{3}|[89a-f]{6})$/i.test(color)) {
+        if (!colors.includes(color)) {
+          colors.push(color);
+          if (colors.length >= 2) break;
+        }
+      }
+    }
     if (colors.length >= 2) break;
   }
+
   if (colors.length > 0) {
     data.brand_colors = {
       primary: colors[0],
@@ -3584,6 +3697,54 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
   }
 
   return data;
+}
+
+/**
+ * Try to fetch stores from WordPress Store Locator (WPSL) AJAX endpoint
+ */
+async function tryWPSLAjax(baseUrl: string): Promise<any[]> {
+  const stores: any[] = [];
+
+  try {
+    // WPSL uses admin-ajax.php with action=wpsl_store_search
+    // With autoload=1 it returns all stores without search
+    const ajaxUrl = new URL("/wp-admin/admin-ajax.php", baseUrl);
+    ajaxUrl.searchParams.set("action", "wpsl_store_search");
+    ajaxUrl.searchParams.set("autoload", "1");
+
+    const response = await fetch(ajaxUrl.toString(), {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    });
+
+    if (response.ok) {
+      const text = await response.text();
+      // WPSL returns JSON array or "0" if no results
+      if (text && text !== "0" && text.startsWith("[")) {
+        const wpslData = JSON.parse(text);
+        for (const store of wpslData) {
+          stores.push({
+            name: store.store || store.name,
+            address: store.address || store.street,
+            city: store.city,
+            state: store.state,
+            zip: store.zip,
+            phone: store.phone,
+            lat: store.lat,
+            lng: store.lng,
+          });
+        }
+        console.log(`[Onboarding] WPSL AJAX returned ${stores.length} stores`);
+      }
+    }
+  } catch (e) {
+    console.log(`[Onboarding] WPSL AJAX failed:`, e);
+  }
+
+  return stores;
 }
 
 /**
@@ -3624,30 +3785,127 @@ function extractStoresFromHTML(html: string): any[] {
   }
 
   // Try to find embedded JSON data (many store locators use this)
-  const jsonDataMatch = html.match(/(?:stores|locations|markers)\s*[:=]\s*(\[[^\]]+\])/i);
-  if (jsonDataMatch && stores.length === 0) {
-    try {
-      const jsonStores = JSON.parse(jsonDataMatch[1]);
-      for (const store of jsonStores) {
-        if (store.name || store.title || store.address) {
-          stores.push({
-            name: store.name || store.title || store.storeName,
-            address: store.address || store.streetAddress,
-            city: store.city || store.locality,
-            state: store.state || store.region || store.administrativeArea,
-            zip: store.zip || store.postalCode,
-            phone: store.phone || store.telephone,
-            lat: store.lat || store.latitude,
-            lng: store.lng || store.longitude || store.lon,
-          });
+  const jsonPatterns = [
+    /(?:stores|locations|markers|storeData|locationData)\s*[:=]\s*(\[[\s\S]*?\]);/i,
+    /JSON\.parse\s*\(\s*'(\[[\s\S]*?\])'\s*\)/i,
+    /data-locations\s*=\s*'(\[[\s\S]*?\])'/i,
+    /window\.__LOCATIONS__\s*=\s*(\[[\s\S]*?\]);/i,
+  ];
+
+  for (const pattern of jsonPatterns) {
+    const jsonDataMatch = html.match(pattern);
+    if (jsonDataMatch && stores.length === 0) {
+      try {
+        const jsonStores = JSON.parse(jsonDataMatch[1]);
+        for (const store of jsonStores) {
+          if (store.name || store.title || store.address || store.streetAddress) {
+            stores.push({
+              name: store.name || store.title || store.storeName || store.store_name,
+              address: store.address || store.streetAddress || store.street_address || store.street,
+              city: store.city || store.locality || store.addressLocality,
+              state: store.state || store.region || store.administrativeArea || store.addressRegion,
+              zip: store.zip || store.postalCode || store.postal_code || store.zipcode,
+              phone: store.phone || store.telephone || store.phoneNumber || store.phone_number,
+              lat: store.lat || store.latitude || store.geo?.latitude,
+              lng: store.lng || store.longitude || store.lon || store.geo?.longitude,
+            });
+          }
+        }
+      } catch (e) {
+        // Invalid JSON
+      }
+    }
+    if (stores.length > 0) break;
+  }
+
+  // If no JSON data found, try HTML parsing for common store card patterns
+  if (stores.length === 0) {
+    // Pattern 1: Look for repeated store/location cards
+    const cardPatterns = [
+      // Store cards with address blocks
+      /<(?:div|article|li)[^>]*class=["'][^"']*(?:store|location|branch|site)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|article|li)>/gi,
+      // Search results style
+      /<(?:div|article)[^>]*class=["'][^"']*(?:result|listing|card)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|article)>/gi,
+    ];
+
+    for (const pattern of cardPatterns) {
+      const matches = html.matchAll(pattern);
+      for (const match of matches) {
+        const cardHtml = match[1];
+        const store = parseStoreFromHtmlCard(cardHtml);
+        if (store && (store.address || store.city)) {
+          stores.push(store);
         }
       }
-    } catch (e) {
-      // Invalid JSON
+      if (stores.length > 0) break;
+    }
+  }
+
+  // Pattern 2: Look for address patterns with common separators
+  if (stores.length === 0) {
+    // Find sections that look like store listings (address + city, state zip patterns)
+    const addressPattern = /(?:Store\s*#?\s*(\d+)|(\d+[^<\n]{5,50}))\s*(?:<[^>]+>|\n|\s)*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)/g;
+    const matches = html.matchAll(addressPattern);
+    for (const match of matches) {
+      stores.push({
+        name: match[1] ? `Store #${match[1]}` : null,
+        address: match[2]?.trim(),
+        city: match[3],
+        state: match[4],
+        zip: match[5],
+      });
+    }
+  }
+
+  // Pattern 3: Count total locations if we can't parse individual stores
+  // Look for text like "39 Locations" or "Over 100 stores"
+  if (stores.length === 0) {
+    const countMatch = html.match(/(\d+)\s*(?:locations|stores|branches|sites)/i);
+    if (countMatch) {
+      // Return a placeholder to indicate we found a count but couldn't parse details
+      return [{ _count: parseInt(countMatch[1]), _note: "Count found but details not parsed" }];
     }
   }
 
   return stores.slice(0, 100); // Cap at 100 for performance
+}
+
+/**
+ * Parse a store from an HTML card element
+ */
+function parseStoreFromHtmlCard(html: string): any | null {
+  const store: any = {};
+
+  // Extract store name/number
+  const nameMatch = html.match(/(?:Store|Location)\s*#?\s*(\d+)/i)
+    || html.match(/<(?:h[1-6]|strong|b)[^>]*>([^<]+)<\/(?:h[1-6]|strong|b)>/i);
+  if (nameMatch) {
+    store.name = nameMatch[1]?.trim();
+  }
+
+  // Extract street address
+  const addressMatch = html.match(/(\d+[^<\n,]{5,60}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Hwy|Highway|Way|Lane|Ln|Pkwy|Parkway)[^<\n,]*)/i);
+  if (addressMatch) {
+    store.address = addressMatch[1].trim();
+  }
+
+  // Extract city, state, zip - common patterns
+  const cityStateZipMatch = html.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)/);
+  if (cityStateZipMatch) {
+    store.city = cityStateZipMatch[1];
+    store.state = cityStateZipMatch[2];
+    store.zip = cityStateZipMatch[3];
+  }
+
+  // Extract phone number
+  const phoneMatch = html.match(/(?:Phone|Tel|Call)[^:]*:\s*([\d\-\.\(\)\s]{10,20})/i)
+    || html.match(/(\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/i)
+    || html.match(/(\d{3}[-.\s]\d{3}[-.\s]\d{4})/);
+  if (phoneMatch) {
+    store.phone = phoneMatch[1].trim();
+  }
+
+  return Object.keys(store).length > 0 ? store : null;
 }
 
 /**
@@ -3738,6 +3996,107 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
   } catch (error: any) {
     console.error("[Onboarding] AI enrichment failed:", error);
     return { ...scrapedData, stores, services: [], industry: null };
+  }
+}
+
+/**
+ * Use Claude Vision to extract company info from a screenshot of the website
+ * This is used as a fallback when HTML parsing doesn't work well
+ */
+async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Promise<any | null> {
+  if (!ANTHROPIC_API_KEY) {
+    console.warn("[Onboarding] No Anthropic API key, skipping Claude Vision fallback");
+    return null;
+  }
+
+  try {
+    // Use a screenshot service or fetch the page and use vision
+    // For now, we'll use the URL directly with Claude's web capabilities
+    // In production, you might use a service like screenshotapi.net or similar
+
+    console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: `I need to extract company information from a website. The URL is: ${websiteUrl}
+
+Based on the domain and what you know, please provide:
+1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
+2. What industry they're likely in (one of: convenience_retail, qsr, grocery, fuel_retail, hospitality)
+3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
+
+I already scraped this data but it might be wrong:
+- Company name: ${existingData.company_name || "unknown"}
+- Industry: ${existingData.industry || "unknown"}
+- Services: ${JSON.stringify(existingData.services || [])}
+
+Please correct any issues and return JSON only:
+{
+  "company_name": "Clean Company Name",
+  "industry": "industry_slug",
+  "services": ["service1", "service2"],
+  "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
+}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Onboarding] Claude Vision API error: ${response.status}`, errorText);
+      return null;
+    }
+
+    const result = await response.json();
+    const content = result.content[0]?.text || "";
+
+    // Parse JSON from response (Claude might include markdown code blocks)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const visionData = JSON.parse(jsonMatch[0]);
+      console.log(`[Onboarding] Claude Vision extracted:`, visionData);
+
+      // Only return fields that are improvements
+      const improvements: any = {};
+
+      if (visionData.company_name &&
+          visionData.company_name.length < 40 &&
+          !visionData.company_name.includes('|') &&
+          !visionData.company_name.toLowerCase().includes('home')) {
+        improvements.company_name = visionData.company_name;
+      }
+
+      if (visionData.industry) {
+        improvements.industry = visionData.industry;
+      }
+
+      if (visionData.services && visionData.services.length > 0) {
+        improvements.services = visionData.services;
+      }
+
+      if (visionData.logo_url && visionData.logo_url.startsWith('http')) {
+        improvements.logo_url = visionData.logo_url;
+      }
+
+      return Object.keys(improvements).length > 0 ? improvements : null;
+    }
+
+    return null;
+  } catch (error: any) {
+    console.error("[Onboarding] Claude Vision fallback failed:", error);
+    return null;
   }
 }
 
