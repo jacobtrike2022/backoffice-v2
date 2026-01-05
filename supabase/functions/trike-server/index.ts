@@ -4661,7 +4661,7 @@ async function sendEmailViaResend(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: params.from || "Trike <noreply@trike.app>",
+        from: params.from || "Trike <noreply@notifications.trike.co>",
         to: params.to,
         subject: params.subject,
         html: params.html,
