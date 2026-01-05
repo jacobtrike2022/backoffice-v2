@@ -4286,6 +4286,10 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       return jsonResponse({ error: "Company name is required" }, 400);
     }
 
+    if (!data.contact_email) {
+      return jsonResponse({ error: "Contact email is required" }, 400);
+    }
+
     // Generate subdomain
     const subdomain = data.company_name
       .toLowerCase()
@@ -4323,7 +4327,88 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     if (orgError) throw orgError;
 
+    console.log(`[Onboarding] Created org: ${org.name} (${org.id})`);
+
+    // Create Admin role for this organization
+    const { data: adminRole, error: roleError } = await supabase
+      .from("roles")
+      .insert({
+        organization_id: org.id,
+        name: "Admin",
+        description: "Full administrative access",
+        level: 3, // Admin level
+        permissions: JSON.stringify([
+          "manage_users",
+          "manage_content",
+          "manage_assignments",
+          "manage_settings",
+          "view_reports",
+          "manage_compliance",
+        ]),
+      })
+      .select()
+      .single();
+
+    if (roleError) {
+      console.error("[Onboarding] Failed to create admin role:", roleError);
+    }
+
+    // Create Supabase Auth user
+    // Generate a temporary password - user will reset via email
+    const tempPassword = crypto.randomUUID().substring(0, 16) + "!Aa1";
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: data.contact_email,
+      password: tempPassword,
+      email_confirm: true, // Auto-confirm email for demo
+      user_metadata: {
+        organization_id: org.id,
+        full_name: data.contact_name || "",
+        role: data.contact_role || "admin",
+      },
+    });
+
+    if (authError) {
+      console.error("[Onboarding] Failed to create auth user:", authError);
+      // Don't fail the whole process - org is created, user can be added later
+    }
+
+    // Create user record in users table
+    let userRecord = null;
+    if (authUser?.user) {
+      // Parse contact name into first/last
+      const nameParts = (data.contact_name || "Admin User").trim().split(/\s+/);
+      const firstName = nameParts[0] || "Admin";
+      const lastName = nameParts.slice(1).join(" ") || "User";
+
+      const { data: newUser, error: userError } = await supabase
+        .from("users")
+        .insert({
+          organization_id: org.id,
+          role_id: adminRole?.id || null,
+          auth_user_id: authUser.user.id,
+          first_name: firstName,
+          last_name: lastName,
+          email: data.contact_email,
+          status: "active",
+          metadata: {
+            contact_role: data.contact_role,
+            onboarded_at: new Date().toISOString(),
+          },
+        })
+        .select()
+        .single();
+
+      if (userError) {
+        console.error("[Onboarding] Failed to create user record:", userError);
+      } else {
+        userRecord = newUser;
+        console.log(`[Onboarding] Created user: ${newUser.email} (${newUser.id})`);
+      }
+    }
+
     // Import stores if we have them
+    let storesImported = 0;
     if (data.stores && data.stores.length > 0) {
       const storesToInsert = data.stores.slice(0, 50).map((store: any, index: number) => ({
         organization_id: org.id,
@@ -4346,7 +4431,26 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       if (storesError) {
         console.error("[Onboarding] Failed to import stores:", storesError);
       } else {
-        console.log(`[Onboarding] Imported ${storesToInsert.length} stores`);
+        storesImported = storesToInsert.length;
+        console.log(`[Onboarding] Imported ${storesImported} stores`);
+      }
+    }
+
+    // Generate a magic link for the user to sign in
+    let magicLink = null;
+    if (authUser?.user) {
+      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: data.contact_email,
+        options: {
+          redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/dashboard`,
+        },
+      });
+
+      if (linkError) {
+        console.error("[Onboarding] Failed to generate magic link:", linkError);
+      } else {
+        magicLink = linkData?.properties?.action_link;
       }
     }
 
@@ -4360,7 +4464,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       })
       .eq("session_token", session_token);
 
-    console.log(`[Onboarding] Created demo org: ${org.name} (${org.id})`);
+    console.log(`[Onboarding] Complete! Org: ${org.name}, User: ${data.contact_email}`);
 
     return jsonResponse({
       success: true,
@@ -4370,7 +4474,16 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         subdomain: org.subdomain,
         demo_expires_at: org.demo_expires_at,
       },
-      stores_imported: data.stores?.length || 0,
+      user: userRecord ? {
+        id: userRecord.id,
+        email: userRecord.email,
+        name: `${userRecord.first_name} ${userRecord.last_name}`,
+      } : null,
+      stores_imported: storesImported,
+      magic_link: magicLink,
+      // For development/testing, include temp password
+      // Remove this in production!
+      _dev_temp_password: tempPassword,
     });
   } catch (error: any) {
     console.error("[Onboarding] Complete error:", error);

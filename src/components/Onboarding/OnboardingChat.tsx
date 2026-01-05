@@ -102,6 +102,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Account creation result
+  const [createdAccount, setCreatedAccount] = useState<{
+    organization: any;
+    user: any;
+    magic_link?: string;
+    temp_password?: string;
+  } | null>(null);
+
   // Options from database
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [services, setServices] = useState<ServiceDefinition[]>([]);
@@ -433,6 +441,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
       const result = await response.json();
 
       if (result.success) {
+        // Store account details for display
+        setCreatedAccount({
+          organization: result.organization,
+          user: result.user,
+          magic_link: result.magic_link,
+          temp_password: result._dev_temp_password, // Dev only
+        });
+
         setMessages((prev) => [
           ...prev,
           {
@@ -1077,20 +1093,54 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         {currentStep === 'complete' && (
           <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300 border-primary">
             <CardContent className="pt-6">
-              <div className="flex flex-col items-center gap-4 py-8">
+              <div className="flex flex-col items-center gap-4 py-6">
                 <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
                   <CheckCircle className="h-10 w-10 text-primary" />
                 </div>
                 <div className="text-center">
                   <h3 className="font-semibold text-xl">Welcome to Trike!</h3>
                   <p className="text-muted-foreground mt-1">
-                    Your 14-day trial has started. Check your email for login instructions.
+                    Your 14-day trial for <strong>{createdAccount?.organization?.name}</strong> has started.
                   </p>
                 </div>
-                <Button size="lg" className="mt-4">
-                  <Mail className="mr-2 h-4 w-4" />
-                  Open Dashboard
-                </Button>
+
+                {/* Login credentials */}
+                {createdAccount?.user && (
+                  <div className="w-full max-w-sm space-y-3 mt-2">
+                    <div className="p-4 bg-muted rounded-lg space-y-2">
+                      <div className="text-sm font-medium text-center mb-3">Your Login Credentials</div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Email:</span>
+                        <span className="font-mono">{createdAccount.user.email}</span>
+                      </div>
+                      {createdAccount.temp_password && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Password:</span>
+                          <span className="font-mono">{createdAccount.temp_password}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Save these credentials - you'll need them to log in.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-4">
+                  {createdAccount?.magic_link ? (
+                    <Button size="lg" asChild>
+                      <a href={createdAccount.magic_link}>
+                        <ArrowRight className="mr-2 h-4 w-4" />
+                        Open Dashboard
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button size="lg" onClick={() => window.location.href = '/'}>
+                      <ArrowRight className="mr-2 h-4 w-4" />
+                      Go to Login
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
