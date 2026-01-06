@@ -26,6 +26,7 @@ import { getSupabaseClient } from '../../utils/supabase/client';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import * as storesCrud from '../../lib/crud/stores';
 import * as crud from '../../lib/crud';
+import { VariantGenerationChat } from './VariantGenerationChat';
 
 interface CreateVariantModalProps {
   isOpen: boolean;
@@ -156,6 +157,18 @@ export function CreateVariantModal({
   // Creating state
   const [isCreating, setIsCreating] = useState(false);
 
+  // Full source track with content
+  const [fullSourceTrack, setFullSourceTrack] = useState<any>(null);
+
+  // Fetch full source track content when selected track changes
+  useEffect(() => {
+    if (selectedTrack?.id) {
+      crud.getTrackById(selectedTrack.id).then(setFullSourceTrack);
+    } else {
+      setFullSourceTrack(null);
+    }
+  }, [selectedTrack?.id]);
+
   // Reset state when modal opens/closes
   useEffect(() => {
     if (isOpen) {
@@ -257,6 +270,116 @@ export function CreateVariantModal({
     } catch (error) {
       console.error('Error loading organization:', error);
     }
+  }
+
+  async function handleAIGenerated(generatedContent: string, generatedTitle: string) {
+    if (!selectedTrack || !selectedVariantType) return;
+
+    setIsCreating(true);
+    setStep('creating');
+
+    try {
+      const variantContext = buildVariantContext();
+
+      // 1. Fetch the source track's full data (we already have it in fullSourceTrack)
+      const sourceTrackData = fullSourceTrack || await crud.getTrackById(selectedTrack.id);
+
+      if (!sourceTrackData) {
+        throw new Error('Failed to fetch source track data');
+      }
+
+      // 2. Create the new track as a draft with AI content
+      const newTrackData = {
+        title: generatedTitle,
+        description: sourceTrackData.description,
+        transcript: sourceTrackData.type === 'video' ? sourceTrackData.transcript : null,
+        content_text: sourceTrackData.type !== 'video' ? generatedContent : null,
+        type: sourceTrackData.type,
+        status: 'draft',
+        thumbnail_url: sourceTrackData.thumbnail_url,
+        duration_minutes: sourceTrackData.duration_minutes,
+        video_url: sourceTrackData.video_url,
+        organization_id: sourceTrackData.organization_id,
+        template_id: sourceTrackData.template_id,
+        is_system_content: false,
+        is_latest_version: true,
+        version_number: 1,
+        view_count: 0,
+      };
+
+      // If it's a video, we might want to update the transcript instead of content_text
+      if (sourceTrackData.type === 'video') {
+        newTrackData.transcript = generatedContent;
+      }
+
+      const { data: newTrack, error: createError } = await supabase
+        .from('tracks')
+        .insert(newTrackData)
+        .select()
+        .single();
+
+      if (createError || !newTrack) {
+        throw new Error('Failed to create variant track');
+      }
+
+      // 3. Create relationships
+      await trackRelCrud.createVariantRelationship(
+        selectedTrack.id,
+        newTrack.id,
+        selectedVariantType,
+        variantContext
+      );
+
+      await trackRelCrud.createTrackRelationship(
+        selectedTrack.id,
+        newTrack.id,
+        'source'
+      );
+
+      // 4. Copy tags
+      const { data: sourceTags } = await supabase
+        .from('track_tags')
+        .select('tag_id')
+        .eq('track_id', selectedTrack.id);
+
+      if (sourceTags && sourceTags.length > 0) {
+        const newTags = sourceTags.map(t => ({
+          track_id: newTrack.id,
+          tag_id: t.tag_id
+        }));
+        await supabase.from('track_tags').insert(newTags);
+      }
+
+      toast.success('AI-Generated variant created successfully!');
+      onVariantCreated(newTrack.id);
+    } catch (error: any) {
+      console.error('Error creating AI variant:', error);
+      toast.error(error.message || 'Failed to create variant');
+      setStep('generation-method');
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  function buildVariantContext(): trackRelCrud.VariantContext {
+    const variantContext: trackRelCrud.VariantContext = {};
+
+    switch (selectedVariantType) {
+      case 'geographic':
+        const state = US_STATES.find(s => s.code === selectedState);
+        variantContext.state_code = selectedState;
+        variantContext.state_name = state?.name;
+        break;
+      case 'company':
+        variantContext.org_name = organizationName;
+        break;
+      case 'unit':
+        const store = stores.find(s => s.id === selectedStore);
+        variantContext.store_id = selectedStore;
+        variantContext.store_name = store?.name;
+        break;
+    }
+    return variantContext;
   }
 
   async function handleCreateVariant() {
@@ -439,7 +562,11 @@ export function CreateVariantModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+      <div className={`bg-background border border-border rounded-lg shadow-xl w-full mx-4 flex flex-col transition-all duration-300 ${
+        generationMethod === 'ai' && step === 'generation-method' 
+          ? 'max-w-4xl h-[85vh]' 
+          : 'max-w-lg max-h-[90vh]'
+      }`}>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -662,59 +789,89 @@ export function CreateVariantModal({
 
           {/* Step 4: Generation Method */}
           {step === 'generation-method' && (
-            <div className="space-y-4">
-              <Label className="text-sm font-medium block">
-                Generation Method
-              </Label>
+            <div className={`space-y-4 flex flex-col ${generationMethod === 'ai' ? 'h-full' : ''}`}>
+              <div className="flex-shrink-0">
+                <Label className="text-sm font-medium block mb-3">
+                  Generation Method
+                </Label>
 
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  disabled
-                  className="w-full p-4 border border-border rounded-lg text-left opacity-50 cursor-not-allowed"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-5 h-5 rounded-full border-2 border-muted" />
-                    <div>
-                      <p className="font-medium text-foreground">AI-Assisted Draft</p>
-                      <p className="text-xs text-muted-foreground">Coming Soon - Use AI to generate adapted content</p>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setGenerationMethod('ai')}
+                    className={`p-3 border rounded-lg text-left transition-all ${
+                      generationMethod === 'ai'
+                        ? 'border-orange-500 bg-orange-500/10 ring-2 ring-orange-500/20'
+                        : 'border-border hover:border-orange-300 hover:bg-muted'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        generationMethod === 'ai' ? 'border-orange-500 bg-orange-500' : 'border-muted'
+                      }`}>
+                        {generationMethod === 'ai' && <Check className="w-2 h-2 text-white" />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-foreground flex items-center gap-1">
+                          AI-Assisted
+                          <Sparkles className="w-3 h-3 text-orange-500" />
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Interactive adaptation</p>
+                      </div>
                     </div>
-                    <Badge variant="outline" className="ml-auto text-xs">Coming Soon</Badge>
-                  </div>
-                </button>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setGenerationMethod('manual')}
-                  className={`w-full p-4 border rounded-lg text-left transition-all ${
-                    generationMethod === 'manual'
-                      ? 'border-orange-500 bg-orange-500/10 ring-2 ring-orange-500/20'
-                      : 'border-border hover:border-orange-300 hover:bg-muted'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      generationMethod === 'manual' ? 'border-orange-500 bg-orange-500' : 'border-muted'
-                    }`}>
-                      {generationMethod === 'manual' && <Check className="w-3 h-3 text-white" />}
+                  <button
+                    type="button"
+                    onClick={() => setGenerationMethod('manual')}
+                    className={`p-3 border rounded-lg text-left transition-all ${
+                      generationMethod === 'manual'
+                        ? 'border-orange-500 bg-orange-500/10 ring-2 ring-orange-500/20'
+                        : 'border-border hover:border-orange-300 hover:bg-muted'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        generationMethod === 'manual' ? 'border-orange-500 bg-orange-500' : 'border-muted'
+                      }`}>
+                        {generationMethod === 'manual' && <Check className="w-2 h-2 text-white" />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-foreground">Manual Copy</p>
+                        <p className="text-[10px] text-muted-foreground">Direct clone of source</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-foreground">Manual Copy</p>
-                      <p className="text-xs text-muted-foreground">Copy source content as-is. You'll make all edits.</p>
-                    </div>
-                  </div>
-                </button>
-              </div>
-
-              {/* Summary */}
-              <div className="bg-muted/50 border border-border rounded-lg p-4 mt-4">
-                <h4 className="text-sm font-medium text-foreground mb-2">Summary</h4>
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <p><span className="font-medium">Source:</span> {selectedTrack?.title}</p>
-                  <p><span className="font-medium">Type:</span> {selectedVariantType && variantTypeConfig[selectedVariantType].label}</p>
-                  <p><span className="font-medium">New Title:</span> {variantTitle}</p>
+                  </button>
                 </div>
               </div>
+
+              {generationMethod === 'ai' ? (
+                <div className="flex-1 min-h-0">
+                  <VariantGenerationChat
+                    sourceTrack={{
+                      id: selectedTrack!.id,
+                      title: selectedTrack!.title,
+                      type: selectedTrack!.type as any,
+                      transcript: fullSourceTrack?.transcript,
+                      content: fullSourceTrack?.content_text || fullSourceTrack?.content,
+                      thumbnail_url: selectedTrack!.thumbnail_url
+                    }}
+                    variantType={selectedVariantType!}
+                    variantContext={buildVariantContext()}
+                    onGenerated={handleAIGenerated}
+                    onCancel={() => setGenerationMethod('manual')}
+                  />
+                </div>
+              ) : (
+                <div className="bg-muted/50 border border-border rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-foreground mb-2">Summary</h4>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <p><span className="font-medium">Source:</span> {selectedTrack?.title}</p>
+                    <p><span className="font-medium">Type:</span> {selectedVariantType && variantTypeConfig[selectedVariantType].label}</p>
+                    <p><span className="font-medium">New Title:</span> {variantTitle}</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -729,7 +886,7 @@ export function CreateVariantModal({
         </div>
 
         {/* Footer */}
-        {step !== 'creating' && (
+        {step !== 'creating' && !(step === 'generation-method' && generationMethod === 'ai') && (
           <div className="flex items-center justify-between gap-3 p-6 border-t border-border flex-shrink-0">
             <Button
               variant="outline"

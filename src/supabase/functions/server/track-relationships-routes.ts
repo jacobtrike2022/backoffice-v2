@@ -3,8 +3,11 @@
 // ============================================================================
 
 import { Hono } from 'npm:hono';
+import { streamText } from 'npm:hono/streaming';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as trackRel from './track-relationships.ts';
+import { getVariantSystemPrompt, getClarificationPrompt } from '../../../lib/prompts/variantGeneration.ts';
+import { streamChatCompletion, chatCompletion, type ChatMessage } from './utils/openai.ts';
 
 const app = new Hono();
 
@@ -424,6 +427,162 @@ app.get('/variant/ultimate-base/:trackId', async (c) => {
     return c.json(result);
   } catch (error: any) {
     console.error('Error getting ultimate base track:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// AI-ASSISTED VARIANT GENERATION ROUTES
+// ============================================================================
+
+// POST /variant/chat
+app.post('/variant/chat', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { sourceTrackId, variantType, variantContext, messages } = await c.req.json();
+
+    if (!sourceTrackId || !variantType || !variantContext) {
+      return c.json({ error: 'sourceTrackId, variantType, and variantContext are required' }, 400);
+    }
+
+    // Fetch source track content
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('title, type, content_text, transcript')
+      .eq('id', sourceTrackId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (trackError || !track) {
+      return c.json({ error: 'Source track not found' }, 404);
+    }
+
+    const sourceContent = track.content_text || track.transcript || '';
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+
+    let apiMessages: ChatMessage[] = [
+      { role: 'system', content: systemPrompt }
+    ];
+
+    if (!messages || messages.length === 0) {
+      // First message - use clarification prompt
+      const firstMessage = getClarificationPrompt(variantType, variantContext, sourceContent);
+      apiMessages.push({ role: 'user', content: firstMessage });
+    } else {
+      apiMessages = [...apiMessages, ...messages];
+    }
+
+    // Check if we should signal "ready to generate"
+    const isReadyToGenerate = messages && messages.length >= 4; // After ~2 user responses
+
+    return streamText(c, async (stream) => {
+      const completion = streamChatCompletion(apiMessages, { temperature: 0.7 });
+      
+      for await (const chunk of completion) {
+        await stream.write(chunk);
+      }
+
+      if (isReadyToGenerate) {
+        await stream.write('\n\n[READY_TO_GENERATE]');
+      }
+    });
+  } catch (error: any) {
+    console.error('Error in /variant/chat:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /variant/generate
+app.post('/variant/generate', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { sourceTrackId, variantType, variantContext, clarificationAnswers } = await c.req.json();
+
+    if (!sourceTrackId || !variantType || !variantContext) {
+      return c.json({ error: 'sourceTrackId, variantType, and variantContext are required' }, 400);
+    }
+
+    // Fetch source track content
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('*')
+      .eq('id', sourceTrackId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (trackError || !track) {
+      return c.json({ error: 'Source track not found' }, 404);
+    }
+
+    const sourceContent = track.content_text || track.transcript || '';
+    
+    const qaContent = clarificationAnswers 
+      ? clarificationAnswers.map((qa: any) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
+      : 'No specific clarifications provided.';
+
+    const generationPrompt = `
+Source Content:
+${sourceContent}
+
+Variant Context:
+- Type: ${variantType}
+- Details: ${JSON.stringify(variantContext)}
+
+Clarification Answers:
+${qaContent}
+
+TASK: Generate the adapted content for this variant.
+Maintain the exact same structure as the source.
+Return the output in the following JSON format:
+{
+  "generatedTitle": "Suggested variant title",
+  "generatedContent": "The adapted HTML/text content",
+  "adaptations": [
+    {
+      "section": "Name of section",
+      "originalText": "...",
+      "adaptedText": "...",
+      "reason": "..."
+    }
+  ]
+}
+`;
+
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+    
+    const response = await chatCompletion([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: generationPrompt }
+    ], {
+      temperature: 0.3, // More deterministic for generation
+      response_format: { type: 'json_object' }
+    });
+
+    try {
+      const parsed = JSON.parse(response);
+      return c.json(parsed);
+    } catch (e) {
+      console.error('Failed to parse AI response as JSON:', response);
+      return c.json({ 
+        generatedTitle: `${track.title} (${variantType} variant)`,
+        generatedContent: response,
+        adaptations: []
+      });
+    }
+  } catch (error: any) {
+    console.error('Error in /variant/generate:', error);
     return c.json({ error: error.message }, 500);
   }
 });
