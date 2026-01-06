@@ -19,7 +19,8 @@ import {
   MapPin,
   Building2,
   Store,
-  Check
+  Check,
+  Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSupabaseClient } from '../../utils/supabase/client';
@@ -814,7 +815,7 @@ export function CreateVariantModal({
                       <div>
                         <p className="font-medium text-sm text-foreground flex items-center gap-1">
                           AI-Assisted
-                          <Sparkles className="w-3 h-3 text-orange-500" />
+                          <Zap className="w-3 h-3 text-orange-500" />
                         </p>
                         <p className="text-[10px] text-muted-foreground">Interactive adaptation</p>
                       </div>

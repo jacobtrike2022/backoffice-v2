@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, 
-  Sparkles, 
+  Zap, 
   RefreshCw, 
   Check, 
   X, 
@@ -243,7 +243,7 @@ export function VariantGenerationChat({
           {generatedData.adaptations.length > 0 && (
             <div className="mt-8 pt-8 border-t">
               <h4 className="font-semibold mb-4 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-orange-500" />
+                <Zap className="w-4 h-4 text-orange-500" />
                 Adaptation Summary
               </h4>
               <div className="space-y-4">
@@ -276,7 +276,7 @@ export function VariantGenerationChat({
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <div className="relative">
           <div className="w-16 h-16 rounded-full border-4 border-orange-100 border-t-orange-500 animate-spin" />
-          <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-orange-500 animate-pulse" />
+          <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-orange-500 animate-pulse" />
         </div>
         <div className="text-center">
           <p className="text-lg font-medium">Generating Variant Content...</p>
@@ -336,7 +336,7 @@ export function VariantGenerationChat({
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
                 <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center mr-2 shrink-0 shadow-sm">
-                  <Sparkles className="w-4 h-4 text-white" />
+                  <Zap className="w-4 h-4 text-white" />
                 </div>
               )}
               <div 
@@ -374,7 +374,7 @@ export function VariantGenerationChat({
                 className="flex-1 bg-orange-600 hover:bg-orange-700 text-white shadow-md transition-all hover:scale-[1.02]"
                 onClick={handleGenerate}
               >
-                <Sparkles className="w-4 h-4 mr-2" />
+                <Zap className="w-4 h-4 mr-2" />
                 Generate Variant Content
               </Button>
               <Button 

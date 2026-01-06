@@ -14,7 +14,7 @@ import {
   Building2,
   Store,
   CheckCircle,
-  Sparkles,
+  Zap,
   Loader2,
   X,
   Globe,
@@ -570,7 +570,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               {msg.role === 'assistant' && (
                 <Avatar className="h-9 w-9 mr-2 shrink-0">
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    <Sparkles className="h-4 w-4" />
+                    <Zap className="h-4 w-4" />
                   </AvatarFallback>
                 </Avatar>
               )}
@@ -595,7 +595,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
             <div className="flex items-center gap-2">
               <Avatar className="h-9 w-9">
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  <Sparkles className="h-4 w-4" />
+                  <Zap className="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
