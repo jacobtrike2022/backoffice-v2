@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   MapPin,
   Building2,
-  Globe,
   Store,
   Check
 } from 'lucide-react';
@@ -48,7 +47,7 @@ interface TrackOption {
   status: string;
 }
 
-type VariantType = 'geographic' | 'company' | 'language' | 'unit';
+type VariantType = 'geographic' | 'company' | 'unit';
 type Step = 'select-track' | 'select-type' | 'configure-context' | 'generation-method' | 'creating';
 
 // US States data
@@ -105,22 +104,6 @@ const US_STATES = [
   { code: 'WY', name: 'Wyoming' },
 ];
 
-// Languages data
-const LANGUAGES = [
-  { code: 'es', name: 'Spanish' },
-  { code: 'vi', name: 'Vietnamese' },
-  { code: 'zh', name: 'Chinese (Simplified)' },
-  { code: 'zh-TW', name: 'Chinese (Traditional)' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'tl', name: 'Tagalog' },
-  { code: 'fr', name: 'French' },
-  { code: 'de', name: 'German' },
-  { code: 'pt', name: 'Portuguese' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'ar', name: 'Arabic' },
-  { code: 'hi', name: 'Hindi' },
-];
-
 const variantTypeConfig: Record<VariantType, { icon: React.ElementType; label: string; description: string; color: string }> = {
   geographic: {
     icon: MapPin,
@@ -133,12 +116,6 @@ const variantTypeConfig: Record<VariantType, { icon: React.ElementType; label: s
     label: 'Company',
     description: 'Customize for your organization',
     color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-  },
-  language: {
-    icon: Globe,
-    label: 'Language',
-    description: 'Translate to another language',
-    color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
   },
   unit: {
     icon: Store,
@@ -165,7 +142,6 @@ export function CreateVariantModal({
 
   // Context state
   const [selectedState, setSelectedState] = useState<string>('');
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [stores, setStores] = useState<any[]>([]);
   const [selectedStore, setSelectedStore] = useState<string>('');
   const [isLoadingStores, setIsLoadingStores] = useState(false);
@@ -187,7 +163,6 @@ export function CreateVariantModal({
       setSelectedTrack(initialSourceTrack || null);
       setSelectedVariantType(null);
       setSelectedState('');
-      setSelectedLanguage('');
       setSelectedStore('');
       setVariantTitle('');
       setGenerationMethod('manual');
@@ -221,12 +196,6 @@ export function CreateVariantModal({
         case 'company':
           suffix = organizationName ? ` (${organizationName})` : ' (Company)';
           break;
-        case 'language':
-          if (selectedLanguage) {
-            const lang = LANGUAGES.find(l => l.code === selectedLanguage);
-            suffix = ` - ${lang?.name || selectedLanguage}`;
-          }
-          break;
         case 'unit':
           if (selectedStore) {
             const store = stores.find(s => s.id === selectedStore);
@@ -236,7 +205,7 @@ export function CreateVariantModal({
       }
       setVariantTitle(`${selectedTrack.title}${suffix}`);
     }
-  }, [selectedTrack, selectedVariantType, selectedState, selectedLanguage, selectedStore, organizationName, stores]);
+  }, [selectedTrack, selectedVariantType, selectedState, selectedStore, organizationName, stores]);
 
   async function loadTracks() {
     setIsLoadingTracks(true);
@@ -311,11 +280,6 @@ export function CreateVariantModal({
           break;
         case 'company':
           variantContext.org_name = organizationName;
-          break;
-        case 'language':
-          const lang = LANGUAGES.find(l => l.code === selectedLanguage);
-          variantContext.language_code = selectedLanguage;
-          variantContext.language_name = lang?.name;
           break;
         case 'unit':
           const store = stores.find(s => s.id === selectedStore);
@@ -415,8 +379,6 @@ export function CreateVariantModal({
             return !!selectedState;
           case 'company':
             return true; // Company variant uses current org
-          case 'language':
-            return !!selectedLanguage;
           case 'unit':
             return !!selectedStore;
           default:
@@ -476,7 +438,7 @@ export function CreateVariantModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border flex-shrink-0">
@@ -578,7 +540,7 @@ export function CreateVariantModal({
               <Label className="text-sm font-medium mb-3 block">
                 Select Variant Type
               </Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3">
                 {(Object.keys(variantTypeConfig) as VariantType[]).map(type => {
                   const config = variantTypeConfig[type];
                   const Icon = config.icon;
@@ -589,17 +551,19 @@ export function CreateVariantModal({
                       key={type}
                       type="button"
                       onClick={() => setSelectedVariantType(type)}
-                      className={`p-4 border rounded-lg text-left transition-all ${
+                      className={`p-4 border rounded-lg text-left transition-all flex items-center gap-4 ${
                         isSelected
                           ? 'border-orange-500 bg-orange-500/10 ring-2 ring-orange-500/20'
                           : 'border-border hover:border-orange-300 hover:bg-muted'
                       }`}
                     >
-                      <div className={`w-10 h-10 rounded-lg ${config.color} flex items-center justify-center mb-3`}>
-                        <Icon className="w-5 h-5" />
+                      <div className={`w-12 h-12 rounded-lg ${config.color} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className="w-6 h-6" />
                       </div>
-                      <h3 className="font-medium text-foreground">{config.label}</h3>
-                      <p className="text-xs text-muted-foreground mt-1">{config.description}</p>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-foreground">{config.label}</h3>
+                        <p className="text-sm text-muted-foreground mt-0.5">{config.description}</p>
+                      </div>
                     </button>
                   );
                 })}
@@ -645,26 +609,6 @@ export function CreateVariantModal({
                       <p className="text-xs text-muted-foreground">Company variant will be customized for your organization</p>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {selectedVariantType === 'language' && (
-                <div>
-                  <Label htmlFor="language-select" className="text-sm mb-2 block">
-                    Select Language
-                  </Label>
-                  <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
-                    <SelectTrigger id="language-select">
-                      <SelectValue placeholder="Select a language..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LANGUAGES.map(lang => (
-                        <SelectItem key={lang.code} value={lang.code}>
-                          {lang.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
               )}
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { ArrowRight, ArrowLeft, ExternalLink, GitBranch, MapPin, Building2, Globe, Store } from 'lucide-react';
+import { ArrowRight, ArrowLeft, ExternalLink, GitBranch, MapPin, Building2, Store } from 'lucide-react';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import type { TrackRelationship, VariantType } from '../../lib/crud/trackRelationships';
 
@@ -112,11 +112,6 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
         label: 'Company',
         className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
       },
-      language: {
-        Icon: Globe,
-        label: 'Language',
-        className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-      },
       unit: {
         Icon: Store,
         label: 'Unit',
@@ -151,12 +146,6 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
         return rel.variant_context.org_name ? (
           <Badge variant="outline" className="text-xs">
             {rel.variant_context.org_name}
-          </Badge>
-        ) : null;
-      case 'language':
-        return rel.variant_context.language_name || rel.variant_context.language_code ? (
-          <Badge variant="outline" className="text-xs">
-            {rel.variant_context.language_name || rel.variant_context.language_code}
           </Badge>
         ) : null;
       case 'unit':

@@ -6,17 +6,27 @@ import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
 
 export interface VariantContext {
+  // Geographic
   state_code?: string;
   state_name?: string;
+
+  // Company
   org_id?: string;
   org_name?: string;
-  language_code?: string;
-  language_name?: string;
+
+  // Unit
   store_id?: string;
   store_name?: string;
+
+  // Lineage tracking
+  parent_variant_id?: string;  // Immediate parent if chained
+  lineage?: string[];          // [base_id, parent_variant_id, ...]
+
+  // Sync tracking
+  base_synced_at?: string;     // ISO timestamp when variant was last synced with base
 }
 
-export type VariantType = 'geographic' | 'company' | 'language' | 'unit';
+export type VariantType = 'geographic' | 'company' | 'unit';
 
 export interface TrackRelationship {
   id: string;
@@ -32,6 +42,7 @@ export interface TrackRelationship {
     type: string;
     thumbnail_url: string;
     status: string;
+    updated_at?: string;  // For base update detection
   };
   derived_track?: {
     id: string;
@@ -50,9 +61,9 @@ export interface RelationshipStats {
   variants?: {
     geographic: number;
     company: number;
-    language: number;
     unit: number;
   };
+  variantsNeedingReview?: number;
 }
 
 /**
@@ -371,4 +382,137 @@ export async function getTrackRelationshipStatsWithVariants(
 
   const data = await response.json();
   return data.stats;
+}
+
+/**
+ * Get full variant tree (all descendants)
+ */
+export async function getVariantTree(
+  trackId: string
+): Promise<TrackRelationship[]> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant-tree/${trackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Variant tree endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to fetch variant tree');
+  }
+
+  const data = await response.json();
+  return data.tree;
+}
+
+/**
+ * Get parent variant (immediate parent in chain)
+ */
+export async function getParentVariant(
+  variantTrackId: string
+): Promise<TrackRelationship | null> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/parent/${variantTrackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Parent variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get parent variant');
+  }
+
+  const data = await response.json();
+  return data.parentVariant;
+}
+
+/**
+ * Get variants needing review (base was updated after they were synced)
+ */
+export async function getVariantsNeedingReview(
+  baseTrackId: string
+): Promise<TrackRelationship[]> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variants/needs-review/${baseTrackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Variants needing review endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get variants needing review');
+  }
+
+  const data = await response.json();
+  return data.variantsNeedingReview;
+}
+
+/**
+ * Mark variant as synced with base (after admin reviews)
+ */
+export async function markVariantSynced(
+  relationshipId: string
+): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/mark-synced/${relationshipId}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Mark synced endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to mark variant as synced');
+  }
+}
+
+/**
+ * Get ultimate base track for any variant (walks up the chain)
+ */
+export async function getUltimateBaseTrack(
+  variantTrackId: string
+): Promise<{ baseTrack: TrackRelationship | null; depth: number }> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/ultimate-base/${variantTrackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Ultimate base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get ultimate base track');
+  }
+
+  const data = await response.json();
+  return data;
 }

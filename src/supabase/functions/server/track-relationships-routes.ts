@@ -236,7 +236,7 @@ app.get('/variants/:trackId', async (c) => {
     }
 
     const trackId = c.req.param('trackId');
-    const variantType = c.req.query('type') as 'geographic' | 'company' | 'language' | 'unit' | undefined;
+    const variantType = c.req.query('type') as 'geographic' | 'company' | 'unit' | undefined;
 
     const variants = await trackRel.getTrackVariants(orgId, trackId, variantType);
 
@@ -258,7 +258,7 @@ app.get('/variant/find', async (c) => {
     }
 
     const sourceTrackId = c.req.query('sourceTrackId');
-    const variantType = c.req.query('variantType') as 'geographic' | 'company' | 'language' | 'unit';
+    const variantType = c.req.query('variantType') as 'geographic' | 'company' | 'unit';
     const contextKey = c.req.query('contextKey');
     const contextValue = c.req.query('contextValue');
 
@@ -319,6 +319,111 @@ app.get('/stats-with-variants/:trackId', async (c) => {
     return c.json({ stats });
   } catch (error: any) {
     console.error('Error fetching relationship stats with variants:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET FULL VARIANT TREE (all descendants)
+app.get('/variant-tree/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+
+    const tree = await trackRel.getVariantTree(orgId, trackId);
+
+    return c.json({ tree });
+  } catch (error: any) {
+    console.error('Error fetching variant tree:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET PARENT VARIANT (immediate parent)
+app.get('/variant/parent/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+
+    const parentVariant = await trackRel.getParentVariant(orgId, trackId);
+
+    return c.json({ parentVariant });
+  } catch (error: any) {
+    console.error('Error getting parent variant:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET VARIANTS NEEDING REVIEW
+app.get('/variants/needs-review/:baseTrackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const baseTrackId = c.req.param('baseTrackId');
+
+    const variantsNeedingReview = await trackRel.getVariantsNeedingReview(orgId, baseTrackId);
+
+    return c.json({ variantsNeedingReview });
+  } catch (error: any) {
+    console.error('Error getting variants needing review:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// MARK VARIANT AS SYNCED
+app.post('/variant/mark-synced/:relationshipId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const relationshipId = c.req.param('relationshipId');
+
+    await trackRel.markVariantSynced(orgId, relationshipId);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('Error marking variant as synced:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET ULTIMATE BASE TRACK
+app.get('/variant/ultimate-base/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+
+    const result = await trackRel.getUltimateBaseTrack(orgId, trackId);
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error('Error getting ultimate base track:', error);
     return c.json({ error: error.message }, 500);
   }
 });
