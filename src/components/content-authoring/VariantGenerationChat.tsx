@@ -47,7 +47,7 @@ interface VariantGenerationChatProps {
   onCancel: () => void;
 }
 
-type ChatState = 'CLARIFYING' | 'READY_TO_GENERATE' | 'GENERATING' | 'PREVIEW' | 'DONE';
+type ChatState = 'RESEARCHING' | 'CLARIFYING' | 'READY_TO_GENERATE' | 'NEEDS_REVIEW' | 'GENERATING' | 'PREVIEW' | 'DONE';
 
 export function VariantGenerationChat({
   sourceTrack,
@@ -56,7 +56,8 @@ export function VariantGenerationChat({
   onGenerated,
   onCancel
 }: VariantGenerationChatProps) {
-  const [state, setState] = useState<ChatState>('CLARIFYING');
+  const [state, setState] = useState<ChatState>('RESEARCHING');
+  const [needsReview, setNeedsReview] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -124,7 +125,7 @@ export function VariantGenerationChat({
         const chunk = decoder.decode(value, { stream: true });
         assistantContent += chunk;
 
-        // Check for special marker
+        // Check for special markers
         if (assistantContent.includes('[READY_TO_GENERATE]')) {
           const cleanContent = assistantContent.replace('[READY_TO_GENERATE]', '').trim();
           setMessages(prev => {
@@ -132,7 +133,20 @@ export function VariantGenerationChat({
             newMessages[newMessages.length - 1].content = cleanContent;
             return newMessages;
           });
+          setNeedsReview(false);
           setState('READY_TO_GENERATE');
+          break;
+        }
+
+        if (assistantContent.includes('[NEEDS_REVIEW]')) {
+          const cleanContent = assistantContent.replace('[NEEDS_REVIEW]', '').trim();
+          setMessages(prev => {
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1].content = cleanContent;
+            return newMessages;
+          });
+          setNeedsReview(true);
+          setState('READY_TO_GENERATE'); // Still allow generation, but flagged
           break;
         }
 
@@ -286,6 +300,9 @@ export function VariantGenerationChat({
     );
   }
 
+  // Researching indicator shown inline in the chat
+  const isResearching = state === 'RESEARCHING' && isLoading && messages.length === 0;
+
   return (
     <div className="flex flex-col h-full max-h-[60vh] bg-card rounded-xl overflow-hidden border border-border shadow-sm">
       {/* Header */}
@@ -332,6 +349,24 @@ export function VariantGenerationChat({
       {/* Messages */}
       <ScrollArea className="flex-1 min-h-0 p-4 bg-transparent">
         <div className="space-y-4">
+          {/* Researching indicator */}
+          {isResearching && (
+            <div className="flex justify-start">
+              <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center mr-2 shrink-0 shadow-sm">
+                <Zap className="w-4 h-4 text-white" />
+              </div>
+              <div className="bg-zinc-800 rounded-2xl rounded-tl-none p-3 shadow-sm">
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <span>Researching {variantContext.state_name || 'state'} regulations</span>
+                  <span className="inline-flex gap-1">
+                    <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '200ms' }} />
+                    <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '400ms' }} />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
@@ -339,10 +374,10 @@ export function VariantGenerationChat({
                   <Zap className="w-4 h-4 text-white" />
                 </div>
               )}
-              <div 
+              <div
                 className={`max-w-[85%] p-3 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${
-                  msg.role === 'user' 
-                    ? 'bg-orange-500 text-white rounded-tr-none' 
+                  msg.role === 'user'
+                    ? 'bg-orange-500 text-white rounded-tr-none'
                     : 'bg-secondary border border-border rounded-tl-none text-foreground'
                 }`}
               >
@@ -364,25 +399,34 @@ export function VariantGenerationChat({
       {/* Footer / Input */}
       <div className="p-4 bg-card border-t border-border space-y-3">
         {state === 'READY_TO_GENERATE' && (
-          <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg border border-orange-500/30">
+          <div className={`flex flex-col gap-2 p-3 rounded-lg border ${needsReview ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-muted border-orange-500/30'}`}>
             <p className="text-sm font-medium text-foreground flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-orange-500" />
-              I have enough information to generate the variant.
+              {needsReview ? (
+                <>
+                  <AlertCircle className="w-4 h-4 text-yellow-500" />
+                  Research incomplete - variant will be flagged for review
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 text-green-500" />
+                  Research complete with verified sources
+                </>
+              )}
             </p>
             <div className="flex gap-2">
-              <Button 
-                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white shadow-md transition-all hover:scale-[1.02]"
+              <Button
+                className={`flex-1 shadow-md transition-all hover:scale-[1.02] ${needsReview ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-orange-600 hover:bg-orange-700'} text-white`}
                 onClick={handleGenerate}
               >
                 <Zap className="w-4 h-4 mr-2" />
-                Generate Variant Content
+                {needsReview ? 'Generate (Needs Review)' : 'Generate Variant'}
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="flex-1"
                 onClick={() => setState('CLARIFYING')}
               >
-                Ask More Questions
+                Add Details
               </Button>
             </div>
           </div>

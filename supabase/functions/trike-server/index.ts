@@ -5418,12 +5418,13 @@ async function sendWelcomeEmail(params: {
 
 /**
  * AI-Assisted Variant Generation: Chat
+ * Uses OpenAI Responses API with web search for research-first workflow
  */
 async function handleVariantChat(req: Request): Promise<Response> {
   try {
     if (!OPENAI_API_KEY) return jsonResponse({ error: "OpenAI API key not configured" }, 500);
 
-    const { sourceTrackId, variantType, variantContext, messages } = await req.json();
+    const { sourceTrackId, variantType, variantContext, messages, phase } = await req.json();
 
     if (!sourceTrackId || !variantType || !variantContext) {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
@@ -5458,17 +5459,15 @@ async function handleVariantChat(req: Request): Promise<Response> {
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
     const sourceContent = track.content_text || track.transcript || '';
-    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
 
-    let apiMessages = [{ role: 'system', content: systemPrompt }];
-    if (!messages || messages.length === 0) {
-      const firstMessage = getClarificationPrompt(variantType, variantContext, sourceContent);
-      apiMessages.push({ role: 'user', content: firstMessage });
-    } else {
-      apiMessages = [...apiMessages, ...messages];
+    // PHASE 1: Research - Use OpenAI Responses API with web search
+    if (!messages || messages.length === 0 || phase === 'research') {
+      return await handleVariantResearch(variantType, variantContext, track, sourceContent);
     }
 
-    const isReadyToGenerate = messages && messages.length >= 4;
+    // PHASE 2: After research, handle follow-up conversation (optional company-specific questions)
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+    const apiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -5501,10 +5500,10 @@ async function handleVariantChat(req: Request): Promise<Response> {
         while (true) {
           const { done, value } = await reader!.read();
           if (done) break;
-          
+
           const chunk = decoder.decode(value);
           const lines = chunk.split("\n");
-          
+
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = line.slice(6);
@@ -5521,9 +5520,6 @@ async function handleVariantChat(req: Request): Promise<Response> {
             }
           }
         }
-        if (isReadyToGenerate) {
-          await writer.write(encoder.encode("\n\n[READY_TO_GENERATE]"));
-        }
       } catch (e) {
         console.error("Streaming error:", e);
       } finally {
@@ -5538,6 +5534,367 @@ async function handleVariantChat(req: Request): Promise<Response> {
     console.error("Error in handleVariantChat:", error);
     return jsonResponse({ error: error.message }, 500);
   }
+}
+
+/**
+ * Research phase using OpenAI Responses API with web search
+ */
+async function handleVariantResearch(
+  variantType: string,
+  variantContext: any,
+  track: { title: string; type: string },
+  sourceContent: string
+): Promise<Response> {
+  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+
+  // Build search queries based on content topics
+  const topicAnalysis = analyzeContentTopics(sourceContent);
+  const searchQueries = buildSearchQueries(topicAnalysis, stateName, variantType);
+
+  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${stateName}`);
+  console.log(`📋 [VariantResearch] Topics detected: ${topicAnalysis.join(', ')}`);
+  console.log(`🔎 [VariantResearch] Search queries: ${searchQueries.join(' | ')}`);
+
+  // Use OpenAI Responses API with web search tool
+  const researchPrompt = buildResearchPrompt(variantType, variantContext, track, sourceContent, topicAnalysis);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        tools: [{ type: "web_search_preview" }],
+        input: researchPrompt,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("OpenAI Responses API error:", errorText);
+      // Fallback to non-web-search if Responses API fails
+      return await handleVariantResearchFallback(variantType, variantContext, track, sourceContent, topicAnalysis);
+    }
+
+    const result = await response.json();
+
+    // Extract the response and citations
+    const outputText = extractResponseText(result);
+    const citations = extractCitations(result);
+
+    // Quality gate: Check for required sources
+    const qualityCheck = validateResearchQuality(citations, topicAnalysis);
+
+    // Build the response message
+    const researchResult = formatResearchResult(outputText, citations, qualityCheck, variantType, variantContext);
+
+    // Stream the result back
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(researchResult));
+        controller.close();
+      }
+    });
+
+    return new Response(stream, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    });
+
+  } catch (error: any) {
+    console.error("Research error:", error);
+    return await handleVariantResearchFallback(variantType, variantContext, track, sourceContent, topicAnalysis);
+  }
+}
+
+/**
+ * Fallback research handler when Responses API is unavailable
+ */
+async function handleVariantResearchFallback(
+  variantType: string,
+  variantContext: any,
+  track: { title: string; type: string },
+  sourceContent: string,
+  topicAnalysis: string[]
+): Promise<Response> {
+  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+
+  const fallbackMessage = `⚠️ **Web research unavailable** - Using knowledge-based adaptation
+
+I was unable to perform live web research for current ${stateName} regulations. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
+
+**Topics identified in source content:**
+${topicAnalysis.map(t => `• ${t}`).join('\n')}
+
+**What I need from you (company-specific only):**
+1. Any internal procedures or terminology to use?
+2. Specific contact names or escalation paths?
+3. Any areas you want emphasized?
+
+Or type "proceed" to generate the variant with a "Needs Review" flag.
+
+[NEEDS_REVIEW]`;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(fallbackMessage));
+      controller.close();
+    }
+  });
+
+  return new Response(stream, {
+    headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+  });
+}
+
+/**
+ * Analyze source content to identify regulatory topics
+ */
+function analyzeContentTopics(content: string): string[] {
+  const topics: string[] = [];
+  const contentLower = content.toLowerCase();
+
+  // Tobacco/Vape
+  if (contentLower.includes('tobacco') || contentLower.includes('cigarette') || contentLower.includes('cigar')) {
+    topics.push('tobacco sales');
+  }
+  if (contentLower.includes('vape') || contentLower.includes('e-cigarette') || contentLower.includes('vaping')) {
+    topics.push('vape/e-cigarette sales');
+  }
+
+  // Alcohol
+  if (contentLower.includes('alcohol') || contentLower.includes('beer') || contentLower.includes('wine') || contentLower.includes('liquor')) {
+    topics.push('alcohol sales');
+  }
+
+  // Age verification
+  if (contentLower.includes('age') || contentLower.includes('id') || contentLower.includes('identification') || contentLower.includes('verify')) {
+    topics.push('age verification requirements');
+  }
+
+  // Lottery
+  if (contentLower.includes('lottery') || contentLower.includes('scratch') || contentLower.includes('lotto')) {
+    topics.push('lottery sales');
+  }
+
+  // Food safety
+  if (contentLower.includes('food') || contentLower.includes('handler') || contentLower.includes('health department')) {
+    topics.push('food safety/handling');
+  }
+
+  // Fuel
+  if (contentLower.includes('fuel') || contentLower.includes('gasoline') || contentLower.includes('diesel') || contentLower.includes('pump')) {
+    topics.push('fuel handling/delivery');
+  }
+
+  // Safety
+  if (contentLower.includes('safety') || contentLower.includes('emergency') || contentLower.includes('spill')) {
+    topics.push('safety procedures');
+  }
+
+  // If no specific topics found, add generic
+  if (topics.length === 0) {
+    topics.push('retail compliance');
+  }
+
+  return topics;
+}
+
+/**
+ * Build search queries for the identified topics
+ */
+function buildSearchQueries(topics: string[], stateName: string, variantType: string): string[] {
+  const queries: string[] = [];
+
+  for (const topic of topics) {
+    if (variantType === 'geographic') {
+      queries.push(`${stateName} ${topic} regulations requirements 2024 2025`);
+      queries.push(`${stateName} state law ${topic} retail compliance`);
+    }
+  }
+
+  return queries.slice(0, 4); // Limit to 4 queries
+}
+
+/**
+ * Build the research prompt for OpenAI Responses API
+ */
+function buildResearchPrompt(
+  variantType: string,
+  variantContext: any,
+  track: { title: string; type: string },
+  sourceContent: string,
+  topicAnalysis: string[]
+): string {
+  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+
+  return `You are researching current ${stateName} state regulations to adapt training content.
+
+**SOURCE CONTENT TITLE:** ${track.title}
+**CONTENT TYPE:** ${track.type}
+**TOPICS IDENTIFIED:** ${topicAnalysis.join(', ')}
+
+**YOUR TASK:**
+1. Search for CURRENT ${stateName} regulations related to: ${topicAnalysis.join(', ')}
+2. Find authoritative sources (state statutes, administrative code, state agency guidance)
+3. Extract specific requirements: age limits, penalties, signage requirements, licensing, etc.
+4. Note the effective date or last updated date for each regulation
+
+**REQUIRED SOURCE TYPES (Tier 1 - need at least 2):**
+- State legislature / official compiled statutes (.gov domains)
+- State administrative code / regulations
+- State enforcement / regulatory agency guidance
+
+**ACCEPTABLE SOURCES (Tier 2):**
+- State attorney general compliance pages
+- State health/revenue department guidance
+- Official state-approved training materials
+
+**DO NOT USE:**
+- SEO blogs, law firm marketing pages, or "compliance checklist" sites without citations
+
+**OUTPUT FORMAT:**
+For each regulation found, provide:
+- **Rule:** [What the requirement is]
+- **Source:** [Official source name]
+- **URL:** [Link]
+- **Effective/Updated:** [Date if available, or "Not specified"]
+- **Confidence:** [High/Medium/Low based on source authority]
+
+After research, summarize what you found and ask ONLY about company-specific preferences (escalation paths, internal terminology, signage templates) - NOT about the regulations themselves.`;
+}
+
+/**
+ * Extract text from OpenAI Responses API result
+ */
+function extractResponseText(result: any): string {
+  if (result.output && Array.isArray(result.output)) {
+    for (const item of result.output) {
+      if (item.type === 'message' && item.content) {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            return content.text || '';
+          }
+        }
+      }
+    }
+  }
+  return result.output_text || result.text || JSON.stringify(result);
+}
+
+/**
+ * Extract citations from OpenAI Responses API result
+ */
+function extractCitations(result: any): Array<{title: string; url: string; snippet?: string}> {
+  const citations: Array<{title: string; url: string; snippet?: string}> = [];
+
+  if (result.output && Array.isArray(result.output)) {
+    for (const item of result.output) {
+      if (item.type === 'message' && item.content) {
+        for (const content of item.content) {
+          if (content.type === 'output_text' && content.annotations) {
+            for (const annotation of content.annotations) {
+              if (annotation.type === 'url_citation') {
+                citations.push({
+                  title: annotation.title || annotation.url,
+                  url: annotation.url,
+                  snippet: annotation.snippet
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return citations;
+}
+
+/**
+ * Validate research quality - check for required Tier 1 sources
+ */
+function validateResearchQuality(
+  citations: Array<{title: string; url: string}>,
+  topics: string[]
+): { passed: boolean; tier1Count: number; issues: string[] } {
+  const issues: string[] = [];
+  let tier1Count = 0;
+
+  // Check for .gov domains (Tier 1)
+  for (const citation of citations) {
+    if (citation.url.includes('.gov')) {
+      tier1Count++;
+    }
+  }
+
+  if (tier1Count < 2) {
+    issues.push(`Only ${tier1Count} government sources found (need at least 2)`);
+  }
+
+  if (citations.length === 0) {
+    issues.push('No sources found - content needs manual review');
+  }
+
+  return {
+    passed: tier1Count >= 2 && citations.length > 0,
+    tier1Count,
+    issues
+  };
+}
+
+/**
+ * Format the research result for display
+ */
+function formatResearchResult(
+  outputText: string,
+  citations: Array<{title: string; url: string; snippet?: string}>,
+  qualityCheck: { passed: boolean; tier1Count: number; issues: string[] },
+  variantType: string,
+  variantContext: any
+): string {
+  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+
+  let result = `🔍 **Research Complete: ${stateName} Regulations**\n\n`;
+
+  // Quality indicator
+  if (qualityCheck.passed) {
+    result += `✅ **Quality Check Passed** (${qualityCheck.tier1Count} authoritative sources found)\n\n`;
+  } else {
+    result += `⚠️ **Needs Review** - ${qualityCheck.issues.join('; ')}\n\n`;
+  }
+
+  // Main research findings
+  result += outputText + '\n\n';
+
+  // Sources section
+  if (citations.length > 0) {
+    result += `---\n📚 **Sources Used:**\n`;
+    for (const citation of citations) {
+      const tier = citation.url.includes('.gov') ? '(Tier 1)' : '(Tier 2)';
+      result += `• ${citation.title} ${tier}\n  ${citation.url}\n`;
+    }
+    result += '\n';
+  }
+
+  // Next steps
+  result += `---\n**Ready to generate.** Do you have any company-specific requirements?\n`;
+  result += `• Internal procedures or terminology?\n`;
+  result += `• Specific contacts or escalation paths?\n`;
+  result += `• Areas to emphasize?\n\n`;
+  result += `Or type "proceed" to generate the variant now.\n\n`;
+
+  if (!qualityCheck.passed) {
+    result += `[NEEDS_REVIEW]`;
+  } else {
+    result += `[READY_TO_GENERATE]`;
+  }
+
+  return result;
 }
 
 /**
@@ -5658,71 +6015,86 @@ Return the output in the following JSON format:
 
 // PROMPT HELPERS
 function getVariantSystemPrompt(variantType: string, variantContext: any, sourceTrackType: string): string {
-  let focusAreas = '';
   let contextDetails = '';
+  let knowledgeInstructions = '';
 
   switch (variantType) {
     case 'geographic':
-      focusAreas = `
-- Focus on state-specific regulatory requirements for ${variantContext.state_name || 'the specified state'}.
-- Address licensing requirements, age restrictions (e.g., for tobacco/alcohol/lottery), and labeling.
-- For food service: Include health department requirements and food handler certifications.
-- For retail: Address state-specific tobacco/alcohol regulations and lottery rules.`;
-      contextDetails = `Target State: ${variantContext.state_name || variantContext.state_code || 'Not specified'}`;
+      const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+      contextDetails = `Target State: ${stateName}`;
+      knowledgeInstructions = `
+YOU ARE THE EXPERT ON STATE REGULATIONS:
+- You KNOW ${stateName}'s laws, regulations, and requirements. Use your knowledge to adapt the content.
+- Do NOT ask the user about state regulations, laws, age requirements, penalties, or legal requirements - YOU should know these.
+- Only ask about company-specific things YOU cannot know: their internal procedures, specific contact names, escalation paths, or whether they want certain details emphasized.`;
       break;
-
     case 'company':
-      focusAreas = `
-- Focus on company policies that override or extend base content for ${variantContext.org_name || 'the organization'}.
-- Incorporate company-specific procedures, brand standards, and escalation paths.
-- Use company terminology and reference internal systems/tools.`;
       contextDetails = `Target Organization: ${variantContext.org_name || 'Not specified'}`;
+      knowledgeInstructions = `
+ASK ABOUT COMPANY-SPECIFIC DETAILS:
+- Ask about company policies, brand standards, internal terminology, and specific procedures.
+- Ask about escalation paths, contact roles, and company-specific tools or systems.`;
       break;
-
     case 'unit':
-      focusAreas = `
-- Focus on local operational details for the store/location: ${variantContext.store_name || 'this unit'}.
-- Include store layout details, local contact persons, specific equipment available, and neighborhood considerations.
-- Reference location-specific safety procedures or local supervisor roles.`;
       contextDetails = `Target Unit/Store: ${variantContext.store_name || variantContext.store_id || 'Not specified'}`;
+      knowledgeInstructions = `
+ASK ABOUT LOCATION-SPECIFIC DETAILS:
+- Ask about local manager names, store layout, specific equipment, local emergency contacts.
+- Ask about any neighborhood-specific considerations or local procedures.`;
       break;
   }
 
-  return `You are an expert training content adaptation assistant for a multi-tenant LMS used in convenience store and foodservice operations.
+  return `You are an expert training content adaptation assistant with comprehensive knowledge of US state and federal regulations.
 
-YOUR GOAL: Help the user adapt an existing training track (type: ${sourceTrackType}) into a ${variantType} variant.
+YOUR GOAL: Adapt an existing training track (type: ${sourceTrackType}) into a ${variantType} variant.
 
 CONTEXT:
 ${contextDetails}
+${knowledgeInstructions}
 
-ADAPTATION FOCUS:
-${focusAreas}
+CRITICAL INSTRUCTIONS:
+1. READ the source content carefully to understand what topics it covers.
+2. USE YOUR KNOWLEDGE of regulations, laws, and requirements - do not ask the user for information you should already know.
+3. ONLY ASK about things you genuinely cannot know: company-specific procedures, internal contacts, or preferences about emphasis.
+4. Keep questions brief (2-3 max) and focused on what YOU need from THEM, not what you should research yourself.
 
-OPERATIONAL GUIDELINES:
-1. ASK QUESTIONS FIRST: Before generating the final content, you MUST ask 2-4 focused clarification questions to gather necessary details for the adaptation.
-2. WAIT FOR ANSWERS: Do not generate the final adapted content until you have enough information or the user explicitly asks you to proceed.
-3. PRESERVE STRUCTURE: When generating, maintain the same structure (headings, sections, flow) as the source content.
-4. ADAPT SPECIFICS: Preserve core educational content while adapting regional/company/unit-specific details.
-5. BE PROFESSIONAL: Use professional, operational language suitable for frontline workers in convenience stores and food service.
-6. MARK ADAPTATIONS: Clearly indicate which sections have been adapted in your final output.
+When adapting:
+- PRESERVE the structure and flow of the source content
+- UPDATE specific regulations, requirements, and terminology for the target context
+- BE PROFESSIONAL and concise
 
-When you are ready to generate, or after 2-3 exchanges, ask the user if they are ready to generate the final variant.`;
+After a brief clarification (or if the user says to proceed), generate the adapted content.`;
 }
 
 function getClarificationPrompt(variantType: string, variantContext: any, sourceContent: string): string {
-  const contentSummary = sourceContent.substring(0, 500) + (sourceContent.length > 500 ? '...' : '');
-  
   let targetDesc = '';
+  let questionGuidance = '';
+
   switch (variantType) {
-    case 'geographic': targetDesc = `state-specific requirements for ${variantContext.state_name || 'the region'}`; break;
-    case 'company': targetDesc = `company policies for ${variantContext.org_name || 'your organization'}`; break;
-    case 'unit': targetDesc = `local operational details for ${variantContext.store_name || 'this location'}`; break;
+    case 'geographic':
+      targetDesc = `${variantContext.state_name || 'the specified state'}`;
+      questionGuidance = `I will apply ${targetDesc}'s specific regulations and requirements. I just need to know:
+- Any company-specific procedures or terminology you want me to use
+- Whether there are specific contacts or escalation paths to include
+- Any particular areas you want emphasized`;
+      break;
+    case 'company':
+      targetDesc = `${variantContext.org_name || 'your organization'}`;
+      questionGuidance = `To customize this for ${targetDesc}, I need to know about your company-specific policies, terminology, and procedures.`;
+      break;
+    case 'unit':
+      targetDesc = `${variantContext.store_name || 'this location'}`;
+      questionGuidance = `To customize this for ${targetDesc}, I need location-specific details like manager names, local contacts, and any store-specific procedures.`;
+      break;
   }
 
-  return `I've analyzed the source content for "${targetDesc}". 
+  return `I've reviewed the source training content about the topics covered below. I'm ready to adapt it for ${targetDesc}.
 
-Source content summary:
-"${contentSummary}"
+=== SOURCE CONTENT ===
+${sourceContent}
+=== END SOURCE CONTENT ===
 
-To create an accurate ${variantType} variant, I have a few specific questions:`;
+${questionGuidance}
+
+Do you have any specific requirements, or should I proceed with generating the ${variantType} variant using standard ${targetDesc} regulations and best practices?`;
 }
