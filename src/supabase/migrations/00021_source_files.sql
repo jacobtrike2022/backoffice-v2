@@ -45,22 +45,29 @@ CREATE INDEX IF NOT EXISTS idx_source_files_created ON source_files(created_at D
 -- RLS
 ALTER TABLE source_files ENABLE ROW LEVEL SECURITY;
 
--- View own org's source files
+-- For single-tenant mode: Allow all authenticated users
+-- For multi-tenant: Replace 'true' with 'organization_id = get_user_organization_id()'
+
+-- View source files (authenticated users)
 CREATE POLICY "View source files" ON source_files FOR SELECT
-USING (organization_id = get_user_organization_id());
+TO authenticated
+USING (true);
 
--- Insert source files for own org
+-- Insert source files (authenticated users)
 CREATE POLICY "Insert source files" ON source_files FOR INSERT
-WITH CHECK (organization_id = get_user_organization_id());
+TO authenticated
+WITH CHECK (true);
 
--- Update own org's source files
+-- Update source files (authenticated users)
 CREATE POLICY "Update source files" ON source_files FOR UPDATE
-USING (organization_id = get_user_organization_id())
-WITH CHECK (organization_id = get_user_organization_id());
+TO authenticated
+USING (true)
+WITH CHECK (true);
 
--- Delete own org's source files
+-- Delete source files (authenticated users)
 CREATE POLICY "Delete source files" ON source_files FOR DELETE
-USING (organization_id = get_user_organization_id());
+TO authenticated
+USING (true);
 
 -- =====================================================
 -- TRIGGER: Update updated_at timestamp

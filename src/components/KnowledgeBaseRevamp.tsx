@@ -1808,9 +1808,11 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
   // Process content for TOC and inject IDs
   const { processedContent, tocSections } = useMemo(() => {
-    // Try content_text first (database field), then content (possible alias), then transcript (legacy field for articles)
-    const rawContent = selectedTrack?.content_text || selectedTrack?.content || selectedTrack?.transcript;
-    
+    // Try content_text first (database field), then content (possible alias)
+    // For stories, transcript contains JSON slide data, not HTML content - so don't use it as fallback
+    const rawContent = selectedTrack?.content_text || selectedTrack?.content ||
+      (selectedTrack?.type !== 'story' ? selectedTrack?.transcript : null);
+
     if (!rawContent) return { processedContent: '', tocSections: [] };
 
     try {
@@ -1843,7 +1845,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       console.error("Error parsing content for TOC", e);
       return { processedContent: rawContent, tocSections: [] };
     }
-  }, [selectedTrack?.content, selectedTrack?.content_text, selectedTrack?.transcript]);
+  }, [selectedTrack?.content, selectedTrack?.content_text, selectedTrack?.transcript, selectedTrack?.type]);
 
   const filteredTracks = useMemo(() => {
     // Filter logic is now handled by backend via hooks
