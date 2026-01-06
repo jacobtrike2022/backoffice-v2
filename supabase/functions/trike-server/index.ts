@@ -36,11 +36,10 @@ Deno.serve(async (req: Request) => {
 
   const url = new URL(req.url);
   // Supabase strips /functions/v1/{function-name} automatically, but sometimes the pathname
-  // might still include the function name, so we remove it if present
+  // might still include the function name or full v1 prefix, so we normalize it
   let path = url.pathname;
-  if (path.startsWith("/trike-server")) {
-    path = path.replace(/^\/trike-server/, "");
-  }
+  path = path.replace(/^\/functions\/v1\/trike-server/, "");
+  path = path.replace(/^\/trike-server/, "");
   // Ensure path starts with / for consistency
   if (!path.startsWith("/")) {
     path = "/" + path;
@@ -171,6 +170,16 @@ Deno.serve(async (req: Request) => {
     // Create a relationship between tracks
     if (method === "POST" && path === "/track-relationships/create") {
       return await handleCreateRelationship(req);
+    }
+
+    // AI-Assisted Variant Generation: Chat
+    if (method === "POST" && path === "/track-relationships/variant/chat") {
+      return await handleVariantChat(req);
+    }
+
+    // AI-Assisted Variant Generation: Generate
+    if (method === "POST" && path === "/track-relationships/variant/generate") {
+      return await handleVariantGenerate(req);
     }
 
     // Delete a relationship (must not be a sub-path)
@@ -346,6 +355,8 @@ Deno.serve(async (req: Request) => {
         "GET /track-relationships/derived/:trackId",
         "GET /track-relationships/stats/:trackId",
         "POST /track-relationships/create",
+        "POST /track-relationships/variant/chat",
+        "POST /track-relationships/variant/generate",
         "DELETE /track-relationships/:relationshipId",
         "GET /track-versions/:trackId",
         "POST /brain/embed",
@@ -5403,4 +5414,283 @@ async function sendWelcomeEmail(params: {
     console.error("[Email] sendWelcomeEmail error:", error);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * AI-Assisted Variant Generation: Chat
+ */
+async function handleVariantChat(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    if (!OPENAI_API_KEY) return jsonResponse({ error: "OpenAI API key not configured" }, 500);
+
+    const { sourceTrackId, variantType, variantContext, messages } = await req.json();
+
+    if (!sourceTrackId || !variantType || !variantContext) {
+      return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('title, type, content_text, transcript')
+      .eq('id', sourceTrackId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
+
+    const sourceContent = track.content_text || track.transcript || '';
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+
+    let apiMessages = [{ role: 'system', content: systemPrompt }];
+    if (!messages || messages.length === 0) {
+      const firstMessage = getClarificationPrompt(variantType, variantContext, sourceContent);
+      apiMessages.push({ role: 'user', content: firstMessage });
+    } else {
+      apiMessages = [...apiMessages, ...messages];
+    }
+
+    const isReadyToGenerate = messages && messages.length >= 4;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: apiMessages,
+        temperature: 0.7,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenAI error: ${error}`);
+    }
+
+    // Proxy the stream
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const reader = response.body?.getReader();
+
+    (async () => {
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      try {
+        while (true) {
+          const { done, value } = await reader!.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+          
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") break;
+              try {
+                const json = JSON.parse(data);
+                const content = json.choices[0]?.delta?.content;
+                if (content) {
+                  await writer.write(encoder.encode(content));
+                }
+              } catch (e) {
+                // Ignore parse errors for partial chunks
+              }
+            }
+          }
+        }
+        if (isReadyToGenerate) {
+          await writer.write(encoder.encode("\n\n[READY_TO_GENERATE]"));
+        }
+      } catch (e) {
+        console.error("Streaming error:", e);
+      } finally {
+        writer.close();
+      }
+    })();
+
+    return new Response(readable, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    });
+  } catch (error: any) {
+    console.error("Error in handleVariantChat:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * AI-Assisted Variant Generation: Generate
+ */
+async function handleVariantGenerate(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    if (!OPENAI_API_KEY) return jsonResponse({ error: "OpenAI API key not configured" }, 500);
+
+    const { sourceTrackId, variantType, variantContext, clarificationAnswers } = await req.json();
+
+    if (!sourceTrackId || !variantType || !variantContext) {
+      return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('*')
+      .eq('id', sourceTrackId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
+
+    const sourceContent = track.content_text || track.transcript || '';
+    const qaContent = clarificationAnswers 
+      ? clarificationAnswers.map((qa: any) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
+      : 'No specific clarifications provided.';
+
+    const generationPrompt = `
+Source Content:
+${sourceContent}
+
+Variant Context:
+- Type: ${variantType}
+- Details: ${JSON.stringify(variantContext)}
+
+Clarification Answers:
+${qaContent}
+
+TASK: Generate the adapted content for this variant.
+Maintain the exact same structure as the source.
+Return the output in the following JSON format:
+{
+  "generatedTitle": "Suggested variant title",
+  "generatedContent": "The adapted HTML/text content",
+  "adaptations": [
+    {
+      "section": "Name of section",
+      "originalText": "...",
+      "adaptedText": "...",
+      "reason": "..."
+    }
+  ]
+}
+`;
+
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+    
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: generationPrompt }
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenAI error: ${error}`);
+    }
+
+    const result = await response.json();
+    const content = result.choices[0]?.message?.content;
+
+    try {
+      return jsonResponse(JSON.parse(content));
+    } catch (e) {
+      return jsonResponse({ 
+        generatedTitle: `${track.title} (${variantType} variant)`,
+        generatedContent: content,
+        adaptations: []
+      });
+    }
+  } catch (error: any) {
+    console.error("Error in handleVariantGenerate:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// PROMPT HELPERS
+function getVariantSystemPrompt(variantType: string, variantContext: any, sourceTrackType: string): string {
+  let focusAreas = '';
+  let contextDetails = '';
+
+  switch (variantType) {
+    case 'geographic':
+      focusAreas = `
+- Focus on state-specific regulatory requirements for ${variantContext.state_name || 'the specified state'}.
+- Address licensing requirements, age restrictions (e.g., for tobacco/alcohol/lottery), and labeling.
+- For food service: Include health department requirements and food handler certifications.
+- For retail: Address state-specific tobacco/alcohol regulations and lottery rules.`;
+      contextDetails = `Target State: ${variantContext.state_name || variantContext.state_code || 'Not specified'}`;
+      break;
+
+    case 'company':
+      focusAreas = `
+- Focus on company policies that override or extend base content for ${variantContext.org_name || 'the organization'}.
+- Incorporate company-specific procedures, brand standards, and escalation paths.
+- Use company terminology and reference internal systems/tools.`;
+      contextDetails = `Target Organization: ${variantContext.org_name || 'Not specified'}`;
+      break;
+
+    case 'unit':
+      focusAreas = `
+- Focus on local operational details for the store/location: ${variantContext.store_name || 'this unit'}.
+- Include store layout details, local contact persons, specific equipment available, and neighborhood considerations.
+- Reference location-specific safety procedures or local supervisor roles.`;
+      contextDetails = `Target Unit/Store: ${variantContext.store_name || variantContext.store_id || 'Not specified'}`;
+      break;
+  }
+
+  return `You are an expert training content adaptation assistant for a multi-tenant LMS used in convenience store and foodservice operations.
+
+YOUR GOAL: Help the user adapt an existing training track (type: ${sourceTrackType}) into a ${variantType} variant.
+
+CONTEXT:
+${contextDetails}
+
+ADAPTATION FOCUS:
+${focusAreas}
+
+OPERATIONAL GUIDELINES:
+1. ASK QUESTIONS FIRST: Before generating the final content, you MUST ask 2-4 focused clarification questions to gather necessary details for the adaptation.
+2. WAIT FOR ANSWERS: Do not generate the final adapted content until you have enough information or the user explicitly asks you to proceed.
+3. PRESERVE STRUCTURE: When generating, maintain the same structure (headings, sections, flow) as the source content.
+4. ADAPT SPECIFICS: Preserve core educational content while adapting regional/company/unit-specific details.
+5. BE PROFESSIONAL: Use professional, operational language suitable for frontline workers in convenience stores and food service.
+6. MARK ADAPTATIONS: Clearly indicate which sections have been adapted in your final output.
+
+When you are ready to generate, or after 2-3 exchanges, ask the user if they are ready to generate the final variant.`;
+}
+
+function getClarificationPrompt(variantType: string, variantContext: any, sourceContent: string): string {
+  const contentSummary = sourceContent.substring(0, 500) + (sourceContent.length > 500 ? '...' : '');
+  
+  let targetDesc = '';
+  switch (variantType) {
+    case 'geographic': targetDesc = `state-specific requirements for ${variantContext.state_name || 'the region'}`; break;
+    case 'company': targetDesc = `company policies for ${variantContext.org_name || 'your organization'}`; break;
+    case 'unit': targetDesc = `local operational details for ${variantContext.store_name || 'this location'}`; break;
+  }
+
+  return `I've analyzed the source content for "${targetDesc}". 
+
+Source content summary:
+"${contentSummary}"
+
+To create an accurate ${variantType} variant, I have a few specific questions:`;
 }

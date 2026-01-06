@@ -233,7 +233,7 @@ export function VariantGenerationChat({
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto border rounded-lg bg-white dark:bg-slate-950 p-6">
+        <div className="flex-1 overflow-auto border rounded-lg bg-card p-6">
           <h1 className="text-2xl font-bold mb-4">{generatedData.generatedTitle}</h1>
           <div 
             className="prose dark:prose-invert max-w-none"
@@ -248,9 +248,9 @@ export function VariantGenerationChat({
               </h4>
               <div className="space-y-4">
                 {generatedData.adaptations.map((a, i) => (
-                  <Card key={i} className="p-4 bg-orange-50/30 border-orange-100">
-                    <h5 className="font-medium text-orange-800 dark:text-orange-300">{a.section}</h5>
-                    <p className="text-sm mt-1 text-slate-600 dark:text-slate-400">{a.reason}</p>
+                  <Card key={i} className="p-4 bg-muted border-border">
+                    <h5 className="font-medium text-orange-600 dark:text-orange-400">{a.section}</h5>
+                    <p className="text-sm mt-1 text-muted-foreground">{a.reason}</p>
                     <div className="grid grid-cols-2 gap-4 mt-3">
                       <div>
                         <p className="text-[10px] uppercase font-bold text-slate-400">Original</p>
@@ -287,9 +287,9 @@ export function VariantGenerationChat({
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900/50 rounded-xl overflow-hidden border shadow-sm">
+    <div className="flex flex-col h-full bg-card rounded-xl overflow-hidden border border-border shadow-sm">
       {/* Header */}
-      <div className="p-4 bg-white dark:bg-slate-950 border-b flex items-center justify-between gap-4">
+      <div className="p-4 bg-muted/50 border-b border-border flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           {sourceTrack.thumbnail_url ? (
             <img src={sourceTrack.thumbnail_url} className="w-10 h-10 rounded object-cover border" />
@@ -321,8 +321,8 @@ export function VariantGenerationChat({
       </div>
 
       {showSourcePreview && (
-        <div className="bg-slate-100 dark:bg-slate-900 p-4 border-b text-sm max-h-40 overflow-auto">
-          <p className="font-semibold mb-1">Source Content ({sourceTrack.type}):</p>
+        <div className="bg-muted p-4 border-b border-border text-sm max-h-40 overflow-auto">
+          <p className="font-semibold mb-1 text-foreground">Source Content ({sourceTrack.type}):</p>
           <p className="text-muted-foreground italic">
             {sourceTrack.transcript || sourceTrack.content || "No source content available for preview."}
           </p>
@@ -330,7 +330,7 @@ export function VariantGenerationChat({
       )}
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 p-4 bg-transparent">
         <div className="space-y-4">
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -343,7 +343,7 @@ export function VariantGenerationChat({
                 className={`max-w-[85%] p-3 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${
                   msg.role === 'user' 
                     ? 'bg-orange-500 text-white rounded-tr-none' 
-                    : 'bg-white dark:bg-slate-800 border rounded-tl-none'
+                    : 'bg-secondary border border-border rounded-tl-none text-foreground'
                 }`}
               >
                 {msg.content}
@@ -362,11 +362,11 @@ export function VariantGenerationChat({
       </ScrollArea>
 
       {/* Footer / Input */}
-      <div className="p-4 bg-white dark:bg-slate-950 border-t space-y-3">
+      <div className="p-4 bg-card border-t border-border space-y-3">
         {state === 'READY_TO_GENERATE' && (
-          <div className="flex flex-col gap-2 p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-100 dark:border-orange-900/50">
-            <p className="text-sm font-medium text-orange-800 dark:text-orange-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
+          <div className="flex flex-col gap-2 p-3 bg-muted rounded-lg border border-orange-500/30">
+            <p className="text-sm font-medium text-foreground flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-orange-500" />
               I have enough information to generate the variant.
             </p>
             <div className="flex gap-2">
@@ -394,7 +394,7 @@ export function VariantGenerationChat({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="Type your response here..."
-              className="min-h-[60px] max-h-[120px] resize-none focus-visible:ring-orange-500"
+              className="min-h-[60px] max-h-[120px] resize-none focus-visible:ring-orange-500 bg-muted border-none"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
