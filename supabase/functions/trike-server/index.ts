@@ -5421,15 +5421,31 @@ async function sendWelcomeEmail(params: {
  */
 async function handleVariantChat(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
-
     if (!OPENAI_API_KEY) return jsonResponse({ error: "OpenAI API key not configured" }, 500);
 
     const { sourceTrackId, variantType, variantContext, messages } = await req.json();
 
     if (!sourceTrackId || !variantType || !variantContext) {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    // Try to get org from token, fallback to track's org
+    let orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      console.log("⚠️ [VariantChat] No orgId from token, trying to get from track...");
+      const { data: trackOrg, error: trackOrgError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", sourceTrackId)
+        .single();
+
+      if (!trackOrgError && trackOrg?.organization_id) {
+        orgId = trackOrg.organization_id;
+        console.log(`✅ [VariantChat] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [VariantChat] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     const { data: track, error: trackError } = await supabase
@@ -5529,15 +5545,31 @@ async function handleVariantChat(req: Request): Promise<Response> {
  */
 async function handleVariantGenerate(req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
-
     if (!OPENAI_API_KEY) return jsonResponse({ error: "OpenAI API key not configured" }, 500);
 
     const { sourceTrackId, variantType, variantContext, clarificationAnswers } = await req.json();
 
     if (!sourceTrackId || !variantType || !variantContext) {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    // Try to get org from token, fallback to track's org
+    let orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      console.log("⚠️ [VariantGenerate] No orgId from token, trying to get from track...");
+      const { data: trackOrg, error: trackOrgError } = await supabase
+        .from("tracks")
+        .select("organization_id")
+        .eq("id", sourceTrackId)
+        .single();
+
+      if (!trackOrgError && trackOrg?.organization_id) {
+        orgId = trackOrg.organization_id;
+        console.log(`✅ [VariantGenerate] Got orgId from track: ${orgId}`);
+      } else {
+        console.error("❌ [VariantGenerate] Could not get orgId from track either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     const { data: track, error: trackError } = await supabase

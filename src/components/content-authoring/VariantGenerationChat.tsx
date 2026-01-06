@@ -287,7 +287,7 @@ export function VariantGenerationChat({
   }
 
   return (
-    <div className="flex flex-col h-full bg-card rounded-xl overflow-hidden border border-border shadow-sm">
+    <div className="flex flex-col h-full max-h-[60vh] bg-card rounded-xl overflow-hidden border border-border shadow-sm">
       {/* Header */}
       <div className="p-4 bg-muted/50 border-b border-border flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -330,7 +330,7 @@ export function VariantGenerationChat({
       )}
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4 bg-transparent">
+      <ScrollArea className="flex-1 min-h-0 p-4 bg-transparent">
         <div className="space-y-4">
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
