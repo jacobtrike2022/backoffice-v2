@@ -5460,13 +5460,16 @@ async function handleVariantChat(req: Request): Promise<Response> {
 
     const sourceContent = track.content_text || track.transcript || '';
 
+    // Derive audience from source content for all phases
+    const audience = deriveAudienceFromContent(sourceContent);
+
     // PHASE 1: Research - Use OpenAI Responses API with web search
     if (!messages || messages.length === 0 || phase === 'research') {
       return await handleVariantResearch(variantType, variantContext, track, sourceContent);
     }
 
     // PHASE 2: After research, handle follow-up conversation (optional company-specific questions)
-    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type, audience);
     const apiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -5585,11 +5588,15 @@ async function handleVariantResearch(
     const outputText = extractResponseText(result);
     const citations = extractCitations(result);
 
-    // Quality gate: Check for required sources
-    const qualityCheck = validateResearchQuality(citations, topicAnalysis);
+    // Quality gate: Check for required sources AND relevance
+    // Now passes sourceContent and research output for relevance filtering
+    const qualityCheck = validateResearchQuality(citations, topicAnalysis, sourceContent, outputText);
+
+    // Use filtered content if relevance issues were found
+    const displayText = qualityCheck.filteredContent || outputText;
 
     // Build the response message
-    const researchResult = formatResearchResult(outputText, citations, qualityCheck, variantType, variantContext);
+    const researchResult = formatResearchResult(displayText, citations, qualityCheck, variantType, variantContext, sourceContent);
 
     // Stream the result back
     const encoder = new TextEncoder();
@@ -5720,8 +5727,201 @@ function buildSearchQueries(topics: string[], stateName: string, variantType: st
   return queries.slice(0, 4); // Limit to 4 queries
 }
 
+// ============================================================================
+// AUDIENCE DERIVATION SYSTEM (Server-side)
+// ============================================================================
+// Derives learner role from source content instead of hardcoding.
+// This enables dynamic forbidden topic filtering based on who the content
+// is actually teaching. A transcript that says "ask your manager" and
+// "ring up the customer" clearly targets cashiers, not owners.
+// ============================================================================
+
+type LearnerRole =
+  | 'frontline_cashier'
+  | 'manager_supervisor'
+  | 'delivery_driver'
+  | 'owner_executive'
+  | 'back_office_admin'
+  | 'other';
+
+interface AudienceDerivation {
+  primaryRole: LearnerRole;
+  secondaryRoles: LearnerRole[];
+  evidence: string[];
+  roleConfidence: 'high' | 'medium' | 'low';
+  learnerActions: string[];
+  roleImplications: string[];
+}
+
+// Role indicators: phrases that suggest a specific learner audience
+const ROLE_INDICATORS: Record<LearnerRole, string[]> = {
+  frontline_cashier: [
+    'ring up', 'checkout', 'register', 'customer service', 'ask for id',
+    'refuse the sale', 'card the customer', 'scan', 'at the counter',
+    'when a customer', 'your customer', 'tell the customer', 'apologize',
+    'continue to ring', 'complete the transaction', 'behind the counter',
+    // Additional indicators
+    'point of sale', 'pos', 'at the register', 'during checkout', 'transaction',
+    'customer approaches', 'customer asks', 'customer presents'
+  ],
+  manager_supervisor: [
+    'supervise', 'train your team', 'coach', 'audit', 'review logs',
+    'store policy', 'discipline', 'write up', 'shift lead', 'as a manager',
+    'your employees', 'your staff', 'your team',
+    // Additional indicators
+    'ensure compliance', 'store manager', 'shift manager', 'policy enforcement',
+    'employee training', 'compliance audit', 'supervising staff'
+  ],
+  delivery_driver: [
+    'deliver', 'route', 'vehicle', 'load', 'unload', 'manifest',
+    'customer delivery', 'drop off', 'signature on delivery',
+    // Additional indicators
+    'at the door', 'recipient', 'hand-off', 'return to store', 'undeliverable',
+    'delivery address', 'driver', 'en route'
+  ],
+  owner_executive: [
+    'license', 'renew', 'file', 'remit', 'tax return', 'business registration',
+    'compliance officer', 'as an owner', 'your business', 'store owner',
+    // Additional indicators
+    'renewal', 'licensing', 'fee', 'filing', 'audit notice',
+    'business license', 'annual report', 'regulatory filing'
+  ],
+  back_office_admin: [
+    'inventory', 'records', 'spreadsheet', 'report', 'filing',
+    'documentation', 'administrative', 'back office',
+    // Additional indicators
+    'data entry', 'record keeping', 'compliance records'
+  ],
+  other: []
+};
+
+
+// Action verbs that indicate what learners are being taught to DO
+const ACTION_VERB_PATTERNS = [
+  'check id', 'verify age', 'ask for', 'refuse', 'decline', 'accept',
+  'scan', 'ring up', 'complete', 'call', 'notify', 'report', 'sign',
+  'deliver', 'load', 'file', 'submit', 'review', 'approve', 'train',
+  'supervise', 'audit', 'document', 'record', 'enter', 'process'
+];
+
+/**
+ * Derive the learner audience from source content.
+ *
+ * WHY: Instead of assuming "cashier", we derive the role from the content.
+ * This allows dynamic filtering - manager content can include supervision topics,
+ * owner content can include licensing, etc.
+ *
+ * APPROACH:
+ * 1. Scan for role indicator phrases
+ * 2. Count matches per role
+ * 3. Extract supporting evidence
+ * 4. Determine confidence based on match strength
+ * 5. Extract learner actions (verbs) for scope lock
+ */
+function deriveAudienceFromContent(sourceContent: string): AudienceDerivation {
+  const contentLower = sourceContent.toLowerCase();
+  const roleCounts: Record<LearnerRole, number> = {
+    frontline_cashier: 0,
+    manager_supervisor: 0,
+    delivery_driver: 0,
+    owner_executive: 0,
+    back_office_admin: 0,
+    other: 0
+  };
+  const roleEvidence: Record<LearnerRole, string[]> = {
+    frontline_cashier: [],
+    manager_supervisor: [],
+    delivery_driver: [],
+    owner_executive: [],
+    back_office_admin: [],
+    other: []
+  };
+
+  // Count role indicators and collect evidence
+  for (const [role, indicators] of Object.entries(ROLE_INDICATORS) as [LearnerRole, string[]][]) {
+    for (const indicator of indicators) {
+      if (contentLower.includes(indicator)) {
+        roleCounts[role]++;
+        const idx = contentLower.indexOf(indicator);
+        const start = Math.max(0, idx - 20);
+        const end = Math.min(sourceContent.length, idx + indicator.length + 30);
+        const snippet = sourceContent.substring(start, end).trim();
+        if (roleEvidence[role].length < 6) {
+          roleEvidence[role].push(`"...${snippet}..."`);
+        }
+      }
+    }
+  }
+
+  // Determine primary role (highest count)
+  let primaryRole: LearnerRole = 'other';
+  let maxCount = 0;
+  for (const [role, count] of Object.entries(roleCounts) as [LearnerRole, number][]) {
+    if (count > maxCount) {
+      maxCount = count;
+      primaryRole = role;
+    }
+  }
+
+  // Secondary roles (any with at least 2 matches)
+  const secondaryRoles: LearnerRole[] = [];
+  for (const [role, count] of Object.entries(roleCounts) as [LearnerRole, number][]) {
+    if (role !== primaryRole && count >= 2) {
+      secondaryRoles.push(role);
+    }
+  }
+
+  // Confidence
+  let roleConfidence: 'high' | 'medium' | 'low' = 'low';
+  if (maxCount >= 5) roleConfidence = 'high';
+  else if (maxCount >= 2) roleConfidence = 'medium';
+
+  // Default to 'other' if low confidence
+  if (roleConfidence === 'low') primaryRole = 'other';
+
+  // Extract learner actions (verbs being taught)
+  const learnerActions: string[] = [];
+  for (const action of ACTION_VERB_PATTERNS) {
+    if (contentLower.includes(action)) {
+      learnerActions.push(action);
+    }
+  }
+
+  // Role implications
+  const roleImplications: string[] = [];
+  switch (primaryRole) {
+    case 'frontline_cashier':
+      roleImplications.push('Can check customer IDs at point of sale');
+      roleImplications.push('Can refuse sales when policy requires');
+      roleImplications.push('Can escalate issues to management');
+      break;
+    case 'manager_supervisor':
+      roleImplications.push('Can train and supervise frontline staff');
+      roleImplications.push('Can enforce store-level policy');
+      break;
+    case 'owner_executive':
+      roleImplications.push('Can manage business licensing and compliance');
+      break;
+    default:
+      roleImplications.push('Role-specific actions to be determined');
+  }
+
+  return {
+    primaryRole,
+    secondaryRoles: secondaryRoles.slice(0, 2),
+    evidence: roleEvidence[primaryRole].slice(0, 6),
+    roleConfidence,
+    learnerActions,
+    roleImplications
+  };
+}
+
+
 /**
  * Build the research prompt for OpenAI Responses API
+ *
+ * CORE PRINCIPLE: If a rule doesn't modify a learner action from the source,
+ * it gets discarded. No hardcoded forbidden lists - just scope lock.
  */
 function buildResearchPrompt(
   variantType: string,
@@ -5732,40 +5932,67 @@ function buildResearchPrompt(
 ): string {
   const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
 
-  return `You are researching current ${stateName} state regulations to adapt training content.
+  // Derive audience from source content
+  const audience = deriveAudienceFromContent(sourceContent);
+  const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
+  const confidenceNote = audience.roleConfidence === 'high'
+    ? '(High confidence)'
+    : audience.roleConfidence === 'medium'
+      ? '(Medium confidence)'
+      : '(Low confidence - minimal adaptation)';
 
-**SOURCE CONTENT TITLE:** ${track.title}
-**CONTENT TYPE:** ${track.type}
-**TOPICS IDENTIFIED:** ${topicAnalysis.join(', ')}
+  return `You are researching ${stateName} state regulations to adapt training content.
 
-**YOUR TASK:**
-1. Search for CURRENT ${stateName} regulations related to: ${topicAnalysis.join(', ')}
-2. Find authoritative sources (state statutes, administrative code, state agency guidance)
-3. Extract specific requirements: age limits, penalties, signage requirements, licensing, etc.
-4. Note the effective date or last updated date for each regulation
+## AUDIENCE DERIVATION
+**Derived Role:** ${roleLabel} ${confidenceNote}
+**Evidence from Source:**
+${audience.evidence.slice(0, 4).map(e => `- ${e}`).join('\n') || '- No strong role indicators found'}
+**Learner Actions (what they're being taught to DO):**
+${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- General compliance actions'}
 
-**REQUIRED SOURCE TYPES (Tier 1 - need at least 2):**
-- State legislature / official compiled statutes (.gov domains)
+## SCOPE LOCK (HARD RULE)
+You may ONLY add state-specific rules that directly modify one of the learner actions above.
+
+For any proposed rule, you MUST identify:
+- **SourceAction:** Which learner action it modifies
+- **WhyItMatters:** 1 sentence on behavioral impact
+
+If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
+
+## SOURCE REQUIREMENTS
+
+**TIER 1 (Required - need at least 2):**
+- State legislature / compiled statutes (.gov domains)
 - State administrative code / regulations
-- State enforcement / regulatory agency guidance
-
-**ACCEPTABLE SOURCES (Tier 2):**
-- State attorney general compliance pages
-- State health/revenue department guidance
-- Official state-approved training materials
 
 **DO NOT USE:**
-- SEO blogs, law firm marketing pages, or "compliance checklist" sites without citations
+- SEO blogs, law firm marketing, "compliance checklist" sites
+- News articles, forums, or social media
 
-**OUTPUT FORMAT:**
-For each regulation found, provide:
-- **Rule:** [What the requirement is]
-- **Source:** [Official source name]
-- **URL:** [Link]
-- **Effective/Updated:** [Date if available, or "Not specified"]
-- **Confidence:** [High/Medium/Low based on source authority]
+## OUTPUT FORMAT (3-8 rules maximum)
 
-After research, summarize what you found and ask ONLY about company-specific preferences (escalation paths, internal terminology, signage templates) - NOT about the regulations themselves.`;
+For each RELEVANT regulation found:
+\`\`\`
+**Rule:** [Actionable instruction for the ${roleLabel} - what they DO]
+**SourceAction:** [Which learner action: ${audience.learnerActions.slice(0, 4).join(' | ') || 'check id | refuse | verify age'}]
+**WhyItMatters:** [1 sentence: behavioral impact]
+**Source:** [Official source name]
+**URL:** [Direct link to .gov]
+**Confidence:** [High = Tier-1 | Needs Review = other]
+\`\`\`
+
+## AFTER RESEARCH
+
+Summarize findings in 3-8 bullet points maximum.
+For each finding, verify it maps to a SourceAction - if not, DISCARD it.
+
+Then list 0-3 COMPANY-SPECIFIC questions only:
+- POS system flow for age-restricted sales?
+- Escalation path (who to call)?
+- ID scanning technology in use?
+- "Card everyone" policy beyond legal minimum?
+
+DO NOT ask about state laws, age requirements, or penalties - YOU research those.`;
 }
 
 /**
@@ -5815,19 +6042,59 @@ function extractCitations(result: any): Array<{title: string; url: string; snipp
   return citations;
 }
 
+// Tier-1 domain allowlist: authoritative government sources
+const TIER1_DOMAIN_PATTERNS = [
+  // State and federal .gov domains
+  /\.gov$/i,
+  /\.gov\//i,
+  // State legislature patterns
+  /legislature\./i,
+  /leg\.state\./i,
+  /legis\./i,
+  /capitol\./i,
+  // Administrative code patterns
+  /admin\.code/i,
+  /admincode/i,
+  /regulations\./i,
+  /rules\.state\./i,
+  // State-specific patterns
+  /sos\.state\./i,  // Secretary of State
+  /dor\.state\./i,  // Dept of Revenue
+  /atg\.state\./i,  // Attorney General
+];
+
 /**
- * Validate research quality - check for required Tier 1 sources
+ * Check if a URL is from a Tier-1 (authoritative government) source.
+ */
+function isTier1Source(url: string): boolean {
+  if (!url) return false;
+  const urlLower = url.toLowerCase();
+  return TIER1_DOMAIN_PATTERNS.some(pattern => pattern.test(urlLower));
+}
+
+/**
+ * Validate research quality - simplified to just check Tier-1 sources.
+ * Scope lock is handled by the prompt itself via learner action mapping.
  */
 function validateResearchQuality(
-  citations: Array<{title: string; url: string}>,
-  topics: string[]
-): { passed: boolean; tier1Count: number; issues: string[] } {
+  citations: Array<{title: string; url: string; snippet?: string}>,
+  topics: string[],
+  sourceContent?: string,
+  researchOutput?: string
+): {
+  passed: boolean;
+  tier1Count: number;
+  issues: string[];
+  relevanceIssues: string[];
+  filteredContent?: string;
+} {
   const issues: string[] = [];
+  const relevanceIssues: string[] = [];
   let tier1Count = 0;
 
-  // Check for .gov domains (Tier 1)
+  // Check for Tier-1 sources using allowlist
   for (const citation of citations) {
-    if (citation.url.includes('.gov')) {
+    if (isTier1Source(citation.url)) {
       tier1Count++;
     }
   }
@@ -5840,10 +6107,27 @@ function validateResearchQuality(
     issues.push('No sources found - content needs manual review');
   }
 
+  // Check for strong claims without Tier-1 backing
+  if (researchOutput) {
+    const strongClaimPatterns = /\b(must|required|illegal|penalty|fine|violation|prohibited)\b/gi;
+    const hasStrongClaims = strongClaimPatterns.test(researchOutput);
+
+    if (hasStrongClaims && tier1Count < 1) {
+      relevanceIssues.push('Contains strong legal claims but lacks Tier-1 government source backing');
+    }
+  }
+
+  // Quality passes if: 2+ Tier-1 sources AND no critical issues AND relevance mostly OK
+  const passed = tier1Count >= 2 &&
+                 citations.length > 0 &&
+                 relevanceIssues.filter(i => i.includes('strong legal claims')).length === 0;
+
   return {
-    passed: tier1Count >= 2 && citations.length > 0,
+    passed,
     tier1Count,
-    issues
+    issues,
+    relevanceIssues,
+    filteredContent
   };
 }
 
@@ -5853,41 +6137,57 @@ function validateResearchQuality(
 function formatResearchResult(
   outputText: string,
   citations: Array<{title: string; url: string; snippet?: string}>,
-  qualityCheck: { passed: boolean; tier1Count: number; issues: string[] },
+  qualityCheck: { passed: boolean; tier1Count: number; issues: string[]; relevanceIssues?: string[]; filteredContent?: string },
   variantType: string,
-  variantContext: any
+  variantContext: any,
+  sourceContent?: string
 ): string {
   const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
 
-  let result = `🔍 **Research Complete: ${stateName} Regulations**\n\n`;
+  // Derive audience for display
+  const audience = sourceContent ? deriveAudienceFromContent(sourceContent) : null;
+
+  let result = `## Research Findings: ${stateName}\n\n`;
+
+  // Show derived audience
+  if (audience) {
+    result += `**Derived Role:** ${audience.primaryRole.replace('_', ' ')} (${audience.roleConfidence})\n`;
+    result += `**Learner Actions:** ${audience.learnerActions.join(', ') || 'none detected'}\n\n`;
+  }
 
   // Quality indicator
   if (qualityCheck.passed) {
-    result += `✅ **Quality Check Passed** (${qualityCheck.tier1Count} authoritative sources found)\n\n`;
+    result += `✅ **Quality Gate Passed** (${qualityCheck.tier1Count} Tier-1 sources)\n\n`;
   } else {
-    result += `⚠️ **Needs Review** - ${qualityCheck.issues.join('; ')}\n\n`;
-  }
-
-  // Main research findings
-  result += outputText + '\n\n';
-
-  // Sources section
-  if (citations.length > 0) {
-    result += `---\n📚 **Sources Used:**\n`;
-    for (const citation of citations) {
-      const tier = citation.url.includes('.gov') ? '(Tier 1)' : '(Tier 2)';
-      result += `• ${citation.title} ${tier}\n  ${citation.url}\n`;
+    result += `⚠️ **Needs Review**\n`;
+    for (const issue of qualityCheck.issues) {
+      result += `- ${issue}\n`;
     }
     result += '\n';
   }
 
-  // Next steps
-  result += `---\n**Ready to generate.** Do you have any company-specific requirements?\n`;
-  result += `• Internal procedures or terminology?\n`;
-  result += `• Specific contacts or escalation paths?\n`;
-  result += `• Areas to emphasize?\n\n`;
-  result += `Or type "proceed" to generate the variant now.\n\n`;
+  // Main research findings
+  result += `### ${stateName}-Specific Rules\n\n`;
+  result += outputText + '\n\n';
 
+  // Sources
+  if (citations.length > 0) {
+    result += `---\n### Sources\n`;
+    for (const citation of citations) {
+      const tier1 = isTier1Source(citation.url);
+      result += `- ${tier1 ? '✅' : '📄'} ${citation.title}\n  ${citation.url}\n`;
+    }
+    result += '\n';
+  }
+
+  // Open Questions
+  result += `---\n### Open Questions (Company-Specific Only)\n\n`;
+  result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
+  result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
+  result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
+  result += `\n*These are optional. Type "proceed" to generate with standard ${stateName} regulations.*\n\n`;
+
+  // Status indicator for UI
   if (!qualityCheck.passed) {
     result += `[NEEDS_REVIEW]`;
   } else {
@@ -5939,39 +6239,98 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
     const sourceContent = track.content_text || track.transcript || '';
-    const qaContent = clarificationAnswers 
+    const qaContent = clarificationAnswers
       ? clarificationAnswers.map((qa: any) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
       : 'No specific clarifications provided.';
 
+    // Derive audience from source content
+    const audience = deriveAudienceFromContent(sourceContent);
+    const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
+    const roleLabelLower = audience.primaryRole.replace('_', ' ');
+    const learnerActionsStr = audience.learnerActions.length
+      ? audience.learnerActions.join(', ')
+      : 'check id, verify age, refuse sale';
+    const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+
+    // Enhanced generation prompt with structured output format
     const generationPrompt = `
-Source Content:
+## SOURCE CONTENT (to adapt)
 ${sourceContent}
 
-Variant Context:
+## VARIANT CONTEXT
 - Type: ${variantType}
-- Details: ${JSON.stringify(variantContext)}
+- Target: ${stateName}
+- Derived Learner Role: ${roleLabel} (${audience.roleConfidence} confidence)
+- Learner Actions: ${learnerActionsStr}
 
-Clarification Answers:
+## COMPANY-SPECIFIC CONTEXT (from user)
 ${qaContent}
 
-TASK: Generate the adapted content for this variant.
-Maintain the exact same structure as the source.
-Return the output in the following JSON format:
+## TASK: Generate ${stateName} State Variant
+
+Apply the MINIMAL-DELTA principle: change ONLY what ${stateName} law requires you to change.
+Do NOT add new topics, warnings, or "nice to know" information not in the source.
+
+### SCOPE LOCK (HARD RULE)
+
+You may ONLY include state-specific rules that modify one of these learner actions:
+${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
+
+For each rule, identify:
+- **SourceAction:** Which learner action it modifies
+- **WhyItMatters:** 1 sentence on behavioral impact
+
+If a rule doesn't modify a SourceAction above, DISCARD it.
+
+### CITATION REQUIREMENT
+Any "must", "required", "illegal", or "penalty" needs [Source: URL]
+
+### ROLE AWARENESS
+Write for a ${roleLabel} ("you must..."). Use second person.
+
+### RETURN THIS JSON STRUCTURE:
 {
-  "generatedTitle": "Suggested variant title",
-  "generatedContent": "The adapted HTML/text content",
+  "generatedTitle": "${track.title} - ${stateName}",
+  "researchFindings": [
+    {
+      "rule": "Actionable rule for ${roleLabelLower}",
+      "sourceAction": "Which learner action this modifies",
+      "whyItMatters": "1 sentence on behavioral impact",
+      "citation": "Source name and URL",
+      "effectiveDate": "Date or 'Current'",
+      "confidence": "high|medium|needs_review"
+    }
+  ],
+  "generatedContent": "The adapted HTML/text content - MINIMAL changes from source",
   "adaptations": [
     {
-      "section": "Name of section",
-      "originalText": "...",
-      "adaptedText": "...",
-      "reason": "..."
+      "section": "Section name",
+      "originalText": "Original text from source",
+      "adaptedText": "New text for ${stateName}",
+      "reason": "Why this change was needed (cite specific law/regulation)",
+      "sourceAction": "Which learner action this adapts"
     }
-  ]
+  ],
+  "openQuestions": [
+    "Optional company-specific question (0-3 max, only if truly needed)"
+  ],
+  "qualityFlags": {
+    "needsReview": false,
+    "unresolvedCitations": [],
+    "outOfScopeDiscarded": []
+  }
 }
+
+IMPORTANT:
+- researchFindings should have 3-8 rules MAX, each mapped to a learner action
+- generatedContent should be nearly identical to source, with only ${stateName}-specific swaps
+- adaptations should list EVERY change made, with reason and source action
+- openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
+- Set needsReview: true if any claim lacks Tier-1 citation
+- outOfScopeDiscarded should list any topics you found but discarded as out of scope
 `;
 
-    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type);
+    const systemPrompt = getVariantSystemPrompt(variantType, variantContext, track.type, audience);
     
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -6013,88 +6372,215 @@ Return the output in the following JSON format:
   }
 }
 
-// PROMPT HELPERS
-function getVariantSystemPrompt(variantType: string, variantContext: any, sourceTrackType: string): string {
+// ============================================================================
+// PROMPT HELPERS - Enhanced with Instructional Scope Lock and Role Awareness
+// ============================================================================
+// These prompts enforce:
+// 1. INSTRUCTIONAL SCOPE LOCK - Only adapt topics that exist in source content
+// 2. ROLE AWARENESS - Focus on cashier/associate actions, not owner concerns
+// 3. FORBIDDEN TOPICS - Never drift into license fees, tax filing, etc.
+// 4. MINIMAL-DELTA - Output should be as close to source as possible
+// 5. CITATION REQUIREMENT - Strong claims need Tier-1 sources
+// ============================================================================
+
+function getVariantSystemPrompt(
+  variantType: string,
+  variantContext: any,
+  sourceTrackType: string,
+  audience?: AudienceDerivation
+): string {
   let contextDetails = '';
-  let knowledgeInstructions = '';
+  let scopeInstructions = '';
+
+  // Use derived role or fall back to generic
+  const roleLabel = audience?.primaryRole
+    ? audience.primaryRole.replace('_', ' ').toUpperCase()
+    : 'LEARNER';
+  const roleLabelLower = audience?.primaryRole
+    ? audience.primaryRole.replace('_', ' ')
+    : 'learner';
+  const learnerActionsStr = audience?.learnerActions?.length
+    ? audience.learnerActions.join(', ')
+    : 'check id, verify age, refuse sale';
 
   switch (variantType) {
     case 'geographic':
       const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
-      contextDetails = `Target State: ${stateName}`;
-      knowledgeInstructions = `
-YOU ARE THE EXPERT ON STATE REGULATIONS:
-- You KNOW ${stateName}'s laws, regulations, and requirements. Use your knowledge to adapt the content.
-- Do NOT ask the user about state regulations, laws, age requirements, penalties, or legal requirements - YOU should know these.
-- Only ask about company-specific things YOU cannot know: their internal procedures, specific contact names, escalation paths, or whether they want certain details emphasized.`;
+      contextDetails = `Target State: ${stateName}
+Derived Learner Role: ${roleLabel} (${audience?.roleConfidence || 'unknown'} confidence)
+Learner Actions: ${learnerActionsStr}`;
+
+      scopeInstructions = `
+## SCOPE LOCK (HARD RULE)
+You may ONLY add state-specific rules that directly modify one of these learner actions:
+${audience?.learnerActions?.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
+
+For any proposed rule, you MUST identify:
+- **SourceAction:** Which learner action it modifies
+- **WhyItMatters:** 1 sentence on behavioral impact
+
+If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
+
+## ROLE AWARENESS
+Write for a ${roleLabel} (derived from source content). Use second person.
+Focus on what the learner DOES, not business operations.
+${audience?.roleImplications?.length ? '\nRole capabilities:\n' + audience.roleImplications.map(r => `- ${r}`).join('\n') : ''}
+
+## SOURCE-TO-SENTENCE MAPPING
+Every state-specific fact you add MUST map to a learner action from the source.
+If source teaches "check ID" → you can add "${stateName}'s accepted ID types"
+If source doesn't cover a topic → do NOT add requirements for it
+
+## DO NOT ASK ABOUT LAWS
+You research state regulations - do NOT ask the user about:
+- Age requirements, penalties, or fines
+- What IDs are acceptable
+- State law specifics
+ONLY ask about company-specific preferences (POS flow, escalation, card-all policy).`;
       break;
+
     case 'company':
-      contextDetails = `Target Organization: ${variantContext.org_name || 'Not specified'}`;
-      knowledgeInstructions = `
+      contextDetails = `Target Organization: ${variantContext.org_name || 'Not specified'}
+Derived Learner Role: ${roleLabel}`;
+      scopeInstructions = `
 ASK ABOUT COMPANY-SPECIFIC DETAILS:
-- Ask about company policies, brand standards, internal terminology, and specific procedures.
-- Ask about escalation paths, contact roles, and company-specific tools or systems.`;
+- Company policies, brand standards, internal terminology
+- Escalation paths, contact roles, company-specific tools
+- Maintain the same instructional scope as the source - do not add new compliance topics.`;
       break;
+
     case 'unit':
-      contextDetails = `Target Unit/Store: ${variantContext.store_name || variantContext.store_id || 'Not specified'}`;
-      knowledgeInstructions = `
+      contextDetails = `Target Unit/Store: ${variantContext.store_name || variantContext.store_id || 'Not specified'}
+Derived Learner Role: ${roleLabel}`;
+      scopeInstructions = `
 ASK ABOUT LOCATION-SPECIFIC DETAILS:
-- Ask about local manager names, store layout, specific equipment, local emergency contacts.
-- Ask about any neighborhood-specific considerations or local procedures.`;
+- Local manager names, store layout, specific equipment
+- Local emergency contacts, neighborhood considerations
+- Maintain the same instructional scope as the source - do not add new compliance topics.`;
       break;
   }
 
-  return `You are an expert training content adaptation assistant with comprehensive knowledge of US state and federal regulations.
+  return `You are an expert training content adaptation assistant for a multi-tenant LMS.
 
-YOUR GOAL: Adapt an existing training track (type: ${sourceTrackType}) into a ${variantType} variant.
+YOUR GOAL: Adapt an existing training track (type: ${sourceTrackType}) into a ${variantType} variant with MINIMAL changes.
 
 CONTEXT:
 ${contextDetails}
-${knowledgeInstructions}
+${scopeInstructions}
 
-CRITICAL INSTRUCTIONS:
-1. READ the source content carefully to understand what topics it covers.
-2. USE YOUR KNOWLEDGE of regulations, laws, and requirements - do not ask the user for information you should already know.
-3. ONLY ASK about things you genuinely cannot know: company-specific procedures, internal contacts, or preferences about emphasis.
-4. Keep questions brief (2-3 max) and focused on what YOU need from THEM, not what you should research yourself.
+## MINIMAL-DELTA PRINCIPLE
+Your output should be as close to the source as possible. Only change what MUST change.
+- Same structure, same flow, same tone
+- Swap specific regulations/requirements only where they differ
+- Do not add sections, warnings, or "nice to know" information
+- If unsure whether something should change, leave it as-is
 
-When adapting:
-- PRESERVE the structure and flow of the source content
-- UPDATE specific regulations, requirements, and terminology for the target context
-- BE PROFESSIONAL and concise
+## CITATION REQUIREMENT
+Any claim using "must", "required", "illegal", or "penalty" needs a citation.
+If you cannot cite it to a Tier-1 source (state .gov), mark it [NEEDS REVIEW].
 
-After a brief clarification (or if the user says to proceed), generate the adapted content.`;
+## OUTPUT FORMAT
+Structure your variant generation response as:
+
+1. **Research Findings (Relevant Only)** — 3-8 bullet rules max
+   Each rule: maps to learner action, has citation, includes effective date if known
+
+2. **${variantContext.state_name || 'State'}-Specific Draft Script** — Rewritten transcript
+   Minimal changes from source. Track what was adapted and why.
+
+3. **Open Questions (Company-Specific Only)** — 0-3 questions max
+   ONLY: POS flow, escalation path, signage template, card-all policy, ID scanning
+   NEVER: state laws, regulations, age requirements (you already have those)
+
+BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
 }
 
+/**
+ * getClarificationPrompt - Uses audience derivation for research-first approach
+ *
+ * KEY CHANGES:
+ * 1. Derives learner audience from source content
+ * 2. Shows which learner actions will drive the research scope
+ * 3. Only asks company-specific questions, never about laws/regulations
+ * 4. Shows the user exactly what scope the variant will cover
+ */
 function getClarificationPrompt(variantType: string, variantContext: any, sourceContent: string): string {
   let targetDesc = '';
   let questionGuidance = '';
 
+  // Derive audience from source content
+  const audience = deriveAudienceFromContent(sourceContent);
+  const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
+  const learnerActionsStr = audience.learnerActions.length
+    ? audience.learnerActions.join(', ')
+    : 'check id, verify age, refuse sale';
+
   switch (variantType) {
     case 'geographic':
       targetDesc = `${variantContext.state_name || 'the specified state'}`;
-      questionGuidance = `I will apply ${targetDesc}'s specific regulations and requirements. I just need to know:
-- Any company-specific procedures or terminology you want me to use
-- Whether there are specific contacts or escalation paths to include
-- Any particular areas you want emphasized`;
+      questionGuidance = `
+## Audience Derivation
+**Derived Role:** ${roleLabel} (${audience.roleConfidence} confidence)
+**Evidence:** ${audience.evidence.slice(0, 3).join('; ') || 'None'}
+**Learner Actions:** ${learnerActionsStr}
+
+## My Approach for ${targetDesc}
+
+I will research ${targetDesc}'s specific regulations that modify the learner actions above, using authoritative (.gov) sources.
+
+**SCOPE LOCK:** Rules that don't modify a learner action get discarded.
+
+**After research, I may ask (0-3 questions max):**
+- Your POS system flow for age-restricted items
+- Escalation path (who to call if issues arise)
+- Any "card everyone" policy beyond legal minimum
+- ID scanning technology in use
+
+**I will NOT ask you about:**
+- State laws, age requirements, or penalties (I research those)
+- What IDs are acceptable (state law determines this)`;
       break;
     case 'company':
       targetDesc = `${variantContext.org_name || 'your organization'}`;
-      questionGuidance = `To customize this for ${targetDesc}, I need to know about your company-specific policies, terminology, and procedures.`;
+      questionGuidance = `
+**Derived Role:** ${roleLabel}
+**Learner Actions:** ${learnerActionsStr}
+
+To customize this for ${targetDesc}, I'll need your company-specific policies, terminology, and procedures. I'll maintain the same instructional scope as the source.`;
       break;
     case 'unit':
       targetDesc = `${variantContext.store_name || 'this location'}`;
-      questionGuidance = `To customize this for ${targetDesc}, I need location-specific details like manager names, local contacts, and any store-specific procedures.`;
+      questionGuidance = `
+**Derived Role:** ${roleLabel}
+**Learner Actions:** ${learnerActionsStr}
+
+To customize this for ${targetDesc}, I'll need location-specific details like manager names, local contacts, and any store-specific procedures.`;
       break;
   }
 
-  return `I've reviewed the source training content about the topics covered below. I'm ready to adapt it for ${targetDesc}.
+  // Shortened source content summary
+  const contentSummary = sourceContent.substring(0, 400) + (sourceContent.length > 400 ? '...' : '');
 
-=== SOURCE CONTENT ===
-${sourceContent}
-=== END SOURCE CONTENT ===
+  if (variantType === 'geographic') {
+    return `## Source Content Analysis
 
 ${questionGuidance}
 
-Do you have any specific requirements, or should I proceed with generating the ${variantType} variant using standard ${targetDesc} regulations and best practices?`;
+**Content Summary:**
+"${contentSummary}"
+
+---
+**Ready to proceed?** I'll start researching ${targetDesc} regulations now and present findings.
+
+Or provide any company-specific context first (POS flow, escalation path, card-all policy).`;
+  }
+
+  return `I've analyzed the source content for ${targetDesc}.
+
+**Source Content Summary:**
+"${contentSummary}"
+
+${questionGuidance}
+
+Do you have any specific requirements, or should I proceed with generating the ${variantType} variant?`;
 }

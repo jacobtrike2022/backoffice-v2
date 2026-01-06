@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  MessageSquare, 
-  Zap, 
-  RefreshCw, 
-  Check, 
-  X, 
-  Send, 
-  Loader2, 
-  ChevronDown, 
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  MessageSquare,
+  Zap,
+  RefreshCw,
+  Check,
+  X,
+  Send,
+  Loader2,
+  ChevronDown,
   ChevronUp,
-  AlertCircle
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Textarea } from '../ui/textarea';
 import { Card } from '../ui/card';
-import { ScrollArea } from '../ui/scroll-area';
 import { toast } from 'sonner';
 import { getServerUrl, publicAnonKey } from '../../utils/supabase/info';
 import { getSupabaseClient } from '../../utils/supabase/client';
@@ -75,6 +75,149 @@ export function VariantGenerationChat({
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Simple markdown renderer for assistant messages
+  const renderMarkdown = (text: string) => {
+    // Split into lines and process
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let currentList: string[] = [];
+    let listKey = 0;
+
+    const processInline = (line: string): React.ReactNode => {
+      // Process bold, links, and inline formatting
+      const parts: React.ReactNode[] = [];
+      let remaining = line;
+      let partKey = 0;
+
+      while (remaining.length > 0) {
+        // Check for URLs in markdown format [text](url) or bare URLs
+        const linkMatch = remaining.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+        const bareUrlMatch = remaining.match(/(https?:\/\/[^\s<>\[\]]+)/);
+        const boldMatch = remaining.match(/\*\*([^*]+)\*\*/);
+
+        // Find the earliest match
+        const matches = [
+          linkMatch ? { type: 'link', match: linkMatch, index: remaining.indexOf(linkMatch[0]) } : null,
+          bareUrlMatch && !linkMatch ? { type: 'bareUrl', match: bareUrlMatch, index: remaining.indexOf(bareUrlMatch[0]) } : null,
+          boldMatch ? { type: 'bold', match: boldMatch, index: remaining.indexOf(boldMatch[0]) } : null,
+        ].filter(Boolean).sort((a, b) => a!.index - b!.index);
+
+        if (matches.length === 0) {
+          parts.push(remaining);
+          break;
+        }
+
+        const earliest = matches[0]!;
+
+        // Add text before the match
+        if (earliest.index > 0) {
+          parts.push(remaining.slice(0, earliest.index));
+        }
+
+        if (earliest.type === 'link') {
+          const [full, text, url] = earliest.match as RegExpMatchArray;
+          parts.push(
+            <a
+              key={`link-${partKey++}`}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-orange-400 hover:text-orange-300 underline inline-flex items-center gap-1"
+            >
+              {text}
+              <ExternalLink className="w-3 h-3 inline" />
+            </a>
+          );
+          remaining = remaining.slice(earliest.index + full.length);
+        } else if (earliest.type === 'bareUrl') {
+          const [url] = earliest.match as RegExpMatchArray;
+          // Truncate long URLs for display
+          const displayUrl = url.length > 50 ? url.slice(0, 47) + '...' : url;
+          parts.push(
+            <a
+              key={`url-${partKey++}`}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-orange-400 hover:text-orange-300 underline inline-flex items-center gap-1 break-all"
+            >
+              {displayUrl}
+              <ExternalLink className="w-3 h-3 inline shrink-0" />
+            </a>
+          );
+          remaining = remaining.slice(earliest.index + url.length);
+        } else if (earliest.type === 'bold') {
+          const [full, text] = earliest.match as RegExpMatchArray;
+          parts.push(<strong key={`bold-${partKey++}`} className="font-semibold text-foreground">{text}</strong>);
+          remaining = remaining.slice(earliest.index + full.length);
+        }
+      }
+
+      return parts.length === 1 ? parts[0] : <>{parts}</>;
+    };
+
+    const flushList = () => {
+      if (currentList.length > 0) {
+        elements.push(
+          <ul key={`list-${listKey++}`} className="list-disc list-inside space-y-1 my-2 ml-2">
+            {currentList.map((item, i) => (
+              <li key={i} className="text-sm">{processInline(item)}</li>
+            ))}
+          </ul>
+        );
+        currentList = [];
+      }
+    };
+
+    lines.forEach((line, i) => {
+      const trimmedLine = line.trim();
+
+      // Header (##)
+      if (trimmedLine.startsWith('## ')) {
+        flushList();
+        elements.push(
+          <h3 key={`h-${i}`} className="font-bold text-base mt-4 mb-2 text-foreground border-b border-border/50 pb-1">
+            {processInline(trimmedLine.slice(3))}
+          </h3>
+        );
+      }
+      // Bold header line (**Header**)
+      else if (trimmedLine.startsWith('**') && trimmedLine.endsWith('**') && !trimmedLine.slice(2, -2).includes('**')) {
+        flushList();
+        elements.push(
+          <h4 key={`h4-${i}`} className="font-semibold text-sm mt-3 mb-1 text-orange-400">
+            {trimmedLine.slice(2, -2)}
+          </h4>
+        );
+      }
+      // List item
+      else if (trimmedLine.startsWith('- ') || trimmedLine.startsWith('• ')) {
+        currentList.push(trimmedLine.slice(2));
+      }
+      // Numbered list
+      else if (/^\d+\.\s/.test(trimmedLine)) {
+        currentList.push(trimmedLine.replace(/^\d+\.\s/, ''));
+      }
+      // Empty line
+      else if (trimmedLine === '') {
+        flushList();
+        elements.push(<div key={`br-${i}`} className="h-2" />);
+      }
+      // Regular paragraph
+      else {
+        flushList();
+        elements.push(
+          <p key={`p-${i}`} className="text-sm leading-relaxed">
+            {processInline(line)}
+          </p>
+        );
+      }
+    });
+
+    flushList();
+    return <div className="space-y-1">{elements}</div>;
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -304,7 +447,7 @@ export function VariantGenerationChat({
   const isResearching = state === 'RESEARCHING' && isLoading && messages.length === 0;
 
   return (
-    <div className="flex flex-col h-full max-h-[60vh] bg-card rounded-xl overflow-hidden border border-border shadow-sm">
+    <div className="flex flex-col h-full min-h-[480px] max-h-[75vh] bg-card rounded-xl overflow-hidden border border-border shadow-sm">
       {/* Header */}
       <div className="p-4 bg-muted/50 border-b border-border flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -347,7 +490,7 @@ export function VariantGenerationChat({
       )}
 
       {/* Messages */}
-      <ScrollArea className="flex-1 min-h-0 p-4 bg-transparent">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
         <div className="space-y-4">
           {/* Researching indicator */}
           {isResearching && (
@@ -370,23 +513,23 @@ export function VariantGenerationChat({
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {msg.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center mr-2 shrink-0 shadow-sm">
+                <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center mr-2 shrink-0 shadow-sm self-start mt-1">
                   <Zap className="w-4 h-4 text-white" />
                 </div>
               )}
               <div
-                className={`max-w-[85%] p-3 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${
+                className={`max-w-[85%] p-3 rounded-2xl shadow-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-orange-500 text-white rounded-tr-none'
-                    : 'bg-secondary border border-border rounded-tl-none text-foreground'
+                    ? 'bg-orange-500 text-white rounded-tr-none text-sm whitespace-pre-wrap break-words'
+                    : 'bg-zinc-800 border border-zinc-700 rounded-tl-none text-zinc-100 text-sm whitespace-pre-wrap break-words'
                 }`}
               >
-                {msg.content}
+                {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
                 {isLoading && i === messages.length - 1 && msg.role === 'assistant' && (
                   <span className="inline-flex gap-1 ml-1">
-                    <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <span className="w-1 h-1 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1 h-1 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1 h-1 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                   </span>
                 )}
               </div>
@@ -394,7 +537,7 @@ export function VariantGenerationChat({
           ))}
           <div ref={messagesEndRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Footer / Input */}
       <div className="p-4 bg-card border-t border-border space-y-3">

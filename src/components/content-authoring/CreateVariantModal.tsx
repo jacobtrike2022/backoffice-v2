@@ -563,9 +563,9 @@ export function CreateVariantModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className={`bg-background border border-border rounded-lg shadow-xl w-full mx-4 flex flex-col transition-all duration-300 ${
+      <div className={`bg-background border border-border rounded-lg shadow-xl w-full mx-4 flex flex-col transition-all duration-300 overflow-hidden ${
         generationMethod === 'ai' && step === 'generation-method' 
-          ? 'max-w-4xl h-[85vh]' 
+          ? 'max-w-4xl h-[85vh] max-h-[90vh]' 
           : 'max-w-lg max-h-[90vh]'
       }`}>
         {/* Header */}
