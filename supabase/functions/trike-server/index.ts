@@ -1156,7 +1156,8 @@ interface TagRecommendation {
 interface NewTagSuggestion {
   suggested_name: string;
   suggested_parent: string;
-  reasoning: string;
+  description?: string;  // Contextual description of what content belongs in this tag
+  reasoning: string;     // Why this new tag is needed (justification)
 }
 
 interface RecommendTagsResponse {
@@ -1380,7 +1381,8 @@ CRITICAL RULES:
 5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag. Include:
    - Suggested name (concise, follows existing naming conventions)
    - Which parent category it should go under
-   - Brief reasoning
+   - A TAG DESCRIPTION: This is NOT reasoning for why the tag is needed. The description should define what types of content belong in this tag so the AI can use it for future classification. Write it as a contextual hint (e.g., "Training content related to identifying, preventing, and reporting suspicious financial transactions and money laundering activities in retail environments.")
+   - Brief reasoning (separate from description) explaining why this new tag is warranted
 
 OUTPUT FORMAT (JSON):
 {
@@ -1396,7 +1398,8 @@ OUTPUT FORMAT (JSON):
     {
       "suggested_name": "Suggested Tag Name",
       "suggested_parent": "Parent Category Name",
-      "reasoning": "Why this new tag is needed"
+      "description": "Contextual description of what content belongs in this tag (for future AI classification)",
+      "reasoning": "Why this new tag is needed (justification for creating it)"
     }
   ]
 }
@@ -1522,7 +1525,8 @@ async function storeNewTagSuggestions(
           organization_id: organizationId,
           suggested_tag_name: suggestion.suggested_name,
           suggested_parent_category: suggestion.suggested_parent,
-          reasoning: suggestion.reasoning,
+          suggested_description: suggestion.description,  // Contextual description for future AI classification
+          reasoning: suggestion.reasoning,  // Justification for why this tag is needed
           status: 'pending',
         }, {
           onConflict: 'track_id,suggested_tag_name',

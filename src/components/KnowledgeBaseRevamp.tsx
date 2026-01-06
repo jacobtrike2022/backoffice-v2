@@ -80,6 +80,7 @@ import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { StoryPreview } from './content-authoring/StoryPreview';
+import { StoryTranscript } from './content-authoring/StoryTranscript';
 import BrainChatDrawer from './BrainChat/BrainChatDrawer';
 import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
 
@@ -2858,6 +2859,19 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                       </div>
                     ) : null;
                   })()}
+
+                  {/* Story Transcripts - Show for story types with transcript data */}
+                  {selectedTrack.type === 'story' && selectedTrack.transcript && (
+                    <div className="my-8 not-prose">
+                      <StoryTranscript
+                        storyData={selectedTrack.transcript}
+                        trackId={selectedTrack.id}
+                        projectId={projectId}
+                        publicAnonKey={publicAnonKey}
+                        readOnly
+                      />
+                    </div>
+                  )}
 
                   {/* Main Body Content - Only show if there's actual content */}
                   {processedContent && processedContent.trim() && (

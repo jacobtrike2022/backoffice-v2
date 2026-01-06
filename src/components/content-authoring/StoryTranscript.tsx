@@ -36,14 +36,34 @@ interface VideoTranscript {
 }
 
 interface StoryTranscriptProps {
-  storyData: string | any[]; // JSON string or parsed array of slides
+  storyData: string | any[] | { slides: any[] }; // JSON string, parsed array of slides, or object with slides property
   trackId: string;
   projectId: string;
   publicAnonKey: string;
   onTranscriptsGenerated?: (transcripts: VideoTranscript[]) => void; // Callback to save transcripts to slides
+  readOnly?: boolean; // Hide regenerate/generate buttons (for KB view)
 }
 
-export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, onTranscriptsGenerated }: StoryTranscriptProps) {
+// Helper function to extract slides array from various data formats
+const extractSlides = (data: string | any[] | { slides: any[] }): any[] => {
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+    // Handle object with slides property
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.slides)) {
+      return parsed.slides;
+    }
+    // Handle direct array
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return [];
+  } catch (e) {
+    console.error('Error extracting slides:', e);
+    return [];
+  }
+};
+
+export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, onTranscriptsGenerated, readOnly }: StoryTranscriptProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcripts, setTranscripts] = useState<VideoTranscript[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +72,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
   // Load existing transcripts from slides on mount
   useEffect(() => {
     try {
-      const slides = typeof storyData === 'string' ? JSON.parse(storyData) : storyData;
+      const slides = extractSlides(storyData);
       const existingTranscripts: VideoTranscript[] = slides
         .filter((slide: any) => slide.type === 'video' && slide.transcript)
         .map((slide: any, index: number) => ({
@@ -74,12 +94,8 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
 
   // Check if we have video slides with audio
   const hasVideoSlides = () => {
-    try {
-      const slides = typeof storyData === 'string' ? JSON.parse(storyData) : storyData;
-      return slides.some((slide: any) => slide.type === 'video' && slide.url);
-    } catch (e) {
-      return false;
-    }
+    const slides = extractSlides(storyData);
+    return slides.some((slide: any) => slide.type === 'video' && slide.url);
   };
 
   // Transcribe all video slides
@@ -140,6 +156,11 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
     return null; // Don't show transcript section if there are no videos
   }
 
+  // In readOnly mode, don't show anything if there are no transcripts
+  if (readOnly && !hasTranscripts) {
+    return null;
+  }
+
   return (
     <Card>
       <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5">
@@ -148,7 +169,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
             <MessageSquare className="h-5 w-5" />
             Video Transcripts
           </CardTitle>
-          {!hasTranscripts && (
+          {!hasTranscripts && !readOnly && (
             <Button
               onClick={handleTranscribe}
               disabled={isTranscribing}
@@ -190,7 +211,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
           </div>
         )}
 
-        {!isTranscribing && !hasTranscripts && (
+        {!isTranscribing && !hasTranscripts && !readOnly && (
           <div className="text-center py-8 text-muted-foreground">
             <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>Click "Generate Transcripts" to create transcripts for all video slides</p>
@@ -247,24 +268,26 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
               </div>
             ))}
 
-            {/* Regenerate button */}
-            <div className="pt-4 border-t">
-              <Button
-                onClick={handleTranscribe}
-                disabled={isTranscribing}
-                variant="outline"
-                size="sm"
-              >
-                {isTranscribing ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Regenerating...
-                  </>
-                ) : (
-                  'Regenerate Transcripts'
-                )}
-              </Button>
-            </div>
+            {/* Regenerate button - only shown in edit mode */}
+            {!readOnly && (
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={handleTranscribe}
+                  disabled={isTranscribing}
+                  variant="outline"
+                  size="sm"
+                >
+                  {isTranscribing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Regenerating...
+                    </>
+                  ) : (
+                    'Regenerate Transcripts'
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

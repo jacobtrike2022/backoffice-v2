@@ -13,7 +13,8 @@ interface AISuggestion {
   track_id: string;
   suggested_tag_name: string;
   suggested_parent_category: string;
-  reasoning: string;
+  suggested_description?: string;  // Contextual description for what content belongs in this tag
+  reasoning: string;  // Justification for why the tag is needed
   confidence: number;
   status: 'pending' | 'accepted' | 'rejected' | 'auto_created';
   created_at: string;
