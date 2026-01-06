@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowRight, ArrowLeft, ExternalLink, GitBranch, MapPin, Building2, Globe, Store } from 'lucide-react';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
-import type { TrackRelationship } from '../../lib/crud/trackRelationships';
+import type { TrackRelationship, VariantType } from '../../lib/crud/trackRelationships';
 
 interface TrackRelationshipsProps {
   trackId: string;
@@ -15,6 +15,8 @@ interface TrackRelationshipsProps {
 export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: TrackRelationshipsProps) {
   const [sourceTrack, setSourceTrack] = useState<TrackRelationship | null>(null);
   const [derivedTracks, setDerivedTracks] = useState<TrackRelationship[]>([]);
+  const [variants, setVariants] = useState<TrackRelationship[]>([]);
+  const [baseTrack, setBaseTrack] = useState<TrackRelationship | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -24,26 +26,46 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
   async function loadRelationships() {
     setIsLoading(true);
     try {
-      console.log(`🔍 [TrackRelationships] Loading relationships for trackId: ${trackId}`);
-      
+      console.log(`[TrackRelationships] Loading relationships for trackId: ${trackId}`);
+
       // Fetch source track (parent)
       const source = await trackRelCrud.getSourceTrack(trackId, 'source');
-      console.log(`📊 [TrackRelationships] Source track:`, source);
+      console.log(`[TrackRelationships] Source track:`, source);
       setSourceTrack(source);
 
       // Fetch derived tracks (children)
       const derived = await trackRelCrud.getDerivedTracks(trackId, 'source');
-      console.log(`📊 [TrackRelationships] Derived tracks:`, derived, `(count: ${derived?.length || 0})`);
+      console.log(`[TrackRelationships] Derived tracks:`, derived, `(count: ${derived?.length || 0})`);
       setDerivedTracks(derived || []);
+
+      // Fetch variants (where this track is source, relationship_type = 'variant')
+      try {
+        const variantsData = await trackRelCrud.getTrackVariants(trackId);
+        console.log(`[TrackRelationships] Variants:`, variantsData, `(count: ${variantsData?.length || 0})`);
+        setVariants(variantsData || []);
+      } catch (variantError) {
+        console.log('[TrackRelationships] Variants endpoint not available yet');
+        setVariants([]);
+      }
+
+      // Fetch base track (if this track is a variant)
+      try {
+        const baseData = await trackRelCrud.getBaseTrackForVariant(trackId);
+        console.log(`[TrackRelationships] Base track:`, baseData);
+        setBaseTrack(baseData);
+      } catch (baseError) {
+        console.log('[TrackRelationships] Base track endpoint not available yet');
+        setBaseTrack(null);
+      }
     } catch (error) {
-      console.error('❌ [TrackRelationships] Error loading track relationships:', error);
+      console.error('[TrackRelationships] Error loading track relationships:', error);
     } finally {
       setIsLoading(false);
     }
   }
 
   // Don't render if no relationships
-  if (!isLoading && !sourceTrack && derivedTracks.length === 0) {
+  if (!isLoading && !sourceTrack && !baseTrack && derivedTracks.length === 0 && variants.length === 0) {
     return null;
   }
 
@@ -74,6 +96,78 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
         {status}
       </Badge>
     );
+  };
+
+  const getVariantTypeBadge = (variantType?: VariantType | null) => {
+    if (!variantType) return null;
+
+    const config: Record<VariantType, { Icon: React.ElementType; label: string; className: string }> = {
+      geographic: {
+        Icon: MapPin,
+        label: 'Geographic',
+        className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+      },
+      company: {
+        Icon: Building2,
+        label: 'Company',
+        className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+      },
+      language: {
+        Icon: Globe,
+        label: 'Language',
+        className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+      },
+      unit: {
+        Icon: Store,
+        label: 'Unit',
+        className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+      },
+    };
+
+    const typeConfig = config[variantType];
+    if (!typeConfig) return null;
+
+    const { Icon, label, className } = typeConfig;
+
+    return (
+      <Badge variant="outline" className={className}>
+        <Icon className="h-3 w-3 mr-1" />
+        {label}
+      </Badge>
+    );
+  };
+
+  const getVariantContextBadge = (rel: TrackRelationship) => {
+    if (!rel.variant_type || !rel.variant_context) return null;
+
+    switch (rel.variant_type) {
+      case 'geographic':
+        return rel.variant_context.state_name || rel.variant_context.state_code ? (
+          <Badge variant="outline" className="text-xs">
+            {rel.variant_context.state_name || rel.variant_context.state_code}
+          </Badge>
+        ) : null;
+      case 'company':
+        return rel.variant_context.org_name ? (
+          <Badge variant="outline" className="text-xs">
+            {rel.variant_context.org_name}
+          </Badge>
+        ) : null;
+      case 'language':
+        return rel.variant_context.language_name || rel.variant_context.language_code ? (
+          <Badge variant="outline" className="text-xs">
+            {rel.variant_context.language_name || rel.variant_context.language_code}
+          </Badge>
+        ) : null;
+      case 'unit':
+        return rel.variant_context.store_name ? (
+          <Badge variant="outline" className="text-xs">
+            {rel.variant_context.store_name}
+          </Badge>
+        ) : null;
+      default:
+        return null;
+    }
   };
 
   return (
@@ -157,6 +251,96 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Variants Section */}
+      {variants.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center">
+              <GitBranch className="h-4 w-4 mr-2" />
+              Variants ({variants.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {variants.map((rel) => (
+              <div
+                key={rel.id}
+                className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
+                onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
+              >
+                {rel.derived_track?.thumbnail_url && (
+                  <img
+                    src={rel.derived_track.thumbnail_url}
+                    alt=""
+                    className="size-12 rounded object-cover shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm truncate font-medium">{rel.derived_track?.title}</h4>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        {getVariantTypeBadge(rel.variant_type)}
+                        {getVariantContextBadge(rel)}
+                        {rel.derived_track && getStatusBadge(rel.derived_track.status)}
+                      </div>
+                    </div>
+                    {onNavigateToTrack && rel.derived_track && (
+                      <ExternalLink className="size-4 text-muted-foreground shrink-0" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Base Track Section (if this is a variant) */}
+      {baseTrack?.source_track && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Variant Of
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">This is a</span>
+              {getVariantTypeBadge(baseTrack.variant_type)}
+              <span className="text-sm text-muted-foreground">variant</span>
+              {getVariantContextBadge(baseTrack)}
+            </div>
+            <div
+              className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
+              onClick={() => onNavigateToTrack && onNavigateToTrack(baseTrack.source_track!.id)}
+            >
+              {baseTrack.source_track.thumbnail_url && (
+                <img
+                  src={baseTrack.source_track.thumbnail_url}
+                  alt=""
+                  className="size-16 rounded object-cover shrink-0"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="truncate font-medium">{baseTrack.source_track.title}</h4>
+                    <div className="flex items-center gap-2 mt-2">
+                      {getTrackTypeBadge(baseTrack.source_track.type)}
+                      {getStatusBadge(baseTrack.source_track.status)}
+                    </div>
+                  </div>
+                  {onNavigateToTrack && (
+                    <ExternalLink className="size-4 text-muted-foreground shrink-0" />
+                  )}
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

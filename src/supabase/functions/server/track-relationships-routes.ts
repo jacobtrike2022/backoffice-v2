@@ -174,7 +174,7 @@ app.delete('/:relationshipId', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const orgId = await getOrgIdFromToken(accessToken);
-    
+
     if (!orgId) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
@@ -186,6 +186,139 @@ app.delete('/:relationshipId', async (c) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting track relationship:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// VARIANT RELATIONSHIP ROUTES
+// ============================================================================
+
+// CREATE VARIANT RELATIONSHIP
+app.post('/variant/create', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { sourceTrackId, derivedTrackId, variantType, variantContext } = await c.req.json();
+
+    if (!sourceTrackId || !derivedTrackId || !variantType) {
+      return c.json({ error: 'sourceTrackId, derivedTrackId, and variantType are required' }, 400);
+    }
+
+    const relationship = await trackRel.createVariantRelationship(
+      orgId,
+      sourceTrackId,
+      derivedTrackId,
+      variantType,
+      variantContext || {}
+    );
+
+    return c.json({ relationship });
+  } catch (error: any) {
+    console.error('Error creating variant relationship:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET TRACK VARIANTS
+app.get('/variants/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+    const variantType = c.req.query('type') as 'geographic' | 'company' | 'language' | 'unit' | undefined;
+
+    const variants = await trackRel.getTrackVariants(orgId, trackId, variantType);
+
+    return c.json({ variants });
+  } catch (error: any) {
+    console.error('Error fetching track variants:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// FIND VARIANT BY CONTEXT
+app.get('/variant/find', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const sourceTrackId = c.req.query('sourceTrackId');
+    const variantType = c.req.query('variantType') as 'geographic' | 'company' | 'language' | 'unit';
+    const contextKey = c.req.query('contextKey');
+    const contextValue = c.req.query('contextValue');
+
+    if (!sourceTrackId || !variantType || !contextKey || !contextValue) {
+      return c.json({ error: 'sourceTrackId, variantType, contextKey, and contextValue are required' }, 400);
+    }
+
+    const variant = await trackRel.findVariantByContext(
+      orgId,
+      sourceTrackId,
+      variantType,
+      contextKey,
+      contextValue
+    );
+
+    return c.json({ variant });
+  } catch (error: any) {
+    console.error('Error finding variant by context:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET BASE TRACK FOR VARIANT
+app.get('/variant/base/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+
+    const baseTrack = await trackRel.getBaseTrackForVariant(orgId, trackId);
+
+    return c.json({ baseTrack });
+  } catch (error: any) {
+    console.error('Error getting base track for variant:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// GET STATS WITH VARIANTS
+app.get('/stats-with-variants/:trackId', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const orgId = await getOrgIdFromToken(accessToken);
+
+    if (!orgId) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const trackId = c.req.param('trackId');
+
+    const stats = await trackRel.getTrackRelationshipStatsWithVariants(orgId, trackId);
+
+    return c.json({ stats });
+  } catch (error: any) {
+    console.error('Error fetching relationship stats with variants:', error);
     return c.json({ error: error.message }, 500);
   }
 });

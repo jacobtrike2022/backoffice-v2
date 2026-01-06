@@ -74,7 +74,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { AlertTriangle, ExternalLink } from 'lucide-react';
+import { AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
+import { CreateVariantModal } from './content-authoring/CreateVariantModal';
 
 // Attempt to import defaultThumbnail image. Fall back to undefined if not found.
 let defaultThumbnail: string | undefined;
@@ -132,7 +133,16 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     track: null,
     relationships: []
   });
-  
+
+  // Create Variant modal state
+  const [createVariantModal, setCreateVariantModal] = useState<{
+    open: boolean;
+    track: any | null;
+  }>({
+    open: false,
+    track: null
+  });
+
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -1299,6 +1309,18 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             <Copy className="h-4 w-4 mr-2" />
                             Duplicate
                           </Button>
+                          <Button
+                            variant="ghost"
+                            className="justify-start h-9"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCreateVariantModal({ open: true, track });
+                            }}
+                          >
+                            <GitBranch className="h-4 w-4 mr-2" />
+                            Create Variant
+                          </Button>
+                          <Separator className="my-1" />
                           {statusFilter === 'archived' ? (
                             <>
                               <Button
@@ -1778,6 +1800,29 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Variant Modal */}
+      <CreateVariantModal
+        isOpen={createVariantModal.open}
+        onClose={() => setCreateVariantModal({ open: false, track: null })}
+        sourceTrack={createVariantModal.track ? {
+          id: createVariantModal.track.id,
+          title: createVariantModal.track.title,
+          type: createVariantModal.track.type,
+          thumbnail_url: createVariantModal.track.thumbnail_url
+        } : undefined}
+        onVariantCreated={(newTrackId) => {
+          setCreateVariantModal({ open: false, track: null });
+          // Refresh tracks list then navigate to new track
+          refetch().then(() => {
+            const newTrack = tracks.find(t => t.id === newTrackId);
+            if (newTrack) {
+              setSelectedTrack(newTrack);
+            }
+          });
+          toast.success('Variant created successfully');
+        }}
+      />
 
         <Footer />
       </div>

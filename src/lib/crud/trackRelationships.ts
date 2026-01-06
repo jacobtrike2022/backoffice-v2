@@ -5,11 +5,26 @@
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
 
+export interface VariantContext {
+  state_code?: string;
+  state_name?: string;
+  org_id?: string;
+  org_name?: string;
+  language_code?: string;
+  language_name?: string;
+  store_id?: string;
+  store_name?: string;
+}
+
+export type VariantType = 'geographic' | 'company' | 'language' | 'unit';
+
 export interface TrackRelationship {
   id: string;
   source_track_id: string;
   derived_track_id: string;
-  relationship_type: 'source' | 'prerequisite' | 'related';
+  relationship_type: 'source' | 'prerequisite' | 'related' | 'variant';
+  variant_type?: VariantType | null;
+  variant_context?: VariantContext | null;
   created_at: string;
   source_track?: {
     id: string;
@@ -31,6 +46,13 @@ export interface RelationshipStats {
   derivedCount: number;
   sourceCount: number;
   hasDerivedCheckpoints: boolean;
+  variantCount?: number;
+  variants?: {
+    geographic: number;
+    company: number;
+    language: number;
+    unit: number;
+  };
 }
 
 /**
@@ -187,4 +209,166 @@ export async function deleteTrackRelationship(relationshipId: string): Promise<v
     const error = await response.json();
     throw new Error(error.error || 'Failed to delete track relationship');
   }
+}
+
+// ============================================================================
+// VARIANT RELATIONSHIP FUNCTIONS
+// ============================================================================
+
+/**
+ * Create a variant relationship between tracks
+ */
+export async function createVariantRelationship(
+  sourceTrackId: string,
+  derivedTrackId: string,
+  variantType: VariantType,
+  variantContext: VariantContext
+): Promise<TrackRelationship> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      sourceTrackId,
+      derivedTrackId,
+      variantType,
+      variantContext,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to create variant relationship');
+  }
+
+  const data = await response.json();
+  return data.relationship;
+}
+
+/**
+ * Get all variants of a track
+ */
+export async function getTrackVariants(
+  trackId: string,
+  variantType?: VariantType
+): Promise<TrackRelationship[]> {
+  const accessToken = await getAccessToken();
+
+  let url = `${getServerUrl()}/track-relationships/variants/${trackId}`;
+  if (variantType) {
+    url += `?type=${variantType}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Track variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to fetch track variants');
+  }
+
+  const data = await response.json();
+  return data.variants;
+}
+
+/**
+ * Find variant for specific context (e.g., find TX variant)
+ */
+export async function findVariantByContext(
+  sourceTrackId: string,
+  variantType: VariantType,
+  contextKey: string,
+  contextValue: string
+): Promise<TrackRelationship | null> {
+  const accessToken = await getAccessToken();
+
+  const params = new URLSearchParams({
+    sourceTrackId,
+    variantType,
+    contextKey,
+    contextValue,
+  });
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/find?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Find variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to find variant');
+  }
+
+  const data = await response.json();
+  return data.variant;
+}
+
+/**
+ * Get the "base" track for a variant (inverse lookup)
+ */
+export async function getBaseTrackForVariant(
+  variantTrackId: string
+): Promise<TrackRelationship | null> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/base/${variantTrackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get base track');
+  }
+
+  const data = await response.json();
+  return data.baseTrack;
+}
+
+/**
+ * Get relationship statistics including variant counts
+ */
+export async function getTrackRelationshipStatsWithVariants(
+  trackId: string
+): Promise<RelationshipStats> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/stats-with-variants/${trackId}`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+      console.error(`Stats with variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to fetch relationship stats with variants');
+  }
+
+  const data = await response.json();
+  return data.stats;
 }

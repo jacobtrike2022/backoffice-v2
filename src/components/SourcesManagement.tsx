@@ -93,6 +93,30 @@ export function SourcesManagement() {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Get a signed URL for viewing/downloading files (private bucket)
+  const getSignedUrl = async (storagePath: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('source-files')
+        .createSignedUrl(storagePath, 3600); // 1 hour expiry
+
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (error: any) {
+      console.error('Error creating signed URL:', error);
+      toast.error('Failed to access file');
+      return null;
+    }
+  };
+
+  // Open file in new tab using signed URL
+  const handleViewFile = async (file: SourceFile) => {
+    const signedUrl = await getSignedUrl(file.storage_path);
+    if (signedUrl) {
+      window.open(signedUrl, '_blank');
+    }
+  };
+
   useEffect(() => {
     loadSourceFiles();
   }, []);
@@ -416,7 +440,7 @@ export function SourcesManagement() {
                       variant="ghost"
                       size="sm"
                       className="h-8 px-2 text-primary hover:text-primary"
-                      onClick={() => window.open(file.file_url, '_blank')}
+                      onClick={() => handleViewFile(file)}
                     >
                       <ExternalLink className="h-4 w-4 mr-1" />
                       View
@@ -466,7 +490,7 @@ export function SourcesManagement() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => window.open(file.file_url, '_blank')}>
+                        <DropdownMenuItem onClick={() => handleViewFile(file)}>
                           <Download className="h-4 w-4 mr-2" />
                           Download
                         </DropdownMenuItem>
