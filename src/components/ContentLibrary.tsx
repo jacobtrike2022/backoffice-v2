@@ -143,6 +143,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     track: null
   });
 
+  // Track which popover is open (by track ID)
+  const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
+
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -1273,7 +1276,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   )}
                   {/* Actions Menu (shows on hover) */}
                   <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Popover>
+                    <Popover 
+                      open={openPopoverId === track.id} 
+                      onOpenChange={(open) => {
+                        setOpenPopoverId(open ? track.id : null);
+                      }}
+                    >
                       <PopoverTrigger asChild>
                         <Button
                           size="sm"
@@ -1292,6 +1300,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             className="justify-start h-9"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setOpenPopoverId(null);
                               handleEditTrack(track);
                             }}
                           >
@@ -1303,6 +1312,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             className="justify-start h-9"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setOpenPopoverId(null);
                               handleDuplicateTrack(track);
                             }}
                           >
@@ -1314,6 +1324,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             className="justify-start h-9"
                             onClick={(e) => {
                               e.stopPropagation();
+                              setOpenPopoverId(null);
                               setCreateVariantModal({ open: true, track });
                             }}
                           >
@@ -1328,6 +1339,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 className="justify-start h-9"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setOpenPopoverId(null);
                                   handleMoveToDrafts(track);
                                 }}
                               >
@@ -1339,6 +1351,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 className="justify-start h-9"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setOpenPopoverId(null);
                                   handleMoveToPublished(track);
                                 }}
                               >
@@ -1351,6 +1364,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 className="justify-start h-9 text-red-600 hover:text-red-700 hover:bg-red-50"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setOpenPopoverId(null);
                                   handleDeletePermanently(track);
                                 }}
                               >
@@ -1365,6 +1379,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 className="justify-start h-9"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setOpenPopoverId(null);
                                   handleMoveToDrafts(track);
                                 }}
                               >
@@ -1376,6 +1391,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 className="justify-start h-9"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setOpenPopoverId(null);
                                   handleArchiveTrack(track);
                                 }}
                               >
