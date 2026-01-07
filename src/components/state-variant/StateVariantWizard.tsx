@@ -221,25 +221,16 @@ export function StateVariantWizard({
 
   // Step 1: Build scope contract when state is selected
   const handleStateSelect = async (selectedState: { code: string; name: string }) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:223',message:'handleStateSelect START',data:{stateCode:selectedState.code,stateName:selectedState.name,sourceTrackId:sourceTrack.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-    // #endregion
     setState(prev => ({ ...prev, selectedState, isLoading: true, error: null }));
     setIsLoading(true);
 
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:228',message:'BEFORE buildScopeContract call',data:{sourceTrackId:sourceTrack.id,variantType:'geographic',context:{state_code:selectedState.code,state_name:selectedState.name}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
       const response = await buildScopeContract(
         sourceTrack.id,
         'geographic',
         { state_code: selectedState.code, state_name: selectedState.name },
         true
       );
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:237',message:'AFTER buildScopeContract SUCCESS',data:{contractId:response.contractId,roleSelectionNeeded:response.roleSelectionNeeded,hasTopRoleMatches:!!response.topRoleMatches,topRoleMatchesCount:response.topRoleMatches?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
-      // #endregion
 
       setState(prev => ({
         ...prev,
@@ -253,9 +244,6 @@ export function StateVariantWizard({
           : [response.scopeContract.primaryRole],
       }));
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:254',message:'CATCH buildScopeContract ERROR',data:{errorMessage:error.message,errorName:error.name,errorStack:error.stack?.substring(0,500),fullError:JSON.stringify(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
-      // #endregion
       setState(prev => ({
         ...prev,
         error: error.message || 'Failed to analyze content',
@@ -264,9 +252,6 @@ export function StateVariantWizard({
       toast.error('Failed to analyze content', { description: error.message });
     } finally {
       setIsLoading(false);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:265',message:'handleStateSelect END',data:{isLoadingFinal:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
-      // #endregion
     }
   };
 
@@ -497,12 +482,6 @@ export function StateVariantWizard({
 
         // Show error state if there was a failure
         if (state.error && state.failedStage === 'scope-contract') {
-          // #region agent log
-          React.useEffect(() => {
-            const dialogContent = document.querySelector('[role="dialog"]');
-            fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:484',message:'ERROR STATE RENDERED',data:{error:state.error,failedStage:state.failedStage,dialogHeight:dialogContent?.clientHeight,dialogScrollHeight:dialogContent?.scrollHeight,dialogClassList:Array.from(dialogContent?.classList||[])},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,D,E'})}).catch(()=>{});
-          }, []);
-          // #endregion
           return (
             <div className="flex flex-col items-center justify-center py-12 space-y-4">
               <div className="p-3 rounded-full bg-destructive/10">
@@ -599,12 +578,6 @@ export function StateVariantWizard({
   // Use full-screen for editor step
   const isFullScreen = state.step === 'editor';
 
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:579',message:'DIALOG RENDER',data:{isOpen,isFullScreen,step:state.step,hasError:!!state.error,failedStage:state.failedStage,isLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,D,E'})}).catch(()=>{});
-  }, [isOpen, isFullScreen, state.step, state.error, state.failedStage, isLoading]);
-  // #endregion
-
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -697,14 +670,6 @@ function StateSelector({
       state.name.toLowerCase().includes(search.toLowerCase()) ||
       state.code.toLowerCase().includes(search.toLowerCase())
   );
-
-  // #region agent log
-  React.useEffect(() => {
-    const container = document.querySelector('.space-y-4');
-    const grid = document.querySelector('.grid');
-    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StateVariantWizard.tsx:656',message:'STATE SELECTOR RENDERED',data:{filteredStatesCount:filteredStates.length,isLoading,containerHeight:container?.clientHeight,gridHeight:grid?.clientHeight,gridScrollHeight:grid?.scrollHeight},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D,E'})}).catch(()=>{});
-  }, [filteredStates.length, isLoading]);
-  // #endregion
 
   return (
     <div className="space-y-4">
