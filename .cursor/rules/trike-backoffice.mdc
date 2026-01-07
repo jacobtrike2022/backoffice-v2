@@ -42,6 +42,20 @@ This is an enterprise multi-tenant LMS platform for convenience store and foodse
 - The `select('*')` pattern is acceptable for queries that return small result sets
 - Row Level Security policies are active - ensure queries include proper user context
 
+## CRITICAL: Database Schema Notes
+**User table is `users` - NOT `user_profiles` or `profiles`**
+- Many Supabase tutorials use `user_profiles` or `profiles` tables - WE DO NOT
+- Our user data is in the `users` table with these key columns:
+  - `id` (UUID primary key)
+  - `auth_user_id` (references auth.users)
+  - `organization_id` (references organizations)
+  - `role_id` (references roles)
+  - `store_id` (references stores, nullable)
+  - `first_name`, `last_name`, `email`
+- To get current user profile, use `getCurrentUserProfile()` from `src/lib/supabase.ts`
+- To get org ID, use `getCurrentUserOrgId()` from `src/lib/supabase.ts`
+- NEVER query a table called `user_profiles` - it does not exist!
+
 ## Project Structure
 - `/src/components/` - React components for UI
 - `/src/lib/crud/` - Database CRUD operation functions

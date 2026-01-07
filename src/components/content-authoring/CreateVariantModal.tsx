@@ -264,14 +264,15 @@ export function CreateVariantModal({
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('organization_id, organizations(name)')
-          .eq('id', user.id)
-          .single();
+        // First try to get from users table via auth_user_id
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('organization_id, organizations:organizations!users_organization_id_fkey(name)')
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
 
-        if (profile?.organizations) {
-          setOrganizationName((profile.organizations as any).name || '');
+        if (userProfile?.organizations) {
+          setOrganizationName((userProfile.organizations as any).name || '');
         }
       }
     } catch (error) {

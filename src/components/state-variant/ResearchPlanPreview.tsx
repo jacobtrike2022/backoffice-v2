@@ -244,25 +244,25 @@ function QueryCard({
     <div className="border border-border rounded-lg overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-start gap-3 p-3 text-left hover:bg-accent/50 transition-colors"
+        className="w-full flex items-start gap-3 p-3 text-left hover:bg-accent/50 transition-colors overflow-hidden"
       >
         <span className="text-xs font-mono text-muted-foreground w-6 shrink-0">
           {String(index + 1).padStart(2, '0')}
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Badge
               variant="outline"
-              className={`text-xs ${targetTypeColors[query.targetType]}`}
+              className={`text-xs shrink-0 ${targetTypeColors[query.targetType]}`}
             >
               <TargetIcon className="w-3 h-3 mr-1" />
               {targetTypeLabels[query.targetType]}
             </Badge>
-            <span className="text-xs text-muted-foreground truncate">
+            <span className="text-xs text-muted-foreground">
               {query.mappedAction}
             </span>
           </div>
-          <p className="text-sm font-medium truncate">{query.query}</p>
+          <p className="text-sm font-medium break-words">{query.query}</p>
         </div>
         {isExpanded ? (
           <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />

@@ -7772,7 +7772,7 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
         extraction_id: record.id,
         fact_text: f.factText,
         mapped_action: f.mappedAction,
-        anchor_hit: f.anchorHit,
+        anchor_hits: f.anchorHit,  // Note: column is anchor_hits (plural) in schema
         citations: f.citations,
         is_strong_claim: f.isStrongClaim,
         qa_status: f.qaStatus,
@@ -8365,7 +8365,7 @@ ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
     return `- id: ${kf.id}
   fact: ${kf.fact_text || kf.factText}
   mappedAction: ${kf.mapped_action || kf.mappedAction}
-  anchors: ${(kf.anchor_hit || kf.anchorHit || []).join(', ')}
+  anchors: ${(kf.anchor_hits || kf.anchor_hit || kf.anchorHit || []).join(', ')}
   status: ${kf.qa_status || kf.qaStatus}
   citations:
 ${citationsStr}`;
@@ -8514,7 +8514,7 @@ function buildChangeNotesFromMarkers(
 
     const factText = fact.fact_text || fact.factText || '';
     const mappedAction = fact.mapped_action || fact.mappedAction || '';
-    const anchorHit = fact.anchor_hit || fact.anchorHit || [];
+    const anchorHit = fact.anchor_hits || fact.anchor_hit || fact.anchorHit || [];
     const citations = fact.citations || [];
 
     // Build citation refs

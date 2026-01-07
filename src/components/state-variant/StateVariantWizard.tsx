@@ -319,6 +319,12 @@ export function StateVariantWizard({
   const handleConfirmResearch = async () => {
     if (!state.planId || !state.contractId || !state.selectedState) return;
 
+    console.log('[StateVariantWizard] Starting research pipeline...', {
+      planId: state.planId,
+      contractId: state.contractId,
+      stateCode: state.selectedState.code,
+    });
+
     setState(prev => ({
       ...prev,
       step: 'creating',
@@ -329,11 +335,16 @@ export function StateVariantWizard({
 
     try {
       // Step 1: Retrieve evidence
+      console.log('[StateVariantWizard] Step 1: Retrieving evidence...');
       const retrievalResult = await retrieveEvidence(
         state.planId,
         state.contractId,
         getSourceContent()
       );
+      console.log('[StateVariantWizard] Evidence retrieved:', {
+        evidenceCount: retrievalResult.evidenceCount,
+        rejectedCount: retrievalResult.rejectedCount,
+      });
 
       setState(prev => ({
         ...prev,
@@ -344,6 +355,7 @@ export function StateVariantWizard({
       }));
 
       // Step 2: Extract key facts
+      console.log('[StateVariantWizard] Step 2: Extracting key facts...');
       const keyFactsResult = await extractKeyFacts(
         state.contractId,
         state.planId,
@@ -352,6 +364,11 @@ export function StateVariantWizard({
         state.selectedState.name,
         getSourceContent()
       );
+      console.log('[StateVariantWizard] Key facts extracted:', {
+        keyFactsCount: keyFactsResult.keyFactsCount,
+        rejectedFactsCount: keyFactsResult.rejectedFactsCount,
+        overallStatus: keyFactsResult.overallStatus,
+      });
 
       setState(prev => ({
         ...prev,
