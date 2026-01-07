@@ -272,20 +272,17 @@ function QueryCard({
       </button>
 
       {isExpanded && (
-        <div className="px-3 pb-3 pt-0 border-t border-border bg-muted/30 space-y-3">
+        <div className="px-3 pb-3 pt-3 border-t border-border bg-muted/30 space-y-3">
           {/* Anchor terms */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">Anchor terms</p>
-            <div className="flex flex-wrap gap-1">
-              {query.anchorTerms.map((term, i) => (
-                <span
-                  key={i}
-                  className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
-                >
-                  {term}
-                </span>
-              ))}
-            </div>
+          <div className="flex flex-wrap gap-1">
+            {query.anchorTerms.map((term, i) => (
+              <span
+                key={i}
+                className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
+              >
+                {term}
+              </span>
+            ))}
           </div>
 
           {/* Negative terms */}
@@ -305,12 +302,6 @@ function QueryCard({
             </div>
           )}
 
-          {/* Why */}
-          {query.why && (
-            <p className="text-xs text-muted-foreground italic">
-              {query.why}
-            </p>
-          )}
         </div>
       )}
     </div>

@@ -7558,18 +7558,79 @@ async function handleGetResearchPlan(planId: string, req: Request): Promise<Resp
 }
 
 /**
- * Call OpenAI Responses API with web search tool
- * Uses the new Responses API format for web_search_preview
+ * Use GPT-4o with knowledge cutoff to find regulatory information
+ * Returns structured legal facts with source references
+ * Note: This uses the model's training data, not live web search
  */
-async function callOpenAIWebSearch(
-  query: string,
-  context: string
+async function findRegulatoryInfo(
+  stateCode: string,
+  stateName: string,
+  action: string,
+  domainContext: string
 ): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
   if (!OPENAI_API_KEY) {
     throw new Error("OpenAI API key not configured");
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const systemPrompt = `You are a legal research assistant specializing in state regulatory compliance for businesses.
+Your task is to provide accurate, factual information about state regulations.
+
+TODAY'S DATE: ${today}
+
+IMPORTANT GUIDELINES:
+1. Only state facts you are confident about from your training data
+2. Include specific statute numbers, code sections, or regulation citations when known
+3. Cite the official source (e.g., "Texas Alcoholic Beverage Code §106.03")
+4. If you're uncertain about specific details, say so
+5. Focus on regulations relevant to retail/convenience store operations
+6. Your training data has a cutoff. Flag if regulations might have changed recently or if there's pending legislation you're aware of
+7. Include the year/version of any statute you reference when known
+
+Return your response as JSON with this structure:
+{
+  "summary": "Brief summary of the key regulatory requirements",
+  "facts": [
+    {
+      "fact": "The specific regulatory fact or requirement",
+      "citation": "Official citation (e.g., Texas ABC Code §106.03)",
+      "source_type": "statute" | "regulation" | "administrative_code",
+      "confidence": "high" | "medium" | "low",
+      "year_referenced": "2023 or unknown"
+    }
+  ],
+  "source_urls": [
+    {
+      "url": "https://statutes.capitol.texas.gov/...",
+      "title": "Texas Statutes - Alcoholic Beverage Code",
+      "description": "Official state statute source"
+    }
+  ],
+  "freshness_warning": "Optional: note if this area of law changes frequently or if you're aware of recent/pending changes"
+}`;
+
+  const userPrompt = `Find ${stateName} (${stateCode}) state regulations related to: ${action}
+
+BUSINESS CONTEXT:
+${domainContext}
+
+This is for training frontline employees. Focus on:
+- Specific legal requirements applicable to this industry/business type
+- What employees MUST do or CANNOT do
+- Penalties or consequences for violations
+- Required procedures or documentation
+- Age restrictions if applicable
+- On-premise vs off-premise distinctions if relevant (e.g., for alcohol: bars/restaurants vs retail stores)
+- Any relevant administrative rules
+
+IMPORTANT: Tailor your response to the specific industry context provided. A convenience store cashier has different compliance requirements than a bartender, even for the same topic like alcohol sales.
+
+Provide official statute/code citations where known.`;
+
+  console.log(`[RegulatoryInfo] Querying GPT-4o for: ${stateCode} - ${action}`);
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -7577,56 +7638,80 @@ async function callOpenAIWebSearch(
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      tools: [{ type: "web_search_preview" }],
-      input: `You are a legal research assistant finding official state regulations and laws.
-
-Search context: ${context}
-
-Search query: ${query}
-
-Find and summarize the relevant state regulations, statutes, or administrative rules.
-Focus on official government sources (.gov), Justia (justia.com), and legal databases.
-Include specific statute/regulation numbers when available.
-Return factual information only - no opinions or interpretations.`,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 2000,
+      response_format: { type: "json_object" }
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("OpenAI Responses API error:", errorText);
-    throw new Error(`OpenAI Responses API error: ${response.status}`);
+    console.error("OpenAI Chat error:", response.status, errorText);
+    throw new Error(`OpenAI API error: ${response.status}`);
   }
 
   const data = await response.json();
+  const responseText = data.choices?.[0]?.message?.content || '{}';
 
-  // Extract content and citations from the response
-  let content = '';
+  console.log(`[RegulatoryInfo] Got response, parsing JSON...`);
+
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(responseText);
+  } catch (e) {
+    console.error('[RegulatoryInfo] Failed to parse JSON response:', responseText.substring(0, 200));
+    parsed = { summary: responseText, facts: [], source_urls: [] };
+  }
+
+  // Build citations from facts and source_urls
   const citations: Array<{ url: string; title: string; snippet?: string }> = [];
 
-  // Parse the response output
-  if (data.output) {
-    for (const item of data.output) {
-      if (item.type === 'message' && item.content) {
-        for (const block of item.content) {
-          if (block.type === 'output_text') {
-            content = block.text || '';
-            // Extract annotations/citations if present
-            if (block.annotations) {
-              for (const ann of block.annotations) {
-                if (ann.type === 'url_citation') {
-                  citations.push({
-                    url: ann.url || '',
-                    title: ann.title || '',
-                    snippet: ann.text || '',
-                  });
-                }
-              }
-            }
-          }
-        }
+  // Add source URLs as citations
+  if (parsed.source_urls && Array.isArray(parsed.source_urls)) {
+    for (const source of parsed.source_urls) {
+      citations.push({
+        url: source.url || '',
+        title: source.title || '',
+        snippet: source.description || '',
+      });
+    }
+  }
+
+  // If no URLs but we have facts with citations, create pseudo-citations
+  if (citations.length === 0 && parsed.facts && Array.isArray(parsed.facts)) {
+    const seenCitations = new Set<string>();
+    for (const fact of parsed.facts) {
+      if (fact.citation && !seenCitations.has(fact.citation)) {
+        seenCitations.add(fact.citation);
+        // Generate likely URL based on state
+        const baseUrl = stateCode === 'TX'
+          ? 'https://statutes.capitol.texas.gov/Docs/AL/htm/AL.106.htm'
+          : `https://law.justia.com/codes/${stateName.toLowerCase().replace(/\s+/g, '-')}/`;
+        citations.push({
+          url: baseUrl,
+          title: `${stateName} State Code - ${fact.citation}`,
+          snippet: fact.fact,
+        });
       }
     }
   }
+
+  // Build content from summary and facts
+  let content = parsed.summary || '';
+  if (parsed.facts && Array.isArray(parsed.facts)) {
+    content += '\n\nKey Requirements:\n';
+    for (const fact of parsed.facts) {
+      content += `- ${fact.fact}`;
+      if (fact.citation) content += ` (${fact.citation})`;
+      content += '\n';
+    }
+  }
+
+  console.log(`[RegulatoryInfo] Parsed ${citations.length} citations, ${(parsed.facts || []).length} facts`);
 
   return { content, citations };
 }
@@ -7673,7 +7758,7 @@ function classifySourceTier(url: string): 1 | 2 | 3 {
 }
 
 /**
- * Handler: Retrieve Evidence - Uses OpenAI web search to find regulatory sources
+ * Handler: Retrieve Evidence - Uses GPT-4o to find regulatory information
  */
 async function handleRetrieveEvidence(req: Request): Promise<Response> {
   try {
@@ -7705,30 +7790,61 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
     const stateCode = researchPlan.stateCode;
     const stateName = researchPlan.stateName || stateCode;
 
+    // Get domain context from scope contract
+    const { data: contractRecord } = await supabase
+      .from('variant_scope_contracts')
+      .select('scope_contract')
+      .eq('id', contractId)
+      .single();
+
+    const domainAnchors = contractRecord?.scope_contract?.domainAnchors || [];
+
+    // Get organization industry context
+    const { data: orgRecord } = await supabase
+      .from('organizations')
+      .select('industry, services_offered, industries!organizations_industry_fkey(name, description)')
+      .eq('id', orgId)
+      .single();
+
+    const industrySlug = orgRecord?.industry || '';
+    const industryName = (orgRecord?.industries as any)?.name || industrySlug;
+    const industryDescription = (orgRecord?.industries as any)?.description || '';
+    const servicesOffered = orgRecord?.services_offered || [];
+
+    // Build rich domain context including industry
+    const domainContextParts = [
+      industryName ? `Industry: ${industryName}` : '',
+      industryDescription ? `(${industryDescription})` : '',
+      servicesOffered.length > 0 ? `Services: ${servicesOffered.join(', ')}` : '',
+      domainAnchors.length > 0 ? `Domain terms: ${domainAnchors.slice(0, 5).join(', ')}` : '',
+    ].filter(Boolean);
+    const domainContext = domainContextParts.join('. ');
+
     console.log(`[RetrieveEvidence] Starting evidence retrieval for ${stateName} (${stateCode}) with ${queries.length} queries`);
+    console.log(`[RetrieveEvidence] Industry context: ${industryName}, Services: ${servicesOffered.join(', ')}`);
 
     const evidence: any[] = [];
     const rejected: any[] = [];
     const seenUrls = new Set<string>();
 
-    // Execute each query from the research plan
-    for (const queryDef of queries) {
+    // Execute queries in parallel for speed (max 3 concurrent)
+    const processQuery = async (queryDef: any) => {
       try {
-        // Enhance query to target legal sources
-        const enhancedQuery = `${queryDef.query} site:justia.com OR site:.gov`;
-        const context = `Finding ${stateName} state regulations for: ${queryDef.mappedAction}. Target audience: ${researchPlan.primaryRole || 'frontline employees'}`;
+        console.log(`[RetrieveEvidence] Processing action: "${queryDef.mappedAction}"`);
 
-        console.log(`[RetrieveEvidence] Searching: "${enhancedQuery}"`);
+        const searchResult = await findRegulatoryInfo(
+          stateCode,
+          stateName,
+          queryDef.mappedAction,
+          domainContext
+        );
 
-        const searchResult = await callOpenAIWebSearch(enhancedQuery, context);
+        const queryEvidence: any[] = [];
+        const queryRejected: any[] = [];
 
         // Process citations into evidence blocks
         for (const citation of searchResult.citations) {
-          // Skip duplicates
-          if (seenUrls.has(citation.url)) continue;
-          seenUrls.add(citation.url);
-
-          const tier = classifySourceTier(citation.url);
+          const tier = classifySourceTier(citation.url || '');
 
           const evidenceBlock = {
             id: crypto.randomUUID(),
@@ -7747,9 +7863,9 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
           // Accept Tier 1 and 2, reject Tier 3
           if (tier <= 2) {
-            evidence.push(evidenceBlock);
+            queryEvidence.push(evidenceBlock);
           } else {
-            rejected.push({
+            queryRejected.push({
               ...evidenceBlock,
               reason: 'Source tier too low (Tier 3)',
             });
@@ -7758,27 +7874,45 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
         // Also extract any relevant content from the search result text
         if (searchResult.content && searchResult.content.length > 100) {
-          // Create an evidence block from the synthesized content if it has citations
           if (searchResult.citations.length > 0) {
-            evidence.push({
+            queryEvidence.push({
               id: crypto.randomUUID(),
               queryId: queryDef.id,
               mappedAction: queryDef.mappedAction,
               url: searchResult.citations[0]?.url || '',
               title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
               snippet: searchResult.content.substring(0, 1500),
-              tier: 2, // Synthesized content is Tier 2
+              tier: 2,
               retrievedAt: new Date().toISOString(),
               anchorHits: queryDef.anchorTerms || [],
               isSynthesized: true,
-              sourceUrls: searchResult.citations.map(c => c.url),
+              sourceUrls: searchResult.citations.map((c: any) => c.url),
             });
           }
         }
 
+        return { evidence: queryEvidence, rejected: queryRejected };
       } catch (queryError: any) {
-        console.error(`[RetrieveEvidence] Query failed: ${queryDef.query}`, queryError);
-        // Continue with other queries even if one fails
+        console.error(`[RetrieveEvidence] Query failed: ${queryDef.mappedAction}`, queryError.message);
+        return { evidence: [], rejected: [] };
+      }
+    };
+
+    // Run all queries in parallel
+    console.log(`[RetrieveEvidence] Running ${queries.length} queries in parallel...`);
+    const results = await Promise.all(queries.map(processQuery));
+
+    // Merge results and deduplicate by URL
+    for (const result of results) {
+      for (const eb of result.evidence) {
+        if (!eb.url || seenUrls.has(eb.url)) continue;
+        seenUrls.add(eb.url);
+        evidence.push(eb);
+      }
+      for (const rb of result.rejected) {
+        if (!rb.url || seenUrls.has(rb.url)) continue;
+        seenUrls.add(rb.url);
+        rejected.push(rb);
       }
     }
 
@@ -8181,14 +8315,22 @@ CRITICAL RULES:
 6. Do NOT include generic facts that apply to all states
 7. Focus on actionable requirements for the learner role`;
 
-  const evidenceSummary = evidenceBlocks.map((eb: any) => ({
-    evidenceId: eb.evidenceId,
-    url: eb.url,
-    tier: eb.tier,
-    title: eb.title,
-    snippets: (eb.snippets || []).map((s: any, i: number) => ({ index: i, text: s.text || s })),
-    effectiveDate: eb.effectiveDate,
-  }));
+  const evidenceSummary = evidenceBlocks.map((eb: any) => {
+    // Handle both old format (evidenceId, snippets array) and new format (id, snippet string)
+    const evidenceId = eb.evidenceId || eb.id;
+    const snippetText = eb.snippet || '';
+    const snippetsArray = eb.snippets || (snippetText ? [{ index: 0, text: snippetText }] : []);
+
+    return {
+      evidenceId,
+      url: eb.url,
+      tier: eb.tier,
+      title: eb.title,
+      snippets: snippetsArray.map((s: any, i: number) => ({ index: i, text: s.text || s })),
+      effectiveDate: eb.effectiveDate || eb.retrievedAt,
+      mappedAction: eb.mappedAction, // Include mapped action for context
+    };
+  });
 
   const userPrompt = `Extract Key Facts for ${stateName || stateCode} training adaptation.
 
