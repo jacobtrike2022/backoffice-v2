@@ -516,3 +516,602 @@ export async function getUltimateBaseTrack(
   const data = await response.json();
   return data;
 }
+
+// ============================================================================
+// SCOPE CONTRACT FUNCTIONS (State Variant Intelligence v2)
+// ============================================================================
+
+export type LearnerRole =
+  | 'frontline_store_associate'
+  | 'manager_supervisor'
+  | 'delivery_driver'
+  | 'owner_executive'
+  | 'back_office_admin'
+  | 'other';
+
+export interface ScopeContract {
+  primaryRole: LearnerRole;
+  secondaryRoles: LearnerRole[];
+  roleConfidence: 'high' | 'medium' | 'low';
+  roleEvidenceQuotes: string[];
+  allowedLearnerActions: string[];
+  disallowedActionClasses: string[];
+  domainAnchors: string[];
+  instructionalGoal: string;
+}
+
+export interface OrgRoleMatch {
+  roleId: string;
+  roleName: string;
+  score: number;
+  why: string;
+}
+
+export interface ScopeContractResponse {
+  contractId: string;
+  scopeContract: ScopeContract;
+  roleSelectionNeeded: boolean;
+  topRoleMatches?: OrgRoleMatch[];
+  extractionMethod: 'llm' | 'fallback';
+  validationErrors?: string[];
+  sourceTrackId?: string;
+  sourceTitle?: string;
+  createdAt?: string;
+}
+
+/**
+ * Build a Scope Contract for a source track.
+ * This is the first step in the v2 variant pipeline.
+ */
+export async function buildScopeContract(
+  sourceTrackId: string,
+  variantType: VariantType,
+  variantContext: VariantContext,
+  includeOrgRoles: boolean = true
+): Promise<ScopeContractResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/scope-contract`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      sourceTrackId,
+      variantType,
+      variantContext,
+      includeOrgRoles,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to build scope contract');
+  }
+
+  return response.json();
+}
+
+/**
+ * Freeze a Scope Contract with user-selected roles.
+ * Call this after user confirms role selection in UI.
+ */
+export async function freezeScopeContractRoles(
+  contractId: string,
+  primaryRole: LearnerRole,
+  secondaryRoles: LearnerRole[] = []
+): Promise<ScopeContractResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/scope-contract/${contractId}/freeze-roles`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        primaryRole,
+        secondaryRoles,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to freeze scope contract roles');
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve a stored Scope Contract by ID.
+ */
+export async function getScopeContract(
+  contractId: string
+): Promise<ScopeContractResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/scope-contract/${contractId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get scope contract');
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// RESEARCH PLAN FUNCTIONS (State Variant Intelligence v2 - Prompt 2)
+// ============================================================================
+
+export type EvidenceTargetType =
+  | 'statute'
+  | 'regulation'
+  | 'agency_guidance'
+  | 'enforcement_policy'
+  | 'forms_or_signage'
+  | 'unknown';
+
+export interface ResearchQuery {
+  id: string;
+  query: string;
+  mappedAction: string;
+  anchorTerms: string[];
+  negativeTerms: string[];
+  targetType: EvidenceTargetType;
+  why: string;
+}
+
+export interface ResearchPlan {
+  id: string;
+  stateCode: string;
+  stateName?: string;
+  generatedAtISO: string;
+  contractId?: string;
+  primaryRole: LearnerRole;
+  queries: ResearchQuery[];
+  globalNegativeTerms: string[];
+  sourcePolicy: {
+    preferTier1: boolean;
+    allowTier2Justia: boolean;
+    forbidTier3ForStrongClaims: boolean;
+  };
+}
+
+export interface ResearchPlanResponse {
+  planId: string;
+  researchPlan: ResearchPlan;
+  queryCount: number;
+  globalNegativeCount: number;
+}
+
+export type SourceTier = 'tier1' | 'tier2' | 'tier3' | 'unknown';
+
+export interface EvidenceSnippet {
+  text: string;
+  context?: string;
+}
+
+export interface EvidenceBlock {
+  evidenceId: string;
+  queryId: string;
+  url: string;
+  hostname: string;
+  title?: string;
+  publisher?: string;
+  tier: SourceTier;
+  retrievedAtISO: string;
+  effectiveDate?: string | null;
+  updatedDate?: string | null;
+  snippets: EvidenceSnippet[];
+  rawTextHash?: string;
+}
+
+export interface RetrievalRejection {
+  url: string;
+  reason: string;
+  matchedDisallowedTerms?: string[];
+  roleMismatch?: boolean;
+  anchorMismatch?: boolean;
+}
+
+export interface RetrievalResponse {
+  planId: string;
+  evidenceCount: number;
+  rejectedCount: number;
+  evidence: EvidenceBlock[];
+  rejected: RetrievalRejection[];
+  note?: string;
+}
+
+/**
+ * Build a Research Plan from a Scope Contract.
+ */
+export async function buildResearchPlan(
+  contractIdOrContract: string | ScopeContract,
+  stateCode: string,
+  stateName?: string,
+  useLLM: boolean = false
+): Promise<ResearchPlanResponse> {
+  const accessToken = await getAccessToken();
+
+  const body: Record<string, unknown> = {
+    stateCode,
+    stateName,
+    useLLM,
+  };
+
+  if (typeof contractIdOrContract === 'string') {
+    body.contractId = contractIdOrContract;
+  } else {
+    body.scopeContract = contractIdOrContract;
+  }
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/research-plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to build research plan');
+  }
+
+  return response.json();
+}
+
+/**
+ * Execute a Research Plan and retrieve evidence.
+ */
+export async function retrieveEvidence(
+  planIdOrPlan: string | ResearchPlan,
+  contractIdOrContract: string | ScopeContract,
+  sourceContent?: string
+): Promise<RetrievalResponse> {
+  const accessToken = await getAccessToken();
+
+  const body: Record<string, unknown> = {};
+
+  if (typeof planIdOrPlan === 'string') {
+    body.planId = planIdOrPlan;
+  } else {
+    body.researchPlan = planIdOrPlan;
+  }
+
+  if (typeof contractIdOrContract === 'string') {
+    body.contractId = contractIdOrContract;
+  } else {
+    body.scopeContract = contractIdOrContract;
+  }
+
+  if (sourceContent) {
+    body.sourceContent = sourceContent;
+  }
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/retrieve-evidence`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to retrieve evidence');
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve a stored Research Plan by ID.
+ */
+export async function getResearchPlan(
+  planId: string
+): Promise<{ planId: string; researchPlan: ResearchPlan; createdAt?: string }> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/research-plan/${planId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get research plan');
+  }
+
+  return response.json();
+}
+
+/**
+ * Classify a URL's source tier.
+ */
+export async function classifySourceTier(
+  url: string
+): Promise<{ url: string; tier: SourceTier; isTier1: boolean; isTier2: boolean; isTier3: boolean }> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/classify-source`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to classify source');
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// KEY FACTS FUNCTIONS (State Variant Intelligence v2 - Prompt 3)
+// ============================================================================
+
+export type QAGateStatus = 'PASS' | 'PASS_WITH_REVIEW' | 'FAIL';
+
+export interface KeyFactCitation {
+  evidenceId: string;
+  snippetIndex: number;
+  tier: SourceTier;
+  hostname: string;
+  url: string;
+  effectiveDate?: string | null;
+  quote: string;
+}
+
+export interface KeyFactCandidate {
+  id: string;
+  factText: string;
+  mappedAction: string;
+  anchorHit: string[];
+  citations: KeyFactCitation[];
+  isStrongClaim: boolean;
+  qaStatus: QAGateStatus;
+  qaFlags: string[];
+  createdAtISO: string;
+}
+
+export interface RejectedFact {
+  factText: string;
+  reason: string;
+  failedGates: string[];
+}
+
+export interface QualityGateResult {
+  gate: string;
+  gateName: string;
+  status: QAGateStatus;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
+export interface KeyFactsExtractionResponse {
+  extractionId: string;
+  overallStatus: QAGateStatus;
+  keyFactsCount: number;
+  rejectedFactsCount: number;
+  keyFacts: KeyFactCandidate[];
+  rejectedFacts: RejectedFact[];
+  gateResults: QualityGateResult[];
+  extractionMethod: 'llm' | 'fallback';
+  extractedAt?: string;
+}
+
+/**
+ * Extract Key Facts from evidence blocks.
+ */
+export async function extractKeyFacts(
+  contractIdOrContract: string | ScopeContract,
+  planIdOrPlan: string | ResearchPlan,
+  evidenceBlocks: EvidenceBlock[],
+  stateCode: string,
+  stateName?: string,
+  sourceContent?: string
+): Promise<KeyFactsExtractionResponse> {
+  const accessToken = await getAccessToken();
+
+  const body: Record<string, unknown> = {
+    stateCode,
+    stateName,
+    evidenceBlocks,
+  };
+
+  if (typeof contractIdOrContract === 'string') {
+    body.contractId = contractIdOrContract;
+  } else {
+    body.scopeContract = contractIdOrContract;
+  }
+
+  if (typeof planIdOrPlan === 'string') {
+    body.planId = planIdOrPlan;
+  } else {
+    body.researchPlan = planIdOrPlan;
+  }
+
+  if (sourceContent) {
+    body.sourceContent = sourceContent;
+  }
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/key-facts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to extract key facts');
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve a stored Key Facts extraction by ID.
+ */
+export async function getKeyFactsExtraction(
+  extractionId: string
+): Promise<KeyFactsExtractionResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/key-facts/${extractionId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get key facts extraction');
+  }
+
+  return response.json();
+}
+
+/**
+ * Update the QA status of a specific key fact (for manual review).
+ */
+export async function updateKeyFactStatus(
+  extractionId: string,
+  factId: string,
+  newStatus: QAGateStatus,
+  reviewNote?: string
+): Promise<{ success: boolean; factId: string; newStatus: QAGateStatus }> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/key-facts/${extractionId}/update-status`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        factId,
+        newStatus,
+        reviewNote,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to update key fact status');
+  }
+
+  return response.json();
+}
+
+/**
+ * List all key fact extractions for a state.
+ */
+export async function getKeyFactsByState(
+  stateCode: string,
+  statusFilter?: QAGateStatus
+): Promise<{
+  stateCode: string;
+  extractions: Array<{
+    id: string;
+    state_code: string;
+    state_name?: string;
+    overall_status: QAGateStatus;
+    key_facts_count: number;
+    rejected_facts_count: number;
+    created_at: string;
+  }>;
+  count: number;
+}> {
+  const accessToken = await getAccessToken();
+
+  let url = `${getServerUrl()}/track-relationships/variant/key-facts/by-state/${stateCode}`;
+  if (statusFilter) {
+    url += `?status=${statusFilter}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to list key facts by state');
+  }
+
+  return response.json();
+}
+
+/**
+ * Validate a fact candidate against QA gates (utility function).
+ */
+export async function validateFact(
+  factText: string,
+  scopeContract: ScopeContract,
+  mappedAction?: string,
+  citations?: KeyFactCitation[]
+): Promise<{
+  factText: string;
+  isStrongClaim: boolean;
+  qaStatus: QAGateStatus;
+  qaFlags: string[];
+  gateResults: QualityGateResult[];
+}> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/validate-fact`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      factText,
+      scopeContract,
+      mappedAction,
+      citations,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to validate fact');
+  }
+
+  return response.json();
+}
