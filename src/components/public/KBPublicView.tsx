@@ -6,7 +6,7 @@
  *
  * Current, production public KB flow:
  * - React component: `PublicKBViewer` (`src/components/PublicKBViewer.tsx`)
- * - Backend: `src/supabase/functions/server/kb.ts` mounted under `/kb`
+ * - Backend: `supabase/functions/trike-server/index.ts` (KB endpoints under `/kb/*`)
  *
  * Keep this file only as a historical/reference implementation.
  */

@@ -23,7 +23,7 @@ alwaysApply: false
 ### Public Knowledge Base (QR / external)
 
 - **React component**: `components/PublicKBViewer.tsx`
-- **Backend**: `supabase/functions/server/kb.ts` (mounted under `/kb` by `server/index.tsx`)
+- **Backend**: `supabase/functions/trike-server/index.ts` (KB endpoints under `/kb/*`)
 - **Entry points**:
   - `?slug=...` or `#slug=...` in URL
   - Paths including `kb-public`

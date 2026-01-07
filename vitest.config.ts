@@ -6,12 +6,5 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
-    alias: {
-      // Mock the openai import for testing
-      '../../supabase/functions/server/utils/openai.ts': new URL(
-        './src/lib/prompts/__mocks__/openai.ts',
-        import.meta.url
-      ).pathname,
-    },
   },
 });
