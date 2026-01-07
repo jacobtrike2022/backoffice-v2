@@ -20,7 +20,8 @@ import {
   Building2,
   Store,
   Check,
-  Zap
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSupabaseClient } from '../../utils/supabase/client';
@@ -28,6 +29,7 @@ import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import * as storesCrud from '../../lib/crud/stores';
 import * as crud from '../../lib/crud';
 import { VariantGenerationChat } from './VariantGenerationChat';
+import { StateVariantWizard } from '../state-variant/StateVariantWizard';
 
 interface CreateVariantModalProps {
   isOpen: boolean;
@@ -161,6 +163,9 @@ export function CreateVariantModal({
   // Full source track with content
   const [fullSourceTrack, setFullSourceTrack] = useState<any>(null);
 
+  // State Variant Wizard (v2 AI pipeline for geographic variants)
+  const [showStateVariantWizard, setShowStateVariantWizard] = useState(false);
+
   // Fetch full source track content when selected track changes
   useEffect(() => {
     if (selectedTrack?.id) {
@@ -181,6 +186,7 @@ export function CreateVariantModal({
       setVariantTitle('');
       setGenerationMethod('manual');
       setIsCreating(false);
+      setShowStateVariantWizard(false);
 
       if (!initialSourceTrack) {
         loadTracks();
@@ -796,6 +802,31 @@ export function CreateVariantModal({
                   Generation Method
                 </Label>
 
+                {/* For geographic variants, show the new State Research option */}
+                {selectedVariantType === 'geographic' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowStateVariantWizard(true)}
+                    className="w-full mb-4 p-4 border-2 border-dashed border-primary/50 rounded-lg text-left transition-all hover:border-primary hover:bg-primary/5 group"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/25 group-hover:shadow-orange-500/40 transition-shadow">
+                        <Sparkles className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-foreground flex items-center gap-2">
+                          State Research & Redline
+                          <Badge className="bg-primary/10 text-primary text-[10px] border-0">Recommended</Badge>
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-0.5">
+                          AI researches state regulations and generates a redline draft with citations
+                        </p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                  </button>
+                )}
+
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <button
                     type="button"
@@ -814,7 +845,7 @@ export function CreateVariantModal({
                       </div>
                       <div>
                         <p className="font-medium text-sm text-foreground flex items-center gap-1">
-                          AI-Assisted
+                          AI Chat
                           <Zap className="w-3 h-3 text-orange-500" />
                         </p>
                         <p className="text-[10px] text-muted-foreground">Interactive adaptation</p>
@@ -923,6 +954,33 @@ export function CreateVariantModal({
           </div>
         )}
       </div>
+
+      {/* State Variant Wizard (v2 AI pipeline) */}
+      {selectedTrack && selectedState && (
+        <StateVariantWizard
+          isOpen={showStateVariantWizard}
+          onClose={() => setShowStateVariantWizard(false)}
+          sourceTrack={{
+            id: selectedTrack.id,
+            title: selectedTrack.title,
+            type: selectedTrack.type as 'article' | 'video' | 'story' | 'checkpoint',
+            content_text: fullSourceTrack?.content_text,
+            transcript: fullSourceTrack?.transcript,
+            description: fullSourceTrack?.description,
+          }}
+          initialState={US_STATES.find(s => s.code === selectedState)}
+          onComplete={(draft) => {
+            // Draft was published successfully
+            setShowStateVariantWizard(false);
+            toast.success('State variant created!');
+            // Close the main modal and notify parent
+            if (draft.draftId) {
+              onVariantCreated(draft.draftId);
+            }
+            onClose();
+          }}
+        />
+      )}
     </div>
   );
 }

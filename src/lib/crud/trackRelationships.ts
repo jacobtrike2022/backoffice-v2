@@ -1115,3 +1115,300 @@ export async function validateFact(
 
   return response.json();
 }
+
+// ============================================================================
+// DRAFT GENERATION FUNCTIONS (State Variant Intelligence v2 - Prompt 4)
+// ============================================================================
+
+export type DraftStatus = 'generated' | 'generated_needs_review' | 'blocked';
+export type ChangeNoteStatus = 'applied' | 'needs_review' | 'blocked';
+
+export interface DiffOp {
+  id: string;
+  type: 'insert' | 'delete' | 'replace';
+  sourceStart: number;
+  sourceEnd: number;
+  draftStart: number;
+  draftEnd: number;
+  oldText: string;
+  newText: string;
+  noteId: string;
+}
+
+export interface CitationRef {
+  url: string;
+  tier: SourceTier;
+  snippet: string;
+  title?: string;
+  hostname?: string;
+  effectiveOrUpdatedDate?: string;
+}
+
+export interface ChangeNote {
+  id: string;
+  title: string;
+  description: string;
+  mappedAction: string;
+  anchorMatches: string[];
+  affectedRangeStart: number;
+  affectedRangeEnd: number;
+  keyFactIds: string[];
+  citations: CitationRef[];
+  status: ChangeNoteStatus;
+}
+
+export interface VariantDraft {
+  draftId: string;
+  contractId: string;
+  extractionId: string;
+  sourceTrackId: string;
+  stateCode: string;
+  stateName?: string;
+  trackType: 'article' | 'video' | 'story' | 'checkpoint';
+  status: DraftStatus;
+  draftTitle: string;
+  draftContent: string;
+  sourceContent: string;
+  diffOps: DiffOp[];
+  changeNotes: ChangeNote[];
+  appliedKeyFactIds: string[];
+  needsReviewKeyFactIds: string[];
+  blockedReasons?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GenerateDraftInput {
+  contractId: string;
+  extractionId: string;
+  sourceTrackId: string;
+  stateCode: string;
+  stateName?: string;
+  sourceContent: string;
+  sourceTitle: string;
+  trackType: 'article' | 'video' | 'story' | 'checkpoint';
+}
+
+export interface GenerateDraftResponse {
+  draft: VariantDraft;
+  success: boolean;
+  message?: string;
+}
+
+export interface ApplyInstructionsInput {
+  draftId: string;
+  instruction: string;
+  contractId?: string;
+  extractionId?: string;
+}
+
+export interface ApplyInstructionsResponse {
+  draft: VariantDraft;
+  success: boolean;
+  changesApplied: number;
+  blockedChanges?: Array<{
+    reason: string;
+    suggestedText: string;
+  }>;
+  message?: string;
+}
+
+/**
+ * Generate a variant draft from validated key facts.
+ */
+export async function generateDraft(
+  input: GenerateDraftInput
+): Promise<GenerateDraftResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(`${getServerUrl()}/track-relationships/variant/generate-draft`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to generate draft');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get a variant draft by ID.
+ */
+export async function getDraft(draftId: string): Promise<VariantDraft> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/draft/${draftId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to get draft');
+  }
+
+  return response.json();
+}
+
+/**
+ * Apply instructions to a draft (lightning bolt iterative edits).
+ */
+export async function applyInstructions(
+  input: ApplyInstructionsInput
+): Promise<ApplyInstructionsResponse> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/draft/${input.draftId}/apply-instructions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        instruction: input.instruction,
+        contractId: input.contractId,
+        extractionId: input.extractionId,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to apply instructions');
+  }
+
+  return response.json();
+}
+
+/**
+ * Update draft status (for publish workflow).
+ */
+export async function updateDraftStatus(
+  draftId: string,
+  status: DraftStatus,
+  reviewedBy?: string
+): Promise<VariantDraft> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/draft/${draftId}/status`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        status,
+        reviewedBy,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to update draft status');
+  }
+
+  return response.json();
+}
+
+/**
+ * Publish a draft as a new variant track.
+ */
+export async function publishDraft(
+  draftId: string,
+  options?: {
+    skipReviewCheck?: boolean;
+    publishedBy?: string;
+  }
+): Promise<{
+  variantTrackId: string;
+  relationshipId: string;
+  success: boolean;
+}> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/draft/${draftId}/publish`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(options || {}),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to publish draft');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get all drafts for a source track.
+ */
+export async function getDraftsForTrack(
+  sourceTrackId: string,
+  stateCode?: string
+): Promise<VariantDraft[]> {
+  const accessToken = await getAccessToken();
+
+  let url = `${getServerUrl()}/track-relationships/variant/drafts/${sourceTrackId}`;
+  if (stateCode) {
+    url += `?stateCode=${encodeURIComponent(stateCode)}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to get drafts');
+  }
+
+  const data = await response.json();
+  return data.drafts || [];
+}
+
+/**
+ * Delete a draft.
+ */
+export async function deleteDraft(draftId: string): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/draft/${draftId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || 'Failed to delete draft');
+  }
+}
