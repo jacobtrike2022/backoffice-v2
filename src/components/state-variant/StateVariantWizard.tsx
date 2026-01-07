@@ -53,7 +53,7 @@ import {
 } from '../../lib/crud/trackRelationships';
 
 // US States data
-export const US_STATES = [
+const US_STATES = [
   { code: 'AL', name: 'Alabama' },
   { code: 'AK', name: 'Alaska' },
   { code: 'AZ', name: 'Arizona' },
@@ -231,6 +231,14 @@ export function StateVariantWizard({
         { state_code: selectedState.code, state_name: selectedState.name },
         true
       );
+
+      console.log('[StateVariantWizard] Scope contract response:', {
+        contractId: response.contractId,
+        roleSelectionNeeded: response.roleSelectionNeeded,
+        topRoleMatches: response.topRoleMatches,
+        primaryRole: response.scopeContract?.primaryRole,
+        roleConfidence: response.scopeContract?.roleConfidence,
+      });
 
       setState(prev => ({
         ...prev,
@@ -581,23 +589,20 @@ export function StateVariantWizard({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className={
-          isFullScreen
-            ? "max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 rounded-none"
-            : "max-w-2xl min-h-[300px]"
-        }
+        className={isFullScreen ? "max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 rounded-none" : ""}
+        style={isFullScreen ? undefined : { width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
         hideCloseButton={isFullScreen}
       >
         {!isFullScreen && (
-          <DialogHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
+          <DialogHeader className="min-w-0">
+            <div className="flex items-center justify-between min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
                   <MapPin className="w-5 h-5 text-primary" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <DialogTitle>Create State Variant</DialogTitle>
-                  <DialogDescription>
+                  <DialogDescription className="truncate">
                     {sourceTrack.title}
                   </DialogDescription>
                 </div>
@@ -623,7 +628,7 @@ function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
   const currentIndex = STEP_CONFIG[currentStep]?.index || 0;
 
   return (
-    <div className="flex items-center gap-2 mt-4">
+    <div className="flex items-center justify-between mt-4">
       {steps.map((step, index) => {
         const config = STEP_CONFIG[step];
         const isActive = index === currentIndex;
@@ -634,17 +639,17 @@ function StepIndicator({ currentStep }: { currentStep: WizardStep }) {
           <React.Fragment key={step}>
             <div
               className={`
-                flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors
+                flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm whitespace-nowrap
                 ${isActive ? 'bg-primary text-primary-foreground' : ''}
                 ${isComplete ? 'bg-primary/20 text-primary' : ''}
                 ${!isActive && !isComplete ? 'bg-muted text-muted-foreground' : ''}
               `}
             >
-              <Icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{config.title}</span>
+              <Icon className="w-4 h-4 flex-shrink-0" />
+              <span>{config.title}</span>
             </div>
             {index < steps.length - 1 && (
-              <div className={`w-8 h-0.5 ${index < currentIndex ? 'bg-primary' : 'bg-muted'}`} />
+              <div className={`flex-1 h-px mx-2 ${index < currentIndex ? 'bg-primary' : 'bg-white/15'}`} />
             )}
           </React.Fragment>
         );

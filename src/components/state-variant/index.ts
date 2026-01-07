@@ -3,7 +3,7 @@
 // ============================================================================
 
 // Main wizard and editor components
-export { StateVariantWizard, US_STATES } from './StateVariantWizard';
+export { StateVariantWizard } from './StateVariantWizard';
 export type { StateVariantWizardProps } from './StateVariantWizard';
 
 export { VariantEditorPage } from './VariantEditorPage';

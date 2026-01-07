@@ -102,105 +102,108 @@ export function ResearchPlanPreview({
   const sourcePolicy = researchPlan.researchPlan.sourcePolicy;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-          <Search className="w-5 h-5 text-primary" />
-        </div>
-        <div>
-          <h3 className="font-medium">Research Plan for {stateName}</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            We'll search for state-specific regulations and guidance using these {queries.length} queries.
-          </p>
-        </div>
-      </div>
-
-      {/* Queries list */}
-      <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-        {queries.map((query, index) => (
-          <QueryCard
-            key={query.id}
-            query={query}
-            index={index}
-            isExpanded={expandedQueries.has(query.id)}
-            onToggle={() => toggleQuery(query.id)}
-          />
-        ))}
-      </div>
-
-      {/* Confidence guardrails */}
-      <div className="p-4 rounded-lg bg-amber-500/5 border border-amber-500/20">
+    <div className="flex flex-col max-h-[calc(80vh-120px)]">
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+        {/* Header */}
         <div className="flex items-start gap-3">
-          <Shield className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="p-2 rounded-lg bg-primary/10 shrink-0">
+            <Search className="w-5 h-5 text-primary" />
+          </div>
           <div>
-            <p className="font-medium text-sm">Confidence Guardrails</p>
+            <h3 className="font-medium">Research Plan for {stateName}</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              We will only use evidence that matches the source's anchors & role authority.
-              {sourcePolicy?.forbidTier3ForStrongClaims && (
-                <span className="block mt-1">
-                  Strong claims require Tier 1 (official government) sources.
-                </span>
-              )}
+              We'll search for state-specific regulations and guidance using these {queries.length} queries.
             </p>
           </div>
         </div>
+
+        {/* Queries list */}
+        <div className="space-y-2">
+          {queries.map((query, index) => (
+            <QueryCard
+              key={query.id}
+              query={query}
+              index={index}
+              isExpanded={expandedQueries.has(query.id)}
+              onToggle={() => toggleQuery(query.id)}
+            />
+          ))}
+        </div>
+
+        {/* Confidence guardrails */}
+        <div className="p-4 rounded-lg bg-amber-500/5 border border-amber-500/20">
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">Confidence Guardrails</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                We will only use evidence that matches the source's anchors & role authority.
+                {sourcePolicy?.forbidTier3ForStrongClaims && (
+                  <span className="block mt-1">
+                    Strong claims require Tier 1 (official government) sources.
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Advanced options */}
+        <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+          <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            Advanced options
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-4 space-y-4">
+            {/* Avoid topics input */}
+            <div>
+              <label className="text-sm font-medium block mb-2">
+                Topics to avoid (optional)
+              </label>
+              <textarea
+                value={avoidTopics}
+                onChange={(e) => onAvoidTopicsChange(e.target.value)}
+                placeholder="Enter topics to exclude from research, separated by commas..."
+                className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                These will be added as negative terms to filter out irrelevant results.
+              </p>
+            </div>
+
+            {/* Global negatives */}
+            {globalNegatives.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Built-in exclusions</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {globalNegatives.map((term, index) => (
+                    <span
+                      key={index}
+                      className="text-xs px-2 py-1 rounded-md bg-red-500/10 text-red-500 border border-red-500/20"
+                    >
+                      -{term}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Source policy */}
+            <div className="text-sm space-y-1 text-muted-foreground">
+              <p className="font-medium text-foreground">Source Policy</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                {sourcePolicy?.preferTier1 && <li>Prefer official government sources (Tier 1)</li>}
+                {sourcePolicy?.allowTier2Justia && <li>Allow legal databases like Justia (Tier 2)</li>}
+                {sourcePolicy?.forbidTier3ForStrongClaims && <li>Require Tier 1/2 for strong claims</li>}
+              </ul>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
-      {/* Advanced options */}
-      <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-        <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          Advanced options
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-4 space-y-4">
-          {/* Avoid topics input */}
-          <div>
-            <label className="text-sm font-medium block mb-2">
-              Topics to avoid (optional)
-            </label>
-            <textarea
-              value={avoidTopics}
-              onChange={(e) => onAvoidTopicsChange(e.target.value)}
-              placeholder="Enter topics to exclude from research, separated by commas..."
-              className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              These will be added as negative terms to filter out irrelevant results.
-            </p>
-          </div>
-
-          {/* Global negatives */}
-          {globalNegatives.length > 0 && (
-            <div>
-              <p className="text-sm font-medium mb-2">Built-in exclusions</p>
-              <div className="flex flex-wrap gap-1.5">
-                {globalNegatives.map((term, index) => (
-                  <span
-                    key={index}
-                    className="text-xs px-2 py-1 rounded-md bg-red-500/10 text-red-500 border border-red-500/20"
-                  >
-                    -{term}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Source policy */}
-          <div className="text-sm space-y-1 text-muted-foreground">
-            <p className="font-medium text-foreground">Source Policy</p>
-            <ul className="list-disc list-inside space-y-1 text-xs">
-              {sourcePolicy?.preferTier1 && <li>Prefer official government sources (Tier 1)</li>}
-              {sourcePolicy?.allowTier2Justia && <li>Allow legal databases like Justia (Tier 2)</li>}
-              {sourcePolicy?.forbidTier3ForStrongClaims && <li>Require Tier 1/2 for strong claims</li>}
-            </ul>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-
-      {/* Actions */}
-      <div className="flex justify-end gap-3 pt-4 border-t border-border">
+      {/* Actions - fixed at bottom */}
+      <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-border shrink-0">
         <Button variant="outline" onClick={onBack} disabled={isLoading}>
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back

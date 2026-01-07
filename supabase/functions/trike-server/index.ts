@@ -25,6 +25,52 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // =============================================================================
+// LLM HELPER
+// =============================================================================
+
+/**
+ * Call OpenAI Chat Completion API
+ */
+async function callOpenAI(
+  messages: Array<{role: string; content: string}>,
+  options: {temperature?: number; response_format?: {type: string}} = {}
+): Promise<string> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OpenAI API key not configured");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages,
+      temperature: options.temperature ?? 0.3,
+      max_tokens: 4000,
+      ...(options.response_format && { response_format: options.response_format }),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("OpenAI error:", errorText);
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error("OpenAI returned empty response");
+  }
+
+  return content;
+}
+
+// =============================================================================
 // ROUTER
 // =============================================================================
 
@@ -1726,19 +1772,19 @@ async function getOrgIdFromToken(req: Request): Promise<string | null> {
 
     console.log(`👤 [getOrgIdFromToken] User ID: ${user.id}`);
 
-    // Get organization from user profile
+    // Get organization from users table (using auth_user_id)
     const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
+      .from("users")
       .select("organization_id")
-      .eq("id", user.id)
+      .eq("auth_user_id", user.id)
       .single();
 
     if (profileError) {
-      console.error("❌ [getOrgIdFromToken] Error getting profile:", profileError.message);
+      console.error("❌ [getOrgIdFromToken] Error getting user:", profileError.message);
       return null;
     }
     if (!profile) {
-      console.log("⚠️ [getOrgIdFromToken] No profile found for user");
+      console.log("⚠️ [getOrgIdFromToken] No user found for auth_user_id");
       return null;
     }
 
@@ -6667,6 +6713,7 @@ Do you have any specific requirements, or should I proceed with generating the $
 
 /**
  * Handler: Build Scope Contract
+ * Uses LLM to analyze content and match against organization's actual roles
  */
 async function handleBuildScopeContract(req: Request): Promise<Response> {
   try {
@@ -6710,19 +6757,55 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
     // Get source content
     const sourceContent = track.content_text || track.transcript || track.description || '';
 
-    // Derive audience from content (using existing logic)
-    const audience = deriveAudienceFromContent(sourceContent);
+    if (!sourceContent || sourceContent.trim().length < 50) {
+      return jsonResponse({ error: "Source track has insufficient content for scope analysis" }, 400);
+    }
+
+    // Fetch org roles for role matching
+    let orgRoles: Array<{roleId: string; roleName: string; roleDescription?: string}> = [];
+    if (includeOrgRoles !== false) {
+      const { data: roles } = await supabase
+        .from('roles')
+        .select('id, name, description, job_description')
+        .eq('organization_id', orgId)
+        .eq('status', 'active')
+        .limit(20);
+
+      if (roles && roles.length > 0) {
+        orgRoles = roles.map((r: any) => ({
+          roleId: r.id,
+          roleName: r.name,
+          roleDescription: r.description || r.job_description || undefined,
+        }));
+        console.log(`[BuildScopeContract] Found ${orgRoles.length} org roles:`, orgRoles.map(r => r.roleName));
+      }
+    }
+
+    // Use LLM to build scope contract
+    const llmResult = await buildScopeContractWithLLM(sourceContent, track.title, track.type, variantType, variantContext);
+
+    // Match against org roles using LLM
+    let topRoleMatches: Array<{roleId: string; roleName: string; score: number; why: string}> = [];
+    let roleSelectionNeeded = llmResult.roleConfidence !== 'high';
+
+    if (orgRoles.length > 0) {
+      topRoleMatches = await matchOrgRolesWithLLM(llmResult, orgRoles);
+      // If we have good org role matches, we might need role selection
+      if (topRoleMatches.length > 0 && topRoleMatches[0].score < 0.8) {
+        roleSelectionNeeded = true;
+      }
+    }
 
     // Build the scope contract
     const scopeContract = {
-      primaryRole: audience.primaryRole,
-      secondaryRoles: audience.secondaryRoles,
-      roleConfidence: audience.roleConfidence,
-      roleEvidenceQuotes: audience.evidence.slice(0, 5),
-      allowedLearnerActions: audience.learnerActions,
-      disallowedActionClasses: [], // Computed from what's NOT in learnerActions
-      domainAnchors: [], // Extract key terms from content
-      instructionalGoal: `Adapt content for ${variantType} variant while maintaining core instructional objectives`,
+      primaryRole: llmResult.primaryRole,
+      secondaryRoles: llmResult.secondaryRoles || [],
+      roleConfidence: llmResult.roleConfidence,
+      roleEvidenceQuotes: llmResult.roleEvidenceQuotes || [],
+      allowedLearnerActions: llmResult.allowedLearnerActions || [],
+      disallowedActionClasses: llmResult.disallowedActionClasses || [],
+      domainAnchors: llmResult.domainAnchors || [],
+      instructionalGoal: llmResult.instructionalGoal || `Adapt content for ${variantType} variant while maintaining core instructional objectives`,
     };
 
     // Insert into database
@@ -6734,16 +6817,8 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
         variant_type: variantType,
         variant_context: variantContext,
         scope_contract: scopeContract,
-        role_selection_needed: audience.roleConfidence === 'low',
-        top_role_matches: audience.roleConfidence === 'low' ? [
-          { roleId: '1', roleName: audience.primaryRole, score: 0.7, why: 'Primary match' },
-          ...(audience.secondaryRoles.slice(0, 2).map((role, i) => ({
-            roleId: String(i + 2),
-            roleName: role,
-            score: 0.5 - (i * 0.1),
-            why: 'Secondary match'
-          })))
-        ] : null,
+        role_selection_needed: roleSelectionNeeded,
+        top_role_matches: topRoleMatches.length > 0 ? topRoleMatches : null,
         extraction_method: 'llm',
       })
       .select()
@@ -6753,6 +6828,14 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
       console.error('Error inserting scope contract:', insertError);
       return jsonResponse({ error: "Failed to create scope contract" }, 500);
     }
+
+    console.log('[BuildScopeContract] Created contract:', {
+      contractId: contract.id,
+      primaryRole: scopeContract.primaryRole,
+      roleConfidence: scopeContract.roleConfidence,
+      roleSelectionNeeded,
+      topRoleMatchesCount: topRoleMatches.length,
+    });
 
     return jsonResponse({
       contractId: contract.id,
@@ -6768,6 +6851,152 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error('handleBuildScopeContract error:', error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
+  }
+}
+
+/**
+ * Use LLM to build scope contract from content
+ */
+async function buildScopeContractWithLLM(
+  sourceContent: string,
+  title: string,
+  trackType: string,
+  variantType: string,
+  variantContext: any
+): Promise<any> {
+  const systemPrompt = `You are a training content analyst. Output valid JSON only. No extra keys. No markdown.
+
+Your task is to derive a Scope Contract from training content that will constrain all downstream adaptation.
+
+CRITICAL for primaryRole - Identify WHO IS LEARNING, not who is mentioned:
+- The learner is who this training is FOR, not necessarily who the content talks ABOUT
+- Look for "for [role]" in title - that indicates the learner audience
+- Industry terms: "Class C operators" = frontline_store_associate (convenience store cashiers/clerks)
+- Industry terms: "Class A/B operators" = owner_executive or manager_supervisor
+- If content discusses what delivery drivers do but teaches store employees to MONITOR them, learner = frontline_store_associate
+- If content says "you should watch for X" or "notify your supervisor", the learner is likely frontline staff
+- "Your supervisor" implies the learner is NOT the supervisor
+
+CRITICAL for allowedLearnerActions:
+- Extract ONLY concrete, specific job tasks that could have state-specific regulations
+- These must be actions THE LEARNER will perform, not actions of third parties mentioned in content
+- Use imperative verb + specific object format (e.g., "monitor fuel delivery", "report spills", "verify safety cones")
+- EXCLUDE generic motivational phrases like "stay alert", "stay ready", "be vigilant"
+- EXCLUDE vague actions like "prevent emergencies", "maintain safety", "follow procedures"
+- Each action should be something where you could realistically search for state regulations
+
+Good examples: "monitor fuel delivery", "report spills", "verify safety cones placement", "respond to alarms", "notify supervisor of violations"
+Bad examples: "stay alert", "stay ready", "prevent emergencies", "keep store running smoothly"
+
+Output this exact JSON structure:
+{
+  "primaryRole": "<one of: frontline_store_associate, manager_supervisor, delivery_driver, owner_executive, back_office_admin, other>",
+  "secondaryRoles": ["<0-2 additional roles>"],
+  "roleConfidence": "<high|medium|low>",
+  "roleEvidenceQuotes": ["<exact quotes from source, max 6>"],
+  "allowedLearnerActions": ["<5-12 SPECIFIC imperative verb+object phrases - NO motivational/generic phrases>"],
+  "disallowedActionClasses": ["<5-10 action types NOT taught>"],
+  "domainAnchors": ["<6-15 nouns/noun-phrases defining the topic>"],
+  "instructionalGoal": "<single sentence describing what learner will be able to do>"
+}`;
+
+  const userPrompt = `Source Content Analysis Request
+
+TRACK TYPE: ${trackType}
+TITLE: ${title}
+VARIANT TYPE: ${variantType}
+VARIANT CONTEXT: ${JSON.stringify(variantContext)}
+
+SOURCE CONTENT:
+${sourceContent.substring(0, 8000)}
+
+Analyze this content and output the Scope Contract JSON.`;
+
+  try {
+    const response = await callOpenAI([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], { temperature: 0.3, response_format: { type: 'json_object' } });
+
+    return JSON.parse(response);
+  } catch (error) {
+    console.error('[buildScopeContractWithLLM] Error:', error);
+    // Fallback to basic heuristic
+    const audience = deriveAudienceFromContent(sourceContent);
+    return {
+      primaryRole: audience.primaryRole,
+      secondaryRoles: audience.secondaryRoles,
+      roleConfidence: audience.roleConfidence,
+      roleEvidenceQuotes: audience.evidence.slice(0, 5),
+      allowedLearnerActions: audience.learnerActions,
+      disallowedActionClasses: [],
+      domainAnchors: [],
+      instructionalGoal: `Adapt content for ${variantType} variant while maintaining core instructional objectives`,
+    };
+  }
+}
+
+/**
+ * Use LLM to match scope contract against organization roles
+ */
+async function matchOrgRolesWithLLM(
+  scopeContract: any,
+  orgRoles: Array<{roleId: string; roleName: string; roleDescription?: string}>
+): Promise<Array<{roleId: string; roleName: string; score: number; why: string}>> {
+  if (orgRoles.length === 0) return [];
+
+  const rolesSummary = orgRoles.map(r => ({
+    id: r.roleId,
+    name: r.roleName,
+    desc: r.roleDescription || ''
+  }));
+
+  const systemPrompt = `You are a role matching assistant. Output valid JSON only. No markdown.`;
+
+  const userPrompt = `Given this Scope Contract from training content:
+
+Primary Role: ${scopeContract.primaryRole}
+Allowed Actions: ${(scopeContract.allowedLearnerActions || []).join(', ')}
+Domain Anchors: ${(scopeContract.domainAnchors || []).join(', ')}
+Instructional Goal: ${scopeContract.instructionalGoal || ''}
+
+And these organization roles:
+${JSON.stringify(rolesSummary, null, 2)}
+
+Rank the top 3 org roles by relevance to this training content.
+Output JSON array:
+[
+  { "roleId": "...", "roleName": "...", "score": 0.0-1.0, "why": "1 sentence" }
+]`;
+
+  try {
+    const response = await callOpenAI([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], { temperature: 0.3, response_format: { type: 'json_object' } });
+
+    const parsed = JSON.parse(response);
+    const matches = Array.isArray(parsed) ? parsed : (parsed.matches || parsed.roles || []);
+
+    return matches
+      .filter((m: any) => m.roleId && m.roleName && typeof m.score === 'number')
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, 5)
+      .map((m: any) => ({
+        roleId: m.roleId,
+        roleName: m.roleName,
+        score: Math.min(1, Math.max(0, m.score)),
+        why: m.why || 'Matched based on role activities'
+      }));
+  } catch (error) {
+    console.error('[matchOrgRolesWithLLM] Error:', error);
+    // Fallback: return all roles with low scores
+    return orgRoles.slice(0, 3).map((r, i) => ({
+      roleId: r.roleId,
+      roleName: r.roleName,
+      score: 0.5 - (i * 0.1),
+      why: 'Fallback match'
+    }));
   }
 }
 
@@ -6909,15 +7138,24 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
 
     // Build research queries from scope contract
     const scopeContract = contract.scope_contract;
-    const queries = (scopeContract.allowedLearnerActions || []).map((action: string, index: number) => ({
-      id: `q${index + 1}`,
-      query: `${stateCode} ${action} regulations requirements`,
-      mappedAction: action,
-      anchorTerms: [stateCode, stateName || '', action],
-      negativeTerms: [],
-      targetType: 'statute',
-      why: `Find state-specific requirements for: ${action}`,
-    }));
+    const domainAnchors = scopeContract.domainAnchors || [];
+
+    // Pick top 2-3 domain anchors to provide context (e.g., "fuel delivery", "UST", "Class C operator")
+    const topDomainContext = domainAnchors.slice(0, 3).join(' ');
+
+    const queries = (scopeContract.allowedLearnerActions || []).map((action: string, index: number) => {
+      // Build query with domain context: "FL fuel delivery UST report spills regulations"
+      const queryParts = [stateCode, topDomainContext, action, 'regulations'].filter(Boolean);
+      return {
+        id: `q${index + 1}`,
+        query: queryParts.join(' '),
+        mappedAction: action,
+        anchorTerms: [stateCode, stateName || '', ...domainAnchors.slice(0, 2), action].filter(Boolean),
+        negativeTerms: [],
+        targetType: 'statute',
+        why: `Find state-specific requirements for: ${action}`,
+      };
+    });
 
     const researchPlan = {
       id: crypto.randomUUID(),
@@ -7044,27 +7282,18 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
     }
 
     // Stub: Create empty extraction that passes QA
-    const extraction = {
-      extraction_id: crypto.randomUUID(),
-      overall_status: 'PASS',
-      key_facts_count: 0,
-      rejected_facts_count: 0,
-      key_facts: [],
-      rejected_facts: [],
-      gate_results: [
-        {
-          gate: 'G1',
-          gateName: 'Evidence Quality',
-          status: 'PASS',
-          reason: 'No evidence to validate (stub implementation)',
-        }
-      ],
-      extraction_method: 'fallback',
-    };
+    const gateResults = [
+      {
+        gate: 'G1',
+        gateName: 'Evidence Quality',
+        status: 'PASS',
+        reason: 'No evidence to validate (stub implementation)',
+      }
+    ];
 
-    // Insert into database
+    // Insert into variant_key_facts_extractions (the batch/session level table)
     const { data: record, error: insertError } = await supabase
-      .from('variant_key_facts')
+      .from('variant_key_facts_extractions')
       .insert({
         organization_id: orgId,
         contract_id: contractId,
@@ -7074,22 +7303,26 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
         overall_status: 'PASS',
         key_facts_count: 0,
         rejected_facts_count: 0,
-        key_facts: [],
-        rejected_facts: [],
-        gate_results: extraction.gate_results,
+        gate_results: gateResults,
         extraction_method: 'fallback',
       })
       .select()
       .single();
 
     if (insertError) {
-      console.error('Error inserting key facts:', insertError);
-      return jsonResponse({ error: "Failed to create key facts extraction" }, 500);
+      console.error('Error inserting key facts extraction:', insertError);
+      return jsonResponse({ error: `Failed to create key facts extraction: ${insertError.message}` }, 500);
     }
 
     return jsonResponse({
       extractionId: record.id,
-      ...extraction,
+      overallStatus: 'PASS',
+      keyFactsCount: 0,
+      rejectedFactsCount: 0,
+      keyFacts: [],
+      rejectedFacts: [],
+      gateResults: gateResults,
+      extractionMethod: 'fallback',
     });
 
   } catch (error: any) {
@@ -7108,8 +7341,9 @@ async function handleGetKeyFactsExtraction(extractionId: string, req: Request): 
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
+    // Get extraction from variant_key_facts_extractions table
     const { data: extraction, error } = await supabase
-      .from('variant_key_facts')
+      .from('variant_key_facts_extractions')
       .select('*')
       .eq('id', extractionId)
       .eq('organization_id', orgId)
@@ -7119,13 +7353,27 @@ async function handleGetKeyFactsExtraction(extractionId: string, req: Request): 
       return jsonResponse({ error: "Key facts extraction not found" }, 404);
     }
 
+    // Get individual key facts for this extraction
+    const { data: keyFacts } = await supabase
+      .from('variant_key_facts')
+      .select('*')
+      .eq('extraction_id', extractionId)
+      .eq('organization_id', orgId);
+
+    // Get rejected facts for this extraction
+    const { data: rejectedFacts } = await supabase
+      .from('variant_rejected_facts')
+      .select('*')
+      .eq('extraction_id', extractionId)
+      .eq('organization_id', orgId);
+
     return jsonResponse({
       extractionId: extraction.id,
       overallStatus: extraction.overall_status,
       keyFactsCount: extraction.key_facts_count,
       rejectedFactsCount: extraction.rejected_facts_count,
-      keyFacts: extraction.key_facts || [],
-      rejectedFacts: extraction.rejected_facts || [],
+      keyFacts: keyFacts || [],
+      rejectedFacts: rejectedFacts || [],
       gateResults: extraction.gate_results || [],
       extractionMethod: extraction.extraction_method,
       extractedAt: extraction.created_at,
@@ -7166,25 +7414,10 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
 
     // For now, create a draft that's identical to source (stub implementation)
     // In production, this would use AI to generate state-specific adaptations
-    const draft = {
-      draft_id: crypto.randomUUID(),
-      contract_id: contractId,
-      extraction_id: extractionId,
-      source_track_id: sourceTrackId,
-      state_code: stateCode,
-      state_name: stateName || stateCode,
-      track_type: trackType,
-      status: 'generated',
-      draft_title: `${sourceTitle} - ${stateName || stateCode}`,
-      draft_content: sourceContent,
-      source_content: sourceContent,
-      diff_ops: [],
-      change_notes: [],
-      applied_key_fact_ids: [],
-      needs_review_key_fact_ids: [],
-    };
+    const draftTitle = `${sourceTitle || 'Untitled'} - ${stateName || stateCode}`;
+    const draftContent = sourceContent || '';
 
-    // Insert into database
+    // Insert into variant_drafts table (matching actual schema)
     const { data: record, error: insertError } = await supabase
       .from('variant_drafts')
       .insert({
@@ -7194,13 +7427,11 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         source_track_id: sourceTrackId,
         state_code: stateCode,
         state_name: stateName || stateCode,
-        track_type: trackType,
+        track_type: trackType || 'article',
         status: 'generated',
-        draft_title: draft.draft_title,
-        draft_content: draft.draft_content,
-        source_content: draft.source_content,
+        draft_title: draftTitle,
+        draft_content: draftContent,
         diff_ops: [],
-        change_notes: [],
         applied_key_fact_ids: [],
         needs_review_key_fact_ids: [],
       })
@@ -7209,7 +7440,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
 
     if (insertError) {
       console.error('Error inserting draft:', insertError);
-      return jsonResponse({ error: "Failed to create draft" }, 500);
+      return jsonResponse({ error: `Failed to create draft: ${insertError.message}` }, 500);
     }
 
     return jsonResponse({
@@ -7224,9 +7455,9 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         status: record.status,
         draftTitle: record.draft_title,
         draftContent: record.draft_content,
-        sourceContent: record.source_content,
+        sourceContent: sourceContent || '', // Return the passed-in source content
         diffOps: record.diff_ops || [],
-        changeNotes: record.change_notes || [],
+        changeNotes: [], // Change notes are in separate table
         appliedKeyFactIds: record.applied_key_fact_ids || [],
         needsReviewKeyFactIds: record.needs_review_key_fact_ids || [],
         createdAt: record.created_at,
