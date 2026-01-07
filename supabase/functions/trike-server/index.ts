@@ -9633,89 +9633,210 @@ async function handleTranscribeStory(req: Request): Promise<Response> {
 
 /**
  * Handler: Generate checkpoint questions with AI
+ * Fetches track and key facts from database, then generates questions
  */
 async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
   try {
-    const { trackId, trackTitle, trackDescription, transcript, factCount } = await req.json();
+    const { trackId } = await req.json();
 
-    if (!trackId || !transcript) {
-      return jsonResponse({ error: 'Missing required fields' }, 400);
+    if (!trackId) {
+      return jsonResponse({ error: 'trackId is required' }, 400);
     }
 
-    // Use Anthropic if available, otherwise OpenAI
-    const systemPrompt = `You are an expert instructional designer creating knowledge check questions. Generate 3-5 multiple choice questions based on the provided content. Each question should:
-- Test understanding of key concepts
-- Have 4 answer options (A, B, C, D)
-- Have one clearly correct answer
-- Include a brief explanation for the correct answer
+    console.log('🎯 Checkpoint AI generation requested for track:', trackId);
 
-Return as JSON array with format:
-[{
-  "question": "Question text",
-  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-  "correctAnswer": 0,
-  "explanation": "Brief explanation"
-}]`;
+    // 1. Fetch track from database
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('*')
+      .eq('id', trackId)
+      .single();
 
-    const userPrompt = `Title: ${trackTitle || 'Untitled'}
-Description: ${trackDescription || 'No description'}
+    if (trackError || !track) {
+      console.error('Track not found:', trackError);
+      return jsonResponse({ error: 'Track not found' }, 404);
+    }
 
-Content:
-${transcript.substring(0, 8000)}
+    // Support article, video, and story tracks
+    if (!['article', 'video', 'story'].includes(track.type)) {
+      return jsonResponse({ error: 'Only articles, videos, and stories are supported for AI generation' }, 400);
+    }
 
-Generate knowledge check questions for this content.`;
+    // 2. Check minimum content
+    const articleContent = track.transcript || track.description || '';
+    const strippedContent = articleContent
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const wordCount = strippedContent.split(/\s+/).filter((w: string) => w.length > 0).length;
 
-    let questionsJson: string;
+    console.log('📊 Content validation:', { trackId, wordCount, minRequired: 150 });
 
-    if (ANTHROPIC_API_KEY) {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 2000,
-          messages: [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }],
-        }),
-      });
+    if (wordCount < 150) {
+      return jsonResponse({
+        error: `Content too short (${wordCount} words). Need at least 150 words to generate meaningful questions.`
+      }, 400);
+    }
 
-      if (!response.ok) {
-        throw new Error('Anthropic API error');
-      }
+    // 3. Fetch key facts via fact_usage junction table
+    console.log('🔍 Fetching facts for trackId:', trackId);
 
-      const data = await response.json();
-      questionsJson = data.content[0].text;
-    } else if (OPENAI_API_KEY) {
-      questionsJson = await callOpenAI([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ], { response_format: { type: 'json_object' } });
-    } else {
+    const { data: factUsage, error: factsError } = await supabase
+      .from('fact_usage')
+      .select(`
+        display_order,
+        facts (
+          id,
+          title,
+          content,
+          type,
+          steps,
+          context
+        )
+      `)
+      .eq('track_id', trackId)
+      .order('display_order', { ascending: true });
+
+    const facts = factUsage?.map((fu: any) => fu.facts).filter(Boolean) || [];
+
+    console.log('📊 Facts query result:', {
+      trackId,
+      factUsageCount: factUsage?.length || 0,
+      factsFound: facts?.length || 0,
+    });
+
+    if (factsError) {
+      console.error('❌ Error fetching facts:', factsError);
+      return jsonResponse({ error: 'Failed to fetch key facts from database' }, 500);
+    }
+
+    // Handle no facts - helpful error message
+    if (!facts || facts.length === 0) {
+      console.warn('⚠️ No facts found for track:', trackId);
+      return jsonResponse({
+        error: 'No key facts found for this content. Please go to the content detail page and click "Generate Key Facts" first, then try again.',
+        needsFactExtraction: true
+      }, 400);
+    }
+
+    console.log(`✅ Found ${facts.length} facts - proceeding with generation`);
+
+    // 4. Calculate question count based on facts
+    const questionCount = facts.length <= 2 ? facts.length
+      : facts.length <= 5 ? 3
+      : facts.length <= 10 ? 5
+      : facts.length <= 15 ? 8
+      : facts.length <= 20 ? 10
+      : facts.length <= 30 ? 12
+      : 15;
+
+    console.log('🎲 Will generate', questionCount, 'questions');
+
+    // 5. Generate questions with AI
+    if (!OPENAI_API_KEY) {
       return jsonResponse({ error: 'AI service not configured' }, 503);
     }
 
+    const systemPrompt = `You are an expert training content developer for convenience store and foodservice operations. Your job is to create practical, job-relevant assessment questions.
+
+RULES:
+1. Generate exactly ${questionCount} questions
+2. Mix 75% multiple choice (4 options each) and 25% true/false
+3. Base questions on the provided key facts, prioritizing the most operationally important ones
+4. Questions should follow the order facts appear in the article
+5. Focus on practical application, not trivia or memorization
+6. Difficulty: Medium (not too easy, not obscure)
+7. **CRITICAL**: For multiple choice, distribute correct answers randomly across positions A/B/C/D. Avoid patterns like all A's or all C's. Vary the position of the correct answer naturally.
+8. Distractors must be plausible but clearly incorrect
+9. Never use "all of the above" or "none of the above"
+10. True/false questions should not be obvious
+11. Each question must be self-contained (no pronouns referring to previous questions)
+12. Include an optional brief explanation for each question (1-2 sentences explaining why the answer is correct)
+
+FORMAT:
+Return JSON only, no markdown:
+{
+  "questions": [
+    {
+      "question": "Question text here?",
+      "type": "multiple_choice",
+      "answers": [
+        { "text": "Answer A", "is_correct": false },
+        { "text": "Answer B", "is_correct": true },
+        { "text": "Answer C", "is_correct": false },
+        { "text": "Answer D", "is_correct": false }
+      ],
+      "explanation": "Brief explanation why B is correct"
+    },
+    {
+      "question": "Statement for true/false",
+      "type": "true_false",
+      "answers": [
+        { "text": "True", "is_correct": false },
+        { "text": "False", "is_correct": true }
+      ],
+      "explanation": "Brief explanation"
+    }
+  ]
+}`;
+
+    const userPrompt = `ARTICLE TITLE: ${track.title}
+
+KEY FACTS (in order of appearance):
+${facts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n')}
+
+FULL ARTICLE CONTENT (for context):
+${strippedContent.substring(0, 3000)}${strippedContent.length > 3000 ? '...' : ''}
+
+Generate ${questionCount} questions that test understanding of the most important concepts for job performance.`;
+
+    console.log('🤖 Calling GPT-4o...');
+
+    const questionsJson = await callOpenAI([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ], { response_format: { type: 'json_object' }, temperature: 0.7 });
+
     // Parse questions
-    let questions;
+    let generatedQuestions;
     try {
       const parsed = JSON.parse(questionsJson);
-      questions = Array.isArray(parsed) ? parsed : parsed.questions || [];
+      generatedQuestions = parsed.questions || [];
     } catch {
+      console.error('Failed to parse AI response');
       return jsonResponse({ error: 'Failed to parse AI response' }, 500);
     }
 
+    console.log(`✅ Successfully generated ${generatedQuestions.length} questions`);
+
+    // Transform to checkpoint format with unique IDs
+    const formattedQuestions = generatedQuestions.map((q: any, qIndex: number) => ({
+      id: `ai-${Date.now()}-${qIndex}`,
+      question: q.question,
+      type: q.type,
+      answers: q.answers.map((a: any, aIndex: number) => ({
+        id: `ai-${Date.now()}-${qIndex}-${aIndex}`,
+        text: a.text,
+        isCorrect: a.is_correct
+      })),
+      explanation: q.explanation || undefined
+    }));
+
     return jsonResponse({
-      questions,
-      sourceInfo: {
-        trackId,
-        trackTitle,
-        factCount: factCount || 0,
-      },
+      questions: formattedQuestions,
+      sourceTrackId: trackId,
+      sourceTrackTitle: track.title,
+      thumbnailUrl: track.thumbnail_url || undefined,
+      factCount: facts.length,
+      questionCount: formattedQuestions.length,
+      metadata: {
+        suggestedTitle: `${track.title} - Checkpoint`,
+        suggestedDescription: `Assessment questions generated from "${track.title}" to verify understanding of key concepts.`
+      }
     });
+
   } catch (error: any) {
-    console.error('Checkpoint AI error:', error);
+    console.error('❌ Checkpoint AI error:', error);
     return jsonResponse({ error: error.message || 'AI generation failed' }, 500);
   }
 }
