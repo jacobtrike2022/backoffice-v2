@@ -312,6 +312,7 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
+        tags: sourceTrackData.tags || [], // Copy tags from source
       };
 
       // If it's a video, we might want to update the transcript instead of content_text
@@ -343,19 +344,7 @@ export function CreateVariantModal({
         'source'
       );
 
-      // 4. Copy tags
-      const { data: sourceTags } = await supabase
-        .from('track_tags')
-        .select('tag_id')
-        .eq('track_id', selectedTrack.id);
-
-      if (sourceTags && sourceTags.length > 0) {
-        const newTags = sourceTags.map(t => ({
-          track_id: newTrack.id,
-          tag_id: t.tag_id
-        }));
-        await supabase.from('track_tags').insert(newTags);
-      }
+      // Tags are already copied via the tags array in newTrackData
 
       toast.success('AI-Generated variant created successfully!');
       onVariantCreated(newTrack.id);
@@ -445,6 +434,7 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
+        tags: sourceTrackData.tags || [], // Copy tags from source
       };
 
       const { data: newTrack, error: createError } = await supabase
@@ -472,19 +462,7 @@ export function CreateVariantModal({
         'source'
       );
 
-      // 5. Copy tags if any
-      const { data: sourceTags } = await supabase
-        .from('track_tags')
-        .select('tag_id')
-        .eq('track_id', selectedTrack.id);
-
-      if (sourceTags && sourceTags.length > 0) {
-        const newTags = sourceTags.map(t => ({
-          track_id: newTrack.id,
-          tag_id: t.tag_id
-        }));
-        await supabase.from('track_tags').insert(newTags);
-      }
+      // Tags are already copied via the tags array in newTrackData
 
       toast.success('Variant created successfully!');
       onVariantCreated(newTrack.id);

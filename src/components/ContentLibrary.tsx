@@ -1448,27 +1448,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   {(() => {
                     // Build complete tag list with metadata
                     const allTags: Array<{ name: string; color?: string; isSystem: boolean }> = [];
-                    
-                    // Get tags from track_tags (with color info) - NEW SYSTEM
-                    if (track.track_tags && Array.isArray(track.track_tags)) {
-                      track.track_tags.forEach((tt: any) => {
-                        if (tt.tags && tt.tags.name && tt.tags.name !== 'system:show_in_knowledge_base') {
-                          allTags.push({ 
-                            name: tt.tags.name, 
-                            color: tt.tags.color,
-                            isSystem: false
-                          });
-                        }
-                      });
-                    }
-                    
-                    // FALLBACK: Get tags from legacy tags array and match with orgTags for colors
-                    if (allTags.length === 0 && track.tags && Array.isArray(track.tags)) {
+
+                    // Get tags from tags array and match with orgTags for colors
+                    if (track.tags && Array.isArray(track.tags)) {
                       track.tags.forEach((tagName: string) => {
                         if (tagName !== 'system:show_in_knowledge_base') {
                           // Find matching org tag for color
                           const orgTag = orgTags.find(t => t.name === tagName);
-                          allTags.push({ 
+                          allTags.push({
                             name: tagName,
                             color: orgTag?.color,
                             isSystem: false
@@ -1476,7 +1463,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         }
                       });
                     }
-                    
+
                     // Add system:show_in_knowledge_base tag as "In Knowledge Base" if present
                     const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
                     if (hasKBTag) {
@@ -1620,27 +1607,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     {(() => {
                       // Build complete tag list with metadata
                       const allTags: Array<{ name: string; color?: string; isSystem: boolean }> = [];
-                      
-                      // Get tags from track_tags (with color info) - NEW SYSTEM
-                      if (track.track_tags && Array.isArray(track.track_tags)) {
-                        track.track_tags.forEach((tt: any) => {
-                          if (tt.tags && tt.tags.name && tt.tags.name !== 'system:show_in_knowledge_base') {
-                            allTags.push({ 
-                              name: tt.tags.name, 
-                              color: tt.tags.color,
-                              isSystem: false
-                            });
-                          }
-                        });
-                      }
-                      
-                      // FALLBACK: Get tags from legacy tags array and match with orgTags for colors
-                      if (allTags.length === 0 && track.tags && Array.isArray(track.tags)) {
+
+                      // Get tags from tags array and match with orgTags for colors
+                      if (track.tags && Array.isArray(track.tags)) {
                         track.tags.forEach((tagName: string) => {
                           if (tagName !== 'system:show_in_knowledge_base') {
                             // Find matching org tag for color
                             const orgTag = orgTags.find(t => t.name === tagName);
-                            allTags.push({ 
+                            allTags.push({
                               name: tagName,
                               color: orgTag?.color,
                               isSystem: false
@@ -1648,7 +1622,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           }
                         });
                       }
-                      
+
                       // Add system:show_in_knowledge_base tag as "In Knowledge Base" if present
                       const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
                       if (hasKBTag) {
@@ -1657,7 +1631,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           isSystem: true
                         });
                       }
-                      
+
                       // Limit to first ~6 tags (approximating 2 lines in list view)
                       const displayTags = allTags.slice(0, 6);
                       const overflowTags = allTags.slice(6);

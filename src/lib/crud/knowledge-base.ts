@@ -96,8 +96,7 @@ export async function getKBCategoryTracks(categoryId: string, filters: {
       *,
       track:tracks!inner(
         *,
-        created_by_user:users!tracks_created_by_fkey(first_name, last_name, email),
-        track_tags(tags(name, color))
+        created_by_user:users!tracks_created_by_fkey(first_name, last_name, email)
       )
     `)
     .eq('organization_id', orgId)
@@ -402,8 +401,7 @@ export async function searchAvailableTracksForKB(categoryId: string, search: str
     .from('tracks')
     .select(`
       *,
-      created_by_user:users!tracks_created_by_fkey(first_name, last_name, email),
-      track_tags(tags(name, color))
+      created_by_user:users!tracks_created_by_fkey(first_name, last_name, email)
     `)
     .eq('organization_id', orgId)
     .eq('status', 'published');

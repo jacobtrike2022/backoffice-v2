@@ -38,6 +38,7 @@ import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import { AIGenerateCheckpointModal } from './AIGenerateCheckpointModal';
+import { supabase } from '../../lib/supabase';
 
 interface Answer {
   id: string;
@@ -351,21 +352,21 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     return () => clearTimeout(autoSaveTimer);
   }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
 
-  const handleAIGenerate = (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; thumbnailUrl?: string; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
+  const handleAIGenerate = async (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; thumbnailUrl?: string; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
     console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
-    
+
     // Store the source track ID for relationship tracking
     setSourceTrackId(sourceInfo.trackId);
     console.log('📎 Source track ID stored for relationship:', sourceInfo.trackId);
-    
+
     // Check if there are existing questions with content
     const hasExistingQuestions = questions.some(q => q.question?.trim());
-    
+
     if (hasExistingQuestions) {
       const shouldReplace = window.confirm(
         `You have ${questions.length} existing question(s). Replace all with ${generatedQuestions.length} AI-generated questions?`
       );
-      
+
       if (shouldReplace) {
         setQuestions(generatedQuestions);
       } else {
@@ -376,7 +377,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       // No existing questions, just replace
       setQuestions(generatedQuestions);
     }
-    
+
     // Auto-populate title and description if metadata provided
     if (sourceInfo.metadata) {
       // Only auto-populate if current values are empty
@@ -387,7 +388,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         setDescription(sourceInfo.metadata.suggestedDescription);
       }
     }
-    
+
     // Auto-copy thumbnail from source track if available and current checkpoint has no thumbnail
     if (sourceInfo.thumbnailUrl && !thumbnailUrl) {
       console.log('📸 Copying thumbnail from source track:', sourceInfo.thumbnailUrl);
@@ -397,7 +398,71 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         duration: 3000
       });
     }
-    
+
+    // Inherit tags from source track (excluding Content Type and KB Category tags)
+    // Only inherit if checkpoint doesn't already have tags
+    if (tags.length === 0) {
+      try {
+        // Get parent tag IDs that should be excluded from inheritance:
+        // - "Content Type" - checkpoints are a different type than source
+        // - "KB Category" - checkpoints are excluded from Knowledge Base
+        const { data: excludedParents } = await supabase
+          .from('tags')
+          .select('id, name')
+          .in('name', ['Content Type', 'KB Category']);
+
+        const excludedParentIds = new Set(excludedParents?.map(p => p.id) || []);
+
+        // Fetch source track's tags from tags array column
+        const { data: sourceTrack } = await supabase
+          .from('tracks')
+          .select('tags')
+          .eq('id', sourceInfo.trackId)
+          .single();
+
+        const inheritedTagNames: string[] = [];
+
+        if (sourceTrack?.tags && Array.isArray(sourceTrack.tags)) {
+          // For each tag, look up its parent to filter out excluded categories
+          for (const tagName of sourceTrack.tags) {
+            // Skip system tags
+            if (tagName.startsWith('system:')) continue;
+
+            // Look up the tag to check its parent
+            const { data: tagData } = await supabase
+              .from('tags')
+              .select('id, name, parent_id')
+              .eq('name', tagName)
+              .maybeSingle();
+
+            if (tagData) {
+              // Exclude if parent is "Content Type" or "KB Category"
+              if (tagData.parent_id && excludedParentIds.has(tagData.parent_id)) {
+                console.log(`🚫 Excluding tag (Content Type/KB Category): ${tagName}`);
+                continue;
+              }
+              inheritedTagNames.push(tagName);
+            } else {
+              // Tag not found in tags table, include it anyway (might be a custom tag)
+              inheritedTagNames.push(tagName);
+            }
+          }
+        }
+
+        if (inheritedTagNames.length > 0) {
+          console.log('🏷️ Inheriting tags from source track:', inheritedTagNames);
+          setTags(inheritedTagNames);
+          toast.success(`Inherited ${inheritedTagNames.length} tag(s) from source content`, {
+            description: 'Content Type and KB Category tags were excluded.',
+            duration: 3000
+          });
+        }
+      } catch (error) {
+        console.error('Error inheriting tags from source track:', error);
+        // Non-blocking - continue without tags if fetch fails
+      }
+    }
+
     // Scroll to first question after a brief delay
     setTimeout(() => {
       const firstQuestion = document.querySelector('[data-question-index="0"]');
@@ -405,7 +470,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         firstQuestion.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 100);
-    
+
     toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
       description: 'Questions will auto-save in 3 seconds...'
     });

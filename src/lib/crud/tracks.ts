@@ -501,7 +501,7 @@ export async function updateTrack(input: UpdateTrackInput) {
     }
     throw error;
   }
-  
+
   // Auto-regenerate facts if content changed
   if (updateData.transcript && track.type === 'article') {
     // Dynamic import to avoid circular dependencies
@@ -757,10 +757,7 @@ export async function getTracks(filters: {
 
   let query = supabase
     .from('tracks')
-    .select(`
-      *,
-      track_tags(tags(id, name, color, parent_id))
-    `)
+    .select('*')
     .eq('organization_id', orgId);
 
   if (filters.ids && filters.ids.length > 0) {
@@ -772,41 +769,18 @@ export async function getTracks(filters: {
   }
 
   // Handle tag filtering at database level if tags are provided
-  let trackIdsWithTags: string[] | null = null;
   if (filters.tags && filters.tags.length > 0) {
-    // First, get tag IDs from tag names
-    const { data: matchingTags } = await supabase
-      .from('tags')
-      .select('id, name')
-      .in('name', filters.tags)
-      .or(`organization_id.eq.${orgId},organization_id.is.null`);
-    
-    const tagIds = matchingTags?.map(t => t.id) || [];
-    
-    // Get track IDs that have these tags via junction table
-    if (tagIds.length > 0) {
-      const { data: trackTagMatches } = await supabase
-        .from('track_tags')
-        .select('track_id')
-        .in('tag_id', tagIds);
-      
-      trackIdsWithTags = trackTagMatches?.map(tt => tt.track_id) || [];
-    }
-    
-    // Also get track IDs from legacy tags column (array contains)
-    const { data: legacyTracks } = await supabase
+    // Filter tracks by tags array column (array contains)
+    const { data: matchingTracks } = await supabase
       .from('tracks')
       .select('id')
       .eq('organization_id', orgId)
       .contains('tags', filters.tags);
-    
-    const legacyTrackIds = legacyTracks?.map(t => t.id) || [];
-    
-    // Combine both sets of track IDs
-    const allMatchingTrackIds = [...new Set([...(trackIdsWithTags || []), ...legacyTrackIds])];
-    
-    if (allMatchingTrackIds.length > 0) {
-      query = query.in('id', allMatchingTrackIds);
+
+    const matchingTrackIds = matchingTracks?.map(t => t.id) || [];
+
+    if (matchingTrackIds.length > 0) {
+      query = query.in('id', matchingTrackIds);
     } else {
       // No tracks match the tag filter, return empty result
       return [];
@@ -823,26 +797,7 @@ export async function getTracks(filters: {
     } else if (filters.status === 'in-kb') {
       // For Knowledge Base view, filter at database level
       query = query.eq('status', 'published');
-      
-      // Get the system:show_in_knowledge_base tag ID if it exists
-      const { data: kbTag } = await supabase
-        .from('tags')
-        .select('id')
-        .eq('name', 'system:show_in_knowledge_base')
-        .maybeSingle();
-      
-      let kbTrackIds: string[] = [];
-      
-      if (kbTag) {
-        // Get track IDs that have this tag via junction table
-        const { data: kbTrackTags } = await supabase
-          .from('track_tags')
-          .select('track_id')
-          .eq('tag_id', kbTag.id);
-        
-        kbTrackIds = kbTrackTags?.map(tt => tt.track_id) || [];
-      }
-      
+
       // Get tracks with show_in_knowledge_base=true
       const { data: kbBooleanTracks } = await supabase
         .from('tracks')
@@ -850,24 +805,23 @@ export async function getTracks(filters: {
         .eq('organization_id', orgId)
         .eq('status', 'published')
         .eq('show_in_knowledge_base', true);
-      
-      // Get tracks with legacy tags array containing the tag
-      const { data: kbLegacyTracks } = await supabase
+
+      // Get tracks with tags array containing the system tag
+      const { data: kbTagTracks } = await supabase
         .from('tracks')
         .select('id')
         .eq('organization_id', orgId)
         .eq('status', 'published')
         .contains('tags', ['system:show_in_knowledge_base']);
-      
+
       // Combine all track IDs
       const allKbTrackIds = [
-        ...kbTrackIds,
         ...(kbBooleanTracks?.map(t => t.id) || []),
-        ...(kbLegacyTracks?.map(t => t.id) || [])
+        ...(kbTagTracks?.map(t => t.id) || [])
       ];
-      
+
       const uniqueKbTrackIds = [...new Set(allKbTrackIds)];
-      
+
       if (uniqueKbTrackIds.length > 0) {
         query = query.in('id', uniqueKbTrackIds);
       } else {
@@ -904,51 +858,46 @@ export async function getTracks(filters: {
       // Retry query without the problematic filter
       const simpleQuery = supabase
         .from('tracks')
-        .select(`
-          *,
-          track_tags(tags(id, name, color, parent_id))
-        `)
+        .select('*')
         .eq('organization_id', orgId);
-      
+
       if (filters.ids && filters.ids.length > 0) {
         simpleQuery.in('id', filters.ids);
       }
-      
+
       if (filters.type) {
         simpleQuery.eq('type', filters.type);
       }
-      
+
       if (filters.status && filters.status !== 'in-kb') {
         simpleQuery.eq('status', filters.status);
       }
-      
+
       if (filters.search) {
         simpleQuery.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
-      
+
       const { data: retryData, error: retryError } = await simpleQuery.order('created_at', { ascending: false });
-      
+
       if (retryError) throw retryError;
-      
+
       // Apply client-side filtering for tags and in-kb if needed (fallback)
       let filteredData = retryData || [];
-      
+
       if (filters.tags && filters.tags.length > 0) {
         filteredData = filteredData.filter(track => {
-          const trackTags = track.track_tags?.map((tt: any) => tt.tags.name) || [];
-          const columnTags = track.tags || [];
-          const allTags = [...trackTags, ...columnTags];
-          return filters.tags!.some(tag => allTags.includes(tag));
+          const trackTags = track.tags || [];
+          return filters.tags!.some(tag => trackTags.includes(tag));
         });
       }
-      
+
       if (filters.status === 'in-kb') {
         filteredData = filteredData.filter(track => {
-          const columnTags = track.tags || [];
-          return columnTags.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base === true;
+          const trackTags = track.tags || [];
+          return trackTags.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base === true;
         });
       }
-      
+
       return filteredData;
     }
     throw error;
@@ -1515,46 +1464,6 @@ async function addLearningObjectives(trackId: string, objectives: string[]) {
     .insert(objectivesToInsert);
 
   if (error) throw error;
-}
-
-async function addTrackTags(trackId: string, tagNames: string[]) {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) return;
-
-  // Get or create tags
-  const tagIds: string[] = [];
-  for (const tagName of tagNames) {
-    const { data: existingTag } = await supabase
-      .from('tags')
-      .select('id')
-      .eq('organization_id', orgId)
-      .eq('name', tagName)
-      .single();
-
-    if (existingTag) {
-      tagIds.push(existingTag.id);
-    } else {
-      const { data: newTag } = await supabase
-        .from('tags')
-        .insert({
-          organization_id: orgId,
-          name: tagName,
-          type: 'content'
-        })
-        .select('id')
-        .single();
-
-      if (newTag) tagIds.push(newTag.id);
-    }
-  }
-
-  // Link tags to track
-  const trackTagsToInsert = tagIds.map(tagId => ({
-    track_id: trackId,
-    tag_id: tagId
-  }));
-
-  await supabase.from('track_tags').insert(trackTagsToInsert);
 }
 
 // ============================================================================

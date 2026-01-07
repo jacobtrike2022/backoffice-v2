@@ -1786,15 +1786,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     return allTracks.filter((track: any) => {
       // Check strict boolean flag (if it exists)
       if (track.show_in_knowledge_base === true) return true;
-      
-      // Check system tag in flat tags array
+
+      // Check system tag in tags array
       if (track.tags && Array.isArray(track.tags) && track.tags.includes('system:show_in_knowledge_base')) return true;
-      
-      // Check system tag in joined relation (track_tags)
-      if (track.track_tags && Array.isArray(track.track_tags)) {
-        return track.track_tags.some((tt: any) => tt.tags?.name === 'system:show_in_knowledge_base');
-      }
-      
+
       return false;
     });
   }, [allTracks]);
