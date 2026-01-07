@@ -25,7 +25,8 @@ import {
   Users,
   Search,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -194,6 +195,13 @@ export function StateVariantWizard({
   });
 
   const [isLoading, setIsLoading] = useState(false);
+
+  // Auto-fetch scope contract when initialState is provided
+  useEffect(() => {
+    if (isOpen && initialState && !state.contractId && !isLoading) {
+      handleStateSelect(initialState);
+    }
+  }, [isOpen, initialState]);
 
   // Get source content from track
   const getSourceContent = useCallback(() => {
@@ -462,6 +470,31 @@ export function StateVariantWizard({
         );
 
       case 'audience':
+        // Show loading state while fetching scope contract
+        if (isLoading && !state.scopeContract) {
+          return (
+            <div className="flex flex-col items-center justify-center py-12 space-y-4">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Analyzing content for {state.selectedState?.name}...</p>
+            </div>
+          );
+        }
+
+        // Show error state if there was a failure
+        if (state.error && state.failedStage === 'scope-contract') {
+          return (
+            <div className="flex flex-col items-center justify-center py-12 space-y-4">
+              <div className="p-3 rounded-full bg-destructive/10">
+                <AlertCircle className="w-8 h-8 text-destructive" />
+              </div>
+              <p className="text-sm text-destructive text-center">{state.error}</p>
+              <Button onClick={handleRetry} variant="outline">
+                Try Again
+              </Button>
+            </div>
+          );
+        }
+
         return (
           <div className="space-y-6">
             {state.roleSelectionNeeded ? (
@@ -551,7 +584,7 @@ export function StateVariantWizard({
         className={
           isFullScreen
             ? "max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 rounded-none"
-            : "max-w-2xl"
+            : "max-w-2xl min-h-[300px]"
         }
         hideCloseButton={isFullScreen}
       >
