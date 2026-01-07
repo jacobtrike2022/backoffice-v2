@@ -267,6 +267,52 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
 }
 
 /**
+ * Automate article workflow: generate key facts from article content
+ * Fire-and-forget: errors are logged but don't throw
+ */
+async function automateArticleWorkflow(track: { id: string; title?: string; description?: string; transcript?: string; organization_id?: string }): Promise<void> {
+  // For articles, transcript field stores the article body (HTML content)
+  if (!track.transcript || track.transcript.trim().length < 150) {
+    console.log('[Article Workflow] Content too short or missing, skipping key facts generation');
+    return;
+  }
+
+  try {
+    console.log(`[Article Workflow] Starting automation for track ${track.id}...`);
+
+    // Strip HTML to get plain text for word count check
+    const plainText = track.transcript
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (plainText.length < 150) {
+      console.log('[Article Workflow] Plain text content too short after HTML stripping, skipping');
+      return;
+    }
+
+    console.log(`[Article Workflow] Generating key facts from ${plainText.length} chars of content...`);
+    const orgId = track.organization_id || await getCurrentUserOrgId();
+
+    await generateKeyFacts({
+      title: track.title || 'Untitled Article',
+      description: track.description || '',
+      content: plainText,
+      trackType: 'article',
+      trackId: track.id,
+      companyId: orgId || undefined,
+    });
+
+    console.log(`[Article Workflow] ✓ Key facts generated for track ${track.id}`);
+    console.log('[Article Workflow] Automation complete!');
+
+  } catch (error) {
+    // Log but don't throw - automation failure shouldn't break track creation
+    console.error(`[Article Workflow] ✗ Automation failed for track ${track.id}:`, error);
+  }
+}
+
+/**
  * Create a new track (defaults to draft)
  * Automatically assigns default thumbnail if none provided
  */
@@ -348,6 +394,11 @@ export async function createTrack(input: CreateTrackInput) {
   // Automate story workflow: transcribe all videos → update story JSON → generate key facts
   if (track.type === 'story' && track.transcript) {
     automateStoryWorkflow(track).catch(() => {});
+  }
+
+  // Automate article workflow: generate key facts from article content
+  if (track.type === 'article' && track.transcript) {
+    automateArticleWorkflow(track).catch(() => {});
   }
 
   // Index to Brain if published (fire-and-forget)
