@@ -7558,25 +7558,240 @@ async function handleGetResearchPlan(planId: string, req: Request): Promise<Resp
 }
 
 /**
- * Handler: Retrieve Evidence (Stub - returns empty evidence)
+ * Call OpenAI Responses API with web search tool
+ * Uses the new Responses API format for web_search_preview
+ */
+async function callOpenAIWebSearch(
+  query: string,
+  context: string
+): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OpenAI API key not configured");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      tools: [{ type: "web_search_preview" }],
+      input: `You are a legal research assistant finding official state regulations and laws.
+
+Search context: ${context}
+
+Search query: ${query}
+
+Find and summarize the relevant state regulations, statutes, or administrative rules.
+Focus on official government sources (.gov), Justia (justia.com), and legal databases.
+Include specific statute/regulation numbers when available.
+Return factual information only - no opinions or interpretations.`,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("OpenAI Responses API error:", errorText);
+    throw new Error(`OpenAI Responses API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // Extract content and citations from the response
+  let content = '';
+  const citations: Array<{ url: string; title: string; snippet?: string }> = [];
+
+  // Parse the response output
+  if (data.output) {
+    for (const item of data.output) {
+      if (item.type === 'message' && item.content) {
+        for (const block of item.content) {
+          if (block.type === 'output_text') {
+            content = block.text || '';
+            // Extract annotations/citations if present
+            if (block.annotations) {
+              for (const ann of block.annotations) {
+                if (ann.type === 'url_citation') {
+                  citations.push({
+                    url: ann.url || '',
+                    title: ann.title || '',
+                    snippet: ann.text || '',
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { content, citations };
+}
+
+/**
+ * Determine the tier of a source based on its URL
+ * Tier 1: Official government sites, Justia regulations
+ * Tier 2: Legal databases, law firm analysis
+ * Tier 3: General web sources
+ */
+function classifySourceTier(url: string): 1 | 2 | 3 {
+  const lowerUrl = url.toLowerCase();
+
+  // Tier 1: Official sources
+  if (
+    lowerUrl.includes('.gov') ||
+    lowerUrl.includes('justia.com/regulations') ||
+    lowerUrl.includes('justia.com/law') ||
+    lowerUrl.includes('law.justia.com') ||
+    lowerUrl.includes('regulations.justia.com') ||
+    lowerUrl.includes('legis.') ||
+    lowerUrl.includes('legislature.') ||
+    lowerUrl.includes('sos.state.') ||  // Secretary of State
+    lowerUrl.includes('statutes.')
+  ) {
+    return 1;
+  }
+
+  // Tier 2: Legal databases and analysis
+  if (
+    lowerUrl.includes('justia.com') ||
+    lowerUrl.includes('findlaw.com') ||
+    lowerUrl.includes('law.cornell.edu') ||
+    lowerUrl.includes('lexisnexis.com') ||
+    lowerUrl.includes('westlaw.com') ||
+    lowerUrl.includes('nolo.com') ||
+    lowerUrl.includes('uslegal.com')
+  ) {
+    return 2;
+  }
+
+  // Tier 3: Everything else
+  return 3;
+}
+
+/**
+ * Handler: Retrieve Evidence - Uses OpenAI web search to find regulatory sources
  */
 async function handleRetrieveEvidence(req: Request): Promise<Response> {
   try {
-    const { planId, contractId } = await req.json();
+    const { planId, contractId, sourceContent } = await req.json();
 
     if (!planId || !contractId) {
       return jsonResponse({ error: "planId and contractId are required" }, 400);
     }
 
-    // For now, return empty evidence (stub implementation)
-    // In production, this would perform web searches using the research plan queries
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Fetch the research plan
+    const { data: planRecord, error: planError } = await supabase
+      .from('variant_research_plans')
+      .select('*')
+      .eq('id', planId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (planError || !planRecord) {
+      return jsonResponse({ error: "Research plan not found" }, 404);
+    }
+
+    const researchPlan = planRecord.research_plan;
+    const queries = researchPlan.queries || [];
+    const stateCode = researchPlan.stateCode;
+    const stateName = researchPlan.stateName || stateCode;
+
+    console.log(`[RetrieveEvidence] Starting evidence retrieval for ${stateName} (${stateCode}) with ${queries.length} queries`);
+
+    const evidence: any[] = [];
+    const rejected: any[] = [];
+    const seenUrls = new Set<string>();
+
+    // Execute each query from the research plan
+    for (const queryDef of queries) {
+      try {
+        // Enhance query to target legal sources
+        const enhancedQuery = `${queryDef.query} site:justia.com OR site:.gov`;
+        const context = `Finding ${stateName} state regulations for: ${queryDef.mappedAction}. Target audience: ${researchPlan.primaryRole || 'frontline employees'}`;
+
+        console.log(`[RetrieveEvidence] Searching: "${enhancedQuery}"`);
+
+        const searchResult = await callOpenAIWebSearch(enhancedQuery, context);
+
+        // Process citations into evidence blocks
+        for (const citation of searchResult.citations) {
+          // Skip duplicates
+          if (seenUrls.has(citation.url)) continue;
+          seenUrls.add(citation.url);
+
+          const tier = classifySourceTier(citation.url);
+
+          const evidenceBlock = {
+            id: crypto.randomUUID(),
+            queryId: queryDef.id,
+            mappedAction: queryDef.mappedAction,
+            url: citation.url,
+            title: citation.title,
+            snippet: citation.snippet || '',
+            tier,
+            retrievedAt: new Date().toISOString(),
+            anchorHits: queryDef.anchorTerms?.filter((term: string) =>
+              (citation.snippet || '').toLowerCase().includes(term.toLowerCase()) ||
+              (citation.title || '').toLowerCase().includes(term.toLowerCase())
+            ) || [],
+          };
+
+          // Accept Tier 1 and 2, reject Tier 3
+          if (tier <= 2) {
+            evidence.push(evidenceBlock);
+          } else {
+            rejected.push({
+              ...evidenceBlock,
+              reason: 'Source tier too low (Tier 3)',
+            });
+          }
+        }
+
+        // Also extract any relevant content from the search result text
+        if (searchResult.content && searchResult.content.length > 100) {
+          // Create an evidence block from the synthesized content if it has citations
+          if (searchResult.citations.length > 0) {
+            evidence.push({
+              id: crypto.randomUUID(),
+              queryId: queryDef.id,
+              mappedAction: queryDef.mappedAction,
+              url: searchResult.citations[0]?.url || '',
+              title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
+              snippet: searchResult.content.substring(0, 1500),
+              tier: 2, // Synthesized content is Tier 2
+              retrievedAt: new Date().toISOString(),
+              anchorHits: queryDef.anchorTerms || [],
+              isSynthesized: true,
+              sourceUrls: searchResult.citations.map(c => c.url),
+            });
+          }
+        }
+
+      } catch (queryError: any) {
+        console.error(`[RetrieveEvidence] Query failed: ${queryDef.query}`, queryError);
+        // Continue with other queries even if one fails
+      }
+    }
+
+    console.log(`[RetrieveEvidence] Complete. Found ${evidence.length} evidence blocks, rejected ${rejected.length}`);
+
     return jsonResponse({
       planId,
-      evidenceCount: 0,
-      rejectedCount: 0,
-      evidence: [],
-      rejected: [],
-      note: "Evidence retrieval not yet implemented - returning empty results",
+      evidenceCount: evidence.length,
+      rejectedCount: rejected.length,
+      evidence,
+      rejected,
+      stateCode,
+      stateName,
     });
 
   } catch (error: any) {
