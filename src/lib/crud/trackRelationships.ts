@@ -570,8 +570,14 @@ export async function buildScopeContract(
   includeOrgRoles: boolean = true
 ): Promise<ScopeContractResponse> {
   const accessToken = await getAccessToken();
+  const serverUrl = getServerUrl();
+  const fullUrl = `${serverUrl}/track-relationships/variant/scope-contract`;
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trackRelationships.ts:566',message:'buildScopeContract ENTRY',data:{fullUrl,sourceTrackId,variantType,variantContext,hasAccessToken:!!accessToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B'})}).catch(()=>{});
+  // #endregion
 
-  const response = await fetch(`${getServerUrl()}/track-relationships/variant/scope-contract`, {
+  const response = await fetch(fullUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -585,8 +591,15 @@ export async function buildScopeContract(
     }),
   });
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trackRelationships.ts:587',message:'buildScopeContract AFTER FETCH',data:{responseOk:response.ok,status:response.status,statusText:response.statusText,url:response.url},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
+  // #endregion
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8dfcf613-f58b-4a75-8c2c-4e44814a9ad0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trackRelationships.ts:595',message:'buildScopeContract RESPONSE NOT OK',data:{status:response.status,errorObject:error,errorMessage:error.error||'Failed to build scope contract'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A,B,C'})}).catch(()=>{});
+    // #endregion
     throw new Error(error.error || 'Failed to build scope contract');
   }
 
