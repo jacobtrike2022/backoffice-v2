@@ -146,13 +146,17 @@ describe('DiffRenderer buildSegments', () => {
 
   describe('insert operations', () => {
     it('should create insert segment for single insertion', () => {
+      // "Hello beautiful world" = 21 chars
+      // "Hello " = positions 0-5 (6 chars)
+      // "beautiful " = positions 6-15 (10 chars, inserted text)
+      // "world" = positions 16-20 (5 chars)
       const diffOps: DiffOp[] = [{
         id: 'op1',
         type: 'insert',
         sourceStart: 6,
         sourceEnd: 6,
         draftStart: 6,
-        draftEnd: 15,
+        draftEnd: 16, // End position after "beautiful " in draft
         oldText: '',
         newText: 'beautiful ',
         noteId: 'note1',

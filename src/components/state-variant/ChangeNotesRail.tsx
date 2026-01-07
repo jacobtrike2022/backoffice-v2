@@ -5,9 +5,10 @@
 // - Title and status badge
 // - Citations with hover embed previews
 // - Click to jump to affected range in editor
+// - Grouped by status: Needs Review (top) > Applied > Blocked (collapsed)
 // ============================================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   FileText,
   Check,
@@ -15,6 +16,7 @@ import {
   X,
   ExternalLink,
   ChevronRight,
+  ChevronDown,
   Link2,
   Calendar,
   Shield
@@ -26,6 +28,7 @@ import {
   HoverCardTrigger,
   HoverCardContent
 } from '../ui/hover-card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import type { ChangeNote, CitationRef, ChangeNoteStatus, SourceTier } from '../../lib/crud/trackRelationships';
 
 interface ChangeNotesRailProps {
@@ -88,6 +91,9 @@ export function ChangeNotesRail({
   selectedNoteId,
   onNoteClick,
 }: ChangeNotesRailProps) {
+  // State for collapsed sections
+  const [blockedExpanded, setBlockedExpanded] = useState(false);
+
   // Group notes by status
   const needsReviewNotes = changeNotes.filter(n => n.status === 'needs_review');
   const appliedNotes = changeNotes.filter(n => n.status === 'applied');
@@ -109,34 +115,86 @@ export function ChangeNotesRail({
       {/* Notes list */}
       <ScrollArea className="flex-1">
         <div className="p-3 space-y-4">
-          {/* Needs Review section */}
+          {/* Needs Review section - always at top with warning styling */}
           {needsReviewNotes.length > 0 && (
-            <NoteSection
-              title="Needs Review"
-              notes={needsReviewNotes}
-              selectedNoteId={selectedNoteId}
-              onNoteClick={onNoteClick}
-            />
+            <div>
+              <div className="flex items-center gap-2 mb-2 px-1 py-1 rounded-md bg-amber-500/10">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                <h4 className="text-xs font-semibold text-amber-500 uppercase tracking-wide">
+                  Needs Review
+                </h4>
+                <span className="text-xs text-amber-500/70">
+                  ({needsReviewNotes.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {needsReviewNotes.map((note) => (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    isSelected={selectedNoteId === note.id}
+                    onClick={() => onNoteClick(note.id)}
+                  />
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Applied section */}
           {appliedNotes.length > 0 && (
-            <NoteSection
-              title="Applied Changes"
-              notes={appliedNotes}
-              selectedNoteId={selectedNoteId}
-              onNoteClick={onNoteClick}
-            />
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Check className="w-3.5 h-3.5 text-green-500" />
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Applied Changes
+                </h4>
+                <span className="text-xs text-muted-foreground/70">
+                  ({appliedNotes.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {appliedNotes.map((note) => (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    isSelected={selectedNoteId === note.id}
+                    onClick={() => onNoteClick(note.id)}
+                  />
+                ))}
+              </div>
+            </div>
           )}
 
-          {/* Blocked section */}
+          {/* Blocked section - collapsed by default */}
           {blockedNotes.length > 0 && (
-            <NoteSection
-              title="Blocked"
-              notes={blockedNotes}
-              selectedNoteId={selectedNoteId}
-              onNoteClick={onNoteClick}
-            />
+            <Collapsible open={blockedExpanded} onOpenChange={setBlockedExpanded}>
+              <CollapsibleTrigger className="flex items-center gap-2 w-full text-left group">
+                {blockedExpanded ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-red-500" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-red-500" />
+                )}
+                <X className="w-3.5 h-3.5 text-red-500" />
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide group-hover:text-foreground transition-colors">
+                  Blocked
+                </h4>
+                <span className="text-xs text-muted-foreground/70">
+                  ({blockedNotes.length})
+                </span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <div className="space-y-2">
+                  {blockedNotes.map((note) => (
+                    <NoteCard
+                      key={note.id}
+                      note={note}
+                      isSelected={selectedNoteId === note.id}
+                      onClick={() => onNoteClick(note.id)}
+                    />
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           )}
 
           {changeNotes.length === 0 && (
@@ -152,7 +210,8 @@ export function ChangeNotesRail({
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-3">
             {needsReviewNotes.length > 0 && (
-              <span className="text-amber-500">
+              <span className="flex items-center gap-1 text-amber-500">
+                <AlertTriangle className="w-3 h-3" />
                 {needsReviewNotes.length} to review
               </span>
             )}
@@ -168,37 +227,6 @@ export function ChangeNotesRail({
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Note Section Component
-function NoteSection({
-  title,
-  notes,
-  selectedNoteId,
-  onNoteClick,
-}: {
-  title: string;
-  notes: ChangeNote[];
-  selectedNoteId: string | null;
-  onNoteClick: (noteId: string) => void;
-}) {
-  return (
-    <div>
-      <h4 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
-        {title}
-      </h4>
-      <div className="space-y-2">
-        {notes.map((note) => (
-          <NoteCard
-            key={note.id}
-            note={note}
-            isSelected={selectedNoteId === note.id}
-            onClick={() => onNoteClick(note.id)}
-          />
-        ))}
       </div>
     </div>
   );

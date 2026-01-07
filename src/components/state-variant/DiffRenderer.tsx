@@ -5,11 +5,13 @@
 // - Insert: orange highlight
 // - Delete: strikethrough + muted
 // - Replace: delete(old) then insert(new)
+// - Comment bubble anchored to highlighted text (Google Docs style)
 // Supports HTML content (articles) and plaintext (other types)
 // ============================================================================
 
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
-import type { DiffOp } from '../../lib/crud/trackRelationships';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import { MessageSquare, ExternalLink, Link2 } from 'lucide-react';
+import type { DiffOp, ChangeNote, CitationRef } from '../../lib/crud/trackRelationships';
 
 export type ViewMode = 'redline' | 'clean';
 
@@ -21,6 +23,8 @@ interface DiffRendererProps {
   isHtml?: boolean;
   highlightedNoteId?: string | null;
   onSegmentClick?: (noteId: string) => void;
+  // For comment bubble support
+  changeNotes?: ChangeNote[];
 }
 
 interface DiffSegment {
@@ -170,6 +174,94 @@ function SegmentRenderer({
 }
 
 /**
+ * Comment Bubble - Google Docs style mini bubble anchored to highlighted text
+ */
+function CommentBubble({
+  note,
+  anchorRef,
+  containerRef,
+}: {
+  note: ChangeNote;
+  anchorRef: HTMLElement | null;
+  containerRef: HTMLDivElement | null;
+}) {
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!anchorRef || !containerRef) return;
+
+    const updatePosition = () => {
+      const anchorRect = anchorRef.getBoundingClientRect();
+      const containerRect = containerRef.getBoundingClientRect();
+
+      // Position bubble to the right of the highlighted text
+      setPosition({
+        top: anchorRect.top - containerRect.top + anchorRect.height / 2,
+        left: anchorRect.right - containerRect.left + 8,
+      });
+    };
+
+    updatePosition();
+
+    // Update on scroll
+    const handleScroll = () => updatePosition();
+    containerRef.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll);
+
+    return () => {
+      containerRef.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [anchorRef, containerRef]);
+
+  const firstCitation = note.citations[0];
+
+  return (
+    <div
+      className="absolute z-50 animate-in fade-in slide-in-from-left-2 duration-200"
+      style={{
+        top: `${position.top}px`,
+        left: `${position.left}px`,
+        transform: 'translateY(-50%)',
+      }}
+    >
+      {/* Connector line */}
+      <div className="absolute left-0 top-1/2 -translate-x-2 -translate-y-1/2 w-2 h-px bg-primary/50" />
+
+      {/* Bubble */}
+      <div className="bg-card border border-primary/30 rounded-lg shadow-lg shadow-primary/10 p-2.5 max-w-[220px] min-w-[160px]">
+        {/* Header with icon */}
+        <div className="flex items-start gap-2">
+          <MessageSquare className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <h4 className="text-xs font-medium text-foreground line-clamp-2 leading-tight">
+              {note.title}
+            </h4>
+          </div>
+        </div>
+
+        {/* First citation if available */}
+        {firstCitation && (
+          <a
+            href={firstCitation.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 flex items-center gap-1.5 text-[10px] text-primary hover:underline group"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Link2 className="w-3 h-3 shrink-0" />
+            <span className="truncate">
+              {firstCitation.hostname || new URL(firstCitation.url).hostname}
+            </span>
+            <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Main DiffRenderer component
  */
 export function DiffRenderer({
@@ -180,8 +272,10 @@ export function DiffRenderer({
   isHtml = false,
   highlightedNoteId,
   onSegmentClick,
+  changeNotes,
 }: DiffRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [highlightedAnchor, setHighlightedAnchor] = useState<HTMLElement | null>(null);
 
   // Build segments from diffOps
   const segments = useMemo(
@@ -199,12 +293,12 @@ export function DiffRenderer({
     [onSegmentClick]
   );
 
-  // Scroll to highlighted segment when it changes
+  // Scroll to highlighted segment and track anchor element
   useEffect(() => {
     if (highlightedNoteId && containerRef.current) {
       const element = containerRef.current.querySelector(
         `[data-note-id="${highlightedNoteId}"]`
-      );
+      ) as HTMLElement | null;
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
@@ -213,9 +307,20 @@ export function DiffRenderer({
         setTimeout(() => {
           element.classList.remove('animate-highlight-pulse');
         }, 2000);
+
+        // Track anchor for comment bubble
+        setHighlightedAnchor(element);
       }
+    } else {
+      setHighlightedAnchor(null);
     }
   }, [highlightedNoteId]);
+
+  // Find the highlighted note for the comment bubble
+  const highlightedNote = useMemo(() => {
+    if (!highlightedNoteId || !changeNotes) return null;
+    return changeNotes.find(note => note.id === highlightedNoteId) || null;
+  }, [highlightedNoteId, changeNotes]);
 
   // If clean view or HTML content without diffs
   if (viewMode === 'clean' || (isHtml && diffOps.length === 0)) {
@@ -244,6 +349,7 @@ export function DiffRenderer({
         diffOps={diffOps}
         highlightedNoteId={highlightedNoteId}
         onSegmentClick={handleSegmentClick}
+        changeNotes={changeNotes}
       />
     );
   }
@@ -252,7 +358,7 @@ export function DiffRenderer({
   return (
     <div
       ref={containerRef}
-      className="whitespace-pre-wrap leading-relaxed"
+      className="whitespace-pre-wrap leading-relaxed relative"
     >
       {segments.map((segment, index) => (
         <SegmentRenderer
@@ -264,6 +370,15 @@ export function DiffRenderer({
           }
         />
       ))}
+
+      {/* Comment bubble anchored to highlighted text */}
+      {highlightedNote && highlightedAnchor && (
+        <CommentBubble
+          note={highlightedNote}
+          anchorRef={highlightedAnchor}
+          containerRef={containerRef.current}
+        />
+      )}
 
       {/* Highlight pulse animation */}
       <style>{`
@@ -292,13 +407,16 @@ function HtmlDiffRenderer({
   diffOps,
   highlightedNoteId,
   onSegmentClick,
+  changeNotes,
 }: {
   draftContent: string;
   diffOps: DiffOp[];
   highlightedNoteId?: string | null;
   onSegmentClick: (noteId?: string) => void;
+  changeNotes?: ChangeNote[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [highlightedAnchor, setHighlightedAnchor] = useState<HTMLElement | null>(null);
 
   // Process HTML and inject diff markers
   const processedHtml = useMemo(() => {
@@ -364,24 +482,44 @@ function HtmlDiffRenderer({
     return () => container.removeEventListener('click', handleClick);
   }, [onSegmentClick]);
 
-  // Scroll to highlighted segment
+  // Scroll to highlighted segment and track anchor
   useEffect(() => {
     if (highlightedNoteId && containerRef.current) {
       const element = containerRef.current.querySelector(
         `[data-note-id="${highlightedNoteId}"]`
-      );
+      ) as HTMLElement | null;
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedAnchor(element);
       }
+    } else {
+      setHighlightedAnchor(null);
     }
   }, [highlightedNoteId]);
 
+  // Find the highlighted note for the comment bubble
+  const highlightedNote = useMemo(() => {
+    if (!highlightedNoteId || !changeNotes) return null;
+    return changeNotes.find(note => note.id === highlightedNoteId) || null;
+  }, [highlightedNoteId, changeNotes]);
+
   return (
-    <div
-      ref={containerRef}
-      className="prose prose-invert max-w-none diff-html-container"
-      dangerouslySetInnerHTML={{ __html: processedHtml }}
-    />
+    <div className="relative">
+      <div
+        ref={containerRef}
+        className="prose prose-invert max-w-none diff-html-container"
+        dangerouslySetInnerHTML={{ __html: processedHtml }}
+      />
+
+      {/* Comment bubble anchored to highlighted text */}
+      {highlightedNote && highlightedAnchor && (
+        <CommentBubble
+          note={highlightedNote}
+          anchorRef={highlightedAnchor}
+          containerRef={containerRef.current}
+        />
+      )}
+    </div>
   );
 }
 

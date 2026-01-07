@@ -273,6 +273,7 @@ export function VariantEditorLayout({
                   isHtml={isHtml}
                   highlightedNoteId={selectedNoteId}
                   onSegmentClick={handleSegmentClick}
+                  changeNotes={draft.changeNotes}
                 />
               </div>
             </div>
