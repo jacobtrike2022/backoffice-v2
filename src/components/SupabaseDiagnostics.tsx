@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, RefreshCw, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { APP_CONFIG } from '../lib/config';
 
 interface DiagnosticResult {
@@ -14,7 +14,7 @@ export function SupabaseDiagnostics({ onClose }: { onClose: () => void }) {
   const [results, setResults] = useState<DiagnosticResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
-  const SERVER_URL = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b`;
+  const SERVER_URL = getServerUrl();
 
   const runDiagnostics = async () => {
     setIsRunning(true);
@@ -340,7 +340,7 @@ export function SupabaseDiagnostics({ onClose }: { onClose: () => void }) {
             <li>• Verify Edge Function is deployed in Supabase Dashboard</li>
             <li>• Check that SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY secrets are set</li>
             <li>• Ensure RLS (Row Level Security) policies allow service role access</li>
-            <li>• Confirm the function name matches: make-server-2858cc8b</li>
+            <li>• Confirm the function name matches: trike-server (or your VITE_SUPABASE_FUNCTION_NAME)</li>
             <li>• Check Supabase Edge Function logs for errors</li>
           </ul>
         </div>

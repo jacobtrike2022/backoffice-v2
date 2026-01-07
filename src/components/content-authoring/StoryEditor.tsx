@@ -47,7 +47,7 @@ import * as crud from '../../lib/crud';
 import * as factsCrud from '../../lib/crud/facts';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 interface Slide {
   id: string;
@@ -579,7 +579,7 @@ export function StoryEditor({
     setIsUploading(true);
     try {
       const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
-      const uploadUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-media`;
+      const uploadUrl = `${getServerUrl()}/upload-media`;
       
       const formData = new FormData();
       formData.append('file', fileToUpload, file.name);
@@ -1055,7 +1055,7 @@ export function StoryEditor({
             console.log('🤖 Auto-generating key facts for story first save...');
             
             const response = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              `${getServerUrl()}/generate-key-facts`,
               {
                 method: 'POST',
                 headers: {
@@ -1188,7 +1188,7 @@ export function StoryEditor({
         
         // Step 1: Transcribe all videos in the story
         const transcribeResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe-story`,
+          `${getServerUrl()}/transcribe-story`,
           {
             method: 'POST',
             headers: {
@@ -1235,7 +1235,7 @@ export function StoryEditor({
         console.log('🤖 Step 2: Generating key facts from transcripts...');
         
         const factsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -1293,7 +1293,7 @@ export function StoryEditor({
         
         // Step 1: Transcribe all videos
         const transcribeResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe-story`,
+          `${getServerUrl()}/transcribe-story`,
           {
             method: 'POST',
             headers: {
@@ -1337,7 +1337,7 @@ export function StoryEditor({
         console.log('🤖 Step 2: Generating key facts from transcripts...');
         
         const factsResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {

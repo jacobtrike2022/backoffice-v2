@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { signIn, signUp } from '../lib/hooks/useAuth';
-import trikeLogo from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import trikeLogo from '../assets/trike-logo.png';
 
 export default function Login() {
   const [isSignUp, setIsSignUp] = useState(false);

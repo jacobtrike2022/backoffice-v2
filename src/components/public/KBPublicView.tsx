@@ -25,7 +25,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
 import { Alert, AlertDescription } from '../ui/alert';
-import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import trikeLogoDark from '../../assets/trike-logo.png';
 
 interface Track {
   id: string;

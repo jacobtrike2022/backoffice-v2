@@ -71,6 +71,82 @@ async function callOpenAI(
 }
 
 // =============================================================================
+// HTML/MARKDOWN STRIPPING HELPER
+// =============================================================================
+
+/**
+ * Strip HTML tags and markdown formatting from text for TTS
+ */
+function stripHtmlAndMarkdown(text: string): string {
+  if (!text) return '';
+
+  return text
+    // Remove HTML tags
+    .replace(/<[^>]*>/g, ' ')
+    // Remove headers
+    .replace(/#{1,6}\s+/g, '')
+    // Remove bold/italic
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    // Remove links, keep text
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    // Remove images
+    .replace(/!\[.*?\]\(.+?\)/g, '')
+    // Remove code blocks
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`(.+?)`/g, '$1')
+    // Remove blockquotes
+    .replace(/^>\s+/gm, '')
+    // Remove list markers
+    .replace(/^[\*\-\+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    // Normalize whitespace
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// =============================================================================
+// STORAGE BUCKET HELPER
+// =============================================================================
+
+/**
+ * Ensure a storage bucket exists, creating it if necessary
+ */
+async function ensureBucketExists(bucketName: string): Promise<boolean> {
+  try {
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+
+    if (!bucketExists) {
+      console.log('Creating storage bucket:', bucketName);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+        fileSizeLimit: 50 * 1024 * 1024, // 50MB max
+      });
+
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error('Error creating bucket:', createError);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error ensuring bucket exists:', error);
+    return false;
+  }
+}
+
+// =============================================================================
 // ROUTER
 // =============================================================================
 
@@ -440,6 +516,172 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // KNOWLEDGE BASE (KB) ROUTES
+    // =========================================================================
+
+    // Get public track by KB slug
+    if (method === "GET" && path.startsWith("/kb/public/")) {
+      return await handleKBPublicGet(req, path);
+    }
+
+    // Record page view
+    if (method === "POST" && path === "/kb/page-view") {
+      return await handleKBPageView(req);
+    }
+
+    // Record feedback
+    if (method === "POST" && path === "/kb/feedback") {
+      return await handleKBFeedbackPost(req);
+    }
+
+    // Get feedback for a track
+    if (method === "GET" && path.startsWith("/kb/feedback/")) {
+      return await handleKBFeedbackGet(req, path);
+    }
+
+    // Like a track
+    if (method === "POST" && path === "/kb/like") {
+      return await handleKBLike(req);
+    }
+
+    // Get likes count for a track
+    if (method === "GET" && path.startsWith("/kb/likes/")) {
+      return await handleKBGetLikes(req, path);
+    }
+
+    // =========================================================================
+    // TTS (TEXT-TO-SPEECH) ROUTES
+    // =========================================================================
+
+    if (method === "POST" && path === "/tts/generate") {
+      return await handleTTSGenerate(req);
+    }
+
+    // =========================================================================
+    // MEDIA UPLOAD ROUTES
+    // =========================================================================
+
+    if (method === "POST" && path === "/upload-media") {
+      return await handleUploadMedia(req);
+    }
+
+    // =========================================================================
+    // STORY TRANSCRIPTION ROUTES
+    // =========================================================================
+
+    if (method === "POST" && path === "/transcribe-story") {
+      return await handleTranscribeStory(req);
+    }
+
+    // =========================================================================
+    // CHECKPOINT AI ROUTES
+    // =========================================================================
+
+    if (method === "POST" && path === "/checkpoint-ai/ai-generate") {
+      return await handleCheckpointAIGenerate(req);
+    }
+
+    // =========================================================================
+    // DISTRICTS ROUTES
+    // =========================================================================
+
+    if (method === "GET" && path === "/districts") {
+      return await handleGetDistricts(req);
+    }
+
+    // =========================================================================
+    // TAGS ROUTES
+    // =========================================================================
+
+    if (method === "GET" && path.match(/^\/tags\/entity\/[^/]+\/[^/]+$/)) {
+      return await handleGetEntityTags(req, path);
+    }
+
+    if (method === "POST" && path === "/tags/assign") {
+      return await handleAssignTags(req);
+    }
+
+    // =========================================================================
+    // ADDITIONAL TRACK RELATIONSHIP VARIANT ROUTES
+    // =========================================================================
+
+    if (method === "POST" && path === "/track-relationships/variant/create") {
+      return await handleCreateVariant(req);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variants\/[^/]+$/)) {
+      return await handleGetVariants(req, path);
+    }
+
+    if (method === "GET" && path.startsWith("/track-relationships/variant/find")) {
+      return await handleFindVariant(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/base\/[^/]+$/)) {
+      return await handleGetBaseTrack(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/stats-with-variants\/[^/]+$/)) {
+      return await handleGetStatsWithVariants(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant-tree\/[^/]+$/)) {
+      return await handleGetVariantTree(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/parent\/[^/]+$/)) {
+      return await handleGetParentVariant(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variants\/needs-review\/[^/]+$/)) {
+      return await handleGetVariantsNeedingReview(req, path);
+    }
+
+    if (method === "POST" && path.match(/^\/track-relationships\/variant\/mark-synced\/[^/]+$/)) {
+      return await handleMarkVariantSynced(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/ultimate-base\/[^/]+$/)) {
+      return await handleGetUltimateBaseTrack(req, path);
+    }
+
+    if (method === "POST" && path === "/track-relationships/batch") {
+      return await handleBatchTrackRelationships(req);
+    }
+
+    if (method === "POST" && path === "/track-relationships/variant/classify-source") {
+      return await handleClassifySource(req);
+    }
+
+    if (method === "POST" && path.match(/^\/track-relationships\/variant\/key-facts\/[^/]+\/update-status$/)) {
+      return await handleUpdateKeyFactsStatus(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/key-facts\/by-state\/[^/]+$/)) {
+      return await handleGetKeyFactsByState(req, path);
+    }
+
+    if (method === "POST" && path === "/track-relationships/variant/validate-fact") {
+      return await handleValidateFact(req);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/status$/)) {
+      return await handleGetDraftStatus(req, path);
+    }
+
+    if (method === "POST" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/publish$/)) {
+      return await handlePublishDraft(req, path);
+    }
+
+    if (method === "GET" && path.match(/^\/track-relationships\/variant\/drafts\/[^/]+$/)) {
+      return await handleGetDrafts(req, path);
+    }
+
+    if (method === "DELETE" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+$/)) {
+      return await handleDeleteDraft(req, path);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -494,7 +736,31 @@ Deno.serve(async (req: Request) => {
         "PUT /email/templates/:id",
         "DELETE /email/templates/:id",
         "GET /email/logs",
-        "POST /email/preview"
+        "POST /email/preview",
+        "GET /kb/public/:slug",
+        "POST /kb/page-view",
+        "POST /kb/feedback",
+        "GET /kb/feedback/:trackId",
+        "POST /kb/like",
+        "GET /kb/likes/:trackId",
+        "POST /tts/generate",
+        "POST /upload-media",
+        "POST /transcribe-story",
+        "POST /checkpoint-ai/ai-generate",
+        "GET /districts",
+        "GET /tags/entity/:type/:id",
+        "POST /tags/assign",
+        "POST /track-relationships/variant/create",
+        "GET /track-relationships/variants/:trackId",
+        "GET /track-relationships/variant/find",
+        "GET /track-relationships/variant/base/:id",
+        "GET /track-relationships/stats-with-variants/:trackId",
+        "GET /track-relationships/variant-tree/:trackId",
+        "GET /track-relationships/variant/parent/:id",
+        "GET /track-relationships/variants/needs-review/:trackId",
+        "POST /track-relationships/variant/mark-synced/:id",
+        "GET /track-relationships/variant/ultimate-base/:id",
+        "POST /track-relationships/batch"
       ]
     }, 404);
 
@@ -2737,6 +3003,37 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
 
     console.log(`[Brain] Found ${embeddingsRaw?.length || 0} embeddings, ${embeddings.length} after filtering test data`);
 
+    // IMPORTANT: If trackId is provided (user is viewing a specific article), ensure that article's
+    // embeddings are included in results. This guarantees "Explain simply" and similar prompts
+    // work for the current article, while still allowing cross-referencing with other content.
+    if (trackId) {
+      const currentTrackInResults = embeddings.some((e: any) => e.content_id === trackId);
+      if (!currentTrackInResults) {
+        console.log(`[Brain] Current track ${trackId} not in semantic results, fetching its embeddings...`);
+        const { data: currentTrackEmbeddings } = await supabase
+          .from("brain_embeddings")
+          .select("id, content_type, chunk_text, content_id, metadata")
+          .eq("organization_id", orgId)
+          .eq("content_id", trackId)
+          .limit(4); // Get up to 4 chunks from current article
+
+        if (currentTrackEmbeddings && currentTrackEmbeddings.length > 0) {
+          console.log(`[Brain] Injecting ${currentTrackEmbeddings.length} embeddings from current track`);
+          // Add current track embeddings at the beginning with a high similarity score
+          const injectedEmbeddings = currentTrackEmbeddings.map((e: any) => ({
+            ...e,
+            similarity: 0.95, // High score to prioritize current article
+            injected: true // Mark as injected for debugging
+          }));
+          embeddings.unshift(...injectedEmbeddings);
+        } else {
+          console.log(`[Brain] WARNING: Current track ${trackId} has no embeddings indexed!`);
+        }
+      } else {
+        console.log(`[Brain] Current track ${trackId} already in semantic results`);
+      }
+    }
+
     // Boost results that contain query keywords
     if (embeddings && embeddings.length > 1) {
       const queryWords = message.toLowerCase()
@@ -2801,14 +3098,37 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
     // If no context found, check if ANY embeddings exist for this org/track
     if (!context || context.trim() === '') {
       console.log(`[Brain] Context is empty, checking for fallback embeddings...`);
-      // Direct query to check if embeddings exist - search ALL content in org
-      // The trackId is only used for context prioritization, not search filtering
-      const checkQuery = supabase
-        .from("brain_embeddings")
-        .select("id, content_type, chunk_text, content_id, metadata")
-        .eq("organization_id", orgId);
-      
-      const { data: embeddingsCheckRaw } = await checkQuery.limit(8);
+
+      // PRIORITY FIX: If trackId is provided, first try to get embeddings from the current article
+      // This ensures "Explain simply" and similar prompts work for the article being viewed
+      let embeddingsCheckRaw: any[] | null = null;
+
+      if (trackId) {
+        console.log(`[Brain] Fallback: Prioritizing current track ${trackId}`);
+        const { data: currentTrackEmbeddings } = await supabase
+          .from("brain_embeddings")
+          .select("id, content_type, chunk_text, content_id, metadata")
+          .eq("organization_id", orgId)
+          .eq("content_id", trackId)
+          .limit(8);
+
+        if (currentTrackEmbeddings && currentTrackEmbeddings.length > 0) {
+          console.log(`[Brain] Fallback: Found ${currentTrackEmbeddings.length} embeddings from current track`);
+          embeddingsCheckRaw = currentTrackEmbeddings;
+        } else {
+          console.log(`[Brain] Fallback: No embeddings found for current track, falling back to org-wide search`);
+        }
+      }
+
+      // If no trackId provided or current track has no embeddings, search all content in org
+      if (!embeddingsCheckRaw || embeddingsCheckRaw.length === 0) {
+        const { data: orgEmbeddings } = await supabase
+          .from("brain_embeddings")
+          .select("id, content_type, chunk_text, content_id, metadata")
+          .eq("organization_id", orgId)
+          .limit(8);
+        embeddingsCheckRaw = orgEmbeddings;
+      }
       
       // FILTER OUT TEST DATA from fallback results too
       const embeddingsCheck = (embeddingsCheckRaw || []).filter((e: any) => {
@@ -7266,11 +7586,11 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 }
 
 /**
- * Handler: Extract Key Facts (Stub - returns PASS status with no facts)
+ * Handler: Extract Key Facts - Uses AI to extract state-specific key facts from evidence
  */
 async function handleExtractKeyFacts(req: Request): Promise<Response> {
   try {
-    const { contractId, planId, evidenceBlocks, stateCode, stateName } = await req.json();
+    const { contractId, planId, evidenceBlocks, stateCode, stateName, sourceContent } = await req.json();
 
     if (!contractId || !planId || !stateCode) {
       return jsonResponse({ error: "contractId, planId, and stateCode are required" }, 400);
@@ -7281,17 +7601,147 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
-    // Stub: Create empty extraction that passes QA
-    const gateResults = [
-      {
-        gate: 'G1',
-        gateName: 'Evidence Quality',
-        status: 'PASS',
-        reason: 'No evidence to validate (stub implementation)',
-      }
-    ];
+    console.log(`[ExtractKeyFacts] Starting extraction for ${stateCode} with ${evidenceBlocks?.length || 0} evidence blocks`);
 
-    // Insert into variant_key_facts_extractions (the batch/session level table)
+    // Fetch the scope contract for the QA gates
+    const { data: contractRecord, error: contractError } = await supabase
+      .from('variant_scope_contracts')
+      .select('scope_contract')
+      .eq('id', contractId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (contractError || !contractRecord) {
+      return jsonResponse({ error: "Scope contract not found" }, 404);
+    }
+
+    const scopeContract = contractRecord.scope_contract;
+
+    // If no evidence blocks provided, return early with empty results
+    if (!evidenceBlocks || evidenceBlocks.length === 0) {
+      console.log('[ExtractKeyFacts] No evidence blocks provided');
+      const gateResults = [{
+        gate: 'E',
+        gateName: 'Size Guardrail Gate',
+        status: 'FAIL',
+        reason: 'No evidence blocks provided for extraction',
+      }];
+
+      const { data: record, error: insertError } = await supabase
+        .from('variant_key_facts_extractions')
+        .insert({
+          organization_id: orgId,
+          contract_id: contractId,
+          plan_id: planId,
+          state_code: stateCode,
+          state_name: stateName || stateCode,
+          overall_status: 'FAIL',
+          key_facts_count: 0,
+          rejected_facts_count: 0,
+          gate_results: gateResults,
+          extraction_method: 'fallback',
+        })
+        .select()
+        .single();
+
+      return jsonResponse({
+        extractionId: record?.id || crypto.randomUUID(),
+        overallStatus: 'FAIL',
+        keyFactsCount: 0,
+        rejectedFactsCount: 0,
+        keyFacts: [],
+        rejectedFacts: [],
+        gateResults,
+        extractionMethod: 'fallback',
+      });
+    }
+
+    // Use LLM to extract key facts from evidence
+    const extractedFacts = await extractKeyFactsWithLLM(
+      scopeContract,
+      evidenceBlocks,
+      stateCode,
+      stateName
+    );
+
+    // Run QA gates on each extracted fact
+    const passedFacts: any[] = [];
+    const rejectedFacts: any[] = [];
+    const evidenceMap = new Map(evidenceBlocks.map((eb: any) => [eb.evidenceId, eb]));
+
+    for (const rawFact of extractedFacts) {
+      // Validate citations
+      const validCitations: any[] = [];
+      for (const rawCite of rawFact.citations || []) {
+        const evidence = evidenceMap.get(rawCite.evidenceId);
+        if (evidence) {
+          validCitations.push({
+            evidenceId: evidence.evidenceId,
+            snippetIndex: rawCite.snippetIndex || 0,
+            tier: evidence.tier || 'tier3',
+            hostname: evidence.hostname || new URL(evidence.url || 'https://unknown').hostname,
+            url: evidence.url,
+            effectiveDate: evidence.effectiveDate,
+            quote: rawCite.quote,
+          });
+        }
+      }
+
+      if (validCitations.length === 0) {
+        rejectedFacts.push({
+          factText: rawFact.factText,
+          reason: 'No valid citations found',
+          failedGates: ['CITATION_VALIDATION'],
+        });
+        continue;
+      }
+
+      // Build fact candidate
+      const fact = {
+        id: crypto.randomUUID(),
+        factText: rawFact.factText,
+        mappedAction: rawFact.mappedAction || scopeContract.allowedLearnerActions?.[0] || 'general compliance',
+        anchorHit: rawFact.anchorHit || [],
+        citations: validCitations,
+        isStrongClaim: isStrongClaimCheck(rawFact.factText),
+        qaStatus: 'PASS' as string,
+        qaFlags: [] as string[],
+        createdAtISO: new Date().toISOString(),
+      };
+
+      // Run QA gates
+      const gateResults = runKeyFactQAGates(fact, scopeContract, passedFacts);
+      fact.qaStatus = gateResults.status;
+      fact.qaFlags = gateResults.flags;
+
+      if (gateResults.status === 'FAIL') {
+        rejectedFacts.push({
+          factText: fact.factText,
+          reason: gateResults.flags.join('; '),
+          failedGates: gateResults.failedGates,
+        });
+      } else {
+        passedFacts.push(fact);
+      }
+    }
+
+    // Run batch-level gate E (size guardrails)
+    const gateE = runGateE(passedFacts, evidenceBlocks.length);
+
+    // Calculate overall status
+    const hasFailedFacts = passedFacts.some(f => f.qaStatus === 'FAIL');
+    const hasReviewFacts = passedFacts.some(f => f.qaStatus === 'PASS_WITH_REVIEW');
+
+    let overallStatus = 'PASS';
+    if (hasFailedFacts || gateE.status === 'FAIL') {
+      overallStatus = 'FAIL';
+    } else if (hasReviewFacts || gateE.status === 'PASS_WITH_REVIEW') {
+      overallStatus = 'PASS_WITH_REVIEW';
+    }
+
+    console.log(`[ExtractKeyFacts] Extraction complete: ${passedFacts.length} passed, ${rejectedFacts.length} rejected, status: ${overallStatus}`);
+
+    // Insert extraction record
     const { data: record, error: insertError } = await supabase
       .from('variant_key_facts_extractions')
       .insert({
@@ -7300,11 +7750,11 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
         plan_id: planId,
         state_code: stateCode,
         state_name: stateName || stateCode,
-        overall_status: 'PASS',
-        key_facts_count: 0,
-        rejected_facts_count: 0,
-        gate_results: gateResults,
-        extraction_method: 'fallback',
+        overall_status: overallStatus,
+        key_facts_count: passedFacts.length,
+        rejected_facts_count: rejectedFacts.length,
+        gate_results: [gateE],
+        extraction_method: 'llm',
       })
       .select()
       .single();
@@ -7314,20 +7764,258 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       return jsonResponse({ error: `Failed to create key facts extraction: ${insertError.message}` }, 500);
     }
 
+    // Insert individual key facts
+    if (passedFacts.length > 0) {
+      const factsToInsert = passedFacts.map(f => ({
+        id: f.id,
+        organization_id: orgId,
+        extraction_id: record.id,
+        fact_text: f.factText,
+        mapped_action: f.mappedAction,
+        anchor_hit: f.anchorHit,
+        citations: f.citations,
+        is_strong_claim: f.isStrongClaim,
+        qa_status: f.qaStatus,
+        qa_flags: f.qaFlags,
+      }));
+
+      const { error: factsInsertError } = await supabase
+        .from('variant_key_facts')
+        .insert(factsToInsert);
+
+      if (factsInsertError) {
+        console.error('Error inserting key facts:', factsInsertError);
+        // Don't fail the whole request, just log
+      }
+    }
+
     return jsonResponse({
       extractionId: record.id,
-      overallStatus: 'PASS',
-      keyFactsCount: 0,
-      rejectedFactsCount: 0,
-      keyFacts: [],
-      rejectedFacts: [],
-      gateResults: gateResults,
-      extractionMethod: 'fallback',
+      overallStatus,
+      keyFactsCount: passedFacts.length,
+      rejectedFactsCount: rejectedFacts.length,
+      keyFacts: passedFacts,
+      rejectedFacts,
+      gateResults: [gateE],
+      extractionMethod: 'llm',
     });
 
   } catch (error: any) {
     console.error('handleExtractKeyFacts error:', error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
+  }
+}
+
+// Strong claim detection patterns
+const STRONG_CLAIM_PATTERNS = [
+  /\bmust\b/i, /\bshall\b/i, /\brequired\b/i, /\bprohibited\b/i,
+  /\billegal\b/i, /\bunlawful\b/i, /\bfine\s+of\s+\$/i, /\bpenalty\b/i,
+  /\bviolation\b/i, /\bfelony\b/i, /\bmisdemeanor\b/i, /\blicense\s+revoc/i,
+  /\bsuspension\b/i, /\bminimum\s+age\b/i, /\bmaximum\s+\$/i,
+];
+
+function isStrongClaimCheck(factText: string): boolean {
+  return STRONG_CLAIM_PATTERNS.some(pattern => pattern.test(factText));
+}
+
+// QA Gate runner for key facts
+function runKeyFactQAGates(
+  fact: any,
+  scopeContract: any,
+  existingFacts: any[]
+): { status: string; flags: string[]; failedGates: string[] } {
+  const flags: string[] = [];
+  const failedGates: string[] = [];
+
+  // Gate A: Mapping/Scope - must map to allowed action and hit anchor
+  const actionMatch = (scopeContract.allowedLearnerActions || []).some((action: string) => {
+    const actionLower = action.toLowerCase();
+    const factLower = fact.factText.toLowerCase();
+    const mappedLower = (fact.mappedAction || '').toLowerCase();
+    return mappedLower.includes(actionLower) || actionLower.includes(mappedLower) || factLower.includes(actionLower);
+  });
+
+  if (!actionMatch && (scopeContract.allowedLearnerActions || []).length > 0) {
+    flags.push(`A: Fact does not map to any allowed learner action`);
+    failedGates.push('A');
+  }
+
+  // Gate B: Strong claim support - strong claims need tier1/tier2 citations
+  if (fact.isStrongClaim) {
+    const hasTier1or2 = fact.citations.some((c: any) => c.tier === 'tier1' || c.tier === 'tier2');
+    if (!hasTier1or2) {
+      flags.push(`B: Strong claim lacks Tier-1/Tier-2 citation support`);
+      failedGates.push('B');
+    }
+  }
+
+  // Gate C: Date hygiene - check for stale dates
+  const threeYearsAgo = new Date();
+  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+
+  let hasStaleDate = false;
+  for (const citation of fact.citations) {
+    if (citation.effectiveDate) {
+      const parsed = new Date(citation.effectiveDate);
+      if (!isNaN(parsed.getTime()) && parsed < threeYearsAgo) {
+        hasStaleDate = true;
+        break;
+      }
+    }
+  }
+
+  // Gate D: Dedupe - check for duplicates
+  const isDuplicate = existingFacts.some(existing => {
+    const factWords = new Set(fact.factText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
+    const existingWords = new Set(existing.factText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
+    const intersection = [...factWords].filter(w => existingWords.has(w));
+    const union = new Set([...factWords, ...existingWords]);
+    return intersection.length / union.size > 0.7;
+  });
+
+  if (isDuplicate) {
+    flags.push(`D: Near-duplicate of existing fact`);
+    failedGates.push('D');
+  }
+
+  // Determine status
+  let status = 'PASS';
+  if (failedGates.length > 0) {
+    status = 'FAIL';
+  } else if (hasStaleDate || !fact.citations.some((c: any) => c.effectiveDate)) {
+    status = 'PASS_WITH_REVIEW';
+    flags.push('C: Citations may be stale or missing dates');
+  }
+
+  return { status, flags, failedGates };
+}
+
+// Gate E: Size guardrails
+function runGateE(facts: any[], evidenceCount: number): any {
+  if (facts.length === 0) {
+    return {
+      gate: 'E',
+      gateName: 'Size Guardrail Gate',
+      status: 'FAIL',
+      reason: 'No facts extracted from evidence',
+      details: { evidenceCount },
+    };
+  }
+
+  if (facts.length < 3 && evidenceCount > 5) {
+    return {
+      gate: 'E',
+      gateName: 'Size Guardrail Gate',
+      status: 'PASS_WITH_REVIEW',
+      reason: `Only ${facts.length} facts from ${evidenceCount} evidence blocks. May be under-extracting.`,
+      details: { factCount: facts.length, evidenceCount },
+    };
+  }
+
+  if (facts.length > 50) {
+    return {
+      gate: 'E',
+      gateName: 'Size Guardrail Gate',
+      status: 'PASS_WITH_REVIEW',
+      reason: `${facts.length} facts may be over-granular. Consider consolidation.`,
+      details: { factCount: facts.length },
+    };
+  }
+
+  return {
+    gate: 'E',
+    gateName: 'Size Guardrail Gate',
+    status: 'PASS',
+    reason: `${facts.length} facts from ${evidenceCount} evidence blocks`,
+    details: { factCount: facts.length, evidenceCount },
+  };
+}
+
+// LLM-based key facts extraction
+async function extractKeyFactsWithLLM(
+  scopeContract: any,
+  evidenceBlocks: any[],
+  stateCode: string,
+  stateName?: string
+): Promise<any[]> {
+  const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence.
+
+OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
+{
+  "keyFacts": [
+    {
+      "factText": "Single sentence atomic claim about a specific state requirement",
+      "mappedAction": "The learner action this fact relates to",
+      "anchorHit": ["relevant", "domain", "terms"],
+      "citations": [
+        {
+          "evidenceId": "id from evidence block",
+          "quote": "EXACT substring from evidence snippet supporting this fact"
+        }
+      ]
+    }
+  ]
+}
+
+CRITICAL RULES:
+1. factText must be a single atomic sentence - one claim per fact
+2. mappedAction MUST relate to one of the allowedLearnerActions provided
+3. Each fact MUST be specific to ${stateName || stateCode}
+4. quote MUST be an exact substring from the evidence - no paraphrasing
+5. Extract ONLY facts relevant to the domain anchors and learner role
+6. Do NOT include generic facts that apply to all states
+7. Focus on actionable requirements for the learner role`;
+
+  const evidenceSummary = evidenceBlocks.map((eb: any) => ({
+    evidenceId: eb.evidenceId,
+    url: eb.url,
+    tier: eb.tier,
+    title: eb.title,
+    snippets: (eb.snippets || []).map((s: any, i: number) => ({ index: i, text: s.text || s })),
+    effectiveDate: eb.effectiveDate,
+  }));
+
+  const userPrompt = `Extract Key Facts for ${stateName || stateCode} training adaptation.
+
+SCOPE CONTRACT:
+- Primary Role: ${scopeContract.primaryRole || 'frontline employee'}
+- Instructional Goal: ${scopeContract.instructionalGoal || 'Compliance training'}
+
+ALLOWED LEARNER ACTIONS:
+${(scopeContract.allowedLearnerActions || ['verify compliance', 'follow procedures']).map((a: string, i: number) => `${i + 1}. ${a}`).join('\n')}
+
+DOMAIN ANCHORS:
+${(scopeContract.domainAnchors || ['compliance', 'regulation']).join(', ')}
+
+DISALLOWED TOPICS:
+${(scopeContract.disallowedActionClasses || []).join(', ') || 'None specified'}
+
+EVIDENCE BLOCKS:
+${JSON.stringify(evidenceSummary, null, 2)}
+
+Extract atomic Key Facts. Each fact must:
+1. Be a single sentence with one specific claim
+2. Be grounded with an exact quote from evidence
+3. Be specific to ${stateName || stateCode}
+4. Be actionable for ${scopeContract.primaryRole || 'the learner'}
+
+Output valid JSON with keyFacts array.`;
+
+  try {
+    const response = await callOpenAI(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { temperature: 0.2, response_format: { type: 'json_object' } }
+    );
+
+    const parsed = JSON.parse(response);
+    console.log(`[ExtractKeyFacts] LLM extracted ${parsed.keyFacts?.length || 0} raw facts`);
+    return parsed.keyFacts || [];
+  } catch (error) {
+    console.error('[ExtractKeyFacts] LLM extraction failed:', error);
+    return [];
   }
 }
 
@@ -7412,12 +8100,177 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
-    // For now, create a draft that's identical to source (stub implementation)
-    // In production, this would use AI to generate state-specific adaptations
-    const draftTitle = `${sourceTitle || 'Untitled'} - ${stateName || stateCode}`;
-    const draftContent = sourceContent || '';
+    console.log(`[GenerateDraft] Starting draft generation for ${stateCode}, track: ${sourceTrackId}`);
 
-    // Insert into variant_drafts table (matching actual schema)
+    // Fetch the scope contract
+    const { data: contractRecord, error: contractError } = await supabase
+      .from('variant_scope_contracts')
+      .select('scope_contract')
+      .eq('id', contractId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (contractError || !contractRecord) {
+      return jsonResponse({ error: "Scope contract not found" }, 404);
+    }
+
+    const scopeContract = contractRecord.scope_contract;
+
+    // Fetch the key facts extraction
+    const { data: extractionRecord, error: extractionError } = await supabase
+      .from('variant_key_facts_extractions')
+      .select('overall_status')
+      .eq('id', extractionId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (extractionError || !extractionRecord) {
+      return jsonResponse({ error: "Key facts extraction not found" }, 404);
+    }
+
+    // Check if extraction status is FAIL - block draft generation
+    if (extractionRecord.overall_status === 'FAIL') {
+      console.log('[GenerateDraft] Blocked due to FAIL extraction status');
+      const draftId = crypto.randomUUID();
+      return jsonResponse({
+        draft: {
+          draftId,
+          contractId,
+          extractionId,
+          sourceTrackId,
+          stateCode,
+          stateName: stateName || stateCode,
+          trackType: trackType || 'article',
+          status: 'blocked',
+          draftTitle: sourceTitle || 'Untitled',
+          draftContent: '',
+          sourceContent: sourceContent || '',
+          diffOps: [],
+          changeNotes: [],
+          appliedKeyFactIds: [],
+          needsReviewKeyFactIds: [],
+          blockedReasons: ['Quality gate status is FAIL. Cannot generate draft with failed key facts.'],
+          createdAt: new Date().toISOString(),
+        },
+        success: false,
+        message: "Draft generation blocked due to failed key facts extraction",
+      });
+    }
+
+    // Fetch the validated key facts
+    const { data: keyFacts, error: factsError } = await supabase
+      .from('variant_key_facts')
+      .select('*')
+      .eq('extraction_id', extractionId)
+      .eq('organization_id', orgId);
+
+    const validatedKeyFacts = (keyFacts || []).filter((f: any) =>
+      f.qa_status === 'PASS' || f.qa_status === 'PASS_WITH_REVIEW'
+    );
+
+    console.log(`[GenerateDraft] Found ${validatedKeyFacts.length} validated key facts`);
+
+    // If no key facts, return source unchanged
+    if (validatedKeyFacts.length === 0) {
+      console.log('[GenerateDraft] No key facts - returning source unchanged');
+      const draftTitle = `${sourceTitle || 'Untitled'} - ${stateName || stateCode}`;
+
+      const { data: record, error: insertError } = await supabase
+        .from('variant_drafts')
+        .insert({
+          organization_id: orgId,
+          contract_id: contractId,
+          extraction_id: extractionId,
+          source_track_id: sourceTrackId,
+          state_code: stateCode,
+          state_name: stateName || stateCode,
+          track_type: trackType || 'article',
+          status: 'generated',
+          draft_title: draftTitle,
+          draft_content: sourceContent || '',
+          source_content: sourceContent || '',
+          diff_ops: [],
+          change_notes: [],
+          applied_key_fact_ids: [],
+          needs_review_key_fact_ids: [],
+        })
+        .select()
+        .single();
+
+      return jsonResponse({
+        draft: {
+          draftId: record?.id || crypto.randomUUID(),
+          contractId,
+          extractionId,
+          sourceTrackId,
+          stateCode,
+          stateName: stateName || stateCode,
+          trackType: trackType || 'article',
+          status: 'generated',
+          draftTitle,
+          draftContent: sourceContent || '',
+          sourceContent: sourceContent || '',
+          diffOps: [],
+          changeNotes: [],
+          appliedKeyFactIds: [],
+          needsReviewKeyFactIds: [],
+          createdAt: record?.created_at || new Date().toISOString(),
+        },
+        success: true,
+        message: "No state-specific changes needed - source content unchanged",
+      });
+    }
+
+    // Use LLM to generate state-specific draft with minimal changes
+    const draftResult = await generateDraftWithLLM(
+      sourceContent || '',
+      sourceTitle || 'Untitled',
+      trackType || 'article',
+      scopeContract,
+      validatedKeyFacts,
+      stateCode,
+      stateName
+    );
+
+    // Compute diff ops and change notes
+    const diffOps = computeDiffOpsSimple(sourceContent || '', draftResult.draftContent);
+    const changeNotes = buildChangeNotesFromMarkers(
+      draftResult.markedContent,
+      draftResult.draftContent,
+      validatedKeyFacts,
+      scopeContract
+    );
+
+    // Determine applied and needs_review fact IDs
+    const appliedKeyFactIds: string[] = [];
+    const needsReviewKeyFactIds: string[] = [];
+
+    for (const note of changeNotes) {
+      for (const factId of note.keyFactIds || []) {
+        const fact = validatedKeyFacts.find((f: any) => f.id === factId);
+        if (fact) {
+          if (fact.qa_status === 'PASS_WITH_REVIEW') {
+            if (!needsReviewKeyFactIds.includes(factId)) {
+              needsReviewKeyFactIds.push(factId);
+            }
+          } else {
+            if (!appliedKeyFactIds.includes(factId)) {
+              appliedKeyFactIds.push(factId);
+            }
+          }
+        }
+      }
+    }
+
+    // Determine status
+    const hasNeedsReview = needsReviewKeyFactIds.length > 0 || extractionRecord.overall_status === 'PASS_WITH_REVIEW';
+    const status = hasNeedsReview ? 'generated_needs_review' : 'generated';
+
+    const draftTitle = `${sourceTitle || 'Untitled'} - ${stateName || stateCode}`;
+
+    console.log(`[GenerateDraft] Draft generated with ${changeNotes.length} change notes, status: ${status}`);
+
+    // Insert into variant_drafts table
     const { data: record, error: insertError } = await supabase
       .from('variant_drafts')
       .insert({
@@ -7428,12 +8281,14 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         state_code: stateCode,
         state_name: stateName || stateCode,
         track_type: trackType || 'article',
-        status: 'generated',
+        status,
         draft_title: draftTitle,
-        draft_content: draftContent,
-        diff_ops: [],
-        applied_key_fact_ids: [],
-        needs_review_key_fact_ids: [],
+        draft_content: draftResult.draftContent,
+        source_content: sourceContent || '',
+        diff_ops: diffOps,
+        change_notes: changeNotes,
+        applied_key_fact_ids: appliedKeyFactIds,
+        needs_review_key_fact_ids: needsReviewKeyFactIds,
       })
       .select()
       .single();
@@ -7455,22 +8310,250 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         status: record.status,
         draftTitle: record.draft_title,
         draftContent: record.draft_content,
-        sourceContent: sourceContent || '', // Return the passed-in source content
+        sourceContent: sourceContent || '',
         diffOps: record.diff_ops || [],
-        changeNotes: [], // Change notes are in separate table
+        changeNotes: record.change_notes || [],
         appliedKeyFactIds: record.applied_key_fact_ids || [],
         needsReviewKeyFactIds: record.needs_review_key_fact_ids || [],
         createdAt: record.created_at,
         updatedAt: record.updated_at,
       },
       success: true,
-      message: "Draft generated successfully (stub implementation - no state-specific changes yet)",
+      message: `Draft generated with ${changeNotes.length} state-specific changes`,
     });
 
   } catch (error: any) {
     console.error('handleGenerateDraft error:', error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
   }
+}
+
+// LLM-based draft generation
+async function generateDraftWithLLM(
+  sourceContent: string,
+  sourceTitle: string,
+  trackType: string,
+  scopeContract: any,
+  validatedKeyFacts: any[],
+  stateCode: string,
+  stateName?: string
+): Promise<{ draftContent: string; markedContent: string }> {
+  const systemPrompt = `You are a training content adaptation engine.
+Output ONLY the revised content (HTML for articles, plaintext otherwise).
+You must preserve structure and change as little as possible.
+
+HARD RULES:
+- You may ONLY use the provided Key Facts for state-specific changes.
+- Do NOT add new topics, new sections, or new compliance info.
+- Do NOT change anything unless a Key Fact requires it.
+- Any sentence you modify must end with [[KF:<id>]] where <id> is the Key Fact ID that justifies the change.
+- If you change text without a marker, the output is invalid.
+- Preserve all HTML tags exactly for articles.
+- Maintain the same paragraph structure and order.
+- Keep the same tone and voice appropriate for the learner role.
+
+ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
+- Use second-person voice ("you must", "you should")
+- Focus on immediate actions at point of service
+- Emphasize report/escalate for issues beyond authority`;
+
+  const keyFactsSection = validatedKeyFacts.map((kf: any) => {
+    const citationsStr = (kf.citations || []).map((c: any) =>
+      `  - ${c.url} (${c.tier}): "${(c.quote || '').substring(0, 100)}..." ${c.effectiveDate ? `[${c.effectiveDate}]` : ''}`
+    ).join('\n');
+
+    return `- id: ${kf.id}
+  fact: ${kf.fact_text || kf.factText}
+  mappedAction: ${kf.mapped_action || kf.mappedAction}
+  anchors: ${(kf.anchor_hit || kf.anchorHit || []).join(', ')}
+  status: ${kf.qa_status || kf.qaStatus}
+  citations:
+${citationsStr}`;
+  }).join('\n\n');
+
+  const userPrompt = `Track type: ${trackType}
+Target state: ${stateName || stateCode} (${stateCode})
+Learner role: ${scopeContract.primaryRole || 'frontline employee'}
+Allowed actions: ${(scopeContract.allowedLearnerActions || []).join(', ')}
+Domain anchors: ${(scopeContract.domainAnchors || []).join(', ')}
+
+VALIDATED KEY FACTS:
+${keyFactsSection}
+
+SOURCE CONTENT:
+${sourceContent}
+
+INSTRUCTIONS:
+Rewrite the source for ${stateName || stateCode} with minimal changes.
+Only edit where Key Facts require changes.
+Every changed sentence must end with [[KF:<id>]] where <id> is the exact Key Fact ID.
+Preserve headings, paragraph order, and HTML structure.
+Return revised content only. No explanations.`;
+
+  try {
+    const markedContent = await callOpenAI(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { temperature: 0.2 }
+    );
+
+    // Remove markers for clean draft
+    const draftContent = markedContent.replace(/\[\[KF:[^\]]+\]\]/g, '').trim();
+
+    console.log(`[GenerateDraft] LLM generated ${markedContent.length} chars with markers`);
+    return { draftContent, markedContent };
+  } catch (error) {
+    console.error('[GenerateDraft] LLM generation failed:', error);
+    // Return source unchanged on failure
+    return { draftContent: sourceContent, markedContent: sourceContent };
+  }
+}
+
+// Simple diff computation
+function computeDiffOpsSimple(sourceContent: string, draftContent: string): any[] {
+  const ops: any[] = [];
+  const sourceLines = sourceContent.split('\n');
+  const draftLines = draftContent.split('\n');
+
+  let sourcePos = 0;
+  let draftPos = 0;
+  let noteCounter = 0;
+
+  const maxLines = Math.max(sourceLines.length, draftLines.length);
+
+  for (let i = 0; i < maxLines; i++) {
+    const sourceLine = sourceLines[i] || '';
+    const draftLine = draftLines[i] || '';
+
+    const sourceLineStart = sourcePos;
+    const sourceLineEnd = sourcePos + sourceLine.length;
+    const draftLineStart = draftPos;
+    const draftLineEnd = draftPos + draftLine.length;
+
+    if (sourceLine !== draftLine) {
+      if (!sourceLine && draftLine) {
+        ops.push({
+          type: 'insert',
+          sourceStart: sourceLineStart,
+          sourceEnd: sourceLineStart,
+          draftStart: draftLineStart,
+          draftEnd: draftLineEnd,
+          newText: draftLine,
+          noteId: `note-${++noteCounter}`,
+        });
+      } else if (sourceLine && !draftLine) {
+        ops.push({
+          type: 'delete',
+          sourceStart: sourceLineStart,
+          sourceEnd: sourceLineEnd,
+          draftStart: draftLineStart,
+          draftEnd: draftLineStart,
+          oldText: sourceLine,
+          noteId: `note-${++noteCounter}`,
+        });
+      } else {
+        ops.push({
+          type: 'replace',
+          sourceStart: sourceLineStart,
+          sourceEnd: sourceLineEnd,
+          draftStart: draftLineStart,
+          draftEnd: draftLineEnd,
+          oldText: sourceLine,
+          newText: draftLine,
+          noteId: `note-${++noteCounter}`,
+        });
+      }
+    }
+
+    sourcePos = sourceLineEnd + 1;
+    draftPos = draftLineEnd + 1;
+  }
+
+  return ops;
+}
+
+// Build change notes from LLM markers
+function buildChangeNotesFromMarkers(
+  markedContent: string,
+  cleanDraft: string,
+  keyFacts: any[],
+  scopeContract: any
+): any[] {
+  const notes: any[] = [];
+  const keyFactMap = new Map(keyFacts.map(kf => [kf.id, kf]));
+
+  // Extract markers [[KF:id]]
+  const markerPattern = /\[\[KF:([^\]]+)\]\]/g;
+  const markers: Array<{ marker: string; factId: string; index: number }> = [];
+  let match;
+
+  while ((match = markerPattern.exec(markedContent)) !== null) {
+    markers.push({
+      marker: match[0],
+      factId: match[1],
+      index: match.index,
+    });
+  }
+
+  if (markers.length === 0) {
+    return [];
+  }
+
+  // Group markers by nearby position and create notes
+  const processedFactIds = new Set<string>();
+  let noteCounter = 0;
+
+  for (const marker of markers) {
+    if (processedFactIds.has(marker.factId)) continue;
+    processedFactIds.add(marker.factId);
+
+    const fact = keyFactMap.get(marker.factId);
+    if (!fact) continue;
+
+    const factText = fact.fact_text || fact.factText || '';
+    const mappedAction = fact.mapped_action || fact.mappedAction || '';
+    const anchorHit = fact.anchor_hit || fact.anchorHit || [];
+    const citations = fact.citations || [];
+
+    // Build citation refs
+    const citationRefs = citations.map((c: any) => ({
+      url: c.url,
+      tier: c.tier,
+      snippet: c.quote || '',
+      effectiveOrUpdatedDate: c.effectiveDate,
+    }));
+
+    // Determine status
+    const qaStatus = fact.qa_status || fact.qaStatus || 'PASS';
+    const status = qaStatus === 'PASS_WITH_REVIEW' ? 'needs_review' : 'applied';
+
+    // Find approximate position in clean draft
+    const cleanIndex = Math.min(marker.index, cleanDraft.length - 1);
+
+    notes.push({
+      id: `note-${++noteCounter}`,
+      title: buildChangeNoteTitleSimple(mappedAction, anchorHit),
+      description: `Applied state-specific requirement: ${factText.substring(0, 100)}${factText.length > 100 ? '...' : ''}`,
+      mappedAction,
+      anchorMatches: anchorHit,
+      affectedRangeStart: Math.max(0, cleanIndex - 50),
+      affectedRangeEnd: Math.min(cleanDraft.length, cleanIndex + 50),
+      keyFactIds: [marker.factId],
+      citations: citationRefs,
+      status,
+    });
+  }
+
+  return notes;
+}
+
+function buildChangeNoteTitleSimple(mappedAction: string, anchorHit: string[]): string {
+  const actionWords = (mappedAction || 'Update').split(' ');
+  const verb = actionWords[0] || 'Update';
+  const object = anchorHit[0] || 'content';
+  return `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${object} requirement`;
 }
 
 /**
@@ -7521,11 +8604,11 @@ async function handleGetDraft(draftId: string, req: Request): Promise<Response> 
 }
 
 /**
- * Handler: Apply Instructions (Stub - returns draft unchanged)
+ * Handler: Apply Instructions - Applies user instructions to modify draft content using AI
  */
 async function handleApplyInstructions(draftId: string, req: Request): Promise<Response> {
   try {
-    const { instruction } = await req.json();
+    const { instruction, contractId, extractionId } = await req.json();
 
     if (!instruction) {
       return jsonResponse({ error: "instruction is required" }, 400);
@@ -7535,6 +8618,8 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
+
+    console.log(`[ApplyInstructions] Processing instruction for draft: ${draftId}`);
 
     // Fetch existing draft
     const { data: draft, error } = await supabase
@@ -7548,34 +8633,1277 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
       return jsonResponse({ error: "Draft not found" }, 404);
     }
 
-    // Stub: Return draft unchanged
+    // Check if draft is blocked
+    if (draft.status === 'blocked') {
+      return jsonResponse({
+        draft: formatDraftResponse(draft),
+        success: false,
+        changesApplied: 0,
+        blockedChanges: [{
+          instruction,
+          reason: 'Draft is blocked and cannot be edited',
+        }],
+        message: "Cannot apply instructions to blocked draft",
+      });
+    }
+
+    // Fetch scope contract
+    const { data: contractRecord } = await supabase
+      .from('variant_scope_contracts')
+      .select('scope_contract')
+      .eq('id', contractId || draft.contract_id)
+      .eq('organization_id', orgId)
+      .single();
+
+    const scopeContract = contractRecord?.scope_contract || {};
+
+    // Fetch validated key facts
+    const { data: keyFacts } = await supabase
+      .from('variant_key_facts')
+      .select('*')
+      .eq('extraction_id', extractionId || draft.extraction_id)
+      .eq('organization_id', orgId);
+
+    const validatedKeyFacts = (keyFacts || []).filter((f: any) =>
+      f.qa_status === 'PASS' || f.qa_status === 'PASS_WITH_REVIEW'
+    );
+
+    // Check if instruction would require new research
+    const blockedChanges: any[] = [];
+    const newFactPatterns = [
+      /add.*(?:law|regulation|requirement|statute)/i,
+      /include.*(?:penalty|fine|violation)/i,
+      /what.*(?:age|limit|requirement)/i,
+      /(?:research|find|look up)/i,
+    ];
+
+    for (const pattern of newFactPatterns) {
+      if (pattern.test(instruction)) {
+        const instructionLower = instruction.toLowerCase();
+        const hasCoveringFact = validatedKeyFacts.some((kf: any) =>
+          (kf.fact_text || '').toLowerCase().includes(instructionLower.substring(0, 20))
+        );
+
+        if (!hasCoveringFact) {
+          blockedChanges.push({
+            instruction,
+            reason: 'This change would require new compliance information not in validated Key Facts.',
+            suggestion: 'Run research and key facts extraction again to include this information.',
+          });
+        }
+      }
+    }
+
+    // Apply instruction via LLM
+    const result = await applyInstructionWithLLM(
+      draft.draft_content || '',
+      instruction,
+      scopeContract,
+      validatedKeyFacts,
+      draft.state_code,
+      draft.state_name
+    );
+
+    // Compute new diff ops and change notes
+    const newDiffOps = computeDiffOpsSimple(draft.source_content || '', result.draftContent);
+    const existingNotes = draft.change_notes || [];
+
+    // Merge new change notes with existing ones
+    const newChangeNotes = buildChangeNotesFromMarkers(
+      result.markedContent,
+      result.draftContent,
+      validatedKeyFacts,
+      scopeContract
+    );
+
+    // Combine notes, avoiding duplicates
+    const combinedNotes = [...existingNotes];
+    for (const newNote of newChangeNotes) {
+      const exists = combinedNotes.some(n =>
+        n.keyFactIds?.some((id: string) => newNote.keyFactIds?.includes(id))
+      );
+      if (!exists) {
+        combinedNotes.push(newNote);
+      }
+    }
+
+    // Collect all applied fact IDs
+    const appliedKeyFactIds = [...new Set([
+      ...(draft.applied_key_fact_ids || []),
+      ...result.appliedKeyFactIds,
+    ])];
+
+    // Update draft in database
+    const { data: updatedDraft, error: updateError } = await supabase
+      .from('variant_drafts')
+      .update({
+        draft_content: result.draftContent,
+        diff_ops: newDiffOps,
+        change_notes: combinedNotes,
+        applied_key_fact_ids: appliedKeyFactIds,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', draftId)
+      .eq('organization_id', orgId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating draft:', updateError);
+      return jsonResponse({ error: `Failed to update draft: ${updateError.message}` }, 500);
+    }
+
+    const changesApplied = newChangeNotes.length;
+    console.log(`[ApplyInstructions] Applied ${changesApplied} changes to draft`);
+
     return jsonResponse({
-      draft: {
-        draftId: draft.id,
-        contractId: draft.contract_id,
-        extractionId: draft.extraction_id,
-        sourceTrackId: draft.source_track_id,
-        stateCode: draft.state_code,
-        stateName: draft.state_name,
-        trackType: draft.track_type,
-        status: draft.status,
-        draftTitle: draft.draft_title,
-        draftContent: draft.draft_content,
-        sourceContent: draft.source_content,
-        diffOps: draft.diff_ops || [],
-        changeNotes: draft.change_notes || [],
-        appliedKeyFactIds: draft.applied_key_fact_ids || [],
-        needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
-        createdAt: draft.created_at,
-        updatedAt: draft.updated_at,
-      },
+      draft: formatDraftResponse(updatedDraft),
       success: true,
-      changesApplied: 0,
-      message: "Apply instructions not yet implemented (stub)",
+      changesApplied,
+      blockedChanges: blockedChanges.length > 0 ? blockedChanges : undefined,
+      message: changesApplied > 0
+        ? `Applied ${changesApplied} change(s) based on instruction`
+        : blockedChanges.length > 0
+          ? 'Some changes were blocked'
+          : 'Instruction applied but no changes were needed',
     });
 
   } catch (error: any) {
     console.error('handleApplyInstructions error:', error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
   }
+}
+
+// Format draft for API response
+function formatDraftResponse(draft: any): any {
+  return {
+    draftId: draft.id,
+    contractId: draft.contract_id,
+    extractionId: draft.extraction_id,
+    sourceTrackId: draft.source_track_id,
+    stateCode: draft.state_code,
+    stateName: draft.state_name,
+    trackType: draft.track_type,
+    status: draft.status,
+    draftTitle: draft.draft_title,
+    draftContent: draft.draft_content,
+    sourceContent: draft.source_content,
+    diffOps: draft.diff_ops || [],
+    changeNotes: draft.change_notes || [],
+    appliedKeyFactIds: draft.applied_key_fact_ids || [],
+    needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
+    blockedReasons: draft.blocked_reasons,
+    createdAt: draft.created_at,
+    updatedAt: draft.updated_at,
+  };
+}
+
+// LLM-based instruction application
+async function applyInstructionWithLLM(
+  currentDraftContent: string,
+  instruction: string,
+  scopeContract: any,
+  validatedKeyFacts: any[],
+  stateCode: string,
+  stateName?: string
+): Promise<{ draftContent: string; markedContent: string; appliedKeyFactIds: string[] }> {
+  const systemPrompt = `You are a training content editor.
+Apply the user's instruction to the draft content.
+
+HARD RULES:
+- You may rephrase or clarify existing content.
+- You may NOT add new compliance claims beyond the provided Key Facts.
+- You may NOT add new topics beyond the domain anchors.
+- Preserve HTML structure if present.
+- Mark any changed sentence with [[KF:<id>]] if it relates to a Key Fact.
+- If the instruction cannot be safely applied, return the original content unchanged.
+
+AVAILABLE KEY FACTS:
+${validatedKeyFacts.map((kf: any) => `- ${kf.id}: ${kf.fact_text || kf.factText}`).join('\n')}
+
+DOMAIN ANCHORS (stay within these topics):
+${(scopeContract.domainAnchors || []).join(', ') || 'None specified'}
+
+DISALLOWED TOPICS:
+${(scopeContract.disallowedActionClasses || []).join(', ') || 'None specified'}
+
+State: ${stateName || stateCode}`;
+
+  const userPrompt = `INSTRUCTION: ${instruction}
+
+CURRENT DRAFT:
+${currentDraftContent}
+
+Apply the instruction. Return the revised content only.
+Mark changes with [[KF:<id>]] markers where they relate to Key Facts.
+If the instruction cannot be applied safely, return the original unchanged.`;
+
+  try {
+    const markedContent = await callOpenAI(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { temperature: 0.3 }
+    );
+
+    // Extract applied fact IDs from markers
+    const markerPattern = /\[\[KF:([^\]]+)\]\]/g;
+    const appliedKeyFactIds: string[] = [];
+    let match;
+    while ((match = markerPattern.exec(markedContent)) !== null) {
+      if (!appliedKeyFactIds.includes(match[1])) {
+        appliedKeyFactIds.push(match[1]);
+      }
+    }
+
+    // Remove markers for clean draft
+    const draftContent = markedContent.replace(/\[\[KF:[^\]]+\]\]/g, '').trim();
+
+    console.log(`[ApplyInstructions] LLM applied instruction, ${appliedKeyFactIds.length} facts referenced`);
+    return { draftContent, markedContent, appliedKeyFactIds };
+  } catch (error) {
+    console.error('[ApplyInstructions] LLM application failed:', error);
+    // Return original unchanged on failure
+    return { draftContent: currentDraftContent, markedContent: currentDraftContent, appliedKeyFactIds: [] };
+  }
+}
+
+// =============================================================================
+// KB (KNOWLEDGE BASE) HANDLERS
+// =============================================================================
+
+/**
+ * Handler: Get public track by KB slug
+ */
+async function handleKBPublicGet(req: Request, path: string): Promise<Response> {
+  try {
+    const slug = path.replace("/kb/public/", "");
+    console.log('🔍 KB Public endpoint called with slug:', slug);
+
+    if (!slug) {
+      return jsonResponse({ error: 'Slug is required' }, 400);
+    }
+
+    // Fetch track by kb_slug - ALWAYS get latest version
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('*')
+      .eq('kb_slug', slug)
+      .eq('show_in_knowledge_base', true)
+      .eq('status', 'published')
+      .or('is_latest_version.eq.true,is_latest_version.is.null')
+      .order('version_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (trackError || !track) {
+      console.log('❌ Track not found for slug:', slug);
+      return jsonResponse({ error: 'not_found' }, 404);
+    }
+
+    // Fetch organization settings
+    const { data: org, error: orgError } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('id', track.organization_id)
+      .single();
+
+    if (orgError || !org) {
+      console.error('❌ Organization not found for ID:', track.organization_id);
+      return jsonResponse({
+        error: 'organization_not_found',
+        message: 'Knowledge Base configuration not found'
+      }, 404);
+    }
+
+    // Extract KB settings with defaults
+    const privacyMode = org.kb_privacy_mode || 'public';
+
+    // Privacy check
+    if (privacyMode === 'employee_login') {
+      return jsonResponse({
+        error: 'login_required',
+        message: 'Employee login required to access this content',
+        org: { name: org.name, privacy_mode: privacyMode }
+      }, 401);
+    }
+
+    // Fetch Key Facts
+    const { data: factsData } = await supabase
+      .from('fact_usage')
+      .select(`fact_id, display_order, facts:fact_id (id, title, content)`)
+      .eq('track_id', track.id)
+      .eq('track_type', track.type)
+      .order('display_order', { ascending: true });
+
+    const facts = factsData?.map(fu => ({
+      id: (fu.facts as any)?.id || fu.fact_id,
+      title: (fu.facts as any)?.title || '',
+      content: (fu.facts as any)?.content || '',
+      display_order: fu.display_order || 0
+    })).filter(f => f.title) || [];
+
+    // Fetch Tags
+    const { data: trackTags } = await supabase
+      .from('track_tags')
+      .select(`tag_id, tags:tag_id (id, name, type, color)`)
+      .eq('track_id', track.id);
+
+    let tags = trackTags?.map(tt => tt.tags).filter(Boolean) || [];
+
+    // Fallback to legacy tags
+    if (tags.length === 0 && track.tags && Array.isArray(track.tags)) {
+      tags = track.tags.map((tagName: string) => ({
+        id: tagName,
+        name: tagName,
+        type: tagName.startsWith('system:') ? 'system' : 'custom',
+        color: tagName.startsWith('system:') ? '#6B7280' : '#3B82F6'
+      }));
+    }
+
+    // Fetch Attachments
+    const { data: attachments } = await supabase
+      .from('kb_attachments')
+      .select('id, filename, file_url, file_type, file_size, created_at')
+      .eq('article_id', track.id)
+      .order('created_at', { ascending: true });
+
+    // Fetch Related Tracks
+    let related: any[] = [];
+    if (trackTags && trackTags.length > 0) {
+      const tagIds = tags.map((t: any) => t.id);
+      const { data: relatedTracks } = await supabase
+        .from('track_tags')
+        .select(`track_id, tracks:track_id (id, title, kb_slug, type, duration_minutes, show_in_knowledge_base)`)
+        .in('tag_id', tagIds)
+        .neq('track_id', track.id);
+
+      if (relatedTracks) {
+        const uniqueTracks = new Map();
+        relatedTracks.forEach(rt => {
+          const t = rt.tracks as any;
+          if (t && t.kb_slug && t.show_in_knowledge_base) {
+            uniqueTracks.set(t.id, t);
+          }
+        });
+        related = Array.from(uniqueTracks.values()).slice(0, 5);
+      }
+    }
+
+    return jsonResponse({
+      track,
+      org,
+      facts: facts || [],
+      tags: tags || [],
+      attachments: attachments || [],
+      related: related || []
+    });
+  } catch (error: any) {
+    console.error('❌ Error in handleKBPublicGet:', error);
+    return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Record page view
+ */
+async function handleKBPageView(req: Request): Promise<Response> {
+  try {
+    const { trackId, userId, referrer, userAgent } = await req.json();
+
+    if (!trackId) {
+      return jsonResponse({ error: 'Missing trackId' }, 400);
+    }
+
+    // Always get latest version
+    let finalTrackId = trackId;
+    const { data: trackById } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id, is_latest_version')
+      .eq('id', trackId)
+      .single();
+
+    if (trackById && trackById.is_latest_version === false) {
+      const parentId = trackById.parent_track_id || trackId;
+      const { data: latestTrack } = await supabase
+        .from('tracks')
+        .select('id')
+        .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+        .eq('is_latest_version', true)
+        .single();
+
+      if (latestTrack) {
+        finalTrackId = latestTrack.id;
+      }
+    }
+
+    // Record activity event if userId is provided (with deduplication)
+    if (userId) {
+      const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
+      const { data: recentView } = await supabase
+        .from('activity_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('object_id', finalTrackId)
+        .eq('verb', 'Viewed')
+        .gte('timestamp', oneMinuteAgo)
+        .limit(1)
+        .maybeSingle();
+
+      if (!recentView) {
+        const { data: trackInfo } = await supabase
+          .from('tracks')
+          .select('title, type, version_number')
+          .eq('id', finalTrackId)
+          .single();
+
+        if (trackInfo) {
+          await supabase.from('activity_events').insert({
+            user_id: userId,
+            verb: 'Viewed',
+            object_type: 'track',
+            object_id: finalTrackId,
+            object_name: trackInfo.title,
+            result_completion: false,
+            context_platform: 'web',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              track_type: trackInfo.type,
+              track_version: trackInfo.version_number || 1,
+              action_type: 'view',
+              referrer: referrer || 'direct_link'
+            }
+          });
+        }
+      }
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('Error recording page view:', error);
+    return jsonResponse({ success: false }, 200);
+  }
+}
+
+/**
+ * Handler: Post feedback
+ */
+async function handleKBFeedbackPost(req: Request): Promise<Response> {
+  try {
+    const { trackId, helpful } = await req.json();
+
+    if (!trackId) {
+      return jsonResponse({ error: 'Missing trackId' }, 400);
+    }
+
+    // For now, just acknowledge - KV store implementation would go here
+    console.log('KB Feedback received:', { trackId, helpful });
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('Error recording KB feedback:', error);
+    return jsonResponse({ error: error.message || 'Failed to record feedback' }, 500);
+  }
+}
+
+/**
+ * Handler: Get feedback
+ */
+async function handleKBFeedbackGet(req: Request, path: string): Promise<Response> {
+  try {
+    const trackId = path.replace("/kb/feedback/", "");
+    // For now, return null - KV store implementation would go here
+    return jsonResponse({ helpful: null });
+  } catch (error: any) {
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Handler: Like a track
+ */
+async function handleKBLike(req: Request): Promise<Response> {
+  try {
+    const { trackId, userId } = await req.json();
+
+    if (!trackId) {
+      return jsonResponse({ error: 'Missing trackId' }, 400);
+    }
+
+    // Always like the latest version
+    let finalTrackId = trackId;
+    const { data: trackById } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id, is_latest_version')
+      .eq('id', trackId)
+      .single();
+
+    if (trackById && trackById.is_latest_version === false) {
+      const parentId = trackById.parent_track_id || trackId;
+      const { data: latestTrack } = await supabase
+        .from('tracks')
+        .select('id')
+        .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+        .eq('is_latest_version', true)
+        .single();
+
+      if (latestTrack) {
+        finalTrackId = latestTrack.id;
+      }
+    }
+
+    // Check if user already liked
+    if (userId) {
+      const { data: existingLike } = await supabase
+        .from('activity_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('object_id', finalTrackId)
+        .eq('verb', 'Liked')
+        .limit(1)
+        .maybeSingle();
+
+      if (existingLike) {
+        const { data: track } = await supabase
+          .from('tracks')
+          .select('likes_count')
+          .eq('id', finalTrackId)
+          .single();
+
+        return jsonResponse({
+          success: true,
+          likes: track?.likes_count || 0,
+          alreadyLiked: true
+        });
+      }
+    }
+
+    // Try RPC increment
+    let newLikes = 0;
+    const { error: rpcError } = await supabase.rpc('increment_track_likes', {
+      track_id: finalTrackId
+    });
+
+    if (!rpcError) {
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('likes_count')
+        .eq('id', finalTrackId)
+        .single();
+
+      if (track) {
+        newLikes = track.likes_count || 0;
+
+        // Record activity event
+        if (userId) {
+          const { data: trackInfo } = await supabase
+            .from('tracks')
+            .select('title, type, version_number')
+            .eq('id', finalTrackId)
+            .single();
+
+          if (trackInfo) {
+            await supabase.from('activity_events').insert({
+              user_id: userId,
+              verb: 'Liked',
+              object_type: 'track',
+              object_id: finalTrackId,
+              object_name: trackInfo.title,
+              result_completion: false,
+              context_platform: 'web',
+              timestamp: new Date().toISOString(),
+              metadata: {
+                track_type: trackInfo.type,
+                track_version: trackInfo.version_number || 1,
+                action_type: 'like'
+              }
+            });
+          }
+        }
+      }
+    } else {
+      // Fallback to manual increment
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('likes_count')
+        .eq('id', finalTrackId)
+        .single();
+
+      if (track) {
+        newLikes = (track.likes_count || 0) + 1;
+        await supabase
+          .from('tracks')
+          .update({ likes_count: newLikes })
+          .eq('id', finalTrackId);
+      }
+    }
+
+    return jsonResponse({ success: true, likes: newLikes });
+  } catch (error: any) {
+    console.error('❌ KB Like error:', error);
+    return jsonResponse({ error: error.message || 'Failed to like track' }, 500);
+  }
+}
+
+/**
+ * Handler: Get likes count
+ */
+async function handleKBGetLikes(req: Request, path: string): Promise<Response> {
+  try {
+    const url = new URL(req.url);
+    const trackId = path.replace("/kb/likes/", "").split("?")[0];
+    const userId = url.searchParams.get('userId');
+
+    if (!trackId) {
+      return jsonResponse({ error: 'Missing trackId' }, 400);
+    }
+
+    // Always get latest version
+    let finalTrackId = trackId;
+    const { data: trackById } = await supabase
+      .from('tracks')
+      .select('id, parent_track_id, is_latest_version')
+      .eq('id', trackId)
+      .single();
+
+    if (trackById && trackById.is_latest_version === false) {
+      const parentId = trackById.parent_track_id || trackId;
+      const { data: latestTrack } = await supabase
+        .from('tracks')
+        .select('id')
+        .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
+        .eq('is_latest_version', true)
+        .single();
+
+      if (latestTrack) {
+        finalTrackId = latestTrack.id;
+      }
+    }
+
+    const { data: track } = await supabase
+      .from('tracks')
+      .select('likes_count')
+      .eq('id', finalTrackId)
+      .single();
+
+    const likes = track?.likes_count || 0;
+
+    // Check if user liked
+    let userLiked = false;
+    if (userId) {
+      const { data: userLikeEvent } = await supabase
+        .from('activity_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('object_id', finalTrackId)
+        .eq('verb', 'Liked')
+        .limit(1)
+        .maybeSingle();
+
+      userLiked = !!userLikeEvent;
+    }
+
+    return jsonResponse({ likes, userLiked });
+  } catch (error: any) {
+    console.error('❌ KB Get Likes error:', error);
+    return jsonResponse({ likes: 0, userLiked: false });
+  }
+}
+
+// =============================================================================
+// TTS HANDLER
+// =============================================================================
+
+/**
+ * Handler: Generate TTS audio
+ */
+async function handleTTSGenerate(req: Request): Promise<Response> {
+  try {
+    const { trackId, voice = 'alloy', forceRegenerate = false } = await req.json();
+
+    if (!trackId) {
+      return jsonResponse({ error: 'Missing trackId' }, 400);
+    }
+
+    console.log('🎙️ TTS generation requested:', { trackId, voice, forceRegenerate });
+
+    // Get track content - include all possible content fields
+    const { data: track, error: trackError } = await supabase
+      .from('tracks')
+      .select('transcript, content_text, description, title, type')
+      .eq('id', trackId)
+      .single();
+
+    if (trackError || !track) {
+      console.error('Track not found:', trackError);
+      return jsonResponse({ error: 'Track not found' }, 404);
+    }
+
+    // Get text content based on track type
+    // Articles use content_text, videos/stories use transcript
+    let textContent = '';
+    if (track.type === 'article') {
+      textContent = track.content_text || track.transcript || track.description || '';
+    } else {
+      textContent = track.transcript || track.content_text || track.description || '';
+    }
+
+    // Strip HTML/markdown from content
+    textContent = stripHtmlAndMarkdown(textContent);
+
+    if (!textContent || textContent.length < 10) {
+      return jsonResponse({ error: 'Content too short for TTS generation' }, 400);
+    }
+
+    console.log('📝 Text content extracted:', {
+      type: track.type,
+      originalLength: (track.content_text || track.transcript || '').length,
+      strippedLength: textContent.length,
+      preview: textContent.substring(0, 100) + '...'
+    });
+
+    // Check for existing TTS audio in tracks table (tts_audio_url column)
+    const { data: existingTrack } = await supabase
+      .from('tracks')
+      .select('tts_audio_url, tts_voice')
+      .eq('id', trackId)
+      .single();
+
+    if (!forceRegenerate && existingTrack?.tts_audio_url && existingTrack?.tts_voice === voice) {
+      console.log('✅ Using existing TTS audio from track');
+      return jsonResponse({
+        audioUrl: existingTrack.tts_audio_url,
+        voice: existingTrack.tts_voice,
+        cached: true
+      });
+    }
+
+    // Generate with OpenAI TTS
+    if (!OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY not configured');
+      return jsonResponse({ error: 'TTS service not configured' }, 503);
+    }
+
+    console.log('🤖 Calling OpenAI TTS API...');
+    const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: textContent.substring(0, 4096), // OpenAI limit
+        voice: voice,
+        response_format: 'mp3',
+      }),
+    });
+
+    if (!ttsResponse.ok) {
+      const errorText = await ttsResponse.text();
+      console.error('OpenAI TTS error:', errorText);
+      return jsonResponse({ error: 'TTS generation failed' }, 500);
+    }
+
+    const audioBuffer = await ttsResponse.arrayBuffer();
+    console.log('✅ Audio generated:', { size: audioBuffer.byteLength, voice });
+
+    // Ensure TTS bucket exists
+    const bucketName = 'tts-audio';
+    await ensureBucketExists(bucketName);
+
+    const fileName = `tts-${trackId}-${voice}-${Date.now()}.mp3`;
+
+    // Upload to storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(fileName, audioBuffer, {
+        contentType: 'audio/mpeg',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('TTS upload error:', uploadError);
+      return jsonResponse({ error: 'Failed to store audio' }, 500);
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+
+    const audioUrl = urlData?.publicUrl;
+    console.log('✅ Audio uploaded to storage:', audioUrl);
+
+    // Store TTS info in the tracks table
+    const { error: updateError } = await supabase
+      .from('tracks')
+      .update({
+        tts_audio_url: audioUrl,
+        tts_voice: voice,
+        tts_generated_at: new Date().toISOString(),
+      })
+      .eq('id', trackId);
+
+    if (updateError) {
+      console.warn('Failed to update track with TTS info:', updateError);
+      // Don't fail - audio was generated successfully
+    }
+
+    return jsonResponse({
+      audioUrl,
+      voice,
+      cached: false,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('TTS generation error:', error);
+    return jsonResponse({ error: error.message || 'TTS generation failed' }, 500);
+  }
+}
+
+// =============================================================================
+// MEDIA UPLOAD HANDLER
+// =============================================================================
+
+/**
+ * Handler: Upload media file
+ */
+async function handleUploadMedia(req: Request): Promise<Response> {
+  try {
+    const formData = await req.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return jsonResponse({ error: 'No file provided' }, 400);
+    }
+
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    if (file.size > MAX_FILE_SIZE) {
+      return jsonResponse({ error: 'File too large. Maximum size is 50MB.' }, 400);
+    }
+
+    const timestamp = Date.now();
+    const fileExt = file.name.split('.').pop();
+    const fileName = `track-${timestamp}.${fileExt}`;
+
+    console.log('Uploading file:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('track-media')
+      .upload(fileName, file.stream(), {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return jsonResponse({ error: `Upload failed: ${uploadError.message}` }, 500);
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('track-media')
+      .getPublicUrl(fileName);
+
+    return jsonResponse({
+      success: true,
+      url: urlData?.publicUrl,
+      fileName,
+    });
+  } catch (error: any) {
+    console.error('Media upload error:', error);
+    return jsonResponse({ error: error.message || 'Upload failed' }, 500);
+  }
+}
+
+// =============================================================================
+// STORY TRANSCRIPTION HANDLER
+// =============================================================================
+
+/**
+ * Handler: Transcribe story videos
+ */
+async function handleTranscribeStory(req: Request): Promise<Response> {
+  try {
+    const { trackId, slides } = await req.json();
+
+    if (!trackId || !slides || !Array.isArray(slides)) {
+      return jsonResponse({ error: 'Missing trackId or slides array' }, 400);
+    }
+
+    if (!ASSEMBLYAI_API_KEY) {
+      return jsonResponse({ error: 'Transcription service not configured' }, 503);
+    }
+
+    const results: any[] = [];
+
+    for (const slide of slides) {
+      if (slide.type !== 'video' || !slide.url) {
+        continue;
+      }
+
+      try {
+        // Submit transcription job
+        const submitResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+          method: 'POST',
+          headers: {
+            'Authorization': ASSEMBLYAI_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            audio_url: slide.url,
+            speaker_labels: true,
+          }),
+        });
+
+        if (!submitResponse.ok) {
+          results.push({
+            slideId: slide.id,
+            slideName: slide.name,
+            error: 'Failed to submit transcription',
+          });
+          continue;
+        }
+
+        const job = await submitResponse.json();
+
+        // Poll for completion (with timeout)
+        let transcript = null;
+        const maxAttempts = 60;
+        let attempts = 0;
+
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const statusResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${job.id}`, {
+            headers: { 'Authorization': ASSEMBLYAI_API_KEY },
+          });
+
+          const status = await statusResponse.json();
+
+          if (status.status === 'completed') {
+            transcript = status;
+            break;
+          } else if (status.status === 'error') {
+            results.push({
+              slideId: slide.id,
+              slideName: slide.name,
+              error: status.error || 'Transcription failed',
+            });
+            break;
+          }
+
+          attempts++;
+        }
+
+        if (transcript) {
+          results.push({
+            slideId: slide.id,
+            slideName: slide.name,
+            slideOrder: slide.order || 0,
+            transcript: {
+              text: transcript.text,
+              words: transcript.words || [],
+              utterances: transcript.utterances || [],
+              confidence: transcript.confidence,
+              audio_duration: transcript.audio_duration,
+            },
+          });
+        }
+      } catch (slideError: any) {
+        results.push({
+          slideId: slide.id,
+          slideName: slide.name,
+          error: slideError.message,
+        });
+      }
+    }
+
+    return jsonResponse({ transcripts: results });
+  } catch (error: any) {
+    console.error('Story transcription error:', error);
+    return jsonResponse({ error: error.message || 'Transcription failed' }, 500);
+  }
+}
+
+// =============================================================================
+// CHECKPOINT AI HANDLER
+// =============================================================================
+
+/**
+ * Handler: Generate checkpoint questions with AI
+ */
+async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
+  try {
+    const { trackId, trackTitle, trackDescription, transcript, factCount } = await req.json();
+
+    if (!trackId || !transcript) {
+      return jsonResponse({ error: 'Missing required fields' }, 400);
+    }
+
+    // Use Anthropic if available, otherwise OpenAI
+    const systemPrompt = `You are an expert instructional designer creating knowledge check questions. Generate 3-5 multiple choice questions based on the provided content. Each question should:
+- Test understanding of key concepts
+- Have 4 answer options (A, B, C, D)
+- Have one clearly correct answer
+- Include a brief explanation for the correct answer
+
+Return as JSON array with format:
+[{
+  "question": "Question text",
+  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+  "correctAnswer": 0,
+  "explanation": "Brief explanation"
+}]`;
+
+    const userPrompt = `Title: ${trackTitle || 'Untitled'}
+Description: ${trackDescription || 'No description'}
+
+Content:
+${transcript.substring(0, 8000)}
+
+Generate knowledge check questions for this content.`;
+
+    let questionsJson: string;
+
+    if (ANTHROPIC_API_KEY) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Anthropic API error');
+      }
+
+      const data = await response.json();
+      questionsJson = data.content[0].text;
+    } else if (OPENAI_API_KEY) {
+      questionsJson = await callOpenAI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ], { response_format: { type: 'json_object' } });
+    } else {
+      return jsonResponse({ error: 'AI service not configured' }, 503);
+    }
+
+    // Parse questions
+    let questions;
+    try {
+      const parsed = JSON.parse(questionsJson);
+      questions = Array.isArray(parsed) ? parsed : parsed.questions || [];
+    } catch {
+      return jsonResponse({ error: 'Failed to parse AI response' }, 500);
+    }
+
+    return jsonResponse({
+      questions,
+      sourceInfo: {
+        trackId,
+        trackTitle,
+        factCount: factCount || 0,
+      },
+    });
+  } catch (error: any) {
+    console.error('Checkpoint AI error:', error);
+    return jsonResponse({ error: error.message || 'AI generation failed' }, 500);
+  }
+}
+
+// =============================================================================
+// DISTRICTS HANDLER
+// =============================================================================
+
+/**
+ * Handler: Get districts
+ */
+async function handleGetDistricts(req: Request): Promise<Response> {
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: districts, error } = await supabase
+      .from('districts')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('name');
+
+    if (error) {
+      console.error('Error fetching districts:', error);
+      return jsonResponse({ error: 'Failed to fetch districts' }, 500);
+    }
+
+    return jsonResponse({ districts: districts || [] });
+  } catch (error: any) {
+    console.error('Districts error:', error);
+    return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+  }
+}
+
+// =============================================================================
+// TAGS HANDLERS
+// =============================================================================
+
+/**
+ * Handler: Get tags for an entity
+ */
+async function handleGetEntityTags(req: Request, path: string): Promise<Response> {
+  try {
+    const parts = path.split('/');
+    const entityType = parts[3];
+    const entityId = parts[4];
+
+    if (!entityType || !entityId) {
+      return jsonResponse({ error: 'Missing entity type or ID' }, 400);
+    }
+
+    let tags: any[] = [];
+
+    if (entityType === 'track') {
+      const { data: trackTags } = await supabase
+        .from('track_tags')
+        .select(`tag_id, tags:tag_id (id, name, type, color)`)
+        .eq('track_id', entityId);
+
+      tags = trackTags?.map(tt => tt.tags).filter(Boolean) || [];
+    }
+
+    return jsonResponse({ tags });
+  } catch (error: any) {
+    console.error('Get entity tags error:', error);
+    return jsonResponse({ error: error.message || 'Failed to get tags' }, 500);
+  }
+}
+
+/**
+ * Handler: Assign tags to an entity
+ */
+async function handleAssignTags(req: Request): Promise<Response> {
+  try {
+    const { entityType, entityId, tagIds } = await req.json();
+
+    if (!entityType || !entityId || !Array.isArray(tagIds)) {
+      return jsonResponse({ error: 'Missing required fields' }, 400);
+    }
+
+    if (entityType === 'track') {
+      // Delete existing tags
+      await supabase
+        .from('track_tags')
+        .delete()
+        .eq('track_id', entityId);
+
+      // Insert new tags
+      if (tagIds.length > 0) {
+        const { error } = await supabase
+          .from('track_tags')
+          .insert(tagIds.map(tagId => ({
+            track_id: entityId,
+            tag_id: tagId,
+          })));
+
+        if (error) {
+          console.error('Error assigning tags:', error);
+          return jsonResponse({ error: 'Failed to assign tags' }, 500);
+        }
+      }
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('Assign tags error:', error);
+    return jsonResponse({ error: error.message || 'Failed to assign tags' }, 500);
+  }
+}
+
+// =============================================================================
+// ADDITIONAL VARIANT HANDLERS (STUBS)
+// =============================================================================
+
+async function handleCreateVariant(req: Request): Promise<Response> {
+  return jsonResponse({ error: 'Not implemented' }, 501);
+}
+
+async function handleGetVariants(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ variants: [] });
+}
+
+async function handleFindVariant(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ variant: null });
+}
+
+async function handleGetBaseTrack(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ baseTrack: null });
+}
+
+async function handleGetStatsWithVariants(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ stats: {} });
+}
+
+async function handleGetVariantTree(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ tree: [] });
+}
+
+async function handleGetParentVariant(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ parent: null });
+}
+
+async function handleGetVariantsNeedingReview(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ variants: [] });
+}
+
+async function handleMarkVariantSynced(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ success: true });
+}
+
+async function handleGetUltimateBaseTrack(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ baseTrack: null });
+}
+
+async function handleBatchTrackRelationships(req: Request): Promise<Response> {
+  return jsonResponse({ relationships: [] });
+}
+
+async function handleClassifySource(req: Request): Promise<Response> {
+  return jsonResponse({ classification: null });
+}
+
+async function handleUpdateKeyFactsStatus(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ success: true });
+}
+
+async function handleGetKeyFactsByState(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ keyFacts: [] });
+}
+
+async function handleValidateFact(req: Request): Promise<Response> {
+  return jsonResponse({ valid: true });
+}
+
+async function handleGetDraftStatus(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ status: 'unknown' });
+}
+
+async function handlePublishDraft(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ success: true });
+}
+
+async function handleGetDrafts(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ drafts: [] });
+}
+
+async function handleDeleteDraft(req: Request, path: string): Promise<Response> {
+  return jsonResponse({ success: true });
 }

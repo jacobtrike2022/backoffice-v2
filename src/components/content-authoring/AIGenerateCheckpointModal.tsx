@@ -11,7 +11,7 @@ import {
   Link as LinkIcon
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getSupabaseClient } from '../../utils/supabase/client';
 
 interface AIGenerateCheckpointModalProps {
@@ -86,7 +86,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
           
           if (accessToken) {
             const response = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/track-relationships/batch`,
+              `${getServerUrl()}/track-relationships/batch`,
               {
                 method: 'POST',
                 headers: {
@@ -149,7 +149,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/checkpoint-ai/ai-generate`,
+        `${getServerUrl()}/checkpoint-ai/ai-generate`,
         {
           method: 'POST',
           headers: {

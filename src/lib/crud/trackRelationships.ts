@@ -132,8 +132,8 @@ export async function getDerivedTracks(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch derived tracks');
@@ -165,8 +165,8 @@ export async function getSourceTrack(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch source track');
@@ -192,8 +192,8 @@ export async function getTrackRelationshipStats(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch relationship stats');
@@ -282,8 +282,8 @@ export async function getTrackVariants(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Track variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Track variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch track variants');
@@ -319,8 +319,8 @@ export async function findVariantByContext(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Find variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Find variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to find variant');
@@ -346,8 +346,8 @@ export async function getBaseTrackForVariant(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to get base track');
@@ -373,8 +373,8 @@ export async function getTrackRelationshipStatsWithVariants(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Stats with variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Stats with variants endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch relationship stats with variants');
@@ -400,8 +400,8 @@ export async function getVariantTree(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Variant tree endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Variant tree endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to fetch variant tree');
@@ -427,8 +427,8 @@ export async function getParentVariant(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Parent variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Parent variant endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to get parent variant');
@@ -454,8 +454,8 @@ export async function getVariantsNeedingReview(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Variants needing review endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Variants needing review endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to get variants needing review');
@@ -482,8 +482,8 @@ export async function markVariantSynced(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Mark synced endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Mark synced endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to mark variant as synced');
@@ -506,8 +506,8 @@ export async function getUltimateBaseTrack(
 
   if (!response.ok) {
     if (response.status === 404) {
-      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-      console.error(`Ultimate base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`Ultimate base track endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
     }
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to get ultimate base track');

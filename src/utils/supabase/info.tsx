@@ -39,6 +39,6 @@ if (!publicAnonKey) {
  * otherwise falls back to the default function name
  */
 export function getServerUrl(): string {
-  const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
+  const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
   return `https://${projectId}.supabase.co/functions/v1/${functionName}`;
 }

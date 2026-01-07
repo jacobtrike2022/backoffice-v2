@@ -77,14 +77,8 @@ import {
 import { AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
 import { CreateVariantModal } from './content-authoring/CreateVariantModal';
 
-// Attempt to import defaultThumbnail image. Fall back to undefined if not found.
-let defaultThumbnail: string | undefined;
-try {
-  // @ts-ignore: Ignore error if file does not exist during build.
-  defaultThumbnail = require('../assets/default-thumbnail.png');
-} catch {
-  defaultThumbnail = undefined;
-}
+// Default thumbnail from public folder
+const defaultThumbnail = '/default-thumbnail.png';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -1258,6 +1252,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
                     alt={track.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== defaultThumbnail) {
+                        target.src = defaultThumbnail;
+                      }
+                    }}
                   />
                   <div className="absolute top-2 right-2">
                     <Badge className={getTypeBadgeColor(track.type)}>
@@ -1560,6 +1560,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
                       alt={track.title}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        if (target.src !== defaultThumbnail) {
+                          target.src = defaultThumbnail;
+                        }
+                      }}
                     />
                   </div>
 

@@ -10,7 +10,7 @@ import {
 } from '../ui/dialog';
 import { cn } from '../ui/utils';
 import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 interface BrainMessage {
   role: 'user' | 'assistant';
@@ -108,7 +108,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
       const authToken = session?.access_token || publicAnonKey;
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/trike-server/brain/chat`,
+        `${getServerUrl()}/brain/chat`,
         {
           method: 'POST',
           headers: {

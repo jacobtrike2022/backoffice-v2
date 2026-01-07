@@ -1595,8 +1595,8 @@ export async function getTrackVersions(trackId: string) {
 
     if (!response.ok) {
       if (response.status === 404) {
-        const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'make-server-2858cc8b';
-        console.error(`❌ Track versions endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'make-server-2858cc8b' (currently: '${functionName}')`);
+        const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+        console.error(`❌ Track versions endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
       }
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
       throw new Error(errorData.error || 'Server error');

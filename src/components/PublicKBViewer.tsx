@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { 
   ChevronDown, 
   ChevronUp, 
@@ -28,7 +28,7 @@ import {
   Send,
   Zap
 } from 'lucide-react';
-import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import trikeLogoDark from '../assets/trike-logo.png';
 import { TTSPlayer } from './content/TTSPlayer';
 import BrainChatDrawer from './BrainChat/BrainChatDrawer';
 import { PinLoginModal } from './public/PinLoginModal';
@@ -179,7 +179,7 @@ export function PublicKBViewer() {
         return;
       }
 
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/public/${slug}`;
+      const url = `${getServerUrl()}/kb/public/${slug}`;
       console.log('Fetching from:', url);
 
       const response = await fetch(url, {
@@ -359,7 +359,7 @@ export function PublicKBViewer() {
       console.log('📊 PublicKBViewer: Tracking page view with userId:', currentUserId);
       
       await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/page-view`,
+        `${getServerUrl()}/kb/page-view`,
         {
           method: 'POST',
           headers: {
@@ -387,8 +387,8 @@ export function PublicKBViewer() {
       
       // Include userId in query to check if user already liked
       const url = currentUserId 
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${trackId}?userId=${currentUserId}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${trackId}`;
+        ? `${getServerUrl()}/kb/likes/${trackId}?userId=${currentUserId}`
+        : `${getServerUrl()}/kb/likes/${trackId}`;
       
       const response = await fetch(url, {
         headers: {
@@ -422,7 +422,7 @@ export function PublicKBViewer() {
     try {
       console.log('📊 PublicKBViewer: Liking track with userId:', currentUserId);
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/like`,
+        `${getServerUrl()}/kb/like`,
         {
           method: 'POST',
           headers: {

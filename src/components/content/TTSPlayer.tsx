@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, FastForward, Radio, Loader2, Mic2 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
 const VOICES = [
   { id: 'alloy', label: 'Alloy (Neutral)', description: 'Balanced voice' },
@@ -78,7 +78,7 @@ export function TTSPlayer({
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/tts/generate`,
+        `${getServerUrl()}/tts/generate`,
         {
           method: 'POST',
           headers: {

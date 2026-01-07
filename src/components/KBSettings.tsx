@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner@2.0.3';
-import trikeLogoDark from 'figma:asset/d284bc7ee411198fb15ff6e1e42fef256815e21f.png';
+import trikeLogoDark from '../assets/trike-logo.png';
 
 interface OrgSettings {
   logo_dark_url: string | null;

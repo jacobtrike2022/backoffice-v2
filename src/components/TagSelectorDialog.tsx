@@ -15,7 +15,7 @@ import {
 import { CreateTagModal } from './CreateTagModal';
 import { TagRecommendationPanel } from './TagRecommendationPanel';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey, getServerUrl } from '../utils/supabase/info';
 
 interface TagSelectorDialogProps {
   isOpen: boolean;
@@ -157,7 +157,7 @@ export function TagSelectorDialog({
 
       // 2. No pending suggestions or error, call OpenAI API
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/trike-server/recommend-tags`,
+        `${getServerUrl()}/recommend-tags`,
         {
           method: 'POST',
           headers: {

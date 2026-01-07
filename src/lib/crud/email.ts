@@ -3,9 +3,9 @@
 // ============================================================================
 
 import { supabase } from '../supabase';
-import { projectId } from '../../utils/supabase/info';
+import { getServerUrl } from '../../utils/supabase/info';
 
-const TRIKE_SERVER_URL = `https://${projectId}.supabase.co/functions/v1/trike-server`;
+const TRIKE_SERVER_URL = getServerUrl();
 
 // ============================================================================
 // TYPES

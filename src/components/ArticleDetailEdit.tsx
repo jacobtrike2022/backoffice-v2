@@ -46,8 +46,8 @@ import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
-import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
+import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
+import defaultThumbnail from '../assets/default-thumbnail.jpg';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -567,7 +567,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           
           if (plainText.length >= 150) {
             const response = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              `${getServerUrl()}/generate-key-facts`,
               {
                 method: 'POST',
                 headers: {
@@ -737,7 +737,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         console.log('🤖 Calling AI to generate key facts...');
         
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -802,7 +802,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         const plainText = tempDiv.textContent || tempDiv.innerText || '';
         
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {

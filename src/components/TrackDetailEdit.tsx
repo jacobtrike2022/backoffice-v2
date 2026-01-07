@@ -41,7 +41,7 @@ import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner@2.0.3';
 import { InteractiveTranscript } from './InteractiveTranscript';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 
 interface TrackDetailEditProps {
   track: any;
@@ -601,7 +601,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             console.log('🤖 Auto-generating key facts for video first save...');
             
             const response = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+              `${getServerUrl()}/generate-key-facts`,
               {
                 method: 'POST',
                 headers: {
@@ -735,7 +735,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         console.log('🤖 Calling AI to generate key facts from transcript...');
         
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -796,7 +796,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       
       try {
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/generate-key-facts`,
+          `${getServerUrl()}/generate-key-facts`,
           {
             method: 'POST',
             headers: {
@@ -992,14 +992,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       // Import Supabase info
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
       
-      const uploadUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/upload-media`;
+      const uploadUrl = `${getServerUrl()}/upload-media`;
       console.log('Uploading to:', uploadUrl);
       console.log('File info:', { name: file.name, type: file.type, size: file.size });
       
       // First test if server is reachable
       try {
         const healthCheck = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/health`,
+          `${getServerUrl()}/health`,
           {
             method: 'GET',
             headers: {
@@ -1091,7 +1091,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     try {
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
       
-      const transcribeUrl = `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe`;
+      const transcribeUrl = `${getServerUrl()}/transcribe`;
       const contentUrl = editFormData.content_url || track.content_url;
       console.log('Transcribing:', contentUrl);
       

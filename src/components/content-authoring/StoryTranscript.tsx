@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { MessageSquare, Loader2, AlertCircle, Video as VideoIcon } from 'lucide-react';
+import { getServerUrl } from '../../utils/supabase/info';
 
 interface Word {
   text: string;
@@ -107,7 +108,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
       console.log('🎬 Starting story transcription...');
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/transcribe-story`,
+        `${getServerUrl()}/transcribe-story`,
         {
           method: 'POST',
           headers: {

@@ -75,14 +75,14 @@ import {
 import { Switch } from './ui/switch';
 import { Label } from './ui/label';
 import { cn } from './ui/utils';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { QRCodeToggle } from './kb/QRCodeToggle';
 import { TTSPlayer } from './content/TTSPlayer';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { StoryPreview } from './content-authoring/StoryPreview';
 import { StoryTranscript } from './content-authoring/StoryTranscript';
 import BrainChatDrawer from './BrainChat/BrainChatDrawer';
-import defaultThumbnail from 'figma:asset/350a7af3cbf2720308b79c5a6274b4eee75a6c9c.png';
+import defaultThumbnail from '../assets/default-thumbnail.jpg';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -946,7 +946,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
       const authToken = session?.access_token || publicAnonKey;
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/trike-server/brain/chat`,
+        `${getServerUrl()}/brain/chat`,
         {
           method: 'POST',
           headers: {
@@ -1888,7 +1888,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
          .catch(e => console.error("Failed to fetch feedback", e));
        
        // Fetch likes count from KV store
-       fetch(`https://${projectId}.supabase.co/functions/v1/make-server-2858cc8b/kb/likes/${selectedTrack.id}`, {
+       fetch(`${getServerUrl()}/kb/likes/${selectedTrack.id}`, {
          method: 'GET',
          headers: {
            'Authorization': `Bearer ${publicAnonKey}`
