@@ -118,7 +118,7 @@ export interface StateVariantWizardProps {
     transcript?: string;
     description?: string;
   };
-  onComplete?: (draft: VariantDraft) => void;
+  onComplete?: (draft: VariantDraft, variantTrackId?: string) => void;
   initialState?: { code: string; name: string };
 }
 
@@ -440,10 +440,10 @@ export function StateVariantWizard({
     setState(prev => ({ ...prev, draft: updatedDraft }));
   };
 
-  // Handle publish
-  const handlePublish = () => {
+  // Handle publish - receives result from VariantEditorLayout
+  const handlePublish = (result: { variantTrackId: string; relationshipId: string | null }) => {
     if (state.draft && onComplete) {
-      onComplete(state.draft);
+      onComplete(state.draft, result.variantTrackId);
     }
   };
 

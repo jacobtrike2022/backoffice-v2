@@ -38,11 +38,16 @@ import {
   type DraftStatus
 } from '../../lib/crud/trackRelationships';
 
+interface PublishResult {
+  variantTrackId: string;
+  relationshipId: string | null;
+}
+
 interface VariantEditorLayoutProps {
   draft: VariantDraft;
   sourceContent: string;
   onDraftUpdate: (draft: VariantDraft) => void;
-  onPublish?: () => void;
+  onPublish?: (result: PublishResult) => void;
   onClose: () => void;
   contractId?: string;
   extractionId?: string;
@@ -128,7 +133,10 @@ export function VariantEditorLayout({
         toast.success('Variant published', {
           description: 'The state variant has been created successfully',
         });
-        onPublish?.();
+        onPublish?.({
+          variantTrackId: result.variantTrackId,
+          relationshipId: result.relationshipId || null,
+        });
       }
     } catch (error: any) {
       toast.error('Failed to publish', {

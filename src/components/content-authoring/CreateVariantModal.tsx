@@ -972,13 +972,14 @@ export function CreateVariantModal({
             description: fullSourceTrack?.description,
           }}
           initialState={US_STATES.find(s => s.code === selectedState)}
-          onComplete={(draft) => {
-            // Draft was published successfully
+          onComplete={(draft, variantTrackId) => {
+            // Draft was published successfully - now we have the actual track ID
             setShowStateVariantWizard(false);
             toast.success('State variant created!');
-            // Close the main modal and notify parent
-            if (draft.draftId) {
-              onVariantCreated(draft.draftId);
+            // Close the main modal and notify parent with the new track ID
+            const trackId = variantTrackId || draft.draftId;
+            if (trackId) {
+              onVariantCreated(trackId);
             }
             onClose();
           }}

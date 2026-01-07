@@ -88,7 +88,7 @@ interface ContentLibraryProps {
   onNavigateToAlbum?: (albumId: string) => void;  // NEW
   onBackToLibrary?: () => void; // Callback to notify parent when returning to library
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
-  onNavigate?: (view: string) => void; // Navigation callback for creating content
+  onNavigate?: (view: string, trackId?: string) => void; // Navigation callback for creating/editing content
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -1835,14 +1835,20 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         } : undefined}
         onVariantCreated={(newTrackId) => {
           setCreateVariantModal({ open: false, track: null });
-          // Refresh tracks list then navigate to new track
-          refetch().then(() => {
-            const newTrack = tracks.find(t => t.id === newTrackId);
-            if (newTrack) {
-              setSelectedTrack(newTrack);
-            }
-          });
-          toast.success('Variant created successfully');
+          // Navigate to Content Authoring to edit the new variant track
+          if (onNavigate) {
+            toast.success('Variant created! Opening editor...');
+            onNavigate('authoring', newTrackId);
+          } else {
+            // Fallback: refresh tracks list then select new track
+            refetch().then(() => {
+              const newTrack = tracks.find(t => t.id === newTrackId);
+              if (newTrack) {
+                setSelectedTrack(newTrack);
+              }
+            });
+            toast.success('Variant created successfully');
+          }
         }}
       />
 

@@ -10018,7 +10018,115 @@ async function handleGetDraftStatus(req: Request, path: string): Promise<Respons
 }
 
 async function handlePublishDraft(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ success: true });
+  try {
+    // Get org ID from token
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Extract draftId from path: /track-relationships/variant/draft/:draftId/publish
+    const pathParts = path.split('/');
+    const draftIndex = pathParts.indexOf('draft');
+    const draftId = draftIndex >= 0 ? pathParts[draftIndex + 1] : null;
+
+    if (!draftId) {
+      return jsonResponse({ error: "Draft ID is required" }, 400);
+    }
+
+    console.log(`[PublishDraft] Publishing draft ${draftId} for org ${orgId}`);
+
+    // 1. Fetch the draft from variant_drafts
+    const { data: draft, error: draftError } = await supabase
+      .from('variant_drafts')
+      .select('*')
+      .eq('id', draftId)
+      .eq('organization_id', orgId)
+      .single();
+
+    if (draftError || !draft) {
+      console.error('[PublishDraft] Draft not found:', draftError);
+      return jsonResponse({ error: "Draft not found" }, 404);
+    }
+
+    console.log(`[PublishDraft] Found draft: ${draft.draft_title} for state ${draft.state_name}`);
+
+    // 2. Create a new article track from the draft
+    const { data: newTrack, error: trackError } = await supabase
+      .from('tracks')
+      .insert({
+        organization_id: orgId,
+        title: draft.draft_title,
+        type: 'article',
+        transcript: draft.draft_content, // Article HTML content goes in transcript field
+        status: 'draft',
+        description: `State variant for ${draft.state_name || draft.state_code}`,
+        tags: [draft.state_code, 'state-variant'].filter(Boolean),
+      })
+      .select()
+      .single();
+
+    if (trackError || !newTrack) {
+      console.error('[PublishDraft] Failed to create track:', trackError);
+      return jsonResponse({ error: `Failed to create track: ${trackError?.message}` }, 500);
+    }
+
+    console.log(`[PublishDraft] Created article track ${newTrack.id}: ${newTrack.title}`);
+
+    // 3. Create variant relationship between source track and new article
+    let relationshipId: string | null = null;
+    if (draft.source_track_id) {
+      const { data: relationship, error: relError } = await supabase
+        .from('track_relationships')
+        .insert({
+          organization_id: orgId,
+          source_track_id: draft.source_track_id,
+          derived_track_id: newTrack.id,
+          relationship_type: 'variant',
+          variant_type: 'geographic',
+          variant_context: {
+            state_code: draft.state_code,
+            state_name: draft.state_name,
+            draft_id: draftId,
+          },
+        })
+        .select()
+        .single();
+
+      if (relError) {
+        console.error('[PublishDraft] Failed to create relationship:', relError);
+        // Don't fail the whole operation, just log the error
+      } else {
+        relationshipId = relationship?.id;
+        console.log(`[PublishDraft] Created variant relationship ${relationshipId}`);
+      }
+    }
+
+    // 4. Update draft status to 'published'
+    await supabase
+      .from('variant_drafts')
+      .update({ status: 'published' })
+      .eq('id', draftId)
+      .eq('organization_id', orgId);
+
+    console.log(`[PublishDraft] Successfully published draft ${draftId} as track ${newTrack.id}`);
+
+    return jsonResponse({
+      success: true,
+      variantTrackId: newTrack.id,
+      relationshipId,
+      track: {
+        id: newTrack.id,
+        title: newTrack.title,
+        type: newTrack.type,
+        status: newTrack.status,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('[PublishDraft] Error:', error);
+    return jsonResponse({ error: error.message || 'Failed to publish draft' }, 500);
+  }
 }
 
 async function handleGetDrafts(req: Request, path: string): Promise<Response> {

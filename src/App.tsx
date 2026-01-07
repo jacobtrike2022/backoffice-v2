@@ -423,11 +423,12 @@ export default function App() {
               setPreviousView('content');
               requestNavigate("assignments");
             }}
-            onNavigate={(view: string) => {
+            onNavigate={(view: string, trackId?: string) => {
               if (view === 'authoring') {
                 setPreviousView('content');
                 setInitialMode(null);
-                setInitialTrackId(undefined);
+                // If trackId provided, open that track for editing; otherwise clear for new content
+                setInitialTrackId(trackId || undefined);
                 requestNavigate('authoring');
               }
             }}
@@ -510,7 +511,7 @@ export default function App() {
       case "authoring":
         return (
           <ContentAuthoring
-            role={currentRole}
+            currentRole={currentRole}
             editingArticle={editingArticle}
             onClearEditingArticle={() => setEditingArticle(null)}
             initialTrackId={initialTrackId}
@@ -518,6 +519,7 @@ export default function App() {
             onBackClick={handleBackFromContentAuthoring}
             previousView={previousView}
             onRegisterUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
+            onNavigateToLibrary={() => requestNavigate("content")}
           />
         );
       case "ai-review":
