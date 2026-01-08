@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
 
 interface SourceFile {
   id: string;
@@ -81,14 +82,21 @@ const ACCEPTED_FILE_TYPES = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
   'text/csv',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
 ];
 
-const ACCEPTED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+const ACCEPTED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif';
 
 export function SourcesManagement() {
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
+  const [compressingFileName, setCompressingFileName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -190,32 +198,197 @@ export function SourcesManagement() {
 
   const uploadSingleFile = async (file: File, orgId: string) => {
     try {
+      const originalSizeMB = file.size / (1024 * 1024);
+      let fileToUpload = file;
+      let wasCompressed = false;
+      let compressedSizeMB = originalSizeMB;
+
+      // Compress file if needed (especially for images)
+      if (shouldCompressDocument(file, 180)) { // Compress if over 180MB (to stay under 200MB)
+        setCompressing(true);
+        setCompressingFileName(file.name);
+        
+        try {
+          const compressionResult = await compressDocument(file, {
+            maxSizeMB: 180,
+            maxImageSizeMB: 10, // Compress images over 10MB
+          });
+          
+          fileToUpload = compressionResult.file;
+          wasCompressed = compressionResult.wasCompressed;
+          compressedSizeMB = compressionResult.compressedSizeMB;
+          
+          if (wasCompressed) {
+            toast.info(
+              `Compressed ${file.name}: ${originalSizeMB.toFixed(1)}MB → ${compressedSizeMB.toFixed(1)}MB`,
+              { duration: 3000 }
+            );
+          }
+        } catch (compressionError: any) {
+          console.warn('[SourcesManagement] Compression failed, using original file:', compressionError);
+          toast.warning(`Compression failed for ${file.name}, uploading original file`);
+        } finally {
+          setCompressing(false);
+          setCompressingFileName('');
+        }
+      }
+
+      // Validate final file size (200MB limit)
+      const finalSizeMB = fileToUpload.size / (1024 * 1024);
+      if (finalSizeMB > 200) {
+        throw new Error(
+          `File is too large (${finalSizeMB.toFixed(1)}MB). Maximum size is 200MB. ` +
+          `Please compress the file before uploading.`
+        );
+      }
+
       // Generate unique file path
-      const fileExt = file.name.split('.').pop();
+      const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${orgId}/${crypto.randomUUID()}.${fileExt}`;
 
-      // Upload to storage
-      const { error: uploadError } = await supabase.storage
-        .from('source-files')
-        .upload(fileName, file);
+      console.log('[SourcesManagement] Starting upload:', {
+        fileName,
+        originalSize: file.size,
+        finalSize: fileToUpload.size,
+        fileType: fileToUpload.type,
+        wasCompressed
+      });
 
-      if (uploadError) throw uploadError;
+      // Verify Supabase session before upload
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.warn('[SourcesManagement] Session error:', sessionError);
+      }
+      console.log('[SourcesManagement] Session status:', { 
+        hasSession: !!session, 
+        userId: session?.user?.id,
+        expiresAt: session?.expires_at 
+      });
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
+      // Upload to storage with retry logic for network issues
+      let uploadError: any = null;
+      let uploadData: any = null;
+      const maxRetries = 3;
+      const retryDelay = 2000; // 2 seconds
+      const uploadTimeout = 10 * 60 * 1000; // 10 minutes for large files
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${file.name} (${finalSizeMB.toFixed(1)}MB)`);
+          
+          // Create upload promise
+          const uploadPromise = supabase.storage
+            .from('source-files')
+            .upload(fileName, fileToUpload, {
+              contentType: fileToUpload.type || file.type || 'application/octet-stream',
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          // Add timeout wrapper
+          const timeoutPromise = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Upload timeout - the file may be too large or connection is slow')), uploadTimeout)
+          );
+
+          try {
+            const result = await Promise.race([uploadPromise, timeoutPromise]);
+            uploadData = result.data;
+            uploadError = result.error;
+
+            if (!uploadError) {
+              console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
+              break;
+            }
+
+            // If it's a network error and we have retries left, wait and retry
+            const isNetworkError = uploadError?.message?.includes('fetch') || 
+                                 uploadError?.message?.includes('network') ||
+                                 uploadError?.message?.includes('Failed to fetch');
+            
+            if (isNetworkError && attempt < maxRetries) {
+              console.warn(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
+              await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
+              continue;
+            }
+
+            // If it's not a network error or we're out of retries, break and throw
+            break;
+          } catch (timeoutError: any) {
+            // Handle timeout specifically
+            if (timeoutError.message?.includes('timeout')) {
+              uploadError = timeoutError;
+              if (attempt < maxRetries) {
+                console.warn(`[SourcesManagement] Timeout on attempt ${attempt}, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+                continue;
+              }
+            }
+            throw timeoutError;
+          }
+        } catch (error: any) {
+          uploadError = error;
+          const isRetryable = (error.message?.includes('timeout') || 
+                              error.message?.includes('fetch') ||
+                              error.message?.includes('network')) && attempt < maxRetries;
+          
+          if (isRetryable) {
+            console.warn(`[SourcesManagement] Error on attempt ${attempt}, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+            continue;
+          }
+          
+          // If not retryable or out of retries, break
+          break;
+        }
+      }
+
+      console.log('[SourcesManagement] Upload result:', { uploadData, uploadError });
+
+      if (uploadError) {
+        console.error('[SourcesManagement] Upload error details:', {
+          message: uploadError.message,
+          error: uploadError
+        });
+        
+        // Provide more helpful error messages
+        const isNetworkIssue = uploadError.message?.includes('timeout') || 
+                              uploadError.message?.includes('fetch') ||
+                              uploadError.message?.includes('network') ||
+                              uploadError.message?.includes('Failed to fetch');
+        
+        if (isNetworkIssue) {
+          throw new Error(
+            `Upload failed due to network issues. The file (${finalSizeMB.toFixed(1)}MB) may be too large for your connection. ` +
+            `Please try: 1) Check your internet connection, 2) Try a smaller file, or 3) Compress the file before uploading.`
+          );
+        }
+        
+        throw uploadError;
+      }
+
+      // Since bucket is private, use signed URL instead of public URL
+      // Create signed URL with 10 year expiration for long-term access
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('source-files')
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 315360000); // 10 years in seconds
+
+      if (signedUrlError) {
+        console.error('[SourcesManagement] Error creating signed URL:', signedUrlError);
+        throw new Error(`Failed to create file URL: ${signedUrlError.message}`);
+      }
+
+      const fileUrl = signedUrlData.signedUrl;
 
       // Insert record into database
       const { error: insertError } = await supabase
         .from('source_files')
         .insert({
           organization_id: orgId,
-          file_name: file.name,
+          file_name: file.name, // Keep original filename
           storage_path: fileName,
-          file_url: urlData.publicUrl,
-          file_type: file.type,
-          file_size: file.size,
+          file_url: fileUrl,
+          file_type: file.type, // Keep original MIME type
+          file_size: fileToUpload.size, // Store actual uploaded size
         });
 
       if (insertError) {
@@ -358,10 +531,17 @@ export function SourcesManagement() {
           onChange={(e) => handleFileUpload(e.target.files)}
         />
 
-        {uploading ? (
+        {uploading || compressing ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-10 w-10 text-primary animate-spin" />
-            <p className="text-sm text-muted-foreground">Uploading files...</p>
+            <p className="text-sm text-muted-foreground">
+              {compressing ? `Compressing ${compressingFileName}...` : 'Uploading files...'}
+            </p>
+            {compressing && (
+              <p className="text-xs text-muted-foreground">
+                Large files are automatically compressed to reduce upload time
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -374,7 +554,10 @@ export function SourcesManagement() {
                 Drag and drop files here, or click to browse
               </p>
               <p className="text-xs text-muted-foreground mt-2">
-                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 50MB)
+                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 200MB)
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Images are automatically compressed for faster uploads
               </p>
             </div>
           </div>
