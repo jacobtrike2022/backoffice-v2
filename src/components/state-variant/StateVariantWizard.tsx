@@ -390,6 +390,7 @@ export function StateVariantWizard({
       }
 
       // Step 3: Generate draft
+      console.log('[StateVariantWizard] Step 3: Generating draft...');
       const draftResult = await generateDraft({
         contractId: state.contractId,
         extractionId: keyFactsResult.extractionId,
@@ -399,6 +400,13 @@ export function StateVariantWizard({
         sourceContent: getSourceContent(),
         sourceTitle: sourceTrack.title,
         trackType: sourceTrack.type,
+      });
+      console.log('[StateVariantWizard] Draft generated:', {
+        draftId: draftResult.draft?.draftId,
+        status: draftResult.draft?.status,
+        contentLength: draftResult.draft?.draftContent?.length,
+        changeNotesCount: draftResult.draft?.changeNotes?.length,
+        success: draftResult.success,
       });
 
       // Check if draft was blocked
@@ -582,7 +590,16 @@ export function StateVariantWizard({
         );
 
       case 'editor':
-        if (!state.draft) return null;
+        if (!state.draft) {
+          console.warn('[StateVariantWizard] Editor step but no draft!');
+          return null;
+        }
+        console.log('[StateVariantWizard] Rendering editor with draft:', {
+          draftId: state.draft.draftId,
+          title: state.draft.draftTitle,
+          contentLength: state.draft.draftContent?.length,
+          changeNotesCount: state.draft.changeNotes?.length,
+        });
         return (
           <VariantEditorLayout
             draft={state.draft}
@@ -606,7 +623,7 @@ export function StateVariantWizard({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className={isFullScreen ? "max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 rounded-none" : ""}
+        className={isFullScreen ? "!max-w-none w-screen h-screen !max-h-none p-0 rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 !gap-0 flex flex-col" : ""}
         style={isFullScreen ? undefined : { width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
         hideCloseButton={isFullScreen}
       >

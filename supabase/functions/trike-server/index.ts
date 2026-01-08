@@ -21,8 +21,16 @@ const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+console.log('[ENV] SUPABASE_URL:', SUPABASE_URL);
+console.log('[ENV] SUPABASE_SERVICE_ROLE_KEY set:', !!SUPABASE_SERVICE_ROLE_KEY);
+
 // Create Supabase client with service role (bypasses RLS)
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
 
 // =============================================================================
 // LLM HELPER
@@ -7129,25 +7137,31 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
     };
 
     // Insert into database
+    console.log('[BuildScopeContract] Inserting scope contract for org:', orgId);
+    const insertData = {
+      organization_id: orgId,
+      source_track_id: sourceTrackId,
+      variant_type: variantType,
+      variant_context: variantContext,
+      scope_contract: scopeContract,
+      role_selection_needed: roleSelectionNeeded,
+      top_role_matches: topRoleMatches.length > 0 ? topRoleMatches : null,
+      extraction_method: 'llm',
+    };
+    console.log('[BuildScopeContract] Insert data:', JSON.stringify(insertData, null, 2));
+
     const { data: contract, error: insertError } = await supabase
       .from('variant_scope_contracts')
-      .insert({
-        organization_id: orgId,
-        source_track_id: sourceTrackId,
-        variant_type: variantType,
-        variant_context: variantContext,
-        scope_contract: scopeContract,
-        role_selection_needed: roleSelectionNeeded,
-        top_role_matches: topRoleMatches.length > 0 ? topRoleMatches : null,
-        extraction_method: 'llm',
-      })
+      .insert(insertData)
       .select()
       .single();
 
     if (insertError) {
       console.error('Error inserting scope contract:', insertError);
-      return jsonResponse({ error: "Failed to create scope contract" }, 500);
+      console.error('Insert error details:', JSON.stringify(insertError, null, 2));
+      return jsonResponse({ error: `Failed to create scope contract: ${insertError.message}` }, 500);
     }
+    console.log('[BuildScopeContract] Insert successful, contract id:', contract.id);
 
     console.log('[BuildScopeContract] Created contract:', {
       contractId: contract.id,
@@ -7397,9 +7411,23 @@ async function handleFreezeScopeContractRoles(contractId: string, req: Request):
  */
 async function handleGetScopeContract(contractId: string, req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to contract's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [GetScopeContract] No orgId from token, trying to get from contract...");
+      const { data: contractOrg, error: contractOrgError } = await supabase
+        .from("variant_scope_contracts")
+        .select("organization_id")
+        .eq("id", contractId)
+        .single();
+
+      if (!contractOrgError && contractOrg?.organization_id) {
+        orgId = contractOrg.organization_id;
+        console.log(`✅ [GetScopeContract] Got orgId from contract: ${orgId}`);
+      } else {
+        console.error("❌ [GetScopeContract] Could not get orgId from contract either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     const { data: contract, error } = await supabase
@@ -7439,9 +7467,23 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       return jsonResponse({ error: "contractId and stateCode are required" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to contract's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [BuildResearchPlan] No orgId from token, trying to get from contract...");
+      const { data: contractOrg, error: contractOrgError } = await supabase
+        .from("variant_scope_contracts")
+        .select("organization_id")
+        .eq("id", contractId)
+        .single();
+
+      if (!contractOrgError && contractOrg?.organization_id) {
+        orgId = contractOrg.organization_id;
+        console.log(`✅ [BuildResearchPlan] Got orgId from contract: ${orgId}`);
+      } else {
+        console.error("❌ [BuildResearchPlan] Could not get orgId from contract either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     // Fetch the scope contract
@@ -7529,9 +7571,23 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
  */
 async function handleGetResearchPlan(planId: string, req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to plan's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [GetResearchPlan] No orgId from token, trying to get from plan...");
+      const { data: planOrg, error: planOrgError } = await supabase
+        .from("variant_research_plans")
+        .select("organization_id")
+        .eq("id", planId)
+        .single();
+
+      if (!planOrgError && planOrg?.organization_id) {
+        orgId = planOrg.organization_id;
+        console.log(`✅ [GetResearchPlan] Got orgId from plan: ${orgId}`);
+      } else {
+        console.error("❌ [GetResearchPlan] Could not get orgId from plan either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     const { data: plan, error } = await supabase
@@ -7768,9 +7824,23 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       return jsonResponse({ error: "planId and contractId are required" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to plan's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [RetrieveEvidence] No orgId from token, trying to get from plan...");
+      const { data: planOrg, error: planOrgError } = await supabase
+        .from("variant_research_plans")
+        .select("organization_id")
+        .eq("id", planId)
+        .single();
+
+      if (!planOrgError && planOrg?.organization_id) {
+        orgId = planOrg.organization_id;
+        console.log(`✅ [RetrieveEvidence] Got orgId from plan: ${orgId}`);
+      } else {
+        console.error("❌ [RetrieveEvidence] Could not get orgId from plan either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     // Fetch the research plan
@@ -7945,12 +8015,27 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       return jsonResponse({ error: "contractId, planId, and stateCode are required" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to contract's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [ExtractKeyFacts] No orgId from token, trying to get from contract...");
+      const { data: contractOrg, error: contractOrgError } = await supabase
+        .from("variant_scope_contracts")
+        .select("organization_id")
+        .eq("id", contractId)
+        .single();
+
+      if (!contractOrgError && contractOrg?.organization_id) {
+        orgId = contractOrg.organization_id;
+        console.log(`✅ [ExtractKeyFacts] Got orgId from contract: ${orgId}`);
+      } else {
+        console.error("❌ [ExtractKeyFacts] Could not get orgId from contract either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     console.log(`[ExtractKeyFacts] Starting extraction for ${stateCode} with ${evidenceBlocks?.length || 0} evidence blocks`);
+    console.log(`[ExtractKeyFacts] Evidence blocks sample:`, JSON.stringify(evidenceBlocks?.slice(0, 2), null, 2));
 
     // Fetch the scope contract for the QA gates
     const { data: contractRecord, error: contractError } = await supabase
@@ -8013,16 +8098,67 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       stateName
     );
 
+    console.log(`[ExtractKeyFacts] LLM returned ${extractedFacts.length} facts for QA validation`);
+
     // Run QA gates on each extracted fact
     const passedFacts: any[] = [];
     const rejectedFacts: any[] = [];
-    const evidenceMap = new Map(evidenceBlocks.map((eb: any) => [eb.evidenceId, eb]));
+    // Build evidence map - handle both old format (evidenceId) and new format (id)
+    const evidenceMap = new Map(evidenceBlocks.map((eb: any) => {
+      const evidenceId = eb.evidenceId || eb.id;
+      return [evidenceId, { ...eb, evidenceId }];
+    }));
+    console.log(`[ExtractKeyFacts] Evidence map keys:`, Array.from(evidenceMap.keys()));
+
+    // Also build a URL-based lookup for fallback matching
+    const evidenceByUrl = new Map<string, any>();
+    const evidenceArray = Array.from(evidenceMap.values());
+    for (const eb of evidenceArray) {
+      if (eb.url) {
+        evidenceByUrl.set(eb.url, eb);
+      }
+    }
 
     for (const rawFact of extractedFacts) {
+      console.log(`[ExtractKeyFacts] Processing fact: "${rawFact.factText?.substring(0, 50)}..."`);
+      console.log(`[ExtractKeyFacts] Fact citations:`, JSON.stringify(rawFact.citations));
+
       // Validate citations
       const validCitations: any[] = [];
       for (const rawCite of rawFact.citations || []) {
-        const evidence = evidenceMap.get(rawCite.evidenceId);
+        console.log(`[ExtractKeyFacts] Looking for evidenceId: ${rawCite.evidenceId} in map`);
+
+        // Try exact match first
+        let evidence = evidenceMap.get(rawCite.evidenceId);
+
+        // Fallback 1: Try matching by URL if provided
+        if (!evidence && rawCite.url) {
+          console.log(`[ExtractKeyFacts] Trying URL fallback: ${rawCite.url}`);
+          evidence = evidenceByUrl.get(rawCite.url);
+        }
+
+        // Fallback 2: Try partial ID match (LLM might truncate UUIDs)
+        if (!evidence && rawCite.evidenceId) {
+          const partialId = rawCite.evidenceId.toLowerCase();
+          for (const [key, value] of evidenceMap.entries()) {
+            if (key.toLowerCase().startsWith(partialId) || key.toLowerCase().includes(partialId)) {
+              console.log(`[ExtractKeyFacts] Found partial ID match: ${key} for ${partialId}`);
+              evidence = value;
+              break;
+            }
+          }
+        }
+
+        // Fallback 3: Try numeric index (LLM might return index like "1", "2")
+        if (!evidence && rawCite.evidenceId) {
+          const numericIndex = parseInt(rawCite.evidenceId, 10);
+          if (!isNaN(numericIndex) && numericIndex >= 0 && numericIndex < evidenceArray.length) {
+            console.log(`[ExtractKeyFacts] Using numeric index fallback: ${numericIndex}`);
+            evidence = evidenceArray[numericIndex];
+          }
+        }
+
+        console.log(`[ExtractKeyFacts] Found evidence: ${!!evidence}`);
         if (evidence) {
           validCitations.push({
             evidenceId: evidence.evidenceId,
@@ -8298,7 +8434,8 @@ OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
       "anchorHit": ["relevant", "domain", "terms"],
       "citations": [
         {
-          "evidenceId": "id from evidence block",
+          "evidenceId": "MUST be the EXACT evidenceId from the evidence block - copy it exactly",
+          "url": "The URL of the source (optional but helps with matching)",
           "quote": "EXACT substring from evidence snippet supporting this fact"
         }
       ]
@@ -8311,9 +8448,10 @@ CRITICAL RULES:
 2. mappedAction MUST relate to one of the allowedLearnerActions provided
 3. Each fact MUST be specific to ${stateName || stateCode}
 4. quote MUST be an exact substring from the evidence - no paraphrasing
-5. Extract ONLY facts relevant to the domain anchors and learner role
-6. Do NOT include generic facts that apply to all states
-7. Focus on actionable requirements for the learner role`;
+5. evidenceId MUST be copied EXACTLY as provided - do NOT abbreviate or modify UUIDs
+6. Extract ONLY facts relevant to the domain anchors and learner role
+7. Do NOT include generic facts that apply to all states
+8. Focus on actionable requirements for the learner role`;
 
   const evidenceSummary = evidenceBlocks.map((eb: any) => {
     // Handle both old format (evidenceId, snippets array) and new format (id, snippet string)
@@ -8358,6 +8496,9 @@ Extract atomic Key Facts. Each fact must:
 
 Output valid JSON with keyFacts array.`;
 
+  console.log(`[ExtractKeyFacts] Calling LLM with ${evidenceBlocks.length} evidence blocks`);
+  console.log(`[ExtractKeyFacts] Evidence summary being sent:`, JSON.stringify(evidenceSummary, null, 2));
+
   try {
     const response = await callOpenAI(
       [
@@ -8367,8 +8508,12 @@ Output valid JSON with keyFacts array.`;
       { temperature: 0.2, response_format: { type: 'json_object' } }
     );
 
+    console.log(`[ExtractKeyFacts] LLM raw response:`, response.substring(0, 500));
     const parsed = JSON.parse(response);
     console.log(`[ExtractKeyFacts] LLM extracted ${parsed.keyFacts?.length || 0} raw facts`);
+    if (parsed.keyFacts?.length > 0) {
+      console.log(`[ExtractKeyFacts] First fact:`, JSON.stringify(parsed.keyFacts[0], null, 2));
+    }
     return parsed.keyFacts || [];
   } catch (error) {
     console.error('[ExtractKeyFacts] LLM extraction failed:', error);
@@ -8381,9 +8526,23 @@ Output valid JSON with keyFacts array.`;
  */
 async function handleGetKeyFactsExtraction(extractionId: string, req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to extraction's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [GetKeyFactsExtraction] No orgId from token, trying to get from extraction...");
+      const { data: extractionOrg, error: extractionOrgError } = await supabase
+        .from("variant_key_facts_extractions")
+        .select("organization_id")
+        .eq("id", extractionId)
+        .single();
+
+      if (!extractionOrgError && extractionOrg?.organization_id) {
+        orgId = extractionOrg.organization_id;
+        console.log(`✅ [GetKeyFactsExtraction] Got orgId from extraction: ${orgId}`);
+      } else {
+        console.error("❌ [GetKeyFactsExtraction] Could not get orgId from extraction either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     // Get extraction from variant_key_facts_extractions table
@@ -8452,9 +8611,23 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
       }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to contract's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [GenerateDraft] No orgId from token, trying to get from contract...");
+      const { data: contractOrg, error: contractOrgError } = await supabase
+        .from("variant_scope_contracts")
+        .select("organization_id")
+        .eq("id", contractId)
+        .single();
+
+      if (!contractOrgError && contractOrg?.organization_id) {
+        orgId = contractOrg.organization_id;
+        console.log(`✅ [GenerateDraft] Got orgId from contract: ${orgId}`);
+      } else {
+        console.error("❌ [GenerateDraft] Could not get orgId from contract either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     console.log(`[GenerateDraft] Starting draft generation for ${stateCode}, track: ${sourceTrackId}`);
@@ -8545,9 +8718,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
           status: 'generated',
           draft_title: draftTitle,
           draft_content: sourceContent || '',
-          source_content: sourceContent || '',
           diff_ops: [],
-          change_notes: [],
           applied_key_fact_ids: [],
           needs_review_key_fact_ids: [],
         })
@@ -8579,24 +8750,37 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
     }
 
     // Use LLM to generate state-specific draft with minimal changes
-    const draftResult = await generateDraftWithLLM(
-      sourceContent || '',
-      sourceTitle || 'Untitled',
-      trackType || 'article',
-      scopeContract,
-      validatedKeyFacts,
-      stateCode,
-      stateName
-    );
+    console.log(`[GenerateDraft] Calling LLM with ${(sourceContent || '').length} chars of source content`);
+    let draftResult: { draftContent: string; markedContent: string };
+    try {
+      draftResult = await generateDraftWithLLM(
+        sourceContent || '',
+        sourceTitle || 'Untitled',
+        trackType || 'article',
+        scopeContract,
+        validatedKeyFacts,
+        stateCode,
+        stateName
+      );
+      console.log(`[GenerateDraft] LLM returned ${draftResult.draftContent.length} chars`);
+    } catch (llmError: any) {
+      console.error('[GenerateDraft] LLM call failed:', llmError.message);
+      throw new Error(`LLM draft generation failed: ${llmError.message}`);
+    }
 
     // Compute diff ops and change notes
+    console.log('[GenerateDraft] Computing diff ops...');
     const diffOps = computeDiffOpsSimple(sourceContent || '', draftResult.draftContent);
+    console.log(`[GenerateDraft] Computed ${diffOps.length} diff ops`);
+
+    console.log('[GenerateDraft] Building change notes...');
     const changeNotes = buildChangeNotesFromMarkers(
       draftResult.markedContent,
       draftResult.draftContent,
       validatedKeyFacts,
       scopeContract
     );
+    console.log(`[GenerateDraft] Built ${changeNotes.length} change notes`);
 
     // Determine applied and needs_review fact IDs
     const appliedKeyFactIds: string[] = [];
@@ -8627,7 +8811,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
 
     console.log(`[GenerateDraft] Draft generated with ${changeNotes.length} change notes, status: ${status}`);
 
-    // Insert into variant_drafts table
+    // Insert into variant_drafts table (note: change_notes and source_content are NOT columns in this table)
     const { data: record, error: insertError } = await supabase
       .from('variant_drafts')
       .insert({
@@ -8641,9 +8825,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         status,
         draft_title: draftTitle,
         draft_content: draftResult.draftContent,
-        source_content: sourceContent || '',
         diff_ops: diffOps,
-        change_notes: changeNotes,
         applied_key_fact_ids: appliedKeyFactIds,
         needs_review_key_fact_ids: needsReviewKeyFactIds,
       })
@@ -8653,6 +8835,33 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
     if (insertError) {
       console.error('Error inserting draft:', insertError);
       return jsonResponse({ error: `Failed to create draft: ${insertError.message}` }, 500);
+    }
+
+    // Insert change notes into separate table
+    if (changeNotes.length > 0) {
+      const changeNotesToInsert = changeNotes.map((note: any) => ({
+        id: note.id,
+        draft_id: record.id,
+        organization_id: orgId,
+        title: note.title || '',
+        description: note.description || '',
+        mapped_action: note.mappedAction || '',
+        anchor_matches: note.anchorMatches || [],
+        affected_range_start: note.affectedRangeStart || 0,
+        affected_range_end: note.affectedRangeEnd || 0,
+        key_fact_ids: note.keyFactIds || [],
+        citations: note.citations || [],
+        status: note.status || 'applied',
+      }));
+
+      const { error: notesInsertError } = await supabase
+        .from('variant_change_notes')
+        .insert(changeNotesToInsert);
+
+      if (notesInsertError) {
+        console.error('Error inserting change notes:', notesInsertError);
+        // Don't fail the whole request, just log
+      }
     }
 
     return jsonResponse({
@@ -8667,9 +8876,9 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
         status: record.status,
         draftTitle: record.draft_title,
         draftContent: record.draft_content,
-        sourceContent: sourceContent || '',
+        sourceContent: sourceContent || '',  // Return in response but not stored
         diffOps: record.diff_ops || [],
-        changeNotes: record.change_notes || [],
+        changeNotes: changeNotes,  // Return the change notes we created
         appliedKeyFactIds: record.applied_key_fact_ids || [],
         needsReviewKeyFactIds: record.needs_review_key_fact_ids || [],
         createdAt: record.created_at,
@@ -8681,7 +8890,11 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
 
   } catch (error: any) {
     console.error('handleGenerateDraft error:', error);
-    return jsonResponse({ error: error.message || "Internal server error" }, 500);
+    console.error('handleGenerateDraft stack:', error.stack);
+    return jsonResponse({
+      error: error.message || "Internal server error",
+      details: error.stack || 'No stack trace'
+    }, 500);
   }
 }
 
@@ -8918,9 +9131,23 @@ function buildChangeNoteTitleSimple(mappedAction: string, anchorHit: string[]): 
  */
 async function handleGetDraft(draftId: string, req: Request): Promise<Response> {
   try {
-    const orgId = await getOrgIdFromToken(req);
+    // Try to get org from token, fallback to draft's org
+    let orgId = await getOrgIdFromToken(req);
     if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      console.log("⚠️ [GetDraft] No orgId from token, trying to get from draft...");
+      const { data: draftOrg, error: draftOrgError } = await supabase
+        .from("variant_drafts")
+        .select("organization_id")
+        .eq("id", draftId)
+        .single();
+
+      if (!draftOrgError && draftOrg?.organization_id) {
+        orgId = draftOrg.organization_id;
+        console.log(`✅ [GetDraft] Got orgId from draft: ${orgId}`);
+      } else {
+        console.error("❌ [GetDraft] Could not get orgId from draft either");
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
     }
 
     const { data: draft, error } = await supabase
@@ -8933,6 +9160,30 @@ async function handleGetDraft(draftId: string, req: Request): Promise<Response> 
     if (error || !draft) {
       return jsonResponse({ error: "Draft not found" }, 404);
     }
+
+    // Fetch change notes from separate table
+    const { data: changeNotes } = await supabase
+      .from('variant_change_notes')
+      .select('*')
+      .eq('draft_id', draftId)
+      .eq('organization_id', orgId)
+      .order('id');
+
+    // Transform change notes to expected format
+    const formattedChangeNotes = (changeNotes || []).map((note: any) => ({
+      id: note.id,
+      title: note.title,
+      description: note.description,
+      mappedAction: note.mapped_action,
+      anchorMatches: note.anchor_matches || [],
+      affectedRange: {
+        start: note.affected_range_start,
+        end: note.affected_range_end,
+      },
+      keyFactIds: note.key_fact_ids || [],
+      citations: note.citations || [],
+      status: note.status,
+    }));
 
     return jsonResponse({
       draftId: draft.id,
@@ -8947,7 +9198,7 @@ async function handleGetDraft(draftId: string, req: Request): Promise<Response> 
       draftContent: draft.draft_content,
       sourceContent: draft.source_content,
       diffOps: draft.diff_ops || [],
-      changeNotes: draft.change_notes || [],
+      changeNotes: formattedChangeNotes,
       appliedKeyFactIds: draft.applied_key_fact_ids || [],
       needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
       createdAt: draft.created_at,

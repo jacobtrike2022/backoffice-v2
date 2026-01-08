@@ -86,6 +86,22 @@ const tierConfig: Record<SourceTier, {
   },
 };
 
+// Helper to normalize tier values from backend (numeric 1,2,3 or string tier1_official, etc.)
+function getTierConfig(tier: SourceTier | number | string | undefined) {
+  // Handle numeric tiers from backend
+  if (tier === 1) return tierConfig.tier1_official;
+  if (tier === 2) return tierConfig.tier2_legal_database;
+  if (tier === 3) return tierConfig.tier3_secondary;
+
+  // Handle string tiers
+  if (typeof tier === 'string' && tier in tierConfig) {
+    return tierConfig[tier as SourceTier];
+  }
+
+  // Fallback to unclassified
+  return tierConfig.unclassified;
+}
+
 export function ChangeNotesRail({
   changeNotes,
   selectedNoteId,
@@ -246,10 +262,14 @@ function NoteCard({
   const StatusIcon = config.icon;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
+      data-rail-note-id={note.id}
       className={`
-        w-full text-left p-3 rounded-lg border transition-all
+        w-full text-left p-3 rounded-lg border transition-all cursor-pointer
         ${isSelected
           ? 'border-primary bg-primary/5 ring-1 ring-primary'
           : 'border-border bg-card hover:border-primary/50 hover:bg-accent/50'}
@@ -291,13 +311,13 @@ function NoteCard({
           )}
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
 // Citation Badge with Hover Card
 function CitationBadge({ citation }: { citation: CitationRef }) {
-  const tierCfg = tierConfig[citation.tier];
+  const tierCfg = getTierConfig(citation.tier);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -336,7 +356,7 @@ function CitationBadge({ citation }: { citation: CitationRef }) {
 
 // Citation Preview (hover card content)
 function CitationPreview({ citation }: { citation: CitationRef }) {
-  const tierCfg = tierConfig[citation.tier];
+  const tierCfg = getTierConfig(citation.tier);
 
   return (
     <div className="space-y-0">
