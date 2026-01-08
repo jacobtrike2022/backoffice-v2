@@ -6400,14 +6400,20 @@ ${audience.evidence.slice(0, 4).map(e => `- ${e}`).join('\n') || '- No strong ro
 **Learner Actions (what they're being taught to DO):**
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- General compliance actions'}
 
-## SCOPE LOCK (HARD RULE)
-You may ONLY add state-specific rules that directly modify one of the learner actions above.
+## SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
+You must find state-specific rules for two purposes:
+
+1. **Learner Action Modification:**
+   State-specific rules that directly modify one of the learner actions above.
+
+2. **General-to-Specific Replacement (THE FOREST):**
+   Identify ${stateName}'s specific stance on general regulatory topics (e.g., if federal law says "usually 18", find what ${stateName} says).
 
 For any proposed rule, you MUST identify:
-- **SourceAction:** Which learner action it modifies
+- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
+If you cannot map a rule to a SourceAction OR a general regulatory replacement, DISCARD it.
 
 ## SOURCE REQUIREMENTS
 
@@ -6424,7 +6430,7 @@ If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
 For each RELEVANT regulation found:
 \`\`\`
 **Rule:** [Actionable instruction for the ${roleLabel} - what they DO]
-**SourceAction:** [Which learner action: ${audience.learnerActions.slice(0, 4).join(' | ') || 'check id | refuse | verify age'}]
+**SourceAction:** [Which learner action: ${audience.learnerActions.slice(0, 4).join(' | ') || 'check id | refuse | verify age'} | "General Regulatory Context"]
 **WhyItMatters:** [1 sentence: behavioral impact]
 **Source:** [Official source name]
 **URL:** [Direct link to .gov]
@@ -6434,7 +6440,7 @@ For each RELEVANT regulation found:
 ## AFTER RESEARCH
 
 Summarize findings in 3-8 bullet points maximum.
-For each finding, verify it maps to a SourceAction - if not, DISCARD it.
+For each finding, verify it maps to a SourceAction OR General Regulatory Context - if not, DISCARD it.
 
 Then list 0-3 COMPANY-SPECIFIC questions only:
 - POS system flow for age-restricted sales?
@@ -6577,7 +6583,7 @@ function validateResearchQuality(
     tier1Count,
     issues,
     relevanceIssues,
-    filteredContent
+    filteredContent: undefined
   };
 }
 
@@ -6721,16 +6727,23 @@ ${qaContent}
 Apply the MINIMAL-DELTA principle: change ONLY what ${stateName} law requires you to change.
 Do NOT add new topics, warnings, or "nice to know" information not in the source.
 
-### SCOPE LOCK (HARD RULE)
+### SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
 
-You may ONLY include state-specific rules that modify one of these learner actions:
+You must adapt the content in two ways:
+
+1. **Learner Action Modification:**
+   State-specific rules that modify one of these learner actions:
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
 
-For each rule, identify:
-- **SourceAction:** Which learner action it modifies
+2. **General-to-Specific Replacement (THE FOREST):**
+   Scan the source for general phrases like "Most states require", "In many jurisdictions", "Generally", "Federal law mandates", or "Typically".
+   You MUST replace these vague statements with the specific rule for ${stateName}, even if it just confirms the general rule (e.g., "In ${stateName}..." instead of "In most states...").
+
+For each rule or replacement, identify:
+- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If a rule doesn't modify a SourceAction above, DISCARD it.
+If a rule doesn't modify a SourceAction OR replace a general regulatory statement, DISCARD it.
 
 ### CITATION REQUIREMENT
 Any "must", "required", "illegal", or "penalty" needs [Source: URL]
@@ -6744,7 +6757,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
   "researchFindings": [
     {
       "rule": "Actionable rule for ${roleLabelLower}",
-      "sourceAction": "Which learner action this modifies",
+      "sourceAction": "Which learner action this modifies OR 'General Regulatory Context'",
       "whyItMatters": "1 sentence on behavioral impact",
       "citation": "Source name and URL",
       "effectiveDate": "Date or 'Current'",
@@ -6758,7 +6771,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
       "originalText": "Original text from source",
       "adaptedText": "New text for ${stateName}",
       "reason": "Why this change was needed (cite specific law/regulation)",
-      "sourceAction": "Which learner action this adapts"
+      "sourceAction": "Which learner action this adapts OR 'General Regulatory Context'"
     }
   ],
   "openQuestions": [
@@ -6861,15 +6874,21 @@ Derived Learner Role: ${roleLabel} (${audience?.roleConfidence || 'unknown'} con
 Learner Actions: ${learnerActionsStr}`;
 
       scopeInstructions = `
-## SCOPE LOCK (HARD RULE)
-You may ONLY add state-specific rules that directly modify one of these learner actions:
-${audience?.learnerActions?.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
+## SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
+You must adapt the content in two ways:
+
+1. **Learner Action Modification:**
+   State-specific rules that directly modify one of these learner actions:
+${audience?.learnerActions?.map(a => `   - ${a}`).join('\n') || '   - check id\n   - verify age\n   - refuse sale'}
+
+2. **General-to-Specific Replacement (THE FOREST):**
+   Replace general phrases like "Most states require" or "Federal law mandates" with the specific ${stateName} requirement.
 
 For any proposed rule, you MUST identify:
-- **SourceAction:** Which learner action it modifies
+- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
+If you cannot map a rule to a SourceAction OR a general regulatory replacement, DISCARD it.
 
 ## ROLE AWARENESS
 Write for a ${roleLabel} (derived from source content). Use second person.
