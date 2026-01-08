@@ -10620,7 +10620,42 @@ async function handleAssignTags(req: Request): Promise<Response> {
 // =============================================================================
 
 async function handleCreateVariant(req: Request): Promise<Response> {
-  return jsonResponse({ error: 'Not implemented' }, 501);
+  try {
+    const body = await req.json();
+    const { sourceTrackId, derivedTrackId, variantType, variantContext } = body;
+    
+    if (!sourceTrackId || !derivedTrackId || !variantType) {
+      return jsonResponse({ error: "Missing required fields: sourceTrackId, derivedTrackId, variantType" }, 400);
+    }
+
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .insert({
+        organization_id: orgId,
+        source_track_id: sourceTrackId,
+        derived_track_id: derivedTrackId,
+        relationship_type: "variant",
+        variant_type: variantType,
+        variant_context: variantContext || {},
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Create variant relationship error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ relationship: data });
+  } catch (error: any) {
+    console.error("Create variant relationship error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariants(req: Request, path: string): Promise<Response> {

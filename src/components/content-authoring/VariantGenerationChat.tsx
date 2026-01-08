@@ -576,28 +576,44 @@ export function VariantGenerationChat({
         )}
 
         {state !== 'READY_TO_GENERATE' && (
-          <div className="flex gap-2 items-end">
-            <Textarea
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Type your response here..."
-              className="min-h-[60px] max-h-[120px] resize-none focus-visible:ring-orange-500 bg-muted border-none"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              disabled={isLoading}
-            />
-            <Button 
-              size="icon" 
-              className="h-[60px] w-[60px] bg-orange-500 hover:bg-orange-600 text-white shrink-0 shadow-lg"
-              onClick={handleSendMessage}
-              disabled={isLoading || !inputValue.trim()}
-            >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </Button>
+          <div className="flex flex-col gap-2">
+            {state === 'CLARIFYING' && (
+              <div className="flex justify-between items-center px-1">
+                <span className="text-xs text-muted-foreground">Provide details for the AI:</span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-auto py-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setState('READY_TO_GENERATE')}
+                >
+                  <ChevronDown className="w-3 h-3 mr-1" />
+                  Return to Generate
+                </Button>
+              </div>
+            )}
+            <div className="flex gap-2 items-end">
+              <Textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="Type your response here..."
+                className="min-h-[60px] max-h-[120px] resize-none focus-visible:ring-orange-500 bg-muted border-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                disabled={isLoading}
+              />
+              <Button 
+                size="icon" 
+                className="h-[60px] w-[60px] bg-orange-500 hover:bg-orange-600 text-white shrink-0 shadow-lg"
+                onClick={handleSendMessage}
+                disabled={isLoading || !inputValue.trim()}
+              >
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -605,7 +621,7 @@ export function VariantGenerationChat({
           <div className="flex gap-3">
             <button 
               className="hover:text-orange-500 transition-colors"
-              onClick={() => handleChat([...messages, { role: 'user', content: 'Actually, just go ahead and generate it now.' }])}
+              onClick={handleGenerate}
             >
               Skip to Generate
             </button>
