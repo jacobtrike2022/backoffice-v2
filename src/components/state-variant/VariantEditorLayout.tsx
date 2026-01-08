@@ -263,33 +263,31 @@ export function VariantEditorLayout({
       )}
 
       {/* Main content area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Editor pane */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <ScrollArea className="flex-1">
-            <div className="p-6 max-w-4xl mx-auto">
-              {/* Draft title */}
-              <h1 className="text-2xl font-bold mb-6">{draft.draftTitle}</h1>
+      <div className="flex-1 flex min-h-0">
+        {/* Editor pane - scrollable */}
+        <div className="flex-1 min-w-0 overflow-y-auto">
+          <div className="p-6 max-w-4xl mx-auto">
+            {/* Draft title */}
+            <h1 className="text-2xl font-bold mb-6">{draft.draftTitle}</h1>
 
-              {/* Content with diff rendering */}
-              <div className="prose prose-invert max-w-none">
-                <DiffRenderer
-                  sourceContent={sourceContent}
-                  draftContent={draft.draftContent}
-                  diffOps={draft.diffOps}
-                  viewMode={viewMode}
-                  isHtml={isHtml}
-                  highlightedNoteId={selectedNoteId}
-                  onSegmentClick={handleSegmentClick}
-                  changeNotes={draft.changeNotes}
-                />
-              </div>
+            {/* Content with diff rendering */}
+            <div className="prose prose-invert max-w-none">
+              <DiffRenderer
+                sourceContent={sourceContent}
+                draftContent={draft.draftContent}
+                diffOps={draft.diffOps}
+                viewMode={viewMode}
+                isHtml={isHtml}
+                highlightedNoteId={selectedNoteId}
+                onSegmentClick={handleSegmentClick}
+                changeNotes={draft.changeNotes}
+              />
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
-        {/* Right rail - Change notes */}
-        <div className="w-[340px] border-l border-border shrink-0 bg-card">
+        {/* Right rail - Change notes - sticky/scrollable independently */}
+        <div className="w-[340px] border-l border-border shrink-0 bg-card flex flex-col min-h-0">
           <ChangeNotesRail
             changeNotes={draft.changeNotes}
             selectedNoteId={selectedNoteId}

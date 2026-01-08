@@ -12,6 +12,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogContentRaw,
+  DialogPortal,
+  DialogOverlay,
   DialogHeader,
   DialogTitle,
   DialogDescription
@@ -620,35 +623,48 @@ export function StateVariantWizard({
   // Use full-screen for editor step
   const isFullScreen = state.step === 'editor';
 
+  // For fullscreen editor, use DialogContentRaw with manual portal/overlay
+  if (isFullScreen) {
+    return (
+      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <DialogPortal>
+          <DialogOverlay />
+          <DialogContentRaw
+            className="inset-0 w-screen h-screen flex flex-col overflow-hidden bg-background"
+          >
+            {renderStepContent()}
+          </DialogContentRaw>
+        </DialogPortal>
+      </Dialog>
+    );
+  }
+
+  // Standard dialog for non-fullscreen steps
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className={isFullScreen ? "!max-w-none w-screen h-screen !max-h-none p-0 rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 !gap-0 flex flex-col" : ""}
-        style={isFullScreen ? undefined : { width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
-        hideCloseButton={isFullScreen}
+        style={{ width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
       >
-        {!isFullScreen && (
-          <DialogHeader className="min-w-0">
-            <div className="flex items-center justify-between min-w-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
-                  <MapPin className="w-5 h-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <DialogTitle>Create State Variant</DialogTitle>
-                  <DialogDescription className="truncate">
-                    {sourceTrack.title}
-                  </DialogDescription>
-                </div>
+        <DialogHeader className="min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
+                <MapPin className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>Create State Variant</DialogTitle>
+                <DialogDescription className="truncate">
+                  {sourceTrack.title}
+                </DialogDescription>
               </div>
             </div>
+          </div>
 
-            {/* Step indicator */}
-            {state.step !== 'editor' && (
-              <StepIndicator currentStep={state.step} />
-            )}
-          </DialogHeader>
-        )}
+          {/* Step indicator */}
+          {state.step !== 'editor' && (
+            <StepIndicator currentStep={state.step} />
+          )}
+        </DialogHeader>
 
         {renderStepContent()}
       </DialogContent>

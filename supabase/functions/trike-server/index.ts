@@ -7519,6 +7519,20 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       };
     });
 
+    // CRITICAL: Add a "state differences" query to catch unique state laws
+    // This explicitly asks what's different/unique about this state
+    const stateDifferenceQuery = {
+      id: `q${queries.length + 1}`,
+      query: `${stateCode} ${stateName || ''} unique different laws regulations ${topDomainContext}`,
+      mappedAction: 'state-specific compliance',
+      anchorTerms: [stateCode, stateName || '', 'unique', 'different', 'only state', 'unlike other states', ...domainAnchors.slice(0, 2)].filter(Boolean),
+      negativeTerms: [],
+      targetType: 'statute',
+      why: `Find what makes ${stateName || stateCode} DIFFERENT from other states in this domain`,
+      isStateDifferenceQuery: true,  // Flag for special handling
+    };
+    queries.push(stateDifferenceQuery);
+
     const researchPlan = {
       id: crypto.randomUUID(),
       stateCode,
@@ -7622,7 +7636,8 @@ async function findRegulatoryInfo(
   stateCode: string,
   stateName: string,
   action: string,
-  domainContext: string
+  domainContext: string,
+  isStateDifferenceQuery: boolean = false
 ): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
   if (!OPENAI_API_KEY) {
     throw new Error("OpenAI API key not configured");
@@ -7666,7 +7681,29 @@ Return your response as JSON with this structure:
   "freshness_warning": "Optional: note if this area of law changes frequently or if you're aware of recent/pending changes"
 }`;
 
-  const userPrompt = `Find ${stateName} (${stateCode}) state regulations related to: ${action}
+  // Use different prompt for state differences query
+  const userPrompt = isStateDifferenceQuery
+    ? `What makes ${stateName} (${stateCode}) UNIQUE or DIFFERENT from most other states regarding: ${domainContext}
+
+CRITICALLY IMPORTANT: Focus on laws, regulations, or requirements that are:
+1. UNIQUE to ${stateName} - things that are true ONLY in ${stateCode} or in very few states
+2. OPPOSITE of most states - where ${stateName} requires something most states don't, or bans something most states allow
+3. UNUSUAL restrictions or requirements specific to this state
+4. Notable exceptions or special rules that employees from other states wouldn't expect
+
+Examples of what we're looking for:
+- "New Jersey is the ONLY state that bans self-service gas stations"
+- "Oregon requires..." (only 1 of 2 states with this rule)
+- "Unlike most states, ${stateName} does NOT allow..."
+- "While most states require X, ${stateName} instead requires Y"
+
+BUSINESS CONTEXT:
+${domainContext}
+
+This is for adapting national training content to be state-specific. We need to know what's DIFFERENT in ${stateName}, not what's the same everywhere.
+
+Provide specific statute citations where known.`
+    : `Find ${stateName} (${stateCode}) state regulations related to: ${action}
 
 BUSINESS CONTEXT:
 ${domainContext}
@@ -7684,7 +7721,7 @@ IMPORTANT: Tailor your response to the specific industry context provided. A con
 
 Provide official statute/code citations where known.`;
 
-  console.log(`[RegulatoryInfo] Querying GPT-4o for: ${stateCode} - ${action}`);
+  console.log(`[RegulatoryInfo] Querying GPT-4o for: ${stateCode} - ${action}${isStateDifferenceQuery ? ' (STATE DIFFERENCES QUERY)' : ''}`);
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -7796,7 +7833,7 @@ function classifySourceTier(url: string): 1 | 2 | 3 {
     return 1;
   }
 
-  // Tier 2: Legal databases and analysis
+  // Tier 2: Legal databases, analysis, and reputable secondary sources
   if (
     lowerUrl.includes('justia.com') ||
     lowerUrl.includes('findlaw.com') ||
@@ -7804,12 +7841,22 @@ function classifySourceTier(url: string): 1 | 2 | 3 {
     lowerUrl.includes('lexisnexis.com') ||
     lowerUrl.includes('westlaw.com') ||
     lowerUrl.includes('nolo.com') ||
-    lowerUrl.includes('uslegal.com')
+    lowerUrl.includes('uslegal.com') ||
+    lowerUrl.includes('wikipedia.org') ||  // Wikipedia for factual references
+    lowerUrl.includes('britannica.com') ||
+    lowerUrl.includes('ncsl.org') ||  // National Conference of State Legislatures
+    lowerUrl.includes('nhtsa.gov') ||  // DOT safety
+    lowerUrl.includes('osha.gov') ||
+    lowerUrl.includes('iii.org') ||  // Insurance Information Institute
+    lowerUrl.includes('api.org') ||  // American Petroleum Institute
+    lowerUrl.includes('convenience.org') ||  // NACS convenience store association
+    lowerUrl.includes('cspdailynews.com') ||  // C-Store industry news
+    lowerUrl.includes('pei.org')  // Petroleum Equipment Institute
   ) {
     return 2;
   }
 
-  // Tier 3: Everything else
+  // Tier 3: Everything else (still accepted but flagged)
   return 3;
 }
 
@@ -7900,13 +7947,14 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
     // Execute queries in parallel for speed (max 3 concurrent)
     const processQuery = async (queryDef: any) => {
       try {
-        console.log(`[RetrieveEvidence] Processing action: "${queryDef.mappedAction}"`);
+        console.log(`[RetrieveEvidence] Processing action: "${queryDef.mappedAction}"${queryDef.isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
 
         const searchResult = await findRegulatoryInfo(
           stateCode,
           stateName,
           queryDef.mappedAction,
-          domainContext
+          domainContext,
+          queryDef.isStateDifferenceQuery || false
         );
 
         const queryEvidence: any[] = [];
@@ -7931,14 +7979,12 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
             ) || [],
           };
 
-          // Accept Tier 1 and 2, reject Tier 3
-          if (tier <= 2) {
-            queryEvidence.push(evidenceBlock);
-          } else {
-            queryRejected.push({
-              ...evidenceBlock,
-              reason: 'Source tier too low (Tier 3)',
-            });
+          // Accept all tiers - Tier 3 will be flagged for review in key facts extraction
+          queryEvidence.push(evidenceBlock);
+
+          // Log tier 3 sources for visibility
+          if (tier === 3) {
+            console.log(`[RetrieveEvidence] Tier 3 source accepted (flagged): ${evidenceBlock.url}`);
           }
         }
 
@@ -8363,13 +8409,25 @@ function runKeyFactQAGates(
     failedGates.push('D');
   }
 
+  // Check if any citations are Tier 3
+  const hasTier3Only = fact.citations.every((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
+  const hasTier3 = fact.citations.some((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
+
   // Determine status
   let status = 'PASS';
   if (failedGates.length > 0) {
     status = 'FAIL';
+  } else if (hasTier3Only) {
+    // Facts supported only by Tier 3 sources need review
+    status = 'PASS_WITH_REVIEW';
+    flags.push('Tier3: All citations are from secondary sources - verify accuracy');
   } else if (hasStaleDate || !fact.citations.some((c: any) => c.effectiveDate)) {
     status = 'PASS_WITH_REVIEW';
     flags.push('C: Citations may be stale or missing dates');
+  } else if (hasTier3) {
+    // Mixed tier sources - still flag for awareness
+    status = 'PASS_WITH_REVIEW';
+    flags.push('Tier3: Some citations are from secondary sources');
   }
 
   return { status, flags, failedGates };
