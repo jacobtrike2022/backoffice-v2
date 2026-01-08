@@ -7457,6 +7457,78 @@ async function handleGetScopeContract(contractId: string, req: Request): Promise
 }
 
 /**
+ * Helper: Generate optimized research queries using LLM
+ */
+async function generateResearchQueries(
+  stateCode: string,
+  stateName: string,
+  domainContext: string,
+  learnerActions: string[]
+): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[] }>> {
+  if (!OPENAI_API_KEY) {
+    console.warn("OpenAI API key missing, skipping LLM query generation");
+    return [];
+  }
+
+  const systemPrompt = `You are a research expert specializing in regulatory compliance search strategies.
+Your goal is to generate HIGH-QUALITY search queries to find official state regulations.
+
+INPUT CONTEXT:
+State: ${stateName} (${stateCode})
+Business Domain: ${domainContext}
+Learner Actions: ${learnerActions.join(', ')}
+
+TASK:
+Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions.
+Do NOT just concatenate words. Use boolean operators or natural language phrasing that legal search engines or Google would understand best.
+Focus on the most critical compliance risks.
+
+OUTPUT FORMAT (JSON):
+{
+  "queries": [
+    {
+      "query": "search string",
+      "mappedAction": "The specific learner action this query covers (or 'general' if broad)",
+      "why": "Brief explanation of what regulation this targets",
+      "keywords": ["keyword1", "keyword2"]
+    }
+  ]
+}
+`;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: "Generate the 4 best research queries for this context." }
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("LLM Query Gen Failed status:", response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    return content.queries || [];
+  } catch (e) {
+    console.error("Error in generateResearchQueries:", e);
+    return [];
+  }
+}
+
+/**
  * Handler: Build Research Plan
  */
 async function handleBuildResearchPlan(req: Request): Promise<Response> {
@@ -7505,19 +7577,42 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
     // Pick top 2-3 domain anchors to provide context (e.g., "fuel delivery", "UST", "Class C operator")
     const topDomainContext = domainAnchors.slice(0, 3).join(' ');
 
-    const queries = (scopeContract.allowedLearnerActions || []).map((action: string, index: number) => {
-      // Build query with domain context: "FL fuel delivery UST report spills regulations"
-      const queryParts = [stateCode, topDomainContext, action, 'regulations'].filter(Boolean);
-      return {
+    // GENERATE OPTIMIZED QUERIES VIA LLM
+    let queries: any[] = [];
+    const actions = scopeContract.allowedLearnerActions || [];
+
+    const generatedQueries = await generateResearchQueries(
+      stateCode,
+      stateName || stateCode,
+      topDomainContext,
+      actions
+    );
+
+    if (generatedQueries && generatedQueries.length > 0) {
+      queries = generatedQueries.map((q, index) => ({
         id: `q${index + 1}`,
-        query: queryParts.join(' '),
-        mappedAction: action,
-        anchorTerms: [stateCode, stateName || '', ...domainAnchors.slice(0, 2), action].filter(Boolean),
+        query: q.query,
+        mappedAction: q.mappedAction,
+        anchorTerms: [stateCode, stateName || '', ...(q.keywords || [])].filter(Boolean),
         negativeTerms: [],
         targetType: 'statute',
-        why: `Find state-specific requirements for: ${action}`,
-      };
-    });
+        why: q.why,
+      }));
+    } else {
+      // Fallback: Pick top 4 actions and build simple queries
+      queries = actions.slice(0, 4).map((action: string, index: number) => {
+        const queryParts = [stateCode, topDomainContext, action, 'regulations'].filter(Boolean);
+        return {
+          id: `q${index + 1}`,
+          query: queryParts.join(' '),
+          mappedAction: action,
+          anchorTerms: [stateCode, stateName || '', ...domainAnchors.slice(0, 2), action].filter(Boolean),
+          negativeTerms: [],
+          targetType: 'statute',
+          why: `Find state-specific requirements for: ${action}`,
+        };
+      });
+    }
 
     // CRITICAL: Add a "state differences" query to catch unique state laws
     // This explicitly asks what's different/unique about this state
