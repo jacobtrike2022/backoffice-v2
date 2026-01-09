@@ -673,8 +673,8 @@ Deno.serve(async (req: Request) => {
       return await handleValidateFact(req);
     }
 
-    if (method === "GET" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/status$/)) {
-      return await handleGetDraftStatus(req, path);
+    if ((method === "GET" || method === "POST") && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/status$/)) {
+      return await handleDraftStatus(req, path);
     }
 
     if (method === "POST" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/publish$/)) {
@@ -7457,6 +7457,78 @@ async function handleGetScopeContract(contractId: string, req: Request): Promise
 }
 
 /**
+ * Helper: Generate optimized research queries using LLM
+ */
+async function generateResearchQueries(
+  stateCode: string,
+  stateName: string,
+  domainContext: string,
+  learnerActions: string[]
+): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[] }>> {
+  if (!OPENAI_API_KEY) {
+    console.warn("OpenAI API key missing, skipping LLM query generation");
+    return [];
+  }
+
+  const systemPrompt = `You are a research expert specializing in regulatory compliance search strategies.
+Your goal is to generate HIGH-QUALITY search queries to find official state regulations.
+
+INPUT CONTEXT:
+State: ${stateName} (${stateCode})
+Business Domain: ${domainContext}
+Learner Actions: ${learnerActions.join(', ')}
+
+TASK:
+Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions.
+Do NOT just concatenate words. Use boolean operators or natural language phrasing that legal search engines or Google would understand best.
+Focus on the most critical compliance risks.
+
+OUTPUT FORMAT (JSON):
+{
+  "queries": [
+    {
+      "query": "search string",
+      "mappedAction": "The specific learner action this query covers (or 'general' if broad)",
+      "why": "Brief explanation of what regulation this targets",
+      "keywords": ["keyword1", "keyword2"]
+    }
+  ]
+}
+`;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: "Generate the 4 best research queries for this context." }
+        ],
+        temperature: 0.2,
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("LLM Query Gen Failed status:", response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    return content.queries || [];
+  } catch (e) {
+    console.error("Error in generateResearchQueries:", e);
+    return [];
+  }
+}
+
+/**
  * Handler: Build Research Plan
  */
 async function handleBuildResearchPlan(req: Request): Promise<Response> {
@@ -7505,19 +7577,42 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
     // Pick top 2-3 domain anchors to provide context (e.g., "fuel delivery", "UST", "Class C operator")
     const topDomainContext = domainAnchors.slice(0, 3).join(' ');
 
-    const queries = (scopeContract.allowedLearnerActions || []).map((action: string, index: number) => {
-      // Build query with domain context: "FL fuel delivery UST report spills regulations"
-      const queryParts = [stateCode, topDomainContext, action, 'regulations'].filter(Boolean);
-      return {
+    // GENERATE OPTIMIZED QUERIES VIA LLM
+    let queries: any[] = [];
+    const actions = scopeContract.allowedLearnerActions || [];
+
+    const generatedQueries = await generateResearchQueries(
+      stateCode,
+      stateName || stateCode,
+      topDomainContext,
+      actions
+    );
+
+    if (generatedQueries && generatedQueries.length > 0) {
+      queries = generatedQueries.map((q, index) => ({
         id: `q${index + 1}`,
-        query: queryParts.join(' '),
-        mappedAction: action,
-        anchorTerms: [stateCode, stateName || '', ...domainAnchors.slice(0, 2), action].filter(Boolean),
+        query: q.query,
+        mappedAction: q.mappedAction,
+        anchorTerms: [stateCode, stateName || '', ...(q.keywords || [])].filter(Boolean),
         negativeTerms: [],
         targetType: 'statute',
-        why: `Find state-specific requirements for: ${action}`,
-      };
-    });
+        why: q.why,
+      }));
+    } else {
+      // Fallback: Pick top 4 actions and build simple queries
+      queries = actions.slice(0, 4).map((action: string, index: number) => {
+        const queryParts = [stateCode, topDomainContext, action, 'regulations'].filter(Boolean);
+        return {
+          id: `q${index + 1}`,
+          query: queryParts.join(' '),
+          mappedAction: action,
+          anchorTerms: [stateCode, stateName || '', ...domainAnchors.slice(0, 2), action].filter(Boolean),
+          negativeTerms: [],
+          targetType: 'statute',
+          why: `Find state-specific requirements for: ${action}`,
+        };
+      });
+    }
 
     // CRITICAL: Add a "state differences" query to catch unique state laws
     // This explicitly asks what's different/unique about this state
@@ -10620,7 +10715,42 @@ async function handleAssignTags(req: Request): Promise<Response> {
 // =============================================================================
 
 async function handleCreateVariant(req: Request): Promise<Response> {
-  return jsonResponse({ error: 'Not implemented' }, 501);
+  try {
+    const body = await req.json();
+    const { sourceTrackId, derivedTrackId, variantType, variantContext } = body;
+    
+    if (!sourceTrackId || !derivedTrackId || !variantType) {
+      return jsonResponse({ error: "Missing required fields: sourceTrackId, derivedTrackId, variantType" }, 400);
+    }
+
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .insert({
+        organization_id: orgId,
+        source_track_id: sourceTrackId,
+        derived_track_id: derivedTrackId,
+        relationship_type: "variant",
+        variant_type: variantType,
+        variant_context: variantContext || {},
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Create variant relationship error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ relationship: data });
+  } catch (error: any) {
+    console.error("Create variant relationship error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariants(req: Request, path: string): Promise<Response> {
@@ -10664,23 +10794,247 @@ async function handleBatchTrackRelationships(req: Request): Promise<Response> {
 }
 
 async function handleClassifySource(req: Request): Promise<Response> {
-  return jsonResponse({ classification: null });
+  try {
+    const { url } = await req.json();
+
+    if (!url) {
+      return jsonResponse({ error: "URL is required" }, 400);
+    }
+
+    let tier: 'tier1' | 'tier2' | 'tier3' = 'tier3';
+    let isTier1 = false;
+    let isTier2 = false;
+    let isTier3 = true;
+
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+
+      // Tier 1: Official Government
+      if (hostname.endsWith('.gov') || hostname.endsWith('.mil')) {
+        tier = 'tier1';
+        isTier1 = true;
+        isTier2 = false;
+        isTier3 = false;
+      }
+      // Tier 2: Legal Databases (Expanded list)
+      else if (
+        hostname.includes('justia.com') ||
+        hostname.includes('findlaw.com') ||
+        hostname.includes('cornell.edu') || // law.cornell.edu
+        hostname.includes('lexisnexis.com') ||
+        hostname.includes('westlaw.com') ||
+        hostname.includes('casetext.com') ||
+        hostname.includes('casemine.com') ||
+        hostname.includes('fastcase.com') ||
+        hostname.includes('vlex.com') ||
+        hostname.includes('bloomberglaw.com') ||
+        hostname.includes('gov.uk') || // International gov often reliable
+        hostname.includes('europa.eu')
+      ) {
+        tier = 'tier2';
+        isTier1 = false;
+        isTier2 = true;
+        isTier3 = false;
+      }
+    } catch (e) {
+      console.warn('Invalid URL in classification:', url);
+    }
+
+    return jsonResponse({
+      url,
+      tier,
+      isTier1,
+      isTier2,
+      isTier3
+    });
+  } catch (error: any) {
+    console.error('Error classifying source:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleUpdateKeyFactsStatus(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ success: true });
+  try {
+    const { factId, newStatus, reviewNote } = await req.json();
+
+    if (!factId || !newStatus) {
+      return jsonResponse({ error: "factId and newStatus are required" }, 400);
+    }
+
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Verify extraction ID from path matches (optional but good for consistency)
+    const extractionId = path.split("/")[4];
+
+    // Update the fact
+    const { data: fact, error } = await supabase
+      .from('variant_key_facts')
+      .update({
+        qa_status: newStatus,
+        review_note: reviewNote,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', factId)
+      .eq('extraction_id', extractionId) // Ensure it belongs to this extraction
+      .eq('organization_id', orgId)
+      .select()
+      .single();
+
+    if (error || !fact) {
+      console.error('Error updating key fact:', error);
+      return jsonResponse({ error: "Failed to update key fact" }, 500);
+    }
+
+    // Also update extraction stats? Maybe later. For now just update the fact.
+
+    return jsonResponse({
+      success: true,
+      factId: fact.id,
+      newStatus: fact.qa_status
+    });
+  } catch (error: any) {
+    console.error('handleUpdateKeyFactsStatus error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetKeyFactsByState(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ keyFacts: [] });
+  try {
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const stateCode = path.split("/").pop(); // Last part
+    const url = new URL(req.url);
+    const statusFilter = url.searchParams.get('status');
+
+    if (!stateCode) {
+      return jsonResponse({ error: "State code required" }, 400);
+    }
+
+    // Get extractions for this state
+    let query = supabase
+      .from('variant_key_facts_extractions')
+      .select('id, state_code, state_name, overall_status, key_facts_count, rejected_facts_count, created_at')
+      .eq('organization_id', orgId)
+      .eq('state_code', stateCode)
+      .order('created_at', { ascending: false });
+
+    // If status filter is provided, we might need to join or filter differently
+    // But extraction overall_status is usually what we care about here
+    if (statusFilter) {
+      query = query.eq('overall_status', statusFilter);
+    }
+
+    const { data: extractions, error, count } = await query;
+
+    if (error) {
+      console.error('Error fetching key facts by state:', error);
+      return jsonResponse({ error: "Failed to fetch key facts" }, 500);
+    }
+
+    return jsonResponse({
+      stateCode,
+      extractions: extractions || [],
+      count: extractions?.length || 0
+    });
+  } catch (error: any) {
+    console.error('handleGetKeyFactsByState error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleValidateFact(req: Request): Promise<Response> {
-  return jsonResponse({ valid: true });
+  try {
+    const { factText, scopeContract, mappedAction, citations } = await req.json();
+
+    if (!factText || !scopeContract) {
+      return jsonResponse({ error: "factText and scopeContract are required" }, 400);
+    }
+
+    // Construct a temporary fact object for validation
+    const factCandidate = {
+      factText,
+      mappedAction,
+      citations: citations || [],
+      isStrongClaim: isStrongClaimCheck(factText),
+      // Mocks for gates - if anchorHit is missing, Gate A/C might be lenient or strict depending on implementation
+      anchorHit: [],
+    };
+
+    // We don't have existingFacts for context here, passing empty array
+    const gateResults = runKeyFactQAGates(factCandidate, scopeContract, []);
+
+    return jsonResponse({
+      factText,
+      isStrongClaim: factCandidate.isStrongClaim,
+      qaStatus: gateResults.status,
+      qaFlags: gateResults.flags,
+      gateResults: gateResults.failedGates.map(g => ({ gate: g, status: 'FAIL', reason: 'Validation failed' }))
+    });
+  } catch (error: any) {
+    console.error('handleValidateFact error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
-async function handleGetDraftStatus(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ status: 'unknown' });
+async function handleDraftStatus(req: Request, path: string): Promise<Response> {
+  try {
+    // Path: /track-relationships/variant/draft/:draftId/status
+    // split: ["", "track-relationships", "variant", "draft", "draftId", "status"]
+    const draftId = path.split("/")[4];
+    
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    if (req.method === "POST") {
+      const { status, reviewedBy } = await req.json();
+      
+      if (!status) {
+        return jsonResponse({ error: "Status is required" }, 400);
+      }
+
+      const { data: draft, error } = await supabase
+        .from('variant_drafts')
+        .update({ 
+          status, 
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', draftId)
+        .eq('organization_id', orgId)
+        .select()
+        .single();
+
+      if (error || !draft) {
+        console.error('Error updating draft status:', error);
+        return jsonResponse({ error: "Failed to update draft status" }, 500);
+      }
+
+      return jsonResponse(formatDraftResponse(draft));
+    } else {
+      // GET
+      const { data: draft, error } = await supabase
+        .from('variant_drafts')
+        .select('status')
+        .eq('id', draftId)
+        .eq('organization_id', orgId)
+        .single();
+        
+      if (error || !draft) {
+        return jsonResponse({ error: "Draft not found" }, 404);
+      }
+      return jsonResponse({ status: draft.status });
+    }
+  } catch (error: any) {
+    console.error('handleDraftStatus error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handlePublishDraft(req: Request, path: string): Promise<Response> {
@@ -10796,9 +11150,67 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
 }
 
 async function handleGetDrafts(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ drafts: [] });
+  try {
+    const sourceTrackId = path.split("/")[4]; // /track-relationships/variant/drafts/:sourceTrackId
+    const url = new URL(req.url);
+    const stateCode = url.searchParams.get('stateCode');
+
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    let query = supabase
+      .from('variant_drafts')
+      .select('*')
+      .eq('source_track_id', sourceTrackId)
+      .eq('organization_id', orgId)
+      .order('updated_at', { ascending: false });
+
+    if (stateCode) {
+      query = query.eq('state_code', stateCode);
+    }
+
+    const { data: drafts, error } = await query;
+
+    if (error) {
+      console.error('Error fetching drafts:', error);
+      return jsonResponse({ error: "Failed to fetch drafts" }, 500);
+    }
+
+    return jsonResponse({
+      drafts: (drafts || []).map(formatDraftResponse)
+    });
+  } catch (error: any) {
+    console.error('handleGetDrafts error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleDeleteDraft(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ success: true });
+  try {
+    const draftId = path.split("/")[4]; // /track-relationships/variant/draft/:draftId
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // Delete draft (cascade should handle change notes if configured, but let's be safe)
+    // Actually, RLS/FKs usually handle cascades.
+    const { error } = await supabase
+      .from('variant_drafts')
+      .delete()
+      .eq('id', draftId)
+      .eq('organization_id', orgId);
+
+    if (error) {
+      console.error('Error deleting draft:', error);
+      return jsonResponse({ error: "Failed to delete draft" }, 500);
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('handleDeleteDraft error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
