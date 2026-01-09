@@ -125,8 +125,79 @@ export function SourcesManagement() {
     }
   };
 
+  // Diagnostic function to test storage connectivity
+  const testStorageConnectivity = async () => {
+    console.log('[SourcesManagement] Testing storage connectivity...');
+
+    try {
+      // Test 1: List buckets
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+      
+      console.log('[SourcesManagement] Buckets:', { buckets: buckets?.map(b => b.name), error: bucketsError });
+
+      if (bucketsError) {
+        toast.error('Storage access error: ' + bucketsError.message);
+        return false;
+      }
+
+      let bucketExists = buckets?.some(b => b.name === 'source-files');
+
+      // Fallback: try listing from bucket (RLS may hide bucket listing)
+      const { data: filesFallback, error: listFallbackError } = await supabase.storage
+        .from('source-files')
+        .list('', { limit: 1 });
+      if (!!filesFallback && !listFallbackError) {
+        bucketExists = true;
+      }
+
+      if (!bucketExists) {
+        toast.error('Bucket "source-files" does not exist. Please create it in Supabase Dashboard > Storage.');
+        return false;
+      }
+
+      // Test 2: List files in bucket (tests read access)
+      const { data: files, error: listError } = await supabase.storage
+        .from('source-files')
+        .list('', { limit: 1 });
+      console.log('[SourcesManagement] List files test:', { files, error: listError });
+
+      if (listError) {
+        toast.error('Cannot read from storage bucket: ' + listError.message);
+        return false;
+      }
+
+      // Test 3: Try a small upload
+      const testBlob = new Blob(['test'], { type: 'text/plain' });
+      const testPath = `_test_${Date.now()}.txt`;
+
+      console.log('[SourcesManagement] Testing small file upload...');
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('source-files')
+        .upload(testPath, testBlob, { upsert: true });
+
+      console.log('[SourcesManagement] Test upload result:', { uploadData, uploadError });
+
+      if (uploadError) {
+        toast.error('Storage upload test failed: ' + uploadError.message);
+        return false;
+      }
+
+      // Clean up test file
+      await supabase.storage.from('source-files').remove([testPath]);
+
+      toast.success('Storage connectivity OK!');
+      return true;
+    } catch (error: any) {
+      console.error('[SourcesManagement] Storage test error:', error);
+      toast.error('Storage test failed: ' + error.message);
+      return false;
+    }
+  };
+
   useEffect(() => {
     loadSourceFiles();
+    // Run storage diagnostic on mount
+    testStorageConnectivity();
   }, []);
 
   const loadSourceFiles = async () => {
@@ -273,10 +344,15 @@ export function SourcesManagement() {
       const uploadTimeout = 10 * 60 * 1000; // 10 minutes for large files
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const uploadStartTime = Date.now(); // Define at start of loop for error handling
         try {
           console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${file.name} (${finalSizeMB.toFixed(1)}MB)`);
           
-          // Create upload promise
+          // Check auth token before upload
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          const authToken = currentSession?.access_token;
+          
+          // Upload using Supabase client with timeout
           const uploadPromise = supabase.storage
             .from('source-files')
             .upload(fileName, fileToUpload, {
@@ -284,47 +360,34 @@ export function SourcesManagement() {
               cacheControl: '3600',
               upsert: false
             });
-
-          // Add timeout wrapper
+          
           const timeoutPromise = new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('Upload timeout - the file may be too large or connection is slow')), uploadTimeout)
           );
+          
+          const result = await Promise.race([uploadPromise, timeoutPromise]);
+          
+          uploadData = result.data;
+          uploadError = result.error;
 
-          try {
-            const result = await Promise.race([uploadPromise, timeoutPromise]);
-            uploadData = result.data;
-            uploadError = result.error;
-
-            if (!uploadError) {
-              console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
-              break;
-            }
-
-            // If it's a network error and we have retries left, wait and retry
-            const isNetworkError = uploadError?.message?.includes('fetch') || 
-                                 uploadError?.message?.includes('network') ||
-                                 uploadError?.message?.includes('Failed to fetch');
-            
-            if (isNetworkError && attempt < maxRetries) {
-              console.warn(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
-              await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
-              continue;
-            }
-
-            // If it's not a network error or we're out of retries, break and throw
+          if (!uploadError) {
+            console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
             break;
-          } catch (timeoutError: any) {
-            // Handle timeout specifically
-            if (timeoutError.message?.includes('timeout')) {
-              uploadError = timeoutError;
-              if (attempt < maxRetries) {
-                console.warn(`[SourcesManagement] Timeout on attempt ${attempt}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
-                continue;
-              }
-            }
-            throw timeoutError;
           }
+
+          // If it's a network error and we have retries left, wait and retry
+          const isNetworkError = uploadError?.message?.includes('fetch') || 
+                               uploadError?.message?.includes('network') ||
+                               uploadError?.message?.includes('Failed to fetch');
+          
+          if (isNetworkError && attempt < maxRetries) {
+            console.warn(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
+            continue;
+          }
+
+          // If it's not a network error or we're out of retries, break and throw
+          break;
         } catch (error: any) {
           uploadError = error;
           const isRetryable = (error.message?.includes('timeout') || 
