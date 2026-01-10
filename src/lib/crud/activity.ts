@@ -68,7 +68,7 @@ export async function getRecentActivity(
         role:roles(name)
       )
     `)
-    .eq('user.organization_id', organizationId);
+    .eq('organization_id', organizationId);
 
   if (filters?.action) {
     query = query.eq('action', filters.action);
@@ -145,7 +145,7 @@ export async function getActivityAnalytics(
       created_at,
       user:users!inner(organization_id)
     `)
-    .eq('user.organization_id', organizationId)
+    .eq('organization_id', organizationId)
     .gte('created_at', timeRange.start)
     .lte('created_at', timeRange.end);
 

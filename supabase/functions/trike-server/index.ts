@@ -704,6 +704,46 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // DOCUMENT CHUNKING
+    // =========================================================================
+
+    // Chunk source document
+    if (method === "POST" && path === "/chunk-source") {
+      return await handleChunkSource(req);
+    }
+
+    // Get chunks for a source file
+    if (method === "GET" && path.startsWith("/chunks/")) {
+      const sourceFileId = path.replace("/chunks/", "");
+      return await handleGetChunks(req, sourceFileId);
+    }
+
+    // Delete chunks for a source file (re-chunk)
+    if (method === "DELETE" && path.startsWith("/chunks/")) {
+      const sourceFileId = path.replace("/chunks/", "");
+      return await handleDeleteChunks(req, sourceFileId);
+    }
+
+    // =========================================================================
+    // TRACK GENERATION FROM CHUNKS
+    // =========================================================================
+
+    // Generate track(s) from chunks
+    if (method === "POST" && path === "/generate-tracks-from-chunks") {
+      return await handleGenerateTracksFromChunks(req);
+    }
+
+    // Generate a single track from multiple chunks (combined)
+    if (method === "POST" && path === "/generate-combined-track") {
+      return await handleGenerateCombinedTrack(req);
+    }
+
+    // Preview track generation (dry run)
+    if (method === "POST" && path === "/preview-track-generation") {
+      return await handlePreviewTrackGeneration(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -784,7 +824,13 @@ Deno.serve(async (req: Request) => {
         "GET /track-relationships/variant/ultimate-base/:id",
         "POST /track-relationships/batch",
         "POST /extract-source",
-        "POST /detect-document-type"
+        "POST /detect-document-type",
+        "POST /chunk-source",
+        "GET /chunks/:source_file_id",
+        "DELETE /chunks/:source_file_id",
+        "POST /generate-tracks-from-chunks",
+        "POST /generate-combined-track",
+        "POST /preview-track-generation"
       ]
     }, 404);
 
@@ -1248,6 +1294,495 @@ ${textSample}`;
       error: error.message || "An unexpected error occurred",
       code: "INTERNAL_ERROR"
     }, 500);
+  }
+}
+
+// =============================================================================
+// CHUNKING - AI-powered document segmentation
+// =============================================================================
+
+interface ChunkResult {
+  title: string;
+  content: string;
+  chunk_type: 'header' | 'content' | 'list' | 'table' | 'form';
+  hierarchy_level: number;
+  key_terms: string[];
+  summary: string;
+}
+
+/**
+ * Intelligently chunk a document using AI
+ */
+async function handleChunkSource(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { source_file_id, options = {} } = body;
+
+    console.log('[chunk-source] Starting chunking for source_file_id:', source_file_id);
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the source file with extracted text
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, organization_id, file_name, extracted_text, source_type, is_chunked")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[chunk-source] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    if (!sourceFile.extracted_text) {
+      return jsonResponse({
+        success: false,
+        error: "No extracted text available. Please extract text first.",
+        code: "NO_TEXT"
+      }, 400);
+    }
+
+    console.log('[chunk-source] Found source file:', sourceFile.file_name);
+    console.log('[chunk-source] Text length:', sourceFile.extracted_text.length, 'characters');
+
+    // Delete existing chunks if re-chunking
+    if (sourceFile.is_chunked) {
+      console.log('[chunk-source] Deleting existing chunks...');
+      await supabase
+        .from("source_chunks")
+        .delete()
+        .eq("source_file_id", source_file_id);
+    }
+
+    // Chunk the document
+    const chunks = await chunkDocument(
+      sourceFile.extracted_text,
+      sourceFile.source_type || 'other',
+      options
+    );
+
+    console.log('[chunk-source] Generated', chunks.length, 'chunks');
+
+    // Insert chunks into database
+    const chunkRecords = chunks.map((chunk, index) => ({
+      source_file_id: source_file_id,
+      organization_id: sourceFile.organization_id,
+      chunk_index: index,
+      content: chunk.content,
+      title: chunk.title,
+      summary: chunk.summary,
+      word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+      char_count: chunk.content.length,
+      estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60), // 200 WPM
+      chunk_type: chunk.chunk_type,
+      hierarchy_level: chunk.hierarchy_level,
+      key_terms: chunk.key_terms,
+      metadata: {
+        chunked_at: new Date().toISOString(),
+        source_type: sourceFile.source_type
+      }
+    }));
+
+    const { error: insertError } = await supabase
+      .from("source_chunks")
+      .insert(chunkRecords);
+
+    if (insertError) {
+      console.error('[chunk-source] Failed to insert chunks:', insertError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to save chunks: ${insertError.message}`,
+        code: "INSERT_FAILED"
+      }, 500);
+    }
+
+    // Update source file status
+    await supabase
+      .from("source_files")
+      .update({
+        is_chunked: true,
+        chunked_at: new Date().toISOString(),
+        chunk_count: chunks.length
+      })
+      .eq("id", source_file_id);
+
+    const processingTimeMs = Date.now() - startTime;
+    console.log('[chunk-source] Chunking completed in', processingTimeMs, 'ms');
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      chunk_count: chunks.length,
+      processing_time_ms: processingTimeMs,
+      chunks: chunkRecords.map(c => ({
+        chunk_index: c.chunk_index,
+        title: c.title,
+        word_count: c.word_count,
+        chunk_type: c.chunk_type,
+        hierarchy_level: c.hierarchy_level
+      }))
+    });
+
+  } catch (error: any) {
+    console.error('[chunk-source] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Chunking failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Smart document chunking algorithm
+ */
+async function chunkDocument(
+  text: string,
+  sourceType: string,
+  options: { targetChunkSize?: number; useAI?: boolean } = {}
+): Promise<ChunkResult[]> {
+  const { targetChunkSize = 500, useAI = true } = options;
+
+  // First pass: Split by obvious section markers
+  const sections = splitIntoSections(text);
+
+  console.log('[chunkDocument] Initial sections:', sections.length);
+
+  // If we have a reasonable number of sections and AI is enabled, enhance with AI
+  if (useAI && OPENAI_API_KEY && sections.length > 0 && sections.length < 50) {
+    return await enhanceChunksWithAI(sections, sourceType);
+  }
+
+  // Fallback: Use rule-based chunking
+  return sections.map((section, index) => ({
+    title: extractTitle(section) || `Section ${index + 1}`,
+    content: section.trim(),
+    chunk_type: detectChunkType(section),
+    hierarchy_level: detectHierarchyLevel(section),
+    key_terms: extractKeyTerms(section),
+    summary: section.slice(0, 200) + (section.length > 200 ? '...' : '')
+  }));
+}
+
+/**
+ * Split text into sections based on structural markers
+ */
+function splitIntoSections(text: string): string[] {
+  const sections: string[] = [];
+
+  // Split by common section markers
+  // Match: numbered sections (1., 1.1, etc.), headers (ALL CAPS lines), or double newlines with capitalized starts
+  const sectionPattern = /(?=\n(?:\d+\.[\d.]*\s+[A-Z]|\n[A-Z][A-Z\s]{10,}\n|\n\n[A-Z]))/g;
+
+  const parts = text.split(sectionPattern).filter(p => p.trim().length > 50);
+
+  if (parts.length < 3) {
+    // Not enough natural sections, split by paragraphs and group
+    const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 20);
+
+    let currentChunk = '';
+    for (const para of paragraphs) {
+      if (currentChunk.length + para.length > 2000 && currentChunk.length > 300) {
+        sections.push(currentChunk.trim());
+        currentChunk = para;
+      } else {
+        currentChunk += '\n\n' + para;
+      }
+    }
+    if (currentChunk.trim().length > 50) {
+      sections.push(currentChunk.trim());
+    }
+  } else {
+    sections.push(...parts);
+  }
+
+  // Further split any sections that are too large (>3000 chars)
+  const finalSections: string[] = [];
+  for (const section of sections) {
+    if (section.length > 3000) {
+      const subSections = splitLargeSection(section);
+      finalSections.push(...subSections);
+    } else {
+      finalSections.push(section);
+    }
+  }
+
+  return finalSections;
+}
+
+/**
+ * Split a large section into smaller chunks while preserving coherence
+ */
+function splitLargeSection(text: string): string[] {
+  const chunks: string[] = [];
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+
+  let currentChunk = '';
+  for (const sentence of sentences) {
+    if (currentChunk.length + sentence.length > 2000 && currentChunk.length > 300) {
+      chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    } else {
+      currentChunk += ' ' + sentence;
+    }
+  }
+  if (currentChunk.trim().length > 50) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks;
+}
+
+/**
+ * Extract a title from section content
+ */
+function extractTitle(text: string): string | null {
+  const lines = text.trim().split('\n');
+  const firstLine = lines[0]?.trim();
+
+  // Check if first line looks like a title (short, possibly numbered)
+  if (firstLine && firstLine.length < 100) {
+    // Remove numbering like "1.1" or "Section 1:"
+    const cleaned = firstLine.replace(/^[\d.]+\s*/, '').replace(/^(section|chapter)\s*\d*:?\s*/i, '');
+    if (cleaned.length > 3 && cleaned.length < 80) {
+      return cleaned;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detect the type of content in a chunk
+ */
+function detectChunkType(text: string): 'header' | 'content' | 'list' | 'table' | 'form' {
+  const trimmed = text.trim();
+
+  // Check for list patterns
+  const listLines = trimmed.split('\n').filter(l => /^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/.test(l));
+  if (listLines.length > trimmed.split('\n').length * 0.5) {
+    return 'list';
+  }
+
+  // Check for form patterns (underscores, colons followed by blanks)
+  if (/_{5,}|:\s*_{3,}/.test(trimmed)) {
+    return 'form';
+  }
+
+  // Check for table-like patterns (multiple columns separated by tabs or multiple spaces)
+  const tableLines = trimmed.split('\n').filter(l => /\t|\s{3,}/.test(l) && l.split(/\t|\s{3,}/).length > 2);
+  if (tableLines.length > 3) {
+    return 'table';
+  }
+
+  // Short chunks that look like headers
+  if (trimmed.length < 100 && !/[.!?]$/.test(trimmed)) {
+    return 'header';
+  }
+
+  return 'content';
+}
+
+/**
+ * Detect hierarchy level based on formatting
+ */
+function detectHierarchyLevel(text: string): number {
+  const firstLine = text.trim().split('\n')[0] || '';
+
+  // Check for numbered hierarchy (1, 1.1, 1.1.1)
+  const numberMatch = firstLine.match(/^(\d+(?:\.\d+)*)/);
+  if (numberMatch) {
+    return numberMatch[1].split('.').length - 1;
+  }
+
+  // Check for header markers
+  if (/^#{1}\s/.test(firstLine)) return 0;
+  if (/^#{2}\s/.test(firstLine)) return 1;
+  if (/^#{3}\s/.test(firstLine)) return 2;
+
+  // ALL CAPS usually indicates top-level
+  if (firstLine === firstLine.toUpperCase() && firstLine.length > 5 && firstLine.length < 80) {
+    return 0;
+  }
+
+  return 1; // Default to section level
+}
+
+/**
+ * Extract key terms from text
+ */
+function extractKeyTerms(text: string): string[] {
+  // Simple extraction: find capitalized phrases, acronyms, and quoted terms
+  const terms = new Set<string>();
+
+  // Acronyms (2-6 capital letters)
+  const acronyms = text.match(/\b[A-Z]{2,6}\b/g) || [];
+  acronyms.forEach(a => terms.add(a));
+
+  // Capitalized phrases (excluding sentence starts)
+  const capitalPhrases = text.match(/(?<=[.!?]\s+|\n)[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
+  capitalPhrases.slice(0, 5).forEach(p => terms.add(p));
+
+  // Quoted terms
+  const quoted = text.match(/"([^"]+)"/g) || [];
+  quoted.slice(0, 3).forEach(q => terms.add(q.replace(/"/g, '')));
+
+  return Array.from(terms).slice(0, 10);
+}
+
+/**
+ * Enhance chunks with AI-generated metadata
+ */
+async function enhanceChunksWithAI(sections: string[], sourceType: string): Promise<ChunkResult[]> {
+  console.log('[enhanceChunksWithAI] Enhancing', sections.length, 'sections with AI');
+
+  // Process in batches to avoid token limits
+  const batchSize = 5;
+  const results: ChunkResult[] = [];
+
+  for (let i = 0; i < sections.length; i += batchSize) {
+    const batch = sections.slice(i, i + batchSize);
+
+    const prompt = `Analyze these document sections from a ${sourceType} document and provide metadata for each.
+
+For each section, return a JSON object with:
+- title: A concise, descriptive title (max 60 chars)
+- summary: A 1-2 sentence summary of the key information
+- chunk_type: One of "header", "content", "list", "table", "form"
+- hierarchy_level: 0 for main sections, 1 for subsections, 2 for sub-subsections
+- key_terms: Array of 3-7 important terms, concepts, or topics covered
+
+Sections to analyze:
+${batch.map((s, idx) => `\n--- SECTION ${i + idx + 1} ---\n${s.slice(0, 1500)}`).join('\n')}
+
+Return a JSON array with one object per section, in order. Only return valid JSON, no other text.`;
+
+    try {
+      const response = await callOpenAI(
+        [{ role: "user", content: prompt }],
+        { temperature: 0.3, response_format: { type: "json_object" } }
+      );
+
+      // Parse AI response
+      let parsed;
+      try {
+        parsed = JSON.parse(response);
+        // Handle both array and object with array property
+        const aiResults = Array.isArray(parsed) ? parsed : (parsed.sections || parsed.chunks || Object.values(parsed)[0]);
+
+        if (Array.isArray(aiResults)) {
+          aiResults.forEach((result: any, idx: number) => {
+            results.push({
+              title: result.title || `Section ${i + idx + 1}`,
+              content: batch[idx],
+              chunk_type: result.chunk_type || 'content',
+              hierarchy_level: result.hierarchy_level ?? 1,
+              key_terms: result.key_terms || [],
+              summary: result.summary || batch[idx].slice(0, 200)
+            });
+          });
+        }
+      } catch (parseError) {
+        console.error('[enhanceChunksWithAI] Failed to parse AI response, using fallback');
+        // Fallback to rule-based for this batch
+        batch.forEach((section, idx) => {
+          results.push({
+            title: extractTitle(section) || `Section ${i + idx + 1}`,
+            content: section,
+            chunk_type: detectChunkType(section),
+            hierarchy_level: detectHierarchyLevel(section),
+            key_terms: extractKeyTerms(section),
+            summary: section.slice(0, 200)
+          });
+        });
+      }
+    } catch (error) {
+      console.error('[enhanceChunksWithAI] AI call failed:', error);
+      // Fallback for this batch
+      batch.forEach((section, idx) => {
+        results.push({
+          title: extractTitle(section) || `Section ${i + idx + 1}`,
+          content: section,
+          chunk_type: detectChunkType(section),
+          hierarchy_level: detectHierarchyLevel(section),
+          key_terms: extractKeyTerms(section),
+          summary: section.slice(0, 200)
+        });
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get chunks for a source file
+ */
+async function handleGetChunks(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { data: chunks, error } = await supabase
+      .from("source_chunks")
+      .select("*")
+      .eq("source_file_id", sourceFileId)
+      .order("chunk_index", { ascending: true });
+
+    if (error) {
+      console.error('[get-chunks] Error:', error);
+      return jsonResponse({ error: "Failed to fetch chunks" }, 500);
+    }
+
+    return jsonResponse({
+      source_file_id: sourceFileId,
+      chunk_count: chunks?.length || 0,
+      chunks: chunks || []
+    });
+  } catch (error: any) {
+    console.error('[get-chunks] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Delete chunks for a source file
+ */
+async function handleDeleteChunks(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { error } = await supabase
+      .from("source_chunks")
+      .delete()
+      .eq("source_file_id", sourceFileId);
+
+    if (error) {
+      console.error('[delete-chunks] Error:', error);
+      return jsonResponse({ error: "Failed to delete chunks" }, 500);
+    }
+
+    // Update source file status
+    await supabase
+      .from("source_files")
+      .update({
+        is_chunked: false,
+        chunked_at: null,
+        chunk_count: 0
+      })
+      .eq("id", sourceFileId);
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('[delete-chunks] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
   }
 }
 
@@ -11667,4 +12202,568 @@ async function handleDeleteDraft(req: Request, path: string): Promise<Response> 
     console.error('handleDeleteDraft error:', error);
     return jsonResponse({ error: error.message }, 500);
   }
+}
+
+// =============================================================================
+// TRACK GENERATION - Convert chunks to training content
+// =============================================================================
+
+interface GeneratedTrack {
+  title: string;
+  description: string;
+  content: string;
+  duration_seconds: number;
+  key_points: string[];
+}
+
+/**
+ * Generate individual tracks from selected chunks (1 chunk = 1 track)
+ */
+async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { chunk_ids, options = {} } = body;
+
+    console.log('[generate-tracks] Starting generation for', chunk_ids?.length, 'chunks');
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    if (chunk_ids.length > 20) {
+      return jsonResponse({
+        success: false,
+        error: "Maximum 20 chunks per request",
+        code: "TOO_MANY_CHUNKS"
+      }, 400);
+    }
+
+    // Fetch the chunks
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("*, source_files(id, file_name, organization_id, source_type)")
+      .in("id", chunk_ids);
+
+    if (fetchError || !chunks || chunks.length === 0) {
+      console.error('[generate-tracks] Chunks not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const organizationId = chunks[0].organization_id;
+    const sourceFileId = chunks[0].source_file_id;
+    const sourceType = chunks[0].source_files?.source_type || 'training_docs';
+
+    console.log('[generate-tracks] Processing chunks for org:', organizationId);
+
+    // Generate tracks
+    const generatedTracks: any[] = [];
+    const errors: any[] = [];
+
+    for (const chunk of chunks) {
+      try {
+        // Generate enhanced content using AI
+        const enhanced = await enhanceChunkForTrack(chunk, sourceType, options);
+
+        // Create the track
+        const { data: track, error: trackError } = await supabase
+          .from("tracks")
+          .insert({
+            organization_id: organizationId,
+            title: enhanced.title,
+            description: enhanced.description,
+            transcript: enhanced.content, // Article content goes in transcript
+            type: 'article',
+            status: options.publish ? 'published' : 'draft',
+            duration_seconds: enhanced.duration_seconds,
+            generated_from_chunks: true,
+            source_file_id: sourceFileId,
+            tags: chunk.key_terms?.slice(0, 5) || [],
+            metadata: {
+              generated_at: new Date().toISOString(),
+              source_chunk_id: chunk.id,
+              key_points: enhanced.key_points,
+              word_count: chunk.word_count
+            }
+          })
+          .select()
+          .single();
+
+        if (trackError) {
+          console.error('[generate-tracks] Failed to create track:', trackError);
+          errors.push({ chunk_id: chunk.id, error: trackError.message });
+          continue;
+        }
+
+        // Create track-chunk relationship
+        await supabase
+          .from("track_source_chunks")
+          .insert({
+            track_id: track.id,
+            source_chunk_id: chunk.id,
+            organization_id: organizationId,
+            sequence_order: 0,
+            usage_type: 'content'
+          });
+
+        // Mark chunk as converted
+        await supabase
+          .from("source_chunks")
+          .update({
+            is_converted: true,
+            converted_at: new Date().toISOString(),
+            converted_track_id: track.id
+          })
+          .eq("id", chunk.id);
+
+        generatedTracks.push({
+          track_id: track.id,
+          title: track.title,
+          chunk_id: chunk.id,
+          status: track.status
+        });
+
+      } catch (chunkError: any) {
+        console.error('[generate-tracks] Error processing chunk:', chunk.id, chunkError);
+        errors.push({ chunk_id: chunk.id, error: chunkError.message });
+      }
+    }
+
+    const processingTimeMs = Date.now() - startTime;
+    console.log('[generate-tracks] Generated', generatedTracks.length, 'tracks in', processingTimeMs, 'ms');
+
+    return jsonResponse({
+      success: true,
+      tracks_generated: generatedTracks.length,
+      tracks: generatedTracks,
+      errors: errors.length > 0 ? errors : undefined,
+      processing_time_ms: processingTimeMs
+    });
+
+  } catch (error: any) {
+    console.error('[generate-tracks] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Track generation failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Generate a single combined track from multiple chunks
+ */
+async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { chunk_ids, title, options = {} } = body;
+
+    console.log('[generate-combined] Creating combined track from', chunk_ids?.length, 'chunks');
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks in order
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("*, source_files(id, file_name, organization_id, source_type)")
+      .in("id", chunk_ids)
+      .order("chunk_index", { ascending: true });
+
+    if (fetchError || !chunks || chunks.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const organizationId = chunks[0].organization_id;
+    const sourceFileId = chunks[0].source_file_id;
+    const sourceType = chunks[0].source_files?.source_type || 'training_docs';
+
+    // Combine chunks into sections
+    const combinedContent = await generateCombinedContent(chunks, title, sourceType, options);
+
+    // Calculate total stats
+    const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
+    const totalDuration = Math.ceil(totalWords / 200 * 60); // 200 WPM
+
+    // Create the track
+    const { data: track, error: trackError } = await supabase
+      .from("tracks")
+      .insert({
+        organization_id: organizationId,
+        title: combinedContent.title,
+        description: combinedContent.description,
+        transcript: combinedContent.content,
+        type: 'article',
+        status: options.publish ? 'published' : 'draft',
+        duration_seconds: totalDuration,
+        generated_from_chunks: true,
+        source_file_id: sourceFileId,
+        tags: combinedContent.tags || [],
+        metadata: {
+          generated_at: new Date().toISOString(),
+          source_chunk_ids: chunk_ids,
+          chunk_count: chunks.length,
+          total_word_count: totalWords,
+          sections: combinedContent.sections
+        }
+      })
+      .select()
+      .single();
+
+    if (trackError) {
+      console.error('[generate-combined] Failed to create track:', trackError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to create track: ${trackError.message}`,
+        code: "CREATE_FAILED"
+      }, 500);
+    }
+
+    // Create track-chunk relationships
+    const relationships = chunks.map((chunk, index) => ({
+      track_id: track.id,
+      source_chunk_id: chunk.id,
+      organization_id: organizationId,
+      sequence_order: index,
+      usage_type: 'content'
+    }));
+
+    await supabase
+      .from("track_source_chunks")
+      .insert(relationships);
+
+    // Mark chunks as converted
+    await supabase
+      .from("source_chunks")
+      .update({
+        is_converted: true,
+        converted_at: new Date().toISOString(),
+        converted_track_id: track.id
+      })
+      .in("id", chunk_ids);
+
+    const processingTimeMs = Date.now() - startTime;
+
+    return jsonResponse({
+      success: true,
+      track: {
+        id: track.id,
+        title: track.title,
+        description: track.description,
+        status: track.status,
+        duration_seconds: totalDuration,
+        word_count: totalWords,
+        chunk_count: chunks.length
+      },
+      processing_time_ms: processingTimeMs
+    });
+
+  } catch (error: any) {
+    console.error('[generate-combined] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Combined track generation failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Preview what tracks would be generated (dry run)
+ */
+async function handlePreviewTrackGeneration(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { chunk_ids, mode = 'individual' } = body;
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("id, title, summary, word_count, chunk_type, key_terms, is_converted")
+      .in("id", chunk_ids)
+      .order("chunk_index", { ascending: true });
+
+    if (fetchError || !chunks) {
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
+    const alreadyConverted = chunks.filter(c => c.is_converted).length;
+
+    if (mode === 'individual') {
+      return jsonResponse({
+        success: true,
+        mode: 'individual',
+        preview: {
+          tracks_to_generate: chunks.length,
+          already_converted: alreadyConverted,
+          total_word_count: totalWords,
+          estimated_total_duration_minutes: Math.ceil(totalWords / 200),
+          tracks: chunks.map(c => ({
+            chunk_id: c.id,
+            suggested_title: c.title,
+            word_count: c.word_count,
+            chunk_type: c.chunk_type,
+            is_converted: c.is_converted
+          }))
+        }
+      });
+    } else {
+      // Combined mode
+      return jsonResponse({
+        success: true,
+        mode: 'combined',
+        preview: {
+          tracks_to_generate: 1,
+          chunks_to_combine: chunks.length,
+          already_converted: alreadyConverted,
+          total_word_count: totalWords,
+          estimated_duration_minutes: Math.ceil(totalWords / 200),
+          sections: chunks.map(c => ({
+            chunk_id: c.id,
+            title: c.title,
+            word_count: c.word_count
+          }))
+        }
+      });
+    }
+
+  } catch (error: any) {
+    console.error('[preview-generation] Error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message,
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Enhance a chunk's content for use as a training track
+ */
+async function enhanceChunkForTrack(
+  chunk: any,
+  sourceType: string,
+  options: any = {}
+): Promise<GeneratedTrack> {
+  // If AI enhancement is disabled or no API key, use chunk as-is
+  if (options.skipAI || !OPENAI_API_KEY) {
+    return {
+      title: chunk.title || 'Untitled Section',
+      description: chunk.summary || chunk.content.slice(0, 200),
+      content: formatContentAsArticle(chunk.content, chunk.title),
+      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      key_points: chunk.key_terms || []
+    };
+  }
+
+  try {
+    const prompt = `You are creating training content for employees from a ${sourceType} document.
+
+Source content:
+${chunk.content.slice(0, 3000)}
+
+Original title: ${chunk.title || 'None provided'}
+
+Create engaging training content. Return JSON with:
+- title: Clear, action-oriented title (max 60 chars). Don't use generic titles like "Introduction" - be specific.
+- description: 1-2 sentence description of what the learner will understand (max 200 chars)
+- content: The content formatted as clean HTML for reading. Use <h2> for section headers, <p> for paragraphs, <ul>/<li> for lists. Make it scannable and easy to read. Keep all important information but improve clarity.
+- key_points: Array of 3-5 key takeaways the learner should remember
+
+Return only valid JSON.`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.4, response_format: { type: "json_object" } }
+    );
+
+    const parsed = JSON.parse(response);
+
+    return {
+      title: parsed.title || chunk.title || 'Training Content',
+      description: parsed.description || chunk.summary || '',
+      content: parsed.content || formatContentAsArticle(chunk.content, chunk.title),
+      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      key_points: parsed.key_points || chunk.key_terms || []
+    };
+
+  } catch (error) {
+    console.error('[enhanceChunkForTrack] AI enhancement failed:', error);
+    // Fallback to basic formatting
+    return {
+      title: chunk.title || 'Training Content',
+      description: chunk.summary || chunk.content.slice(0, 200),
+      content: formatContentAsArticle(chunk.content, chunk.title),
+      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      key_points: chunk.key_terms || []
+    };
+  }
+}
+
+/**
+ * Generate combined content from multiple chunks
+ */
+async function generateCombinedContent(
+  chunks: any[],
+  customTitle: string | undefined,
+  sourceType: string,
+  options: any = {}
+): Promise<{
+  title: string;
+  description: string;
+  content: string;
+  tags: string[];
+  sections: { title: string; word_count: number }[];
+}> {
+  // Collect all content
+  const sections = chunks.map(c => ({
+    title: c.title || `Section ${c.chunk_index + 1}`,
+    content: c.content,
+    word_count: c.word_count || 0
+  }));
+
+  // Collect unique tags
+  const allTags = new Set<string>();
+  chunks.forEach(c => {
+    (c.key_terms || []).forEach((t: string) => allTags.add(t));
+  });
+
+  // If AI disabled, just combine
+  if (options.skipAI || !OPENAI_API_KEY) {
+    const combinedHtml = sections.map(s =>
+      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
+    ).join('\n\n');
+
+    return {
+      title: customTitle || chunks[0]?.source_files?.file_name || 'Combined Training Module',
+      description: `Training module covering ${sections.length} topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+  }
+
+  try {
+    // Use AI to create a cohesive introduction and structure
+    const sectionSummary = sections.map((s, i) => `${i + 1}. ${s.title} (${s.word_count} words)`).join('\n');
+
+    const prompt = `Create a training module from these ${sections.length} sections of a ${sourceType} document.
+
+Sections:
+${sectionSummary}
+
+${customTitle ? `Requested title: ${customTitle}` : ''}
+
+Return JSON with:
+- title: Engaging module title (max 60 chars)
+- description: What learners will gain from this module (max 200 chars)
+- introduction: A brief HTML introduction paragraph (<p> tags) that sets context for the training
+
+Return only valid JSON.`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.4, response_format: { type: "json_object" } }
+    );
+
+    const parsed = JSON.parse(response);
+
+    // Build the combined content with AI intro
+    let combinedHtml = parsed.introduction || '';
+    combinedHtml += '\n\n';
+    combinedHtml += sections.map(s =>
+      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
+    ).join('\n\n');
+
+    return {
+      title: customTitle || parsed.title || 'Training Module',
+      description: parsed.description || `Covers ${sections.length} essential topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+
+  } catch (error) {
+    console.error('[generateCombinedContent] AI failed:', error);
+    // Fallback
+    const combinedHtml = sections.map(s =>
+      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
+    ).join('\n\n');
+
+    return {
+      title: customTitle || 'Training Module',
+      description: `Training covering ${sections.length} topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+  }
+}
+
+/**
+ * Format plain text content as clean HTML article
+ */
+function formatContentAsArticle(content: string, title: string | null): string {
+  let html = '';
+
+  // Split into paragraphs
+  const paragraphs = content.split(/\n\n+/);
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+
+    // Check if it's a list
+    const lines = trimmed.split('\n');
+    const listLines = lines.filter(l => /^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/.test(l));
+
+    if (listLines.length > lines.length * 0.5 && listLines.length > 1) {
+      // It's a list
+      const items = lines
+        .map(l => l.replace(/^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/, '').trim())
+        .filter(l => l.length > 0);
+      html += '<ul>\n' + items.map(item => `  <li>${item}</li>`).join('\n') + '\n</ul>\n\n';
+    } else if (trimmed.length < 100 && !trimmed.includes('.') && lines.length === 1) {
+      // Short line without period - likely a subheading
+      html += `<h3>${trimmed}</h3>\n\n`;
+    } else {
+      // Regular paragraph
+      html += `<p>${trimmed.replace(/\n/g, ' ')}</p>\n\n`;
+    }
+  }
+
+  return html.trim();
 }

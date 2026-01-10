@@ -41,6 +41,7 @@ import {
   Loader2,
   Eye,
   Zap,
+  Layers,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
@@ -65,6 +66,9 @@ interface SourceFile {
   updated_at: string;
   extracted_text: string | null;
   metadata: any;
+  is_chunked?: boolean;
+  chunked_at?: string | null;
+  chunk_count?: number;
 }
 
 type SourceType = 'handbook' | 'policy' | 'procedures' | 'communications' | 'training_docs' | 'other';
@@ -531,6 +535,7 @@ export function SourcesManagement() {
                 <TableHead>Attachment</TableHead>
                 <TableHead className="w-[180px]">Source Type</TableHead>
                 <TableHead className="w-[100px]">Processed?</TableHead>
+                <TableHead className="w-[100px]">Chunked?</TableHead>
                 <TableHead className="w-[100px]">Size</TableHead>
                 <TableHead className="w-[120px]">Uploaded</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
@@ -605,6 +610,19 @@ export function SourcesManagement() {
                       <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                         <Check className="h-3 w-3 mr-1" />
                         Yes
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                        <X className="h-3 w-3 mr-1" />
+                        No
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {file.is_chunked ? (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                        <Layers className="h-3 w-3 mr-1" />
+                        {file.chunk_count || 0}
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">

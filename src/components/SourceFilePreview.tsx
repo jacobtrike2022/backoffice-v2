@@ -10,6 +10,7 @@ import {
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
+import { Checkbox } from './ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -30,10 +31,15 @@ import {
   HardDrive,
   Check,
   AlertCircle,
+  Scissors,
+  ChevronDown,
+  ChevronRight,
+  Layers,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { getServerUrl } from '../utils/supabase/info';
+import { ChunkToTrackGenerator } from './ChunkToTrackGenerator';
 
 interface SourceFilePreviewProps {
   isOpen: boolean;
@@ -47,6 +53,9 @@ interface SourceFilePreviewProps {
     extracted_text: string | null;
     is_processed: boolean;
     processed_at: string | null;
+    is_chunked?: boolean;
+    chunked_at?: string | null;
+    chunk_count?: number;
     metadata: any;
     created_at: string;
   } | null;
@@ -78,6 +87,129 @@ export function SourceFilePreview({
     alternative_type?: string;
     alternative_confidence?: number;
   } | null>(null);
+  const [chunking, setChunking] = useState(false);
+  const [chunks, setChunks] = useState<any[] | null>(null);
+  const [showChunks, setShowChunks] = useState(false);
+  const [selectedChunkIds, setSelectedChunkIds] = useState<Set<string>>(new Set());
+  const [showGenerator, setShowGenerator] = useState(false);
+
+  const toggleChunkSelection = (chunkId: string) => {
+    setSelectedChunkIds(prev => {
+      const next = new Set(prev);
+      if (next.has(chunkId)) {
+        next.delete(chunkId);
+      } else {
+        next.add(chunkId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllChunks = () => {
+    if (chunks) {
+      setSelectedChunkIds(new Set(chunks.map(c => c.id)));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedChunkIds(new Set());
+  };
+
+  const handleTracksGenerated = (tracks: any[]) => {
+    // Refresh chunks to show converted status
+    loadExistingChunks();
+    clearSelection();
+  };
+
+  const handleGenerateChunks = async () => {
+    if (!sourceFile?.extracted_text) {
+      toast.error('No extracted text available', {
+        description: 'Please extract text from the file first.'
+      });
+      return;
+    }
+
+    setChunking(true);
+    setChunks(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/chunk-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: sourceFile.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Chunking failed');
+      }
+
+      // Fetch full chunks
+      const chunksResponse = await fetch(`${serverUrl}/chunks/${sourceFile.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+      });
+
+      const chunksData = await chunksResponse.json();
+      setChunks(chunksData.chunks || []);
+      setShowChunks(true);
+
+      toast.success(`Generated ${data.chunk_count} chunks`, {
+        description: `Processed in ${data.processing_time_ms}ms`
+      });
+    } catch (error: any) {
+      console.error('Chunking error:', error);
+      toast.error('Chunking failed', {
+        description: error.message
+      });
+    } finally {
+      setChunking(false);
+    }
+  };
+
+  const loadExistingChunks = async () => {
+    if (!sourceFile?.id) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/chunks/${sourceFile.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+      });
+
+      const data = await response.json();
+      if (data.chunks && data.chunks.length > 0) {
+        setChunks(data.chunks);
+      }
+    } catch (error) {
+      console.error('Failed to load chunks:', error);
+    }
+  };
+
+  // Load existing chunks when modal opens
+  React.useEffect(() => {
+    if (isOpen && sourceFile?.id) {
+      loadExistingChunks();
+    }
+  }, [isOpen, sourceFile?.id]);
 
   if (!sourceFile) return null;
 
@@ -403,11 +535,169 @@ export function SourceFilePreview({
           )}
         </div>
 
+        {/* Chunking Section */}
+        <div className="border-t pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Document Chunks</span>
+              {chunks && chunks.length > 0 && (
+                <Badge variant="secondary">{chunks.length} chunks</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {chunks && chunks.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowChunks(!showChunks)}
+                >
+                  {showChunks ? (
+                    <>
+                      <ChevronDown className="h-4 w-4 mr-1" />
+                      Hide
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="h-4 w-4 mr-1" />
+                      Show
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateChunks}
+                disabled={chunking || !sourceFile.extracted_text}
+              >
+                {chunking ? (
+                  <>
+                    <Scissors className="h-4 w-4 mr-2 animate-pulse text-[#F74A05]" />
+                    Chunking...
+                  </>
+                ) : (
+                  <>
+                    <Scissors className="h-4 w-4 mr-2" />
+                    {chunks && chunks.length > 0 ? 'Re-chunk' : 'Generate Chunks'}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Chunks List */}
+          {showChunks && chunks && chunks.length > 0 && (
+            <div className="space-y-2">
+              {/* Selection controls */}
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {selectedChunkIds.size > 0
+                      ? `${selectedChunkIds.size} selected`
+                      : 'Select chunks to generate tracks'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedChunkIds.size > 0 && (
+                    <>
+                      <Button variant="ghost" size="sm" onClick={clearSelection}>
+                        Clear
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowGenerator(true)}
+                        className="bg-[#F74A05] hover:bg-[#F74A05]/90"
+                      >
+                        <Zap className="h-4 w-4 mr-1" />
+                        Generate Tracks
+                      </Button>
+                    </>
+                  )}
+                  {selectedChunkIds.size === 0 && (
+                    <Button variant="ghost" size="sm" onClick={selectAllChunks}>
+                      Select All
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Chunk items */}
+              <div
+                className="border rounded-md bg-muted/20"
+                style={{ maxHeight: '300px', overflowY: 'auto' }}
+              >
+                <div className="divide-y">
+                  {chunks.map((chunk, index) => (
+                    <div
+                      key={chunk.id || index}
+                      className={`p-3 hover:bg-muted/30 transition-colors cursor-pointer ${
+                        selectedChunkIds.has(chunk.id) ? 'bg-primary/10' : ''
+                      }`}
+                      onClick={() => toggleChunkSelection(chunk.id)}
+                    >
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={selectedChunkIds.has(chunk.id)}
+                          onCheckedChange={() => toggleChunkSelection(chunk.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-mono">
+                              #{chunk.chunk_index + 1}
+                            </span>
+                            <span className="font-medium text-sm truncate">
+                              {chunk.title || `Chunk ${chunk.chunk_index + 1}`}
+                            </span>
+                            <Badge variant="outline" className="text-xs shrink-0">
+                              {chunk.chunk_type}
+                            </Badge>
+                            {chunk.is_converted && (
+                              <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">
+                                Converted
+                              </Badge>
+                            )}
+                          </div>
+                          {chunk.summary && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                              {chunk.summary}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                            <span>{chunk.word_count} words</span>
+                            <span>~{Math.ceil(chunk.estimated_read_time_seconds / 60)} min read</span>
+                            {chunk.key_terms && chunk.key_terms.length > 0 && (
+                              <span className="truncate">
+                                {chunk.key_terms.slice(0, 3).join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
         </DialogFooter>
+
+        {/* Track Generator Modal */}
+        <ChunkToTrackGenerator
+          isOpen={showGenerator}
+          onClose={() => setShowGenerator(false)}
+          selectedChunks={chunks?.filter(c => selectedChunkIds.has(c.id)) || []}
+          sourceFileName={sourceFile?.file_name || ''}
+          onTracksGenerated={handleTracksGenerated}
+        />
       </DialogContent>
     </Dialog>
   );
