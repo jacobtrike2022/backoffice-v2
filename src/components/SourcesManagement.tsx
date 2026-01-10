@@ -41,8 +41,9 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId, refreshSupabase, refreshAuthSession } from '../lib/supabase';
+import { supabase, getCurrentUserOrgId, refreshSupabase, refreshAuthSession, supabaseAnonKey } from '../lib/supabase';
 import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
+import { getServerUrl } from '../utils/supabase/info';
 
 interface SourceFile {
   id: string;
@@ -99,6 +100,7 @@ export function SourcesManagement() {
   const [compressingFileName, setCompressingFileName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [extracting, setExtracting] = useState<string | null>(null); // Track which file is being extracted
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get a signed URL for viewing/downloading files (private bucket)
@@ -556,6 +558,64 @@ export function SourcesManagement() {
     }
   };
 
+  // Temporary test function to call extract-source endpoint
+  const handleExtractSource = async (file: SourceFile) => {
+    setExtracting(file.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const serverUrl = getServerUrl();
+      console.log('[SourcesManagement] Calling extract-source endpoint:', {
+        url: `${serverUrl}/extract-source`,
+        source_file_id: file.id
+      });
+
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          source_file_id: file.id
+        }),
+      });
+
+      console.log('[SourcesManagement] Extract response status:', response.status);
+
+      const responseData = await response.json();
+      console.log('[SourcesManagement] Extract response data:', responseData);
+
+      if (!response.ok) {
+        throw new Error(responseData.error || `Extraction failed with status ${response.status}`);
+      }
+
+      // Show success with full response details
+      toast.success('Extraction completed!', {
+        description: `Stats: ${responseData.stats?.word_count || 0} words, ${responseData.stats?.character_count || 0} chars, ${responseData.stats?.processing_time_ms || 0}ms`,
+        duration: 10000
+      });
+
+      // Log full response to console for inspection
+      console.log('[SourcesManagement] Full extraction response:', JSON.stringify(responseData, null, 2));
+
+      // Reload source files to get updated is_processed status
+      await loadSourceFiles();
+    } catch (error: any) {
+      console.error('[SourcesManagement] Extract error:', error);
+      toast.error('Extraction failed', {
+        description: error.message,
+        duration: 10000
+      });
+    } finally {
+      setExtracting(null);
+    }
+  };
+
   const getFileIcon = (fileType: string) => {
     if (fileType.includes('pdf')) return <FileText className="h-4 w-4 text-red-500" />;
     if (fileType.includes('word') || fileType.includes('document')) return <FileText className="h-4 w-4 text-blue-500" />;
@@ -702,15 +762,35 @@ export function SourcesManagement() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-primary hover:text-primary"
-                      onClick={() => handleViewFile(file)}
-                    >
-                      <ExternalLink className="h-4 w-4 mr-1" />
-                      View
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-primary hover:text-primary"
+                        onClick={() => handleViewFile(file)}
+                      >
+                        <ExternalLink className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => handleExtractSource(file)}
+                        disabled={extracting === file.id}
+                      >
+                        {extracting === file.id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            Extracting...
+                          </>
+                        ) : (
+                          <>
+                            Extract
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Select
