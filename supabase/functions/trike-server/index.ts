@@ -697,6 +697,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // DOCUMENT TYPE DETECTION
+    // =========================================================================
+    if (method === "POST" && path === "/detect-document-type") {
+      return await handleDetectDocumentType(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -776,7 +783,8 @@ Deno.serve(async (req: Request) => {
         "POST /track-relationships/variant/mark-synced/:id",
         "GET /track-relationships/variant/ultimate-base/:id",
         "POST /track-relationships/batch",
-        "POST /extract-source"
+        "POST /extract-source",
+        "POST /detect-document-type"
       ]
     }, 404);
 
@@ -1063,6 +1071,180 @@ async function handleExtractSource(req: Request): Promise<Response> {
 
     return jsonResponse({
       success: false,
+      error: error.message || "An unexpected error occurred",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+// =============================================================================
+// DOCUMENT TYPE DETECTION
+// =============================================================================
+
+async function handleDetectDocumentType(req: Request): Promise<Response> {
+  try {
+    // Parse request body
+    const body = await req.json();
+    const { source_file_id } = body;
+
+    console.log('[detect-document-type] Starting detection for source_file_id:', source_file_id);
+
+    // Validate request
+    if (!source_file_id) {
+      return jsonResponse({
+        error: "Missing source_file_id in request body",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Validate OpenAI key
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({
+        error: "OpenAI API key not configured",
+        code: "CONFIG_ERROR"
+      }, 500);
+    }
+
+    // Fetch the source_file record with extracted_text
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, file_name, extracted_text, source_type")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[detect-document-type] Source file not found:', fetchError);
+      return jsonResponse({
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    if (!sourceFile.extracted_text) {
+      return jsonResponse({
+        error: "No extracted text available. Please extract text from the file first.",
+        code: "NO_TEXT"
+      }, 400);
+    }
+
+    // Get first 3000 characters for classification
+    const textSample = sourceFile.extracted_text.slice(0, 3000);
+
+    console.log('[detect-document-type] Calling OpenAI for classification...');
+
+    // Call OpenAI for classification
+    const prompt = `You are a document classifier for enterprise training content. Analyze this document excerpt and classify it.
+
+Available types:
+- handbook: Employee handbooks covering multiple policies, conduct, benefits, procedures
+- policy: Single-topic policy document (e.g., attendance policy, social media policy)
+- procedures: Step-by-step procedures, SOPs, how-to guides
+- communications: Memos, announcements, newsletters
+- training_docs: Training materials, guides, manuals
+- other: Doesn't fit above categories
+
+Return JSON only, no other text:
+{
+  "detected_type": "handbook",
+  "confidence": 0.92,
+  "reasoning": "Document contains table of contents, multiple policy sections, employee conduct guidelines typical of handbooks",
+  "alternative_type": "policy",
+  "alternative_confidence": 0.15
+}
+
+Document excerpt:
+${textSample}`;
+
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are a document classification expert. Return only valid JSON with no markdown formatting or code blocks."
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      console.error('[detect-document-type] OpenAI error:', errorText);
+      return jsonResponse({
+        error: "Failed to classify document",
+        code: "AI_ERROR"
+      }, 500);
+    }
+
+    const openaiData = await openaiResponse.json();
+    const content = openaiData.choices?.[0]?.message?.content;
+
+    if (!content) {
+      return jsonResponse({
+        error: "Empty response from AI",
+        code: "AI_EMPTY"
+      }, 500);
+    }
+
+    // Parse the JSON response
+    let result;
+    try {
+      result = JSON.parse(content);
+    } catch (parseError) {
+      console.error('[detect-document-type] Failed to parse AI response:', content);
+      return jsonResponse({
+        error: "Failed to parse AI response",
+        code: "PARSE_ERROR"
+      }, 500);
+    }
+
+    console.log('[detect-document-type] Classification result:', result);
+
+    // Validate the detected_type is a valid option
+    const validTypes = ['handbook', 'policy', 'procedures', 'communications', 'training_docs', 'other'];
+    if (!validTypes.includes(result.detected_type)) {
+      result.detected_type = 'other';
+    }
+
+    // If confidence > 0.8, auto-update the source_type
+    if (result.confidence > 0.8) {
+      console.log('[detect-document-type] High confidence, auto-updating source_type to:', result.detected_type);
+
+      const { error: updateError } = await supabase
+        .from("source_files")
+        .update({ source_type: result.detected_type })
+        .eq("id", source_file_id);
+
+      if (updateError) {
+        console.error('[detect-document-type] Failed to update source_type:', updateError);
+        // Don't fail the request, just log the error
+      }
+    }
+
+    return jsonResponse({
+      detected_type: result.detected_type,
+      confidence: result.confidence,
+      reasoning: result.reasoning,
+      alternative_type: result.alternative_type,
+      alternative_confidence: result.alternative_confidence,
+      auto_applied: result.confidence > 0.8
+    });
+
+  } catch (error) {
+    console.error('[detect-document-type] Unexpected error:', error);
+    return jsonResponse({
       error: error.message || "An unexpected error occurred",
       code: "INTERNAL_ERROR"
     }, 500);

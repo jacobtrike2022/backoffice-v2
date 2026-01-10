@@ -227,7 +227,10 @@ For Markdown preservation, enhance the extraction to detect headings (# syntax),
 
 | Date | Change | Notes |
 |------|--------|-------|
-| — | — | — |
+| 2026-01-10 | `/extract-source` route implemented | Added to trike-server index.ts (lines 830-1062). Uses pdf-parse@1.1.1 for PDFs, mammoth@1.8.0 for DOCX. |
+| 2026-01-10 | `cleanExtractedText()` utility | Normalizes whitespace, removes page numbers, cleans artifacts (lines 803-824) |
+| 2026-01-10 | Manual "Extract" button | Temporary testing button in SourcesManagement.tsx with full console logging |
+| 2026-01-10 | **Phase 1 VERIFIED** | Tested with 1.1MB Employee Handbook. Extracted 22,070 words in 1.39 seconds. is_processed, processed_at, metadata all updating correctly. |
 
 ---
 

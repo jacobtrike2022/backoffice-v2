@@ -39,11 +39,14 @@ import {
   Check,
   X,
   Loader2,
+  Eye,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId, refreshSupabase, refreshAuthSession, supabaseAnonKey } from '../lib/supabase';
 import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
 import { getServerUrl } from '../utils/supabase/info';
+import { SourceFilePreview } from './SourceFilePreview';
 
 interface SourceFile {
   id: string;
@@ -60,6 +63,8 @@ interface SourceFile {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+  extracted_text: string | null;
+  metadata: any;
 }
 
 type SourceType = 'handbook' | 'policy' | 'procedures' | 'communications' | 'training_docs' | 'other';
@@ -101,6 +106,7 @@ export function SourcesManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [extracting, setExtracting] = useState<string | null>(null); // Track which file is being extracted
+  const [previewFile, setPreviewFile] = useState<SourceFile | null>(null); // File for preview modal
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get a signed URL for viewing/downloading files (private bucket)
@@ -465,7 +471,7 @@ export function SourcesManagement() {
       const fileUrl = signedUrlData.signedUrl;
 
       // Insert record into database
-      const { error: insertError } = await supabase
+      const { data: insertedFile, error: insertError } = await supabase
         .from('source_files')
         .insert({
           organization_id: orgId,
@@ -474,7 +480,9 @@ export function SourcesManagement() {
           file_url: fileUrl,
           file_type: file.type, // Keep original MIME type
           file_size: fileToUpload.size, // Store actual uploaded size
-        });
+        })
+        .select('id')
+        .single();
 
       if (insertError) {
         // Clean up storage if database insert fails
@@ -483,6 +491,19 @@ export function SourcesManagement() {
       }
 
       toast.success(`Uploaded: ${file.name}`);
+
+      // Auto-trigger extraction for supported file types
+      const extractableTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain',
+        'text/csv'
+      ];
+
+      if (extractableTypes.includes(file.type) && insertedFile?.id) {
+        // Trigger extraction in the background
+        triggerExtraction(insertedFile.id, file.name);
+      }
     } catch (error: any) {
       console.error('Error uploading file:', error);
       toast.error(`Failed to upload: ${file.name}`, {
@@ -613,6 +634,74 @@ export function SourcesManagement() {
       });
     } finally {
       setExtracting(null);
+    }
+  };
+
+  // Auto-trigger extraction after upload (runs in background, doesn't block)
+  const triggerExtraction = async (fileId: string, fileName: string) => {
+    const toastId = toast.loading(`Processing ${fileName}...`);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.dismiss(toastId);
+        return;
+      }
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: fileId }),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Extraction failed');
+      }
+
+      toast.dismiss(toastId);
+      toast.success(`Extracted ${responseData.stats?.word_count?.toLocaleString() || 0} words from ${fileName}`);
+
+      // Reload to show updated status
+      await loadSourceFiles();
+    } catch (error: any) {
+      toast.dismiss(toastId);
+      toast.error(`Failed to process ${fileName}`, {
+        description: error.message
+      });
+    }
+  };
+
+  // Handle source type change (updates database)
+  const handleSourceTypeUpdate = async (fileId: string, newType: string) => {
+    try {
+      const { error } = await supabase
+        .from('source_files')
+        .update({ source_type: newType })
+        .eq('id', fileId);
+
+      if (error) throw error;
+
+      // Update local state
+      setSourceFiles(prev =>
+        prev.map(f => f.id === fileId ? { ...f, source_type: newType } : f)
+      );
+
+      // If preview modal is open for this file, update it too
+      if (previewFile?.id === fileId) {
+        setPreviewFile(prev => prev ? { ...prev, source_type: newType } : null);
+      }
+
+      toast.success('Source type updated');
+    } catch (error: any) {
+      console.error('Error updating source type:', error);
+      toast.error('Failed to update source type');
     }
   };
 
@@ -767,27 +856,32 @@ export function SourcesManagement() {
                         variant="ghost"
                         size="sm"
                         className="h-8 px-2 text-primary hover:text-primary"
-                        onClick={() => handleViewFile(file)}
+                        onClick={() => setPreviewFile(file)}
                       >
-                        <ExternalLink className="h-4 w-4 mr-1" />
-                        View
+                        <Eye className="h-4 w-4 mr-1" />
+                        Preview
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className="h-8 px-2"
+                        className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => handleViewFile(file)}
+                        title="Open original file"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-muted-foreground hover:text-foreground"
                         onClick={() => handleExtractSource(file)}
                         disabled={extracting === file.id}
+                        title="Re-extract text"
                       >
                         {extracting === file.id ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            Extracting...
-                          </>
+                          <Zap className="h-4 w-4 text-[#F74A05] animate-pulse" />
                         ) : (
-                          <>
-                            Extract
-                          </>
+                          <Zap className="h-4 w-4" />
                         )}
                       </Button>
                     </div>
@@ -856,6 +950,18 @@ export function SourcesManagement() {
           </Table>
         </Card>
       )}
+
+      {/* Source File Preview Modal */}
+      <SourceFilePreview
+        isOpen={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        sourceFile={previewFile}
+        onSourceTypeChange={(newType) => {
+          if (previewFile) {
+            handleSourceTypeUpdate(previewFile.id, newType);
+          }
+        }}
+      />
     </div>
   );
 }
