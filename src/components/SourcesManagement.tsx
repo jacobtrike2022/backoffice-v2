@@ -43,8 +43,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId, refreshAuthSession, supabaseAnonKey } from '../lib/supabase';
-import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
+import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
+import { uploadSourceFile } from '../lib/services/uploadService';
 import { getServerUrl } from '../utils/supabase/info';
 import { SourceFilePreview } from './SourceFilePreview';
 
@@ -101,131 +101,15 @@ export function SourcesManagement() {
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [compressing, setCompressing] = useState(false);
-  const [compressingFileName, setCompressingFileName] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
-  const [extracting, setExtracting] = useState<string | null>(null); // Track which file is being extracted
-  const [previewFile, setPreviewFile] = useState<SourceFile | null>(null); // File for preview modal
+  const [extracting, setExtracting] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<SourceFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Get a signed URL for viewing/downloading files (private bucket)
-  const getSignedUrl = async (storagePath: string): Promise<string | null> => {
-    try {
-      const { data, error } = await supabase.storage
-        .from('source-files')
-        .createSignedUrl(storagePath, 3600); // 1 hour expiry
-
-      if (error) throw error;
-      return data.signedUrl;
-    } catch (error: any) {
-      console.error('Error creating signed URL:', error);
-      toast.error('Failed to access file');
-      return null;
-    }
-  };
-
-  // Open file in new tab using signed URL
-  const handleViewFile = async (file: SourceFile) => {
-    const signedUrl = await getSignedUrl(file.storage_path);
-    if (signedUrl) {
-      window.open(signedUrl, '_blank');
-    }
-  };
-
-  // Diagnostic function to test storage connectivity
-  const testStorageConnectivity = async () => {
-    try {
-      // Ensure fresh auth tokens before testing storage
-      await refreshAuthSession();
-      
-      // Test 1: List buckets
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-
-      if (bucketsError) {
-        toast.error('Storage access error: ' + bucketsError.message);
-        return false;
-      }
-
-      let bucketExists = buckets?.some(b => b.name === 'source-files');
-
-      // Fallback: try listing from bucket (RLS may hide bucket listing)
-      const { data: filesFallback, error: listFallbackError } = await supabase.storage
-        .from('source-files')
-        .list('', { limit: 1 });
-      if (!!filesFallback && !listFallbackError) {
-        bucketExists = true;
-      }
-
-      if (!bucketExists) {
-        toast.error('Bucket "source-files" does not exist. Please create it in Supabase Dashboard > Storage.');
-        return false;
-      }
-
-      // Test 2: List files in bucket (tests read access)
-      const { data: files, error: listError } = await supabase.storage
-        .from('source-files')
-        .list('', { limit: 1 });
-
-      if (listError) {
-        toast.error('Cannot read from storage bucket: ' + listError.message);
-        return false;
-      }
-
-      // Test 3: Try a small upload
-      console.log('[SourcesManagement] Testing small file upload...');
-      const testBlob = new Blob(['test'], { type: 'text/plain' });
-      const testPath = `_test_${Date.now()}.txt`;
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('source-files')
-        .upload(testPath, testBlob, { upsert: true });
-
-      console.log('[SourcesManagement] Test upload result:', { uploadData, uploadError });
-
-      if (uploadError) {
-        toast.error('Storage upload test failed: ' + uploadError.message);
-        return false;
-      }
-
-      // Clean up test file
-      await supabase.storage.from('source-files').remove([testPath]);
-
-      // Test 4: Try a slightly larger upload (100KB) to test connection stability
-      console.log('[SourcesManagement] Testing 100KB file upload...');
-      const largerContent = 'x'.repeat(100 * 1024); // 100KB of data
-      const largerBlob = new Blob([largerContent], { type: 'text/plain' });
-      const largerTestPath = `_test_100kb_${Date.now()}.txt`;
-
-      const startTime = Date.now();
-      const { data: largerUploadData, error: largerUploadError } = await supabase.storage
-        .from('source-files')
-        .upload(largerTestPath, largerBlob, { upsert: true });
-
-      const elapsed = Date.now() - startTime;
-      console.log(`[SourcesManagement] 100KB test upload completed in ${elapsed}ms:`, { largerUploadData, largerUploadError });
-
-      if (largerUploadError) {
-        console.warn('[SourcesManagement] 100KB test upload failed - may indicate network issues:', largerUploadError);
-        // Don't fail the whole test, just warn
-      } else {
-        // Clean up
-        await supabase.storage.from('source-files').remove([largerTestPath]);
-        console.log(`[SourcesManagement] Network speed estimate: ${(100 / (elapsed / 1000)).toFixed(1)} KB/s`);
-      }
-
-      return true;
-    } catch (error: any) {
-      console.error('[SourcesManagement] Storage test error:', error);
-      toast.error('Storage test failed: ' + error.message);
-      return false;
-    }
-  };
 
   useEffect(() => {
     loadSourceFiles();
-    // Run storage diagnostic on mount
-    testStorageConnectivity();
   }, []);
 
   const loadSourceFiles = async () => {
@@ -253,6 +137,28 @@ export function SourcesManagement() {
     }
   };
 
+  const getSignedUrl = async (storagePath: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('source-files')
+        .createSignedUrl(storagePath, 3600);
+
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (error: any) {
+      console.error('Error creating signed URL:', error);
+      toast.error('Failed to access file');
+      return null;
+    }
+  };
+
+  const handleViewFile = async (file: SourceFile) => {
+    const signedUrl = await getSignedUrl(file.storage_path);
+    if (signedUrl) {
+      window.open(signedUrl, '_blank');
+    }
+  };
+
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
@@ -263,261 +169,153 @@ export function SourcesManagement() {
     }
 
     setUploading(true);
-    const uploadPromises: Promise<void>[] = [];
+    setUploadProgress(0);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
       // Validate file type
       if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-        toast.error(`Invalid file type: ${file.name}`, {
-          description: 'Accepted formats: PDF, Word, Excel, PowerPoint, Text, CSV'
-        });
+        toast.error(`Invalid file type: ${file.name}`);
         continue;
       }
 
       // Validate file size (50MB max)
       if (file.size > 50 * 1024 * 1024) {
-        toast.error(`File too large: ${file.name}`, {
-          description: 'Maximum file size is 50MB'
-        });
+        toast.error(`File too large: ${file.name} (max 50MB)`);
         continue;
       }
 
-      uploadPromises.push(uploadSingleFile(file, orgId));
+      try {
+        // Upload using the reliable upload service
+        const result = await uploadSourceFile(file, orgId, (progress) => {
+          setUploadProgress(progress);
+        });
+
+        if (!result.success || !result.path || !result.signedUrl) {
+          throw new Error(result.error || 'Upload failed');
+        }
+
+        // Insert record into database
+        const { data: insertedFile, error: insertError } = await supabase
+          .from('source_files')
+          .insert({
+            organization_id: orgId,
+            file_name: file.name,
+            storage_path: result.path,
+            file_url: result.signedUrl,
+            file_type: file.type,
+            file_size: file.size,
+          })
+          .select('id')
+          .single();
+
+        if (insertError) {
+          // Clean up storage if database insert fails
+          await supabase.storage.from('source-files').remove([result.path]);
+          throw insertError;
+        }
+
+        toast.success(`Uploaded: ${file.name}`);
+
+        // Auto-trigger extraction for supported file types
+        const extractableTypes = [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+          'text/csv'
+        ];
+
+        if (extractableTypes.includes(file.type) && insertedFile?.id) {
+          triggerExtraction(insertedFile.id, file.name);
+        }
+
+      } catch (error: any) {
+        console.error('Error uploading file:', error);
+        toast.error(`Failed to upload: ${file.name}`, {
+          description: error.message
+        });
+      }
     }
 
+    setUploading(false);
+    setUploadProgress(0);
+    await loadSourceFiles();
+  };
+
+  const triggerExtraction = async (fileId: string, fileName: string) => {
+    const toastId = toast.loading(`Processing ${fileName}...`);
+
     try {
-      await Promise.all(uploadPromises);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.dismiss(toastId);
+        return;
+      }
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: fileId }),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Extraction failed');
+      }
+
+      toast.dismiss(toastId);
+      toast.success(`Extracted ${responseData.stats?.word_count?.toLocaleString() || 0} words from ${fileName}`);
       await loadSourceFiles();
-    } finally {
-      setUploading(false);
+    } catch (error: any) {
+      toast.dismiss(toastId);
+      toast.error(`Failed to process ${fileName}`, {
+        description: error.message
+      });
     }
   };
 
-  const uploadSingleFile = async (file: File, orgId: string) => {
+  const handleExtractSource = async (file: SourceFile) => {
+    setExtracting(file.id);
     try {
-      const originalSizeMB = file.size / (1024 * 1024);
-      let fileToUpload = file;
-      let wasCompressed = false;
-      let compressedSizeMB = originalSizeMB;
-
-      // Compress file if needed (especially for images)
-      if (shouldCompressDocument(file, 180)) { // Compress if over 180MB (to stay under 200MB)
-        setCompressing(true);
-        setCompressingFileName(file.name);
-        
-        try {
-          const compressionResult = await compressDocument(file, {
-            maxSizeMB: 180,
-            maxImageSizeMB: 10, // Compress images over 10MB
-          });
-          
-          fileToUpload = compressionResult.file;
-          wasCompressed = compressionResult.wasCompressed;
-          compressedSizeMB = compressionResult.compressedSizeMB;
-          
-          if (wasCompressed) {
-            toast.info(
-              `Compressed ${file.name}: ${originalSizeMB.toFixed(1)}MB → ${compressedSizeMB.toFixed(1)}MB`,
-              { duration: 3000 }
-            );
-          }
-          } catch (compressionError: any) {
-            console.error('[SourcesManagement] Compression failed, using original file:', compressionError);
-            toast.warning(`Compression failed for ${file.name}, uploading original file`);
-        } finally {
-          setCompressing(false);
-          setCompressingFileName('');
-        }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
       }
 
-      // Validate final file size (200MB limit)
-      const finalSizeMB = fileToUpload.size / (1024 * 1024);
-      if (finalSizeMB > 200) {
-        throw new Error(
-          `File is too large (${finalSizeMB.toFixed(1)}MB). Maximum size is 200MB. ` +
-          `Please compress the file before uploading.`
-        );
-      }
-
-      // Generate unique file path
-      const fileExt = fileToUpload.name.split('.').pop();
-      const fileName = `${orgId}/${crypto.randomUUID()}.${fileExt}`;
-
-      // CRITICAL: Refresh auth session before upload to ensure fresh tokens
-      // This is the proper way to handle auth - don't recreate the client!
-      const refreshedSession = await refreshAuthSession();
-      if (!refreshedSession) {
-        // Try getting existing session if refresh fails
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          throw new Error('Not authenticated. Please log in and try again.');
-        }
-      }
-
-      // Upload to storage with retry logic for network issues
-      let uploadError: any = null;
-      let uploadData: any = null;
-      const maxRetries = 3;
-      const retryDelay = 2000; // 2 seconds
-      const uploadTimeout = 5 * 60 * 1000; // 5 minutes timeout
-
-      console.log(`[SourcesManagement] Starting upload: ${fileToUpload.name} (${finalSizeMB.toFixed(2)}MB) to path: ${fileName}`);
-
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${fileToUpload.name} (${finalSizeMB.toFixed(1)}MB)`);
-
-        try {
-          // Refresh auth on retry attempts (first attempt already refreshed above)
-          if (attempt > 1) {
-            console.log(`[SourcesManagement] Refreshing auth before retry...`);
-            await refreshAuthSession();
-          }
-
-          const startTime = Date.now();
-
-          // Upload using Supabase client with timeout
-          const uploadPromise = supabase.storage
-            .from('source-files')
-            .upload(fileName, fileToUpload, {
-              contentType: fileToUpload.type || file.type || 'application/octet-stream',
-              cacheControl: '3600',
-              upsert: false,
-            });
-
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Upload timeout - the file may be too large or connection is slow')), uploadTimeout)
-          );
-
-          const result = await Promise.race([uploadPromise, timeoutPromise]);
-
-          const elapsed = Date.now() - startTime;
-          console.log(`[SourcesManagement] Upload completed in ${elapsed}ms`);
-
-          uploadData = result.data;
-          uploadError = result.error;
-
-          if (!uploadError) {
-            console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
-            break;
-          }
-
-          console.log(`[SourcesManagement] Upload error:`, uploadError?.message);
-
-          // If it's a network error and we have retries left, wait and retry
-          const isNetworkError = uploadError?.message?.includes('fetch') ||
-                               uploadError?.message?.includes('network') ||
-                               uploadError?.message?.includes('Failed to fetch');
-
-          if (isNetworkError && attempt < maxRetries) {
-            const waitTime = retryDelay * attempt;
-            console.log(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${waitTime}ms...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue;
-          }
-
-          break;
-        } catch (error: any) {
-          uploadError = error;
-          console.log(`[SourcesManagement] Upload exception on attempt ${attempt}:`, error.message);
-
-          const isRetryable = (error.message?.includes('timeout') ||
-                              error.message?.includes('fetch') ||
-                              error.message?.includes('network')) && attempt < maxRetries;
-
-          if (isRetryable) {
-            const waitTime = retryDelay * attempt;
-            console.log(`[SourcesManagement] Retryable error, waiting ${waitTime}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue;
-          }
-
-          break;
-        }
-      }
-
-      if (uploadError) {
-        // Detailed logging for debugging
-        console.error('[SourcesManagement] Final upload failure:', {
-          fileName: fileToUpload.name,
-          sizeMB: finalSizeMB.toFixed(2),
-          errorMessage: uploadError?.message,
-          errorCode: uploadError?.code,
-          errorStatus: uploadError?.status,
-          fullError: JSON.stringify(uploadError, null, 2)
-        });
-
-        // Provide more helpful error messages
-        const isNetworkIssue = uploadError.message?.includes('timeout') ||
-                              uploadError.message?.includes('fetch') ||
-                              uploadError.message?.includes('network') ||
-                              uploadError.message?.includes('Failed to fetch');
-
-        if (isNetworkIssue) {
-          // Don't blame file size for small files
-          const isTinyFile = finalSizeMB < 5;
-          const errorMessage = isTinyFile
-            ? `Upload failed due to a network error. This ${finalSizeMB.toFixed(1)}MB file should upload quickly - please try again. If the problem persists, check your internet connection.`
-            : `Upload failed - the file (${finalSizeMB.toFixed(1)}MB) may be timing out. Please try: 1) Check your internet connection, 2) Try a smaller file, or 3) Compress the file before uploading.`;
-          throw new Error(errorMessage);
-        }
-
-        throw uploadError;
-      }
-
-      // Since bucket is private, use signed URL instead of public URL
-      // Create signed URL with 10 year expiration for long-term access
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('source-files')
-        .createSignedUrl(fileName, 315360000); // 10 years in seconds
-
-      if (signedUrlError) {
-        console.error('[SourcesManagement] Error creating signed URL:', signedUrlError);
-        throw new Error(`Failed to create file URL: ${signedUrlError.message}`);
-      }
-
-      const fileUrl = signedUrlData.signedUrl;
-
-      // Insert record into database
-      const { data: insertedFile, error: insertError } = await supabase
-        .from('source_files')
-        .insert({
-          organization_id: orgId,
-          file_name: file.name, // Keep original filename
-          storage_path: fileName,
-          file_url: fileUrl,
-          file_type: file.type, // Keep original MIME type
-          file_size: fileToUpload.size, // Store actual uploaded size
-        })
-        .select('id')
-        .single();
-
-      if (insertError) {
-        // Clean up storage if database insert fails
-        await supabase.storage.from('source-files').remove([fileName]);
-        throw insertError;
-      }
-
-      toast.success(`Uploaded: ${file.name}`);
-
-      // Auto-trigger extraction for supported file types
-      const extractableTypes = [
-        'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain',
-        'text/csv'
-      ];
-
-      if (extractableTypes.includes(file.type) && insertedFile?.id) {
-        // Trigger extraction in the background
-        triggerExtraction(insertedFile.id, file.name);
-      }
-    } catch (error: any) {
-      console.error('Error uploading file:', error);
-      toast.error(`Failed to upload: ${file.name}`, {
-        description: error.message
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: file.id }),
       });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Extraction failed');
+      }
+
+      toast.success('Extraction completed!', {
+        description: `${responseData.stats?.word_count || 0} words extracted`,
+      });
+
+      await loadSourceFiles();
+    } catch (error: any) {
+      console.error('Extract error:', error);
+      toast.error('Extraction failed', { description: error.message });
+    } finally {
+      setExtracting(null);
     }
   };
 
@@ -564,13 +362,7 @@ export function SourcesManagement() {
 
     try {
       // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from('source-files')
-        .remove([file.storage_path]);
-
-      if (storageError) {
-        console.error('Storage deletion error:', storageError);
-      }
+      await supabase.storage.from('source-files').remove([file.storage_path]);
 
       // Delete from database
       const { error: dbError } = await supabase
@@ -588,106 +380,6 @@ export function SourcesManagement() {
     }
   };
 
-  // Temporary test function to call extract-source endpoint
-  const handleExtractSource = async (file: SourceFile) => {
-    setExtracting(file.id);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
-
-      const serverUrl = getServerUrl();
-      console.log('[SourcesManagement] Calling extract-source endpoint:', {
-        url: `${serverUrl}/extract-source`,
-        source_file_id: file.id
-      });
-
-      const response = await fetch(`${serverUrl}/extract-source`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          source_file_id: file.id
-        }),
-      });
-
-      console.log('[SourcesManagement] Extract response status:', response.status);
-
-      const responseData = await response.json();
-      console.log('[SourcesManagement] Extract response data:', responseData);
-
-      if (!response.ok) {
-        throw new Error(responseData.error || `Extraction failed with status ${response.status}`);
-      }
-
-      // Show success with full response details
-      toast.success('Extraction completed!', {
-        description: `Stats: ${responseData.stats?.word_count || 0} words, ${responseData.stats?.character_count || 0} chars, ${responseData.stats?.processing_time_ms || 0}ms`,
-        duration: 10000
-      });
-
-      // Log full response to console for inspection
-      console.log('[SourcesManagement] Full extraction response:', JSON.stringify(responseData, null, 2));
-
-      // Reload source files to get updated is_processed status
-      await loadSourceFiles();
-    } catch (error: any) {
-      console.error('[SourcesManagement] Extract error:', error);
-      toast.error('Extraction failed', {
-        description: error.message,
-        duration: 10000
-      });
-    } finally {
-      setExtracting(null);
-    }
-  };
-
-  // Auto-trigger extraction after upload (runs in background, doesn't block)
-  const triggerExtraction = async (fileId: string, fileName: string) => {
-    const toastId = toast.loading(`Processing ${fileName}...`);
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.dismiss(toastId);
-        return;
-      }
-
-      const serverUrl = getServerUrl();
-      const response = await fetch(`${serverUrl}/extract-source`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({ source_file_id: fileId }),
-      });
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.error || 'Extraction failed');
-      }
-
-      toast.dismiss(toastId);
-      toast.success(`Extracted ${responseData.stats?.word_count?.toLocaleString() || 0} words from ${fileName}`);
-
-      // Reload to show updated status
-      await loadSourceFiles();
-    } catch (error: any) {
-      toast.dismiss(toastId);
-      toast.error(`Failed to process ${fileName}`, {
-        description: error.message
-      });
-    }
-  };
-
-  // Handle source type change (updates database)
   const handleSourceTypeUpdate = async (fileId: string, newType: string) => {
     try {
       const { error } = await supabase
@@ -697,12 +389,10 @@ export function SourcesManagement() {
 
       if (error) throw error;
 
-      // Update local state
       setSourceFiles(prev =>
         prev.map(f => f.id === fileId ? { ...f, source_type: newType } : f)
       );
 
-      // If preview modal is open for this file, update it too
       if (previewFile?.id === fileId) {
         setPreviewFile(prev => prev ? { ...prev, source_type: newType } : null);
       }
@@ -751,7 +441,7 @@ export function SourcesManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Drag and Drop Upload Area */}
+      {/* Upload Area */}
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
           isDragOver
@@ -772,17 +462,18 @@ export function SourcesManagement() {
           onChange={(e) => handleFileUpload(e.target.files)}
         />
 
-        {uploading || compressing ? (
+        {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-10 w-10 text-primary animate-spin" />
             <p className="text-sm text-muted-foreground">
-              {compressing ? `Compressing ${compressingFileName}...` : 'Uploading files...'}
+              Uploading... {uploadProgress}%
             </p>
-            {compressing && (
-              <p className="text-xs text-muted-foreground">
-                Large files are automatically compressed to reduce upload time
-              </p>
-            )}
+            <div className="w-48 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -795,10 +486,7 @@ export function SourcesManagement() {
                 Drag and drop files here, or click to browse
               </p>
               <p className="text-xs text-muted-foreground mt-2">
-                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 200MB)
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Images are automatically compressed for faster uploads
+                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 50MB)
               </p>
             </div>
           </div>
@@ -960,7 +648,7 @@ export function SourcesManagement() {
         </Card>
       )}
 
-      {/* Source File Preview Modal */}
+      {/* Preview Modal */}
       <SourceFilePreview
         isOpen={!!previewFile}
         onClose={() => setPreviewFile(null)}

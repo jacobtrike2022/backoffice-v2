@@ -30,6 +30,7 @@ export async function checkServerHealth(): Promise<boolean> {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
+        'apikey': publicAnonKey,
       },
       // Short timeout for health check
       signal: AbortSignal.timeout(3000),
@@ -85,6 +86,7 @@ export async function isServerAvailable(): Promise<boolean> {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
+        'apikey': publicAnonKey,
       },
       signal: AbortSignal.timeout(3000),
     });

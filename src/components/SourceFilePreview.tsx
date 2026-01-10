@@ -317,21 +317,22 @@ export function SourceFilePreview({
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div
+          className="border rounded-md bg-muted/20 my-4"
+          style={{ height: '400px', overflowY: 'auto' }}
+        >
           {sourceFile.extracted_text ? (
-            <ScrollArea className="h-[400px] pr-4">
-              <div className="py-4">
-                {renderExtractedText(sourceFile.extracted_text)}
-              </div>
-            </ScrollArea>
+            <div className="p-4">
+              {renderExtractedText(sourceFile.extracted_text)}
+            </div>
           ) : (
-            <div className="h-[400px] flex items-center justify-center">
+            <div className="h-full flex items-center justify-center">
               <div className="text-center space-y-3">
                 <AlertCircle className="h-12 w-12 text-muted-foreground/50 mx-auto" />
                 <div>
                   <p className="font-medium text-foreground">Not yet processed</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    This file has not been processed yet. Extract text to see the content preview.
+                    Extract text to see the content preview.
                   </p>
                 </div>
               </div>
