@@ -43,7 +43,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId, refreshSupabase, refreshAuthSession, supabaseAnonKey } from '../lib/supabase';
+import { supabase, getCurrentUserOrgId, refreshAuthSession, supabaseAnonKey } from '../lib/supabase';
 import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
 import { getServerUrl } from '../utils/supabase/info';
 import { SourceFilePreview } from './SourceFilePreview';
@@ -136,8 +136,7 @@ export function SourcesManagement() {
   // Diagnostic function to test storage connectivity
   const testStorageConnectivity = async () => {
     try {
-      // Refresh Supabase connection before testing
-      refreshSupabase();
+      // Ensure fresh auth tokens before testing storage
       await refreshAuthSession();
       
       // Test 1: List buckets
@@ -346,10 +345,15 @@ export function SourcesManagement() {
       const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${orgId}/${crypto.randomUUID()}.${fileExt}`;
 
-      // Verify Supabase session before upload
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error('[SourcesManagement] Session error:', sessionError);
+      // CRITICAL: Refresh auth session before upload to ensure fresh tokens
+      // This is the proper way to handle auth - don't recreate the client!
+      const refreshedSession = await refreshAuthSession();
+      if (!refreshedSession) {
+        // Try getting existing session if refresh fails
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          throw new Error('Not authenticated. Please log in and try again.');
+        }
       }
 
       // Upload to storage with retry logic for network issues
@@ -357,7 +361,7 @@ export function SourcesManagement() {
       let uploadData: any = null;
       const maxRetries = 3;
       const retryDelay = 2000; // 2 seconds
-      const uploadTimeout = 2 * 60 * 1000; // 2 minutes timeout (reduced from 10 min)
+      const uploadTimeout = 5 * 60 * 1000; // 5 minutes timeout
 
       console.log(`[SourcesManagement] Starting upload: ${fileToUpload.name} (${finalSizeMB.toFixed(2)}MB) to path: ${fileName}`);
 
@@ -365,12 +369,11 @@ export function SourcesManagement() {
         console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${fileToUpload.name} (${finalSizeMB.toFixed(1)}MB)`);
 
         try {
-          // Check auth token before upload
-          const { data: { session: currentSession } } = await supabase.auth.getSession();
-          console.log(`[SourcesManagement] Session status:`, {
-            hasSession: !!currentSession,
-            hasToken: !!currentSession?.access_token
-          });
+          // Refresh auth on retry attempts (first attempt already refreshed above)
+          if (attempt > 1) {
+            console.log(`[SourcesManagement] Refreshing auth before retry...`);
+            await refreshAuthSession();
+          }
 
           const startTime = Date.now();
 
@@ -381,7 +384,6 @@ export function SourcesManagement() {
               contentType: fileToUpload.type || file.type || 'application/octet-stream',
               cacheControl: '3600',
               upsert: false,
-              duplex: 'half' // Required for streaming uploads in some environments
             });
 
           const timeoutPromise = new Promise<never>((_, reject) =>
@@ -396,12 +398,12 @@ export function SourcesManagement() {
           uploadData = result.data;
           uploadError = result.error;
 
-          console.log(`[SourcesManagement] Upload result:`, { uploadData, uploadError });
-
           if (!uploadError) {
             console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
             break;
           }
+
+          console.log(`[SourcesManagement] Upload error:`, uploadError?.message);
 
           // If it's a network error and we have retries left, wait and retry
           const isNetworkError = uploadError?.message?.includes('fetch') ||
@@ -409,12 +411,12 @@ export function SourcesManagement() {
                                uploadError?.message?.includes('Failed to fetch');
 
           if (isNetworkError && attempt < maxRetries) {
-            console.log(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
-            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
+            const waitTime = retryDelay * attempt;
+            console.log(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${waitTime}ms...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
             continue;
           }
 
-          // If it's not a network error or we're out of retries, break and throw
           break;
         } catch (error: any) {
           uploadError = error;
@@ -425,35 +427,42 @@ export function SourcesManagement() {
                               error.message?.includes('network')) && attempt < maxRetries;
 
           if (isRetryable) {
-            console.log(`[SourcesManagement] Retryable error, waiting ${retryDelay * attempt}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+            const waitTime = retryDelay * attempt;
+            console.log(`[SourcesManagement] Retryable error, waiting ${waitTime}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
             continue;
           }
 
-          // If not retryable or out of retries, break
           break;
         }
       }
 
       if (uploadError) {
-        console.error('[SourcesManagement] Upload error details:', {
-          message: uploadError.message,
-          error: uploadError
+        // Detailed logging for debugging
+        console.error('[SourcesManagement] Final upload failure:', {
+          fileName: fileToUpload.name,
+          sizeMB: finalSizeMB.toFixed(2),
+          errorMessage: uploadError?.message,
+          errorCode: uploadError?.code,
+          errorStatus: uploadError?.status,
+          fullError: JSON.stringify(uploadError, null, 2)
         });
-        
+
         // Provide more helpful error messages
-        const isNetworkIssue = uploadError.message?.includes('timeout') || 
+        const isNetworkIssue = uploadError.message?.includes('timeout') ||
                               uploadError.message?.includes('fetch') ||
                               uploadError.message?.includes('network') ||
                               uploadError.message?.includes('Failed to fetch');
-        
+
         if (isNetworkIssue) {
-          throw new Error(
-            `Upload failed due to network issues. The file (${finalSizeMB.toFixed(1)}MB) may be too large for your connection. ` +
-            `Please try: 1) Check your internet connection, 2) Try a smaller file, or 3) Compress the file before uploading.`
-          );
+          // Don't blame file size for small files
+          const isTinyFile = finalSizeMB < 5;
+          const errorMessage = isTinyFile
+            ? `Upload failed due to a network error. This ${finalSizeMB.toFixed(1)}MB file should upload quickly - please try again. If the problem persists, check your internet connection.`
+            : `Upload failed - the file (${finalSizeMB.toFixed(1)}MB) may be timing out. Please try: 1) Check your internet connection, 2) Try a smaller file, or 3) Compress the file before uploading.`;
+          throw new Error(errorMessage);
         }
-        
+
         throw uploadError;
       }
 

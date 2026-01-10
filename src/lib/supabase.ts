@@ -1,8 +1,20 @@
 // ============================================================================
 // SUPABASE CLIENT & CORE UTILITIES
 // ============================================================================
+// IMPORTANT: All Supabase access should go through this module.
+// This ensures a single client instance throughout the entire application.
+//
+// DO NOT:
+// - Import createClient from @supabase/supabase-js directly
+// - Create new Supabase clients anywhere else
+// - Call refreshSupabase() - it's deprecated and does nothing
+//
+// DO:
+// - Import { supabase } from this module
+// - Use supabase.auth.refreshSession() if you need to refresh tokens
+// ============================================================================
 
-import { getSupabaseClient, refreshSupabaseClient } from '../utils/supabase/client';
+import { getSupabaseClient } from '../utils/supabase/client';
 import { APP_CONFIG } from './config';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
@@ -10,20 +22,33 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 export const supabase = getSupabaseClient();
 
 /**
- * Refresh the Supabase client connection
- * Call this if experiencing connection issues or after configuration changes
- * 
- * Note: This recreates the singleton client. Existing references to `supabase` 
- * will continue to work, but new imports will get the refreshed instance.
- * For best results, call this before making Supabase operations.
+ * @deprecated DO NOT USE - This function does nothing!
+ *
+ * Previously attempted to recreate the Supabase client, but this breaks
+ * the singleton pattern and causes upload failures because:
+ * 1. All existing imports still reference the OLD client
+ * 2. The new client has different auth state
+ * 3. This causes ERR_TIMED_OUT errors during uploads
+ *
+ * USE INSTEAD:
+ *   await supabase.auth.refreshSession(); // To refresh auth tokens
+ *   // or
+ *   await refreshAuthSession(); // Convenience wrapper
  */
 export function refreshSupabase() {
-  return refreshSupabaseClient();
+  console.warn(
+    '[Supabase] refreshSupabase() is deprecated and does nothing. ' +
+    'Use refreshAuthSession() to refresh auth tokens instead.'
+  );
+  return supabase;
 }
 
 /**
  * Refresh the auth session
- * Useful when tokens expire or need to be refreshed
+ * Call this when you need to ensure fresh auth tokens (e.g., before uploads)
+ *
+ * This is the CORRECT way to handle auth refresh - it updates the tokens
+ * on the existing client instance, ensuring all code uses the same auth state.
  */
 export async function refreshAuthSession() {
   const { data, error } = await supabase.auth.refreshSession();

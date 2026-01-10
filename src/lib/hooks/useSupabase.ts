@@ -6,9 +6,6 @@ import { useState, useEffect } from 'react';
 import { supabase, getCurrentUserProfile } from '../supabase';
 import * as crud from '../crud';
 
-// Debug: Check if function is imported correctly
-console.log('🔍 Hook module loaded. getCurrentUserProfile is:', typeof getCurrentUserProfile);
-
 /**
  * Hook to get current user profile
  */
@@ -20,13 +17,10 @@ export function useCurrentUser() {
   useEffect(() => {
     async function fetchUser() {
       try {
-        console.log('👤 useCurrentUser: Fetching user profile...');
-        console.log('👤 getCurrentUserProfile type:', typeof getCurrentUserProfile);
         const profile = await getCurrentUserProfile();
-        console.log('👤 useCurrentUser: Profile fetched:', profile);
         setUser(profile);
       } catch (err) {
-        console.error('👤 useCurrentUser: Error fetching user:', err);
+        console.error('Error fetching user profile:', err);
         setError(err as Error);
       } finally {
         setLoading(false);
