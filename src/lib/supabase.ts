@@ -2,12 +2,37 @@
 // SUPABASE CLIENT & CORE UTILITIES
 // ============================================================================
 
-import { getSupabaseClient } from '../utils/supabase/client';
+import { getSupabaseClient, refreshSupabaseClient } from '../utils/supabase/client';
 import { APP_CONFIG } from './config';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Use singleton Supabase client to avoid multiple GoTrueClient instances
 export const supabase = getSupabaseClient();
+
+/**
+ * Refresh the Supabase client connection
+ * Call this if experiencing connection issues or after configuration changes
+ * 
+ * Note: This recreates the singleton client. Existing references to `supabase` 
+ * will continue to work, but new imports will get the refreshed instance.
+ * For best results, call this before making Supabase operations.
+ */
+export function refreshSupabase() {
+  return refreshSupabaseClient();
+}
+
+/**
+ * Refresh the auth session
+ * Useful when tokens expire or need to be refreshed
+ */
+export async function refreshAuthSession() {
+  const { data, error } = await supabase.auth.refreshSession();
+  if (error) {
+    console.error('Error refreshing session:', error);
+    return null;
+  }
+  return data.session;
+}
 
 // Export Supabase URL for server function calls
 export const supabaseUrl = `https://${projectId}.supabase.co`;

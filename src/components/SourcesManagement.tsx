@@ -41,7 +41,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { supabase, getCurrentUserOrgId, refreshSupabase, refreshAuthSession } from '../lib/supabase';
 import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
 
 interface SourceFile {
@@ -127,13 +127,13 @@ export function SourcesManagement() {
 
   // Diagnostic function to test storage connectivity
   const testStorageConnectivity = async () => {
-    console.log('[SourcesManagement] Testing storage connectivity...');
-
     try {
+      // Refresh Supabase connection before testing
+      refreshSupabase();
+      await refreshAuthSession();
+      
       // Test 1: List buckets
       const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-      
-      console.log('[SourcesManagement] Buckets:', { buckets: buckets?.map(b => b.name), error: bucketsError });
 
       if (bucketsError) {
         toast.error('Storage access error: ' + bucketsError.message);
@@ -159,7 +159,6 @@ export function SourcesManagement() {
       const { data: files, error: listError } = await supabase.storage
         .from('source-files')
         .list('', { limit: 1 });
-      console.log('[SourcesManagement] List files test:', { files, error: listError });
 
       if (listError) {
         toast.error('Cannot read from storage bucket: ' + listError.message);
@@ -167,10 +166,10 @@ export function SourcesManagement() {
       }
 
       // Test 3: Try a small upload
+      console.log('[SourcesManagement] Testing small file upload...');
       const testBlob = new Blob(['test'], { type: 'text/plain' });
       const testPath = `_test_${Date.now()}.txt`;
 
-      console.log('[SourcesManagement] Testing small file upload...');
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('source-files')
         .upload(testPath, testBlob, { upsert: true });
@@ -185,7 +184,29 @@ export function SourcesManagement() {
       // Clean up test file
       await supabase.storage.from('source-files').remove([testPath]);
 
-      toast.success('Storage connectivity OK!');
+      // Test 4: Try a slightly larger upload (100KB) to test connection stability
+      console.log('[SourcesManagement] Testing 100KB file upload...');
+      const largerContent = 'x'.repeat(100 * 1024); // 100KB of data
+      const largerBlob = new Blob([largerContent], { type: 'text/plain' });
+      const largerTestPath = `_test_100kb_${Date.now()}.txt`;
+
+      const startTime = Date.now();
+      const { data: largerUploadData, error: largerUploadError } = await supabase.storage
+        .from('source-files')
+        .upload(largerTestPath, largerBlob, { upsert: true });
+
+      const elapsed = Date.now() - startTime;
+      console.log(`[SourcesManagement] 100KB test upload completed in ${elapsed}ms:`, { largerUploadData, largerUploadError });
+
+      if (largerUploadError) {
+        console.warn('[SourcesManagement] 100KB test upload failed - may indicate network issues:', largerUploadError);
+        // Don't fail the whole test, just warn
+      } else {
+        // Clean up
+        await supabase.storage.from('source-files').remove([largerTestPath]);
+        console.log(`[SourcesManagement] Network speed estimate: ${(100 / (elapsed / 1000)).toFixed(1)} KB/s`);
+      }
+
       return true;
     } catch (error: any) {
       console.error('[SourcesManagement] Storage test error:', error);
@@ -295,9 +316,9 @@ export function SourcesManagement() {
               { duration: 3000 }
             );
           }
-        } catch (compressionError: any) {
-          console.warn('[SourcesManagement] Compression failed, using original file:', compressionError);
-          toast.warning(`Compression failed for ${file.name}, uploading original file`);
+          } catch (compressionError: any) {
+            console.error('[SourcesManagement] Compression failed, using original file:', compressionError);
+            toast.warning(`Compression failed for ${file.name}, uploading original file`);
         } finally {
           setCompressing(false);
           setCompressingFileName('');
@@ -317,58 +338,57 @@ export function SourcesManagement() {
       const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${orgId}/${crypto.randomUUID()}.${fileExt}`;
 
-      console.log('[SourcesManagement] Starting upload:', {
-        fileName,
-        originalSize: file.size,
-        finalSize: fileToUpload.size,
-        fileType: fileToUpload.type,
-        wasCompressed
-      });
-
       // Verify Supabase session before upload
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) {
-        console.warn('[SourcesManagement] Session error:', sessionError);
+        console.error('[SourcesManagement] Session error:', sessionError);
       }
-      console.log('[SourcesManagement] Session status:', { 
-        hasSession: !!session, 
-        userId: session?.user?.id,
-        expiresAt: session?.expires_at 
-      });
 
       // Upload to storage with retry logic for network issues
       let uploadError: any = null;
       let uploadData: any = null;
       const maxRetries = 3;
       const retryDelay = 2000; // 2 seconds
-      const uploadTimeout = 10 * 60 * 1000; // 10 minutes for large files
+      const uploadTimeout = 2 * 60 * 1000; // 2 minutes timeout (reduced from 10 min)
+
+      console.log(`[SourcesManagement] Starting upload: ${fileToUpload.name} (${finalSizeMB.toFixed(2)}MB) to path: ${fileName}`);
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        const uploadStartTime = Date.now(); // Define at start of loop for error handling
+        console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${fileToUpload.name} (${finalSizeMB.toFixed(1)}MB)`);
+
         try {
-          console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${file.name} (${finalSizeMB.toFixed(1)}MB)`);
-          
           // Check auth token before upload
           const { data: { session: currentSession } } = await supabase.auth.getSession();
-          const authToken = currentSession?.access_token;
-          
+          console.log(`[SourcesManagement] Session status:`, {
+            hasSession: !!currentSession,
+            hasToken: !!currentSession?.access_token
+          });
+
+          const startTime = Date.now();
+
           // Upload using Supabase client with timeout
           const uploadPromise = supabase.storage
             .from('source-files')
             .upload(fileName, fileToUpload, {
               contentType: fileToUpload.type || file.type || 'application/octet-stream',
               cacheControl: '3600',
-              upsert: false
+              upsert: false,
+              duplex: 'half' // Required for streaming uploads in some environments
             });
-          
-          const timeoutPromise = new Promise<never>((_, reject) => 
+
+          const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('Upload timeout - the file may be too large or connection is slow')), uploadTimeout)
           );
-          
+
           const result = await Promise.race([uploadPromise, timeoutPromise]);
-          
+
+          const elapsed = Date.now() - startTime;
+          console.log(`[SourcesManagement] Upload completed in ${elapsed}ms`);
+
           uploadData = result.data;
           uploadError = result.error;
+
+          console.log(`[SourcesManagement] Upload result:`, { uploadData, uploadError });
 
           if (!uploadError) {
             console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
@@ -376,12 +396,12 @@ export function SourcesManagement() {
           }
 
           // If it's a network error and we have retries left, wait and retry
-          const isNetworkError = uploadError?.message?.includes('fetch') || 
+          const isNetworkError = uploadError?.message?.includes('fetch') ||
                                uploadError?.message?.includes('network') ||
                                uploadError?.message?.includes('Failed to fetch');
-          
+
           if (isNetworkError && attempt < maxRetries) {
-            console.warn(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
+            console.log(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
             continue;
           }
@@ -390,22 +410,22 @@ export function SourcesManagement() {
           break;
         } catch (error: any) {
           uploadError = error;
-          const isRetryable = (error.message?.includes('timeout') || 
+          console.log(`[SourcesManagement] Upload exception on attempt ${attempt}:`, error.message);
+
+          const isRetryable = (error.message?.includes('timeout') ||
                               error.message?.includes('fetch') ||
                               error.message?.includes('network')) && attempt < maxRetries;
-          
+
           if (isRetryable) {
-            console.warn(`[SourcesManagement] Error on attempt ${attempt}, retrying...`);
+            console.log(`[SourcesManagement] Retryable error, waiting ${retryDelay * attempt}ms before retry...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
             continue;
           }
-          
+
           // If not retryable or out of retries, break
           break;
         }
       }
-
-      console.log('[SourcesManagement] Upload result:', { uploadData, uploadError });
 
       if (uploadError) {
         console.error('[SourcesManagement] Upload error details:', {
