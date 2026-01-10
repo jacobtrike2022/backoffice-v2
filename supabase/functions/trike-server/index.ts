@@ -690,6 +690,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // SOURCE FILE EXTRACTION
+    // =========================================================================
+    if (method === "POST" && path === "/extract-source") {
+      return await handleExtractSource(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -768,7 +775,8 @@ Deno.serve(async (req: Request) => {
         "GET /track-relationships/variants/needs-review/:trackId",
         "POST /track-relationships/variant/mark-synced/:id",
         "GET /track-relationships/variant/ultimate-base/:id",
-        "POST /track-relationships/batch"
+        "POST /track-relationships/batch",
+        "POST /extract-source"
       ]
     }, 404);
 
@@ -795,6 +803,270 @@ async function hashString(str: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Clean and normalize extracted text from documents
+ */
+function cleanExtractedText(text: string): string {
+  if (!text) return '';
+
+  return text
+    // Normalize line breaks
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove page numbers like "Page X of Y"
+    .replace(/Page\s+\d+\s+of\s+\d+/gi, '')
+    // Remove standalone page numbers
+    .replace(/^\s*\d+\s*$/gm, '')
+    // Normalize multiple spaces to single space (but preserve newlines)
+    .replace(/[^\S\n]+/g, ' ')
+    // Normalize multiple newlines to double newline for paragraph breaks
+    .replace(/\n{3,}/g, '\n\n')
+    // Trim whitespace from each line
+    .split('\n')
+    .map(line => line.trim())
+    .join('\n')
+    // Remove empty lines at start/end but preserve internal structure
+    .trim();
+}
+
+// =============================================================================
+// SOURCE FILE EXTRACTION HANDLER
+// =============================================================================
+
+async function handleExtractSource(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    // Parse request body
+    const body = await req.json();
+    const { source_file_id } = body;
+
+    console.log('[extract-source] Starting extraction for source_file_id:', source_file_id);
+
+    // Validate request
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id in request body",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the source_file record
+    console.log('[extract-source] Fetching source file record...');
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, organization_id, file_name, storage_path, file_type")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[extract-source] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    console.log('[extract-source] Found source file:', {
+      file_name: sourceFile.file_name,
+      file_type: sourceFile.file_type,
+      storage_path: sourceFile.storage_path
+    });
+
+    // Validate file type
+    const supportedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/csv'
+    ];
+
+    if (!supportedTypes.includes(sourceFile.file_type)) {
+      console.error('[extract-source] Unsupported file type:', sourceFile.file_type);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Unsupported file type: ${sourceFile.file_type}. Supported types: PDF, DOCX, TXT, CSV`
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: `Unsupported file type: ${sourceFile.file_type}. Supported types: PDF, DOCX, TXT, CSV`,
+        code: "UNSUPPORTED_FILE_TYPE"
+      }, 400);
+    }
+
+    // Download the file from storage
+    console.log('[extract-source] Downloading file from storage bucket "source-files"...');
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("source-files")
+      .download(sourceFile.storage_path);
+
+    if (downloadError || !fileData) {
+      console.error('[extract-source] Failed to download file:', downloadError);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Failed to download file from storage: ${downloadError?.message || 'Unknown error'}`
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: `Failed to download file from storage: ${downloadError?.message || 'Unknown error'}`,
+        code: "DOWNLOAD_FAILED"
+      }, 500);
+    }
+
+    console.log('[extract-source] File downloaded, size:', fileData.size, 'bytes');
+
+    // Extract text based on file type
+    let extractedText = '';
+    let extractionMethod = '';
+
+    try {
+      if (sourceFile.file_type === 'application/pdf') {
+        console.log('[extract-source] Extracting text from PDF...');
+        extractionMethod = 'pdf-parse';
+
+        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const pdfData = await pdfParse(uint8Array);
+        extractedText = pdfData.text;
+
+      } else if (sourceFile.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log('[extract-source] Extracting text from DOCX...');
+        extractionMethod = 'mammoth';
+
+        const mammoth = await import("npm:mammoth@1.8.0");
+        const arrayBuffer = await fileData.arrayBuffer();
+        const result = await mammoth.extractRawText({
+          buffer: new Uint8Array(arrayBuffer)
+        });
+        extractedText = result.value;
+
+      } else if (sourceFile.file_type === 'text/plain' || sourceFile.file_type === 'text/csv') {
+        console.log('[extract-source] Reading plain text file...');
+        extractionMethod = 'direct-read';
+
+        extractedText = await fileData.text();
+      }
+
+      console.log('[extract-source] Raw extracted text length:', extractedText.length, 'characters');
+
+    } catch (extractError) {
+      console.error('[extract-source] Extraction error:', extractError);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Text extraction failed: ${extractError.message}`
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: `Text extraction failed: ${extractError.message}`,
+        code: "EXTRACTION_FAILED"
+      }, 500);
+    }
+
+    // Clean the extracted text
+    console.log('[extract-source] Cleaning extracted text...');
+    const cleanedText = cleanExtractedText(extractedText);
+    console.log('[extract-source] Cleaned text length:', cleanedText.length, 'characters');
+
+    // Calculate stats
+    const characterCount = cleanedText.length;
+    const wordCount = cleanedText.split(/\s+/).filter(word => word.length > 0).length;
+    const processingTimeMs = Date.now() - startTime;
+
+    // Build metadata with extraction stats
+    const extractionMetadata = {
+      extraction_stats: {
+        character_count: characterCount,
+        word_count: wordCount,
+        extraction_method: extractionMethod,
+        processing_time_ms: processingTimeMs,
+        original_file_size_bytes: fileData.size,
+        extracted_at: new Date().toISOString()
+      }
+    };
+
+    // Update the source_file record
+    console.log('[extract-source] Updating source file record...');
+    const { error: updateError } = await supabase
+      .from("source_files")
+      .update({
+        extracted_text: cleanedText,
+        is_processed: true,
+        processed_at: new Date().toISOString(),
+        processing_error: null,
+        metadata: extractionMetadata
+      })
+      .eq("id", source_file_id);
+
+    if (updateError) {
+      console.error('[extract-source] Failed to update source file record:', updateError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to update source file record: ${updateError.message}`,
+        code: "UPDATE_FAILED"
+      }, 500);
+    }
+
+    console.log('[extract-source] Extraction completed successfully');
+
+    return jsonResponse({
+      success: true,
+      source_file_id: source_file_id,
+      stats: {
+        character_count: characterCount,
+        word_count: wordCount,
+        extraction_method: extractionMethod,
+        processing_time_ms: processingTimeMs
+      }
+    });
+
+  } catch (error) {
+    console.error('[extract-source] Unexpected error:', error);
+
+    // Try to update the record with the error if we have a source_file_id
+    try {
+      const body = await req.clone().json();
+      if (body.source_file_id) {
+        await supabase
+          .from("source_files")
+          .update({
+            is_processed: false,
+            processing_error: `Unexpected error: ${error.message}`
+          })
+          .eq("id", body.source_file_id);
+      }
+    } catch {
+      // Ignore errors when trying to update the error state
+    }
+
+    return jsonResponse({
+      success: false,
+      error: error.message || "An unexpected error occurred",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
 }
 
 // =============================================================================

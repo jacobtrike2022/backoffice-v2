@@ -156,12 +156,19 @@ export function TagSelectorDialog({
       }
 
       // 2. No pending suggestions or error, call OpenAI API
+      // Get user session for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated');
+      }
+
       const response = await fetch(
         `${getServerUrl()}/recommend-tags`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
             'Content-Type': 'application/json',
           },
         body: JSON.stringify({
