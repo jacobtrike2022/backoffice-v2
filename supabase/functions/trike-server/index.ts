@@ -12274,7 +12274,7 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
         // Generate enhanced content using AI
         const enhanced = await enhanceChunkForTrack(chunk, sourceType, options);
 
-        // Create the track
+        // Create the track (using only existing columns in tracks table)
         const { data: track, error: trackError } = await supabase
           .from("tracks")
           .insert({
@@ -12286,14 +12286,8 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
             status: options.publish ? 'published' : 'draft',
             duration_minutes: enhanced.duration_minutes,
             tags: chunk.key_terms?.slice(0, 5) || [],
-            metadata: {
-              generated_at: new Date().toISOString(),
-              generated_from_chunks: true,
-              source_file_id: sourceFileId,
-              source_chunk_id: chunk.id,
-              key_points: enhanced.key_points,
-              word_count: chunk.word_count
-            }
+            // Store generation context in summary field
+            summary: `Generated from chunk: ${chunk.title || `Chunk ${chunk.chunk_index + 1}`}. Key points: ${enhanced.key_points?.join(', ') || 'N/A'}`
           })
           .select()
           .single();
@@ -12413,7 +12407,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
     const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
     const totalDurationMinutes = Math.ceil(totalWords / 200); // 200 WPM
 
-    // Create the track
+    // Create the track (using only existing columns in tracks table)
     const { data: track, error: trackError } = await supabase
       .from("tracks")
       .insert({
@@ -12425,15 +12419,8 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         status: options.publish ? 'published' : 'draft',
         duration_minutes: totalDurationMinutes,
         tags: combinedContent.tags || [],
-        metadata: {
-          generated_at: new Date().toISOString(),
-          generated_from_chunks: true,
-          source_file_id: sourceFileId,
-          source_chunk_ids: chunk_ids,
-          chunk_count: chunks.length,
-          total_word_count: totalWords,
-          sections: combinedContent.sections
-        }
+        // Store generation context in summary field
+        summary: `Combined from ${chunks.length} chunks (${totalWords.toLocaleString()} words). Sections: ${combinedContent.sections?.map((s: any) => s.title).join(', ') || 'N/A'}`
       })
       .select()
       .single();
