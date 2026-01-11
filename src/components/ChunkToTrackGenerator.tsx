@@ -153,8 +153,8 @@ export function ChunkToTrackGenerator({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-[#F74A05]" />
             Generate Training Content
@@ -165,7 +165,7 @@ export function ChunkToTrackGenerator({
         </DialogHeader>
 
         {!results ? (
-          <>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             {/* Source Info */}
             <div className="bg-muted/50 rounded-lg p-3 space-y-2">
               <div className="flex items-center gap-2 text-sm">
@@ -269,14 +269,14 @@ export function ChunkToTrackGenerator({
               </div>
               <div
                 className="text-sm text-muted-foreground space-y-1"
-                style={{ maxHeight: '150px', overflowY: 'auto' }}
+                style={{ maxHeight: '120px', overflowY: 'auto' }}
               >
                 {mode === 'individual' ? (
                   selectedChunks.map((chunk, i) => (
                     <div key={chunk.id} className="flex items-center gap-2">
                       <ArrowRight className="h-3 w-3 shrink-0" />
                       <span className="truncate">{chunk.title || `Chunk ${chunk.chunk_index + 1}`}</span>
-                      <span className="text-xs">({chunk.word_count} words)</span>
+                      <span className="text-xs shrink-0">({chunk.word_count} words)</span>
                     </div>
                   ))
                 ) : (
@@ -286,7 +286,7 @@ export function ChunkToTrackGenerator({
                     </div>
                     {selectedChunks.map((chunk, i) => (
                       <div key={chunk.id} className="flex items-center gap-2 ml-2">
-                        <span className="text-xs text-muted-foreground">{i + 1}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{i + 1}</span>
                         <span className="truncate">{chunk.title || `Section ${i + 1}`}</span>
                       </div>
                     ))}
@@ -294,7 +294,7 @@ export function ChunkToTrackGenerator({
                 )}
               </div>
             </div>
-          </>
+          </div>
         ) : (
           /* Results */
           <div className="space-y-4">
@@ -344,7 +344,7 @@ export function ChunkToTrackGenerator({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 pt-4">
           {!results ? (
             <>
               <Button variant="outline" onClick={handleClose}>

@@ -12212,7 +12212,7 @@ interface GeneratedTrack {
   title: string;
   description: string;
   content: string;
-  duration_seconds: number;
+  duration_minutes: number;
   key_points: string[];
 }
 
@@ -12284,12 +12284,12 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
             transcript: enhanced.content, // Article content goes in transcript
             type: 'article',
             status: options.publish ? 'published' : 'draft',
-            duration_seconds: enhanced.duration_seconds,
-            generated_from_chunks: true,
-            source_file_id: sourceFileId,
+            duration_minutes: enhanced.duration_minutes,
             tags: chunk.key_terms?.slice(0, 5) || [],
             metadata: {
               generated_at: new Date().toISOString(),
+              generated_from_chunks: true,
+              source_file_id: sourceFileId,
               source_chunk_id: chunk.id,
               key_points: enhanced.key_points,
               word_count: chunk.word_count
@@ -12304,26 +12304,34 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           continue;
         }
 
-        // Create track-chunk relationship
-        await supabase
-          .from("track_source_chunks")
-          .insert({
-            track_id: track.id,
-            source_chunk_id: chunk.id,
-            organization_id: organizationId,
-            sequence_order: 0,
-            usage_type: 'content'
-          });
+        // Create track-chunk relationship (optional - table may not exist yet)
+        try {
+          await supabase
+            .from("track_source_chunks")
+            .insert({
+              track_id: track.id,
+              source_chunk_id: chunk.id,
+              organization_id: organizationId,
+              sequence_order: 0,
+              usage_type: 'content'
+            });
+        } catch (e) {
+          console.log('[generate-tracks] track_source_chunks table not available yet');
+        }
 
-        // Mark chunk as converted
-        await supabase
-          .from("source_chunks")
-          .update({
-            is_converted: true,
-            converted_at: new Date().toISOString(),
-            converted_track_id: track.id
-          })
-          .eq("id", chunk.id);
+        // Mark chunk as converted (optional - columns may not exist yet)
+        try {
+          await supabase
+            .from("source_chunks")
+            .update({
+              is_converted: true,
+              converted_at: new Date().toISOString(),
+              converted_track_id: track.id
+            })
+            .eq("id", chunk.id);
+        } catch (e) {
+          console.log('[generate-tracks] source_chunks conversion columns not available yet');
+        }
 
         generatedTracks.push({
           track_id: track.id,
@@ -12403,7 +12411,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
 
     // Calculate total stats
     const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
-    const totalDuration = Math.ceil(totalWords / 200 * 60); // 200 WPM
+    const totalDurationMinutes = Math.ceil(totalWords / 200); // 200 WPM
 
     // Create the track
     const { data: track, error: trackError } = await supabase
@@ -12415,12 +12423,12 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         transcript: combinedContent.content,
         type: 'article',
         status: options.publish ? 'published' : 'draft',
-        duration_seconds: totalDuration,
-        generated_from_chunks: true,
-        source_file_id: sourceFileId,
+        duration_minutes: totalDurationMinutes,
         tags: combinedContent.tags || [],
         metadata: {
           generated_at: new Date().toISOString(),
+          generated_from_chunks: true,
+          source_file_id: sourceFileId,
           source_chunk_ids: chunk_ids,
           chunk_count: chunks.length,
           total_word_count: totalWords,
@@ -12439,28 +12447,36 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
       }, 500);
     }
 
-    // Create track-chunk relationships
-    const relationships = chunks.map((chunk, index) => ({
-      track_id: track.id,
-      source_chunk_id: chunk.id,
-      organization_id: organizationId,
-      sequence_order: index,
-      usage_type: 'content'
-    }));
+    // Create track-chunk relationships (optional - table may not exist yet)
+    try {
+      const relationships = chunks.map((chunk, index) => ({
+        track_id: track.id,
+        source_chunk_id: chunk.id,
+        organization_id: organizationId,
+        sequence_order: index,
+        usage_type: 'content'
+      }));
 
-    await supabase
-      .from("track_source_chunks")
-      .insert(relationships);
+      await supabase
+        .from("track_source_chunks")
+        .insert(relationships);
+    } catch (e) {
+      console.log('[generate-combined] track_source_chunks table not available yet');
+    }
 
-    // Mark chunks as converted
-    await supabase
-      .from("source_chunks")
-      .update({
-        is_converted: true,
-        converted_at: new Date().toISOString(),
-        converted_track_id: track.id
-      })
-      .in("id", chunk_ids);
+    // Mark chunks as converted (optional - columns may not exist yet)
+    try {
+      await supabase
+        .from("source_chunks")
+        .update({
+          is_converted: true,
+          converted_at: new Date().toISOString(),
+          converted_track_id: track.id
+        })
+        .in("id", chunk_ids);
+    } catch (e) {
+      console.log('[generate-combined] source_chunks conversion columns not available yet');
+    }
 
     const processingTimeMs = Date.now() - startTime;
 
@@ -12471,7 +12487,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         title: track.title,
         description: track.description,
         status: track.status,
-        duration_seconds: totalDuration,
+        duration_minutes: totalDurationMinutes,
         word_count: totalWords,
         chunk_count: chunks.length
       },
@@ -12584,7 +12600,7 @@ async function enhanceChunkForTrack(
       title: chunk.title || 'Untitled Section',
       description: chunk.summary || chunk.content.slice(0, 200),
       content: formatContentAsArticle(chunk.content, chunk.title),
-      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
       key_points: chunk.key_terms || []
     };
   }
@@ -12616,7 +12632,7 @@ Return only valid JSON.`;
       title: parsed.title || chunk.title || 'Training Content',
       description: parsed.description || chunk.summary || '',
       content: parsed.content || formatContentAsArticle(chunk.content, chunk.title),
-      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
       key_points: parsed.key_points || chunk.key_terms || []
     };
 
@@ -12627,7 +12643,7 @@ Return only valid JSON.`;
       title: chunk.title || 'Training Content',
       description: chunk.summary || chunk.content.slice(0, 200),
       content: formatContentAsArticle(chunk.content, chunk.title),
-      duration_seconds: Math.ceil((chunk.word_count || 100) / 200 * 60),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
       key_points: chunk.key_terms || []
     };
   }

@@ -137,19 +137,11 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Server health check on mount
+  // Server health check on mount (silent - warnings are logged to console only)
   useEffect(() => {
-    checkServerHealth()
-      .then((healthy) => {
-        if (!healthy) {
-          toast.error(
-            "Server connection issues detected. Some features may not work properly.",
-          );
-        }
-      })
-      .catch(() => {
-        // Silent catch
-      });
+    checkServerHealth().catch(() => {
+      // Silent catch - health check already logs warnings internally
+    });
   }, []);
 
   // URL parsing for direct deep links (e.g. /?track=abc&type=article)
