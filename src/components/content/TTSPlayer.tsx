@@ -49,9 +49,12 @@ export function TTSPlayer({
     setDuration(0);
     setError(null);
     
-    // Always call generate - it will use cached audio if content hasn't changed
-    generateTTS(initialVoice);
-  }, [trackId]); // Re-run when trackId changes
+    // Only call generateTTS if we don't already have an audio URL
+    // The backend will use cached audio if content hasn't changed
+    if (!initialAudioUrl) {
+      generateTTS(initialVoice);
+    }
+  }, [trackId, initialAudioUrl, initialVoice]); // Re-run when trackId or initialAudioUrl changes
 
   // Close menus when clicking outside
   useEffect(() => {

@@ -11081,7 +11081,7 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     // Get track content - include all possible content fields
     const { data: track, error: trackError } = await supabase
       .from('tracks')
-      .select('transcript, content_text, description, title, type')
+      .select('transcript, content_text, description, title, type, tts_audio_url, tts_voice, tts_content_hash')
       .eq('id', trackId)
       .single();
 
@@ -11113,19 +11113,42 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
       preview: textContent.substring(0, 100) + '...'
     });
 
-    // Check for existing TTS audio in tracks table (tts_audio_url column)
-    const { data: existingTrack } = await supabase
-      .from('tracks')
-      .select('tts_audio_url, tts_voice')
-      .eq('id', trackId)
-      .single();
-
-    if (!forceRegenerate && existingTrack?.tts_audio_url && existingTrack?.tts_voice === voice) {
-      console.log('✅ Using existing TTS audio from track');
+    // Calculate content hash to detect if content actually changed
+    const contentHash = await hashString(textContent);
+    
+    // Check for existing TTS audio with content hash validation
+    // Only use cached audio if:
+    // 1. Not forcing regeneration
+    // 2. TTS audio URL exists
+    // 3. Voice matches
+    // 4. Content hash matches (content hasn't changed)
+    if (!forceRegenerate && 
+        track.tts_audio_url && 
+        track.tts_voice === voice && 
+        track.tts_content_hash === contentHash) {
+      console.log('✅ Using existing TTS audio (content unchanged):', {
+        audioUrl: track.tts_audio_url,
+        voice: track.tts_voice,
+        contentHash: contentHash.substring(0, 8) + '...'
+      });
       return jsonResponse({
-        audioUrl: existingTrack.tts_audio_url,
-        voice: existingTrack.tts_voice,
+        audioUrl: track.tts_audio_url,
+        voice: track.tts_voice,
         cached: true
+      });
+    }
+
+    // Content changed or force regenerate - log why we're regenerating
+    if (forceRegenerate) {
+      console.log('🔄 Force regenerating TTS (forceRegenerate=true)');
+    } else if (!track.tts_audio_url) {
+      console.log('🔄 Generating TTS (no existing audio)');
+    } else if (track.tts_voice !== voice) {
+      console.log('🔄 Generating TTS (voice changed):', { old: track.tts_voice, new: voice });
+    } else if (track.tts_content_hash !== contentHash) {
+      console.log('🔄 Generating TTS (content changed):', {
+        oldHash: track.tts_content_hash?.substring(0, 8) + '...',
+        newHash: contentHash.substring(0, 8) + '...'
       });
     }
 
@@ -11186,12 +11209,13 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     const audioUrl = urlData?.publicUrl;
     console.log('✅ Audio uploaded to storage:', audioUrl);
 
-    // Store TTS info in the tracks table
+    // Store TTS info in the tracks table (including content hash)
     const { error: updateError } = await supabase
       .from('tracks')
       .update({
         tts_audio_url: audioUrl,
         tts_voice: voice,
+        tts_content_hash: contentHash,
         tts_generated_at: new Date().toISOString(),
       })
       .eq('id', trackId);
@@ -11199,6 +11223,8 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     if (updateError) {
       console.warn('Failed to update track with TTS info:', updateError);
       // Don't fail - audio was generated successfully
+    } else {
+      console.log('✅ TTS info stored with content hash:', contentHash.substring(0, 8) + '...');
     }
 
     return jsonResponse({
@@ -12274,7 +12300,7 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
         // Generate enhanced content using AI
         const enhanced = await enhanceChunkForTrack(chunk, sourceType, options);
 
-        // Create the track (using only existing columns in tracks table)
+        // Create the track with empty tags initially (will be populated by AI analysis)
         const { data: track, error: trackError } = await supabase
           .from("tracks")
           .insert({
@@ -12285,7 +12311,7 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
             type: 'article',
             status: options.publish ? 'published' : 'draft',
             duration_minutes: enhanced.duration_minutes,
-            tags: chunk.key_terms?.slice(0, 5) || [],
+            tags: [], // Will be populated by performTagAnalysis
             // Store generation context in summary field
             summary: `Generated from chunk: ${chunk.title || `Chunk ${chunk.chunk_index + 1}`}. Key points: ${enhanced.key_points?.join(', ') || 'N/A'}`
           })
@@ -12296,6 +12322,42 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           console.error('[generate-tracks] Failed to create track:', trackError);
           errors.push({ chunk_id: chunk.id, error: trackError.message });
           continue;
+        }
+
+        // Use AI tag analysis to assign meaningful tags (same as existing flow)
+        let assignedTags: string[] = [];
+        try {
+          console.log('[generate-tracks] Running AI tag analysis for track:', track.id);
+          const tagAnalysis = await performTagAnalysis({
+            title: enhanced.title,
+            description: enhanced.description,
+            transcript: enhanced.content,
+            keyFacts: enhanced.key_points?.map((kp: string) => ({ content: kp })) || [],
+            trackId: track.id,
+            organizationId: organizationId
+          });
+
+          // Auto-select tags with 85%+ confidence
+          assignedTags = tagAnalysis.recommendations
+            .filter(rec => rec.auto_select)
+            .map(rec => rec.tag_name);
+
+          // Update track with AI-assigned tags
+          if (assignedTags.length > 0) {
+            await supabase
+              .from("tracks")
+              .update({ tags: assignedTags })
+              .eq("id", track.id);
+            console.log('[generate-tracks] Auto-assigned tags:', assignedTags);
+          }
+
+          // New tag suggestions are automatically stored by performTagAnalysis
+          if (tagAnalysis.new_tag_suggestions?.length > 0) {
+            console.log('[generate-tracks] Stored new tag suggestions:', tagAnalysis.new_tag_suggestions.map(s => s.suggested_name));
+          }
+        } catch (tagError) {
+          console.error('[generate-tracks] Tag analysis failed (non-blocking):', tagError);
+          // Continue without tags - not a critical failure
         }
 
         // Create track-chunk relationship (optional - table may not exist yet)
@@ -12331,7 +12393,8 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           track_id: track.id,
           title: track.title,
           chunk_id: chunk.id,
-          status: track.status
+          status: track.status,
+          assigned_tags: assignedTags
         });
 
       } catch (chunkError: any) {
@@ -12407,7 +12470,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
     const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
     const totalDurationMinutes = Math.ceil(totalWords / 200); // 200 WPM
 
-    // Create the track (using only existing columns in tracks table)
+    // Create the track with empty tags initially (will be populated by AI analysis)
     const { data: track, error: trackError } = await supabase
       .from("tracks")
       .insert({
@@ -12418,7 +12481,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         type: 'article',
         status: options.publish ? 'published' : 'draft',
         duration_minutes: totalDurationMinutes,
-        tags: combinedContent.tags || [],
+        tags: [], // Will be populated by performTagAnalysis
         // Store generation context in summary field
         summary: `Combined from ${chunks.length} chunks (${totalWords.toLocaleString()} words). Sections: ${combinedContent.sections?.map((s: any) => s.title).join(', ') || 'N/A'}`
       })
@@ -12432,6 +12495,42 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         error: `Failed to create track: ${trackError.message}`,
         code: "CREATE_FAILED"
       }, 500);
+    }
+
+    // Use AI tag analysis to assign meaningful tags (same as existing flow)
+    let assignedTags: string[] = [];
+    try {
+      console.log('[generate-combined] Running AI tag analysis for track:', track.id);
+      const tagAnalysis = await performTagAnalysis({
+        title: combinedContent.title,
+        description: combinedContent.description,
+        transcript: combinedContent.content,
+        keyFacts: combinedContent.sections?.map((s: any) => ({ content: `Section: ${s.title}` })) || [],
+        trackId: track.id,
+        organizationId: organizationId
+      });
+
+      // Auto-select tags with 85%+ confidence
+      assignedTags = tagAnalysis.recommendations
+        .filter(rec => rec.auto_select)
+        .map(rec => rec.tag_name);
+
+      // Update track with AI-assigned tags
+      if (assignedTags.length > 0) {
+        await supabase
+          .from("tracks")
+          .update({ tags: assignedTags })
+          .eq("id", track.id);
+        console.log('[generate-combined] Auto-assigned tags:', assignedTags);
+      }
+
+      // New tag suggestions are automatically stored by performTagAnalysis
+      if (tagAnalysis.new_tag_suggestions?.length > 0) {
+        console.log('[generate-combined] Stored new tag suggestions:', tagAnalysis.new_tag_suggestions.map(s => s.suggested_name));
+      }
+    } catch (tagError) {
+      console.error('[generate-combined] Tag analysis failed (non-blocking):', tagError);
+      // Continue without tags - not a critical failure
     }
 
     // Create track-chunk relationships (optional - table may not exist yet)
@@ -12476,7 +12575,8 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         status: track.status,
         duration_minutes: totalDurationMinutes,
         word_count: totalWords,
-        chunk_count: chunks.length
+        chunk_count: chunks.length,
+        assigned_tags: assignedTags
       },
       processing_time_ms: processingTimeMs
     });

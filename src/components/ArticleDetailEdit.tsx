@@ -540,10 +540,14 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       toast.success(contentChanged ? 'Article updated successfully!' : 'Settings updated!');
       setIsEditMode(false);
       
-      // Force TTS player to refresh if content changed
-      if (contentChanged && track.transcript) {
-        console.log('🔊 Content changed, forcing TTS refresh...');
+      // Force TTS player to refresh ONLY if the actual text content changed
+      // TTS is only affected by transcript/content_text changes, not metadata (tags, title, thumbnail, etc.)
+      const ttsContentChanged = updateData.transcript !== (track.transcript || '');
+      if (ttsContentChanged && track.transcript) {
+        console.log('🔊 TTS content changed, forcing TTS refresh...');
         setTtsRefreshKey(prev => prev + 1);
+      } else {
+        console.log('🔊 TTS content unchanged, skipping TTS refresh (metadata-only change)');
       }
       
       // Call onUpdate to refresh the parent component's data
