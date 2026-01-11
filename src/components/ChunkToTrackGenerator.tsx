@@ -322,8 +322,11 @@ export function ChunkToTrackGenerator({
                         variant="ghost"
                         size="sm"
                         onClick={() => {
-                          // Navigate to track editor
-                          window.open(`/content-authoring?track=${track.track_id || track.id}`, '_blank');
+                          // Navigate to track editor using the app's deep link format
+                          // Format: /?track=<id>&type=<type>
+                          const trackId = track.track_id || track.id;
+                          const trackType = track.type || 'article';
+                          window.open(`/?track=${trackId}&type=${trackType}`, '_blank');
                         }}
                       >
                         View
