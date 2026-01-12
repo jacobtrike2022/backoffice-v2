@@ -277,7 +277,7 @@ export function TagRecommendationPanel({
                     </Badge>
                   </div>
                   <p className="text-xs text-purple-400/80 mt-1">
-                    {suggestion.reasoning}
+                    {suggestion.description || suggestion.reasoning}
                   </p>
                 </div>
                 <Button

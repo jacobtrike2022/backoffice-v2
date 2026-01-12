@@ -2556,7 +2556,8 @@ interface TagRecommendation {
 
 interface NewTagSuggestion {
   suggested_name: string;
-  suggested_parent: string;
+  suggested_parent: string;  // The subcategory name (e.g., "Cash & Financial", "Compliance")
+  suggested_parent_id?: string;  // The resolved subcategory tag ID
   description?: string;  // Contextual description of what content belongs in this tag
   reasoning: string;     // Why this new tag is needed (justification)
 }
@@ -2759,6 +2760,9 @@ async function performTagAnalysis(params: {
     return `- "${tag.name}" (Category: ${parentName})${tag.description ? `\n  Context: ${tag.description}` : ''}`;
   }).join('\n');
 
+  // 3b. Build subcategory list for new tag placement
+  const subcategoryListForAI = subcategories.map((sub: any) => `- "${sub.name}"`).join('\n');
+
   // 4. Build the AI prompt
   const systemPrompt = `You are an expert training content classifier for convenience store and foodservice operations.
 
@@ -2779,11 +2783,23 @@ CRITICAL RULES:
 
 4. HIERARCHY AWARENESS: Tags are organized by category (Compliance, Foodservice, Customer Service, etc.). Content can span multiple categories. Don't artificially limit to one category.
 
-5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag. Include:
-   - Suggested name (concise, follows existing naming conventions)
-   - Which parent category it should go under
-   - A TAG DESCRIPTION: This is NOT reasoning for why the tag is needed. The description should define what types of content belong in this tag so the AI can use it for future classification. Write it as a contextual hint (e.g., "Training content related to identifying, preventing, and reporting suspicious financial transactions and money laundering activities in retail environments.")
-   - Brief reasoning (separate from description) explaining why this new tag is warranted
+5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag.
+
+   IMPORTANT: New tags MUST be placed under one of the existing parent categories listed below. Do NOT create new parent categories.
+
+   For the suggested_parent field, you MUST use EXACTLY one of these existing category names:
+${subcategoryListForAI}
+
+   Choose the BEST-FIT category for the new tag. For example:
+   - "Anti-Money Laundering" → "Cash & Financial" (deals with financial transactions and compliance)
+   - "Fire Safety Training" → "Compliance" (regulatory compliance topic)
+   - "Deli Slicing Techniques" → "Foodservice" (food preparation topic)
+
+   Include:
+   - suggested_name: Concise name following existing naming conventions
+   - suggested_parent: MUST be one of the exact category names listed above
+   - description: A TAG DESCRIPTION defining what content belongs in this tag for future AI classification. Write it as: "Assign this tag to content that [describes the types of content]. This includes topics such as [list key topics]."
+   - reasoning: Brief justification for creating this new tag
 
 OUTPUT FORMAT (JSON):
 {
@@ -2798,8 +2814,8 @@ OUTPUT FORMAT (JSON):
   "new_tag_suggestions": [
     {
       "suggested_name": "Suggested Tag Name",
-      "suggested_parent": "Parent Category Name",
-      "description": "Contextual description of what content belongs in this tag (for future AI classification)",
+      "suggested_parent": "MUST be one of: ${subcategories.map((s: any) => s.name).join(', ')}",
+      "description": "Assign this tag to content that [describes content types]. This includes topics such as [key topics].",
       "reasoning": "Why this new tag is needed (justification for creating it)"
     }
   ]
@@ -2864,9 +2880,22 @@ Analyze this content and provide tag recommendations. Remember:
     .filter((rec: any) => rec.confidence >= 50)
     .sort((a: any, b: any) => b.confidence - a.confidence);
 
-  // 7. Process new tag suggestions
+  // 7. Process new tag suggestions - resolve parent names to IDs
   const newTagSuggestions: NewTagSuggestion[] = (aiOutput.new_tag_suggestions || [])
-    .filter((sug: any) => sug.suggested_name && sug.suggested_parent);
+    .filter((sug: any) => sug.suggested_name && sug.suggested_parent)
+    .map((sug: any) => {
+      // Find matching subcategory by name (case-insensitive)
+      const matchedSubcategory = subcategories.find((sub: any) =>
+        sub.name.toLowerCase() === sug.suggested_parent.toLowerCase()
+      );
+      return {
+        suggested_name: sug.suggested_name,
+        suggested_parent: matchedSubcategory?.name || sug.suggested_parent,
+        suggested_parent_id: matchedSubcategory?.id || null,
+        description: sug.description,
+        reasoning: sug.reasoning,
+      };
+    });
 
   // 8. Store new tag suggestions
   if (newTagSuggestions.length > 0 && trackId && organizationId) {
@@ -2926,6 +2955,7 @@ async function storeNewTagSuggestions(
           organization_id: organizationId,
           suggested_tag_name: suggestion.suggested_name,
           suggested_parent_category: suggestion.suggested_parent,
+          suggested_parent_id: suggestion.suggested_parent_id || null,  // Reference to parent/subcategory tag
           suggested_description: suggestion.description,  // Contextual description for future AI classification
           reasoning: suggestion.reasoning,  // Justification for why this tag is needed
           status: 'pending',
@@ -12519,7 +12549,7 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
         // Generate enhanced content using AI
         const enhanced = await enhanceChunkForTrack(chunk, sourceType, options);
 
-        // Create the track with empty tags initially (will be populated by AI analysis)
+        // Create the track (tags are assigned via track_tags junction table below)
         const { data: track, error: trackError } = await supabase
           .from("tracks")
           .insert({
@@ -12530,7 +12560,6 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
             type: 'article',
             status: options.publish ? 'published' : 'draft',
             duration_minutes: enhanced.duration_minutes,
-            tags: [], // Will be populated by performTagAnalysis
             // Store generation context in summary field
             summary: `Generated from chunk: ${chunk.title || `Chunk ${chunk.chunk_index + 1}`}. Key points: ${enhanced.key_points?.join(', ') || 'N/A'}`
           })
@@ -12702,7 +12731,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
     const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
     const totalDurationMinutes = Math.ceil(totalWords / 200); // 200 WPM
 
-    // Create the track with empty tags initially (will be populated by AI analysis)
+    // Create the track (tags are assigned via track_tags junction table below)
     const { data: track, error: trackError } = await supabase
       .from("tracks")
       .insert({
@@ -12713,7 +12742,6 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         type: 'article',
         status: options.publish ? 'published' : 'draft',
         duration_minutes: totalDurationMinutes,
-        tags: [], // Will be populated by performTagAnalysis
         // Store generation context in summary field
         summary: `Combined from ${chunks.length} chunks (${totalWords.toLocaleString()} words). Sections: ${combinedContent.sections?.map((s: any) => s.title).join(', ') || 'N/A'}`
       })

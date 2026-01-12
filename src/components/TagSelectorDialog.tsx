@@ -54,7 +54,7 @@ export function TagSelectorDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tagToEdit, setTagToEdit] = useState<Tag | null>(null);
-  const [prefilledTagData, setPrefilledTagData] = useState<{ name: string; description: string; parentName?: string } | null>(null);
+  const [prefilledTagData, setPrefilledTagData] = useState<{ name: string; description: string; parentId?: string; parentName?: string } | null>(null);
   const [localSelectedTags, setLocalSelectedTags] = useState<string[]>(selectedTags); // Local state for tag selection
   const [rawHierarchy, setRawHierarchy] = useState<Tag[]>([]);
 
@@ -224,10 +224,13 @@ export function TagSelectorDialog({
 
   const handleCreateNewTag = async (suggestion: any) => {
     setTagToEdit(null);
-    setPrefilledTagData({ 
-      name: suggestion.suggested_name, 
-      description: suggestion.reasoning,
-      parentName: suggestion.suggested_parent 
+    // Use suggested_description for the tag description (not reasoning)
+    // Use suggested_parent_id if available (resolved subcategory ID from backend)
+    setPrefilledTagData({
+      name: suggestion.suggested_name,
+      description: suggestion.description || suggestion.suggested_description || '',
+      parentId: suggestion.suggested_parent_id || undefined,
+      parentName: suggestion.suggested_parent
     });
     setShowCreateModal(true);
   };
@@ -284,6 +287,20 @@ export function TagSelectorDialog({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Recursively search for a tag by name in the hierarchy (case-insensitive)
+  const findTagByNameInHierarchy = (tags: Tag[], name: string): Tag | undefined => {
+    for (const tag of tags) {
+      if (tag.name.toLowerCase() === name.toLowerCase()) {
+        return tag;
+      }
+      if (tag.children && tag.children.length > 0) {
+        const found = findTagByNameInHierarchy(tag.children, name);
+        if (found) return found;
+      }
+    }
+    return undefined;
   };
 
   const handleToggleTag = (tag: Tag) => {
@@ -632,12 +649,18 @@ export function TagSelectorDialog({
           tagToEdit={tagToEdit}
           initialTagName={prefilledTagData?.name}
           initialDescription={prefilledTagData?.description}
-          // If restricted, we preselect the parent
-          preselectedParentId={prefilledTagData?.parentName 
-            ? rawHierarchy.find(t => t.name.toLowerCase() === prefilledTagData.parentName?.toLowerCase())?.id
-            : restrictToParentName 
-              ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id 
-              : undefined}
+          // Priority: 1) Direct parentId from AI, 2) Search by parentName, 3) restrictToParentName
+          preselectedParentId={
+            prefilledTagData?.parentId
+              ? prefilledTagData.parentId
+              : prefilledTagData?.parentName
+                ? findTagByNameInHierarchy(rawHierarchy, prefilledTagData.parentName)?.id
+                : restrictToParentName
+                  ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id
+                  : undefined
+          }
+          // When creating from AI suggestion with a parent, default to child type
+          defaultType={prefilledTagData?.parentId || prefilledTagData?.parentName ? 'child' : undefined}
         />
       )}
     </>
