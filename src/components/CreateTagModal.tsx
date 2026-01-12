@@ -19,6 +19,7 @@ interface CreateTagModalProps {
   tagToEdit?: Tag | null;
   initialTagName?: string;
   initialDescription?: string;
+  canEditSystemTags?: boolean; // Trike Super Admin can edit system-locked tags
 }
 
 export function CreateTagModal({
@@ -32,6 +33,7 @@ export function CreateTagModal({
   tagToEdit,
   initialTagName,
   initialDescription,
+  canEditSystemTags = false,
 }: CreateTagModalProps) {
   const isEditing = !!tagToEdit;
   
@@ -171,11 +173,13 @@ export function CreateTagModal({
 
       if (isEditing && tagToEdit) {
         // UPDATE EXISTING TAG
+        // Pass bypass flag for Super Admin editing system-locked tags
+        const bypassSystemLock = canEditSystemTags && tagToEdit.is_system_locked;
         await updateTag(tagToEdit.id, {
           name: tagName.trim(),
           description: description.trim() || undefined,
           color: color,
-        });
+        }, bypassSystemLock);
         toast.success('Tag updated successfully');
       } else {
         // CREATE NEW TAG

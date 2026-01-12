@@ -39,6 +39,7 @@ import {
 import * as crud from '../lib/crud';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
+import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { InteractiveTranscript } from './InteractiveTranscript';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
@@ -294,7 +295,17 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         
         // Store original facts for comparison
         setOriginalFacts(facts);
-        
+
+        // Load tags from junction table (source of truth)
+        let tagNames: string[] = track.tags || [];
+        try {
+          tagNames = await tagsCrud.getTrackTagNames(track.id);
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } catch (tagError) {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+          tagNames = track.tags || [];
+        }
+
         setEditFormData({
           title: String(track.title || ''),
           description: String(track.description || ''),
@@ -302,14 +313,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           transcript: String(track.transcript || ''),
           transcript_data: track.transcript_data || null,
           learning_objectives: facts,
-          tags: track.tags || [],
+          tags: tagNames,
           content_url: String(track.content_url || ''),
           thumbnail_url: String(track.thumbnail_url || ''),
           type: track.type || 'video',
-          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
         });
       };
-      
+
       loadTrackData();
     }
   }, [isEditMode, track]);
@@ -2120,17 +2131,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           if (isEditMode) {
             setEditFormData({ ...editFormData, tags });
           } else {
-            // In view mode, save directly to database
+            // In view mode, save directly to database using junction table
             try {
-              await crud.updateTrack({
-                id: track.id,
-                tags: tags
-              });
-              toast.success('KB categories updated');
+              // Use assignTrackTagsByName which writes to junction table AND syncs legacy column
+              const { unrecognizedNames } = await tagsCrud.assignTrackTagsByName(track.id, tags, true);
+              if (unrecognizedNames.length > 0) {
+                console.warn('Some tags were not recognized:', unrecognizedNames);
+              }
+              toast.success('Tags updated');
               onUpdate(); // Refresh track data
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update KB categories', {
+              toast.error('Failed to update tags', {
                 description: error.message || 'Please try again'
               });
             }

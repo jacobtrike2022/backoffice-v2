@@ -307,6 +307,7 @@ export async function createTag(input: {
 
 /**
  * Update a tag
+ * @param bypassSystemLock - Set to true for Trike Super Admin to bypass system lock
  */
 export async function updateTag(
   tagId: string,
@@ -315,17 +316,20 @@ export async function updateTag(
     description?: string;
     color?: string;
     display_order?: number;
-  }
+  },
+  bypassSystemLock: boolean = false
 ): Promise<Tag> {
-  // Check if tag is system-locked
-  const { data: existingTag } = await supabase
-    .from('tags')
-    .select('is_system_locked')
-    .eq('id', tagId)
-    .single();
-  
-  if (existingTag?.is_system_locked) {
-    throw new Error('Cannot update system-locked tags');
+  // Check if tag is system-locked (unless bypassed by Super Admin)
+  if (!bypassSystemLock) {
+    const { data: existingTag } = await supabase
+      .from('tags')
+      .select('is_system_locked')
+      .eq('id', tagId)
+      .single();
+
+    if (existingTag?.is_system_locked) {
+      throw new Error('Cannot update system-locked tags');
+    }
   }
   
   const { data, error } = await supabase
@@ -341,16 +345,18 @@ export async function updateTag(
 
 /**
  * Delete a tag
+ * @param bypassSystemLock - Set to true for Trike Super Admin to bypass system lock
  */
-export async function deleteTag(tagId: string): Promise<void> {
+export async function deleteTag(tagId: string, bypassSystemLock: boolean = false): Promise<void> {
   // Check if tag is system-locked and get children
   const { data: existingTag } = await supabase
     .from('tags')
     .select('is_system_locked, type')
     .eq('id', tagId)
     .single();
-  
-  if (existingTag?.is_system_locked) {
+
+  // Check system lock (unless bypassed by Super Admin)
+  if (!bypassSystemLock && existingTag?.is_system_locked) {
     throw new Error('Cannot delete system-locked tags');
   }
   
@@ -541,6 +547,71 @@ export async function assignTags(
     
     if (error) throw error;
   }
+}
+
+/**
+ * Assign tags to a track by tag names (resolves names to IDs, writes to junction table)
+ * This is the preferred method for frontend components.
+ *
+ * NOTE: The tracks.tags column is deprecated. The track_tags junction table is the source of truth.
+ *
+ * @param trackId - The track ID to assign tags to
+ * @param tagNames - Array of tag names to assign
+ * @param syncLegacyColumn - DEPRECATED: Legacy column sync is disabled. This parameter is ignored.
+ */
+export async function assignTrackTagsByName(
+  trackId: string,
+  tagNames: string[],
+  _syncLegacyColumn: boolean = false // Parameter kept for API compatibility but ignored
+): Promise<{ assignedTags: Tag[], unrecognizedNames: string[] }> {
+  if (!tagNames || tagNames.length === 0) {
+    // Clear all tags from junction table
+    await supabase
+      .from('track_tags')
+      .delete()
+      .eq('track_id', trackId);
+
+    return { assignedTags: [], unrecognizedNames: [] };
+  }
+
+  // Fetch tags by name to get their IDs
+  const { data: matchedTags, error: tagError } = await supabase
+    .from('tags')
+    .select('*')
+    .in('name', tagNames);
+
+  if (tagError) throw tagError;
+
+  const assignedTags = matchedTags || [];
+  const matchedNames = new Set(assignedTags.map(t => t.name));
+  const unrecognizedNames = tagNames.filter(name => !matchedNames.has(name));
+
+  if (unrecognizedNames.length > 0) {
+    console.warn('[assignTrackTagsByName] Unrecognized tag names (not in tags table):', unrecognizedNames);
+  }
+
+  // Use assignTags to update junction table (source of truth)
+  const tagIds = assignedTags.map(t => t.id);
+  await assignTags(trackId, 'track', tagIds);
+
+  return { assignedTags, unrecognizedNames };
+}
+
+/**
+ * Get track tags from the junction table (source of truth)
+ * Returns Tag objects with full metadata (id, name, color, etc.)
+ */
+export async function getTrackTags(trackId: string): Promise<Tag[]> {
+  return getEntityTags(trackId, 'track');
+}
+
+/**
+ * Get track tag names from the junction table
+ * Convenience function that returns just the names as strings
+ */
+export async function getTrackTagNames(trackId: string): Promise<string[]> {
+  const tags = await getTrackTags(trackId);
+  return tags.map(t => t.name);
 }
 
 /**

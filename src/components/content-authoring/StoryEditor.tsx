@@ -46,6 +46,7 @@ import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as factsCrud from '../../lib/crud/facts';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import * as tagsCrud from '../../lib/crud/tags';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
@@ -384,10 +385,22 @@ export function StoryEditor({
   const loadStoryData = async (trackData: any) => {
     setTitle(trackData.title || '');
     setDescription(trackData.description || '');
-    setTags(trackData.tags || []);
+
+    // Load tags from junction table (source of truth)
+    let tagNames: string[] = trackData.tags || [];
+    if (trackData.id) {
+      try {
+        tagNames = await tagsCrud.getTrackTagNames(trackData.id);
+        console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+      } catch (tagError) {
+        console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+        tagNames = trackData.tags || [];
+      }
+    }
+    setTags(tagNames);
     setThumbnailUrl(trackData.thumbnail_url || '');
     setNotes(trackData.content_text || '');
-    setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
+    setShowInKnowledgeBase(tagNames.includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
     let parsedSlides: any[] = [];
@@ -425,7 +438,7 @@ export function StoryEditor({
     setInitialState({
       title: trackData.title || '',
       description: trackData.description || '',
-      tags: trackData.tags || [],
+      tags: tagNames,
       thumbnailUrl: trackData.thumbnail_url || '',
       notes: trackData.content_text || '',
       slides: parsedSlides,

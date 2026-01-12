@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import * as tagsCrud from '../../lib/crud/tags';
 import { AIGenerateCheckpointModal } from './AIGenerateCheckpointModal';
 import { supabase } from '../../lib/supabase';
 
@@ -121,14 +122,26 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   // Load existing checkpoint if editing
   useEffect(() => {
-    if (track) {
+    const loadFromTrackObject = async () => {
       // Load directly from passed track object
       setExistingTrack(track);
       setTitle(track.title || '');
       setDescription(track.description || '');
-      setTags(track.tags || []);
+
+      // Load tags from junction table (source of truth)
+      let tagNames: string[] = track.tags || [];
+      if (track.id) {
+        try {
+          tagNames = await tagsCrud.getTrackTagNames(track.id);
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } catch (tagError) {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+          tagNames = track.tags || [];
+        }
+      }
+      setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
-      
+
       // Parse checkpoint data from transcript field
       let parsedQuestions: any[] = questions;
       let parsedPassingScore = '70';
@@ -155,17 +168,21 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           console.error('Error parsing checkpoint data:', e);
         }
       }
-      
+
       // Save initial state
       setInitialState({
         title: track.title || '',
         description: track.description || '',
-        tags: track.tags || [],
+        tags: tagNames,
         thumbnailUrl: track.thumbnail_url || '',
         questions: parsedQuestions,
         passingScore: parsedPassingScore,
         timeLimit: parsedTimeLimit,
       });
+    };
+
+    if (track) {
+      loadFromTrackObject();
     } else if (trackId) {
       loadCheckpoint();
     } else if (isNewContent) {
@@ -193,16 +210,26 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   const loadCheckpoint = async () => {
     if (!trackId) return;
-    
+
     setIsLoading(true);
     try {
       const track = await crud.getTrackById(trackId);
       setExistingTrack(track);
       setTitle(track.title || '');
       setDescription(track.description || '');
-      setTags(track.tags || []);
+
+      // Load tags from junction table (source of truth)
+      let tagNames: string[] = track.tags || [];
+      try {
+        tagNames = await tagsCrud.getTrackTagNames(trackId);
+        console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+      } catch (tagError) {
+        console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+        tagNames = track.tags || [];
+      }
+      setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
-      
+
       // Parse checkpoint data from transcript field (we'll store JSON there)
       let parsedQuestions: any[] = questions;
       let parsedPassingScore = '70';
@@ -229,12 +256,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           console.error('Error parsing checkpoint data:', e);
         }
       }
-      
+
       // Save initial state
       setInitialState({
         title: track.title || '',
         description: track.description || '',
-        tags: track.tags || [],
+        tags: tagNames,
         thumbnailUrl: track.thumbnail_url || '',
         questions: parsedQuestions,
         passingScore: parsedPassingScore,

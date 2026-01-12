@@ -45,6 +45,7 @@ import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
+import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import defaultThumbnail from '../assets/default-thumbnail.jpg';
@@ -203,24 +204,34 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         
         // Store original facts for comparison
         setOriginalFacts(facts);
-        
+
+        // Load tags from junction table (source of truth)
+        let tagNames: string[] = track.tags || [];
+        try {
+          tagNames = await tagsCrud.getTrackTagNames(track.id);
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } catch (tagError) {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+          tagNames = track.tags || [];
+        }
+
         setEditFormData({
           title: track.title || '',
           description: track.description || '',
           duration_minutes: track.duration_minutes || '',
           learning_objectives: facts,
-          tags: track.tags || [],
+          tags: tagNames,
           content_url: track.content_url || '',
           thumbnail_url: (track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png') ? track.thumbnail_url : '',
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
-          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
         });
-        
+
         console.log('📝 Form data initialized with article_body:', track.transcript || '');
         setIsFormDataLoaded(true); // Mark form data as loaded
       };
-      
+
       loadArticleData();
     }
   }, [isEditMode, track]);

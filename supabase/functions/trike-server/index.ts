@@ -430,6 +430,11 @@ Deno.serve(async (req: Request) => {
       return await handleBrainBackfill(req);
     }
 
+    // Migrate tags from tracks.tags column to track_tags junction table (admin function)
+    if (method === "POST" && path === "/migrate/tags-to-junction") {
+      return await handleMigrateTagsToJunction(req);
+    }
+
     // =========================================================================
     // ONBOARDING & COMPANY ENRICHMENT
     // =========================================================================
@@ -4862,6 +4867,189 @@ async function handleBrainBackfill(req: Request): Promise<Response> {
     return jsonResponse({
       error: error.message || "Failed to backfill brain index",
       indexed: 0,
+      skipped: 0,
+      errors: [error.message || String(error)],
+      details: [],
+    }, 500);
+  }
+}
+
+/**
+ * Migrate tags from tracks.tags (text[]) column to track_tags junction table
+ * This is a one-time migration utility to backfill the junction table
+ */
+async function handleMigrateTagsToJunction(req: Request): Promise<Response> {
+  try {
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+
+    // Parse body to check for organizationId fallback
+    const body = await req.json().catch(() => ({}));
+    const { organizationId, dryRun = false } = body;
+
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Tags Migration] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
+
+    console.log(`[Tags Migration] Starting migration for organization ${orgId}${dryRun ? ' (DRY RUN)' : ''}...`);
+
+    // Step 1: Get all tracks with tags in the legacy column
+    const { data: tracks, error: tracksError } = await supabase
+      .from("tracks")
+      .select("id, title, tags")
+      .eq("organization_id", orgId)
+      .not("tags", "is", null);
+
+    if (tracksError) {
+      console.error("[Tags Migration] Error fetching tracks:", tracksError);
+      return jsonResponse({ error: `Failed to fetch tracks: ${tracksError.message}` }, 500);
+    }
+
+    // Filter to only tracks with non-empty tags array
+    const tracksWithTags = (tracks || []).filter((t: any) =>
+      t.tags && Array.isArray(t.tags) && t.tags.length > 0
+    );
+
+    if (tracksWithTags.length === 0) {
+      return jsonResponse({
+        migrated: 0,
+        skipped: 0,
+        errors: [],
+        message: "No tracks with tags found",
+      });
+    }
+
+    console.log(`[Tags Migration] Found ${tracksWithTags.length} tracks with tags`);
+
+    // Step 2: Get all tags to build name-to-id lookup
+    const { data: allTags, error: tagsError } = await supabase
+      .from("tags")
+      .select("id, name");
+
+    if (tagsError) {
+      console.error("[Tags Migration] Error fetching tags:", tagsError);
+      return jsonResponse({ error: `Failed to fetch tags: ${tagsError.message}` }, 500);
+    }
+
+    const tagNameToId = new Map<string, string>();
+    for (const tag of (allTags || [])) {
+      tagNameToId.set(tag.name.toLowerCase(), tag.id);
+    }
+
+    console.log(`[Tags Migration] Built lookup for ${tagNameToId.size} tags`);
+
+    // Step 3: Get existing track_tags to avoid duplicates
+    const { data: existingJunctions, error: junctionError } = await supabase
+      .from("track_tags")
+      .select("track_id, tag_id");
+
+    if (junctionError) {
+      console.error("[Tags Migration] Error fetching existing junctions:", junctionError);
+    }
+
+    const existingPairs = new Set<string>();
+    for (const junction of (existingJunctions || [])) {
+      existingPairs.add(`${junction.track_id}:${junction.tag_id}`);
+    }
+
+    console.log(`[Tags Migration] Found ${existingPairs.size} existing track_tags records`);
+
+    // Step 4: Build insert records
+    const result = {
+      migrated: 0,
+      skipped: 0,
+      notFound: [] as string[],
+      errors: [] as string[],
+      details: [] as Array<{ trackId: string; title: string; tagsAdded: number; tagsSkipped: number }>,
+    };
+
+    const recordsToInsert: Array<{ track_id: string; tag_id: string }> = [];
+
+    for (const track of tracksWithTags) {
+      let tagsAdded = 0;
+      let tagsSkipped = 0;
+
+      for (const tagName of track.tags) {
+        // Skip system tags for now (they're handled separately)
+        if (tagName.startsWith('system:')) {
+          tagsSkipped++;
+          continue;
+        }
+
+        const tagId = tagNameToId.get(tagName.toLowerCase());
+        if (!tagId) {
+          result.notFound.push(tagName);
+          tagsSkipped++;
+          continue;
+        }
+
+        const pairKey = `${track.id}:${tagId}`;
+        if (existingPairs.has(pairKey)) {
+          tagsSkipped++;
+          continue;
+        }
+
+        recordsToInsert.push({ track_id: track.id, tag_id: tagId });
+        existingPairs.add(pairKey); // Prevent duplicates in this batch
+        tagsAdded++;
+      }
+
+      result.details.push({
+        trackId: track.id,
+        title: track.title || 'Untitled',
+        tagsAdded,
+        tagsSkipped,
+      });
+
+      result.migrated += tagsAdded;
+      result.skipped += tagsSkipped;
+    }
+
+    console.log(`[Tags Migration] Prepared ${recordsToInsert.length} records to insert`);
+
+    // Step 5: Insert records (unless dry run)
+    if (!dryRun && recordsToInsert.length > 0) {
+      // Insert in batches of 100 to avoid timeouts
+      const batchSize = 100;
+      for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+        const batch = recordsToInsert.slice(i, i + batchSize);
+        const { error: insertError } = await supabase
+          .from("track_tags")
+          .insert(batch)
+          .select();
+
+        if (insertError) {
+          console.error(`[Tags Migration] Error inserting batch ${i / batchSize + 1}:`, insertError);
+          result.errors.push(`Batch ${i / batchSize + 1}: ${insertError.message}`);
+        } else {
+          console.log(`[Tags Migration] Inserted batch ${i / batchSize + 1} (${batch.length} records)`);
+        }
+      }
+    }
+
+    // Deduplicate notFound
+    result.notFound = [...new Set(result.notFound)];
+
+    console.log(`[Tags Migration] Complete: ${result.migrated} migrated, ${result.skipped} skipped, ${result.errors.length} errors`);
+
+    return jsonResponse({
+      ...result,
+      dryRun,
+      message: dryRun
+        ? `Dry run complete. Would migrate ${recordsToInsert.length} tag assignments.`
+        : `Migration complete. Migrated ${result.migrated} tag assignments.`,
+    });
+  } catch (error: any) {
+    console.error("[Tags Migration] Fatal error:", error);
+    return jsonResponse({
+      error: error.message || "Failed to migrate tags",
+      migrated: 0,
       skipped: 0,
       errors: [error.message || String(error)],
       details: [],
@@ -11079,11 +11267,34 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     console.log('🎙️ TTS generation requested:', { trackId, voice, forceRegenerate });
 
     // Get track content - include all possible content fields
-    const { data: track, error: trackError } = await supabase
+    // Note: We try to select TTS columns, but if they don't exist (migration not run),
+    // we'll catch the error and retry without them
+    let { data: track, error: trackError } = await supabase
       .from('tracks')
-      .select('transcript, content_text, description, title, type, tts_audio_url, tts_voice, tts_content_hash')
+      .select('transcript, content_text, description, title, type, organization_id, id, tts_audio_url, tts_voice, tts_content_hash')
       .eq('id', trackId)
       .single();
+    
+    // If query fails because TTS columns don't exist, retry without them
+    if (trackError && trackError.message?.includes('does not exist')) {
+      console.log('⚠️ TTS columns not found, retrying without them...');
+      const { data: trackWithoutTts, error: retryError } = await supabase
+        .from('tracks')
+        .select('transcript, content_text, description, title, type, organization_id, id')
+        .eq('id', trackId)
+        .single();
+      
+      if (!retryError && trackWithoutTts) {
+        track = trackWithoutTts;
+        trackError = null;
+        // Set TTS fields to undefined so caching logic knows they don't exist
+        track.tts_audio_url = undefined;
+        track.tts_voice = undefined;
+        track.tts_content_hash = undefined;
+      } else {
+        trackError = retryError;
+      }
+    }
 
     if (trackError || !track) {
       console.error('Track not found:', trackError);
@@ -11210,18 +11421,26 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     console.log('✅ Audio uploaded to storage:', audioUrl);
 
     // Store TTS info in the tracks table (including content hash)
+    // Try to update, but don't fail if columns don't exist (migration not run yet)
+    const updateData: any = {
+      tts_audio_url: audioUrl,
+      tts_voice: voice,
+      tts_content_hash: contentHash,
+      tts_generated_at: new Date().toISOString(),
+    };
+    
     const { error: updateError } = await supabase
       .from('tracks')
-      .update({
-        tts_audio_url: audioUrl,
-        tts_voice: voice,
-        tts_content_hash: contentHash,
-        tts_generated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', trackId);
 
     if (updateError) {
-      console.warn('Failed to update track with TTS info:', updateError);
+      // If error is about columns not existing, that's okay - migration hasn't run yet
+      if (updateError.message?.includes('does not exist')) {
+        console.warn('⚠️ TTS columns do not exist yet - please run migration add_tts_columns.sql');
+      } else {
+        console.warn('Failed to update track with TTS info:', updateError);
+      }
       // Don't fail - audio was generated successfully
     } else {
       console.log('✅ TTS info stored with content hash:', contentHash.substring(0, 8) + '...');
@@ -12326,6 +12545,7 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
 
         // Use AI tag analysis to assign meaningful tags (same as existing flow)
         let assignedTags: string[] = [];
+        let assignedTagIds: string[] = [];
         try {
           console.log('[generate-tracks] Running AI tag analysis for track:', track.id);
           const tagAnalysis = await performTagAnalysis({
@@ -12338,16 +12558,28 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           });
 
           // Auto-select tags with 85%+ confidence
-          assignedTags = tagAnalysis.recommendations
-            .filter(rec => rec.auto_select)
-            .map(rec => rec.tag_name);
+          const autoSelectedTags = tagAnalysis.recommendations.filter(rec => rec.auto_select);
+          assignedTags = autoSelectedTags.map(rec => rec.tag_name);
+          assignedTagIds = autoSelectedTags.map(rec => rec.tag_id).filter(Boolean);
 
-          // Update track with AI-assigned tags
-          if (assignedTags.length > 0) {
-            await supabase
-              .from("tracks")
-              .update({ tags: assignedTags })
-              .eq("id", track.id);
+          if (assignedTagIds.length > 0) {
+            // Write to track_tags junction table (source of truth)
+            const trackTagRecords = assignedTagIds.map(tagId => ({
+              track_id: track.id,
+              tag_id: tagId
+            }));
+
+            const { error: junctionError } = await supabase
+              .from("track_tags")
+              .insert(trackTagRecords);
+
+            if (junctionError) {
+              console.error('[generate-tracks] Failed to insert track_tags:', junctionError);
+            } else {
+              console.log('[generate-tracks] Wrote to track_tags junction:', assignedTagIds.length, 'tags');
+            }
+
+            // NOTE: Legacy tracks.tags column sync removed - track_tags junction is now source of truth
             console.log('[generate-tracks] Auto-assigned tags:', assignedTags);
           }
 
@@ -12499,6 +12731,7 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
 
     // Use AI tag analysis to assign meaningful tags (same as existing flow)
     let assignedTags: string[] = [];
+    let assignedTagIds: string[] = [];
     try {
       console.log('[generate-combined] Running AI tag analysis for track:', track.id);
       const tagAnalysis = await performTagAnalysis({
@@ -12511,16 +12744,28 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
       });
 
       // Auto-select tags with 85%+ confidence
-      assignedTags = tagAnalysis.recommendations
-        .filter(rec => rec.auto_select)
-        .map(rec => rec.tag_name);
+      const autoSelectedTags = tagAnalysis.recommendations.filter(rec => rec.auto_select);
+      assignedTags = autoSelectedTags.map(rec => rec.tag_name);
+      assignedTagIds = autoSelectedTags.map(rec => rec.tag_id).filter(Boolean);
 
-      // Update track with AI-assigned tags
-      if (assignedTags.length > 0) {
-        await supabase
-          .from("tracks")
-          .update({ tags: assignedTags })
-          .eq("id", track.id);
+      if (assignedTagIds.length > 0) {
+        // Write to track_tags junction table (source of truth)
+        const trackTagRecords = assignedTagIds.map(tagId => ({
+          track_id: track.id,
+          tag_id: tagId
+        }));
+
+        const { error: junctionError } = await supabase
+          .from("track_tags")
+          .insert(trackTagRecords);
+
+        if (junctionError) {
+          console.error('[generate-combined] Failed to insert track_tags:', junctionError);
+        } else {
+          console.log('[generate-combined] Wrote to track_tags junction:', assignedTagIds.length, 'tags');
+        }
+
+        // NOTE: Legacy tracks.tags column sync removed - track_tags junction is now source of truth
         console.log('[generate-combined] Auto-assigned tags:', assignedTags);
       }
 

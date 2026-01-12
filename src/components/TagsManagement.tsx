@@ -145,10 +145,16 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
   };
 
   const handleDeleteTag = async (tag: Tag) => {
-    if (!confirm(`Delete tag "${tag.name}"?`)) return;
-    
+    const isSystemTag = tag.is_system_locked;
+    const warningMessage = isSystemTag
+      ? `⚠️ WARNING: "${tag.name}" is a system-wide tag. Deleting it may affect all organizations. Are you sure?`
+      : `Delete tag "${tag.name}"?`;
+
+    if (!confirm(warningMessage)) return;
+
     try {
-      await deleteTag(tag.id);
+      // Pass bypass flag for Super Admin deleting system-locked tags
+      await deleteTag(tag.id, canEditSystemTags && isSystemTag);
       toast.success('Tag deleted');
       loadTags();
     } catch (error: any) {
@@ -173,6 +179,10 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
   const activeSystemData = getActiveSystemData();
   const categoryGroups = activeSystemData?.parents || [];
   const isSharedSystem = activeSystemData?.systemCategory.system_category === 'shared';
+
+  // Trike Super Admin can edit system-locked tags
+  const isTrikeSuperAdmin = currentRole === 'trike-super-admin';
+  const canEditSystemTags = isTrikeSuperAdmin;
 
   const toggleSubcategory = (id: string) => {
     setCollapsedSubcategories(prev => ({
@@ -287,7 +297,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                     <TagIcon className="h-4 w-4 text-muted-foreground" />
                     <CardTitle className="text-base">{parentTag.name}</CardTitle>
                   </div>
-                  {!parentTag.is_system_locked && (
+                  {(!parentTag.is_system_locked || canEditSystemTags) && (
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -328,7 +338,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                           } : {}}
                         >
                           <span className="text-sm">{tag.name}</span>
-                          {!tag.is_system_locked && (
+                          {(!tag.is_system_locked || canEditSystemTags) && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -378,7 +388,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                               <Plus className="h-4 w-4 mr-1" />
                               Add Tag
                             </Button>
-                            {!subcategory.is_system_locked && (
+                            {(!subcategory.is_system_locked || canEditSystemTags) && (
                               <>
                                 <Button
                                   variant="ghost"
@@ -417,7 +427,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                                     } : {}}
                                   >
                                     <span className="text-sm">{tag.name}</span>
-                                    {!tag.is_system_locked && (
+                                    {(!tag.is_system_locked || canEditSystemTags) && (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -489,6 +499,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
           preselectedParentId={preselectedParentId}
           defaultType={preselectedType}
           tagToEdit={selectedTag}
+          canEditSystemTags={canEditSystemTags}
         />
       )}
     </div>

@@ -9,6 +9,7 @@ import { compressImage } from '../utils/imageCompression';
 import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
 import { generateKeyFacts } from './facts';
 import { calculateTrackDuration } from '../utils/trackDuration';
+import { assignTrackTagsByName } from './tags';
 
 export interface CreateTrackInput {
   title: string;
@@ -37,6 +38,70 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
 
 // Default thumbnail URL (served from public folder)
 const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+
+/**
+ * Enrich tracks with tags from the track_tags junction table
+ * This is the source of truth for tags (replaces deprecated tracks.tags column)
+ */
+async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
+  if (!tracks || tracks.length === 0) return tracks;
+
+  const trackIds = tracks.map(t => t.id);
+
+  // Fetch all track-tag relationships for these tracks in one query
+  const { data: trackTagRelations, error: relError } = await supabase
+    .from('track_tags')
+    .select('track_id, tag_id')
+    .in('track_id', trackIds);
+
+  if (relError) {
+    console.error('[enrichTracksWithJunctionTags] Error fetching track_tags:', relError);
+    return tracks; // Return tracks as-is if junction table query fails
+  }
+
+  if (!trackTagRelations || trackTagRelations.length === 0) {
+    // No tags in junction table, return tracks with empty tags arrays
+    return tracks.map(t => ({ ...t, tags: [] }));
+  }
+
+  // Get unique tag IDs
+  const tagIds = [...new Set(trackTagRelations.map(r => r.tag_id))];
+
+  // Fetch tag details
+  const { data: tags, error: tagError } = await supabase
+    .from('tags')
+    .select('id, name')
+    .in('id', tagIds);
+
+  if (tagError) {
+    console.error('[enrichTracksWithJunctionTags] Error fetching tags:', tagError);
+    return tracks;
+  }
+
+  // Create a map of tag_id -> tag_name
+  const tagIdToName: Record<string, string> = {};
+  tags?.forEach(tag => {
+    tagIdToName[tag.id] = tag.name;
+  });
+
+  // Create a map of track_id -> tag_names[]
+  const trackIdToTagNames: Record<string, string[]> = {};
+  trackTagRelations.forEach(rel => {
+    if (!trackIdToTagNames[rel.track_id]) {
+      trackIdToTagNames[rel.track_id] = [];
+    }
+    const tagName = tagIdToName[rel.tag_id];
+    if (tagName) {
+      trackIdToTagNames[rel.track_id].push(tagName);
+    }
+  });
+
+  // Enrich tracks with their tags
+  return tracks.map(track => ({
+    ...track,
+    tags: trackIdToTagNames[track.id] || []
+  }));
+}
 
 /**
  * Automate story workflow: transcribe all videos → update story JSON → generate key facts
@@ -359,6 +424,7 @@ export async function createTrack(input: CreateTrackInput) {
     }
   }
 
+  // NOTE: tags are NOT included in the insert - they go to track_tags junction table only
   const { data: track, error } = await supabase
     .from('tracks')
     .insert({
@@ -373,7 +439,7 @@ export async function createTrack(input: CreateTrackInput) {
       summary: input.summary,
       status: input.status || 'draft',
       learning_objectives: input.learning_objectives || [],
-      tags: input.tags || [],
+      // tags column is deprecated - use track_tags junction table
       is_system_content: input.is_system_content || false,
       content_text: input.content_text,
       parent_track_id: input.parent_track_id,
@@ -385,6 +451,17 @@ export async function createTrack(input: CreateTrackInput) {
     .single();
 
   if (error) throw error;
+
+  // Sync tags to junction table (source of truth)
+  if (input.tags && input.tags.length > 0) {
+    try {
+      await assignTrackTagsByName(track.id, input.tags);
+      console.log(`🏷️ Synced ${input.tags.length} tags to track_tags junction table for new track ${track.id}`);
+    } catch (tagSyncError) {
+      console.error('Failed to sync tags to junction table (non-blocking):', tagSyncError);
+      // Non-blocking - don't fail the whole create if tag sync fails
+    }
+  }
 
   // Automate video workflow: transcribe → save transcript → generate key facts
   if (track.type === 'video' && track.content_url) {
@@ -486,10 +563,14 @@ export async function updateTrack(input: UpdateTrackInput) {
     }
   }
 
-  // Update the track
+  // Extract tags from updateData - we'll handle them separately via junction table
+  const tagsToSync = updateData.tags;
+  const { tags: _removedTags, ...updateDataWithoutTags } = updateData as any;
+
+  // Update the track (without tags - they go to junction table only)
   const { data: track, error } = await supabase
     .from('tracks')
-    .update(updateData)
+    .update(updateDataWithoutTags)
     .eq('id', id)
     .select()
     .single();
@@ -500,6 +581,17 @@ export async function updateTrack(input: UpdateTrackInput) {
       throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
     }
     throw error;
+  }
+
+  // Sync tags to junction table (source of truth) if tags were provided
+  if (tagsToSync !== undefined && Array.isArray(tagsToSync)) {
+    try {
+      await assignTrackTagsByName(id, tagsToSync);
+      console.log(`🏷️ Synced ${tagsToSync.length} tags to track_tags junction table for track ${id}`);
+    } catch (tagSyncError) {
+      console.error('Failed to sync tags to junction table (non-blocking):', tagSyncError);
+      // Non-blocking - don't fail the whole update if tag sync fails
+    }
   }
 
   // Auto-regenerate facts if content changed
@@ -703,7 +795,10 @@ export async function getTrackById(trackId: string) {
     .single();
 
   if (error) throw error;
-  return data;
+
+  // Enrich with tags from junction table
+  const enrichedTracks = await enrichTracksWithJunctionTags([data]);
+  return enrichedTracks[0];
 }
 
 /**
@@ -724,7 +819,7 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
   
   // This is an old version - find the latest version
   const parentId = track.parent_track_id || trackId;
-  
+
   // Get the latest version of this track family
   const { data: latestTrack, error } = await supabase
     .from('tracks')
@@ -732,13 +827,15 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
     .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
     .eq('is_latest_version', true)
     .single();
-  
+
   if (error || !latestTrack) {
     // Fallback: if we can't find the latest, return the requested track
     return { track, isLatest: false, latestTrackId: trackId };
   }
-  
-  return { track: latestTrack, isLatest: false, latestTrackId: latestTrack.id };
+
+  // Enrich the latest track with tags from junction table
+  const enrichedTracks = await enrichTracksWithJunctionTags([latestTrack]);
+  return { track: enrichedTracks[0], isLatest: false, latestTrackId: latestTrack.id };
 }
 
 /**
@@ -768,16 +865,28 @@ export async function getTracks(filters: {
     query = query.eq('type', filters.type);
   }
 
-  // Handle tag filtering at database level if tags are provided
+  // Handle tag filtering via junction table (source of truth)
   if (filters.tags && filters.tags.length > 0) {
-    // Filter tracks by tags array column (array contains)
-    const { data: matchingTracks } = await supabase
-      .from('tracks')
+    // First, get tag IDs for the requested tag names
+    const { data: matchingTagRecords } = await supabase
+      .from('tags')
       .select('id')
-      .eq('organization_id', orgId)
-      .contains('tags', filters.tags);
+      .in('name', filters.tags);
 
-    const matchingTrackIds = matchingTracks?.map(t => t.id) || [];
+    const tagIds = matchingTagRecords?.map(t => t.id) || [];
+
+    if (tagIds.length === 0) {
+      // No tags found with these names, return empty result
+      return [];
+    }
+
+    // Get track IDs that have any of these tags
+    const { data: trackTagRelations } = await supabase
+      .from('track_tags')
+      .select('track_id')
+      .in('tag_id', tagIds);
+
+    const matchingTrackIds = [...new Set(trackTagRelations?.map(r => r.track_id) || [])];
 
     if (matchingTrackIds.length > 0) {
       query = query.in('id', matchingTrackIds);
@@ -806,18 +915,26 @@ export async function getTracks(filters: {
         .eq('status', 'published')
         .eq('show_in_knowledge_base', true);
 
-      // Get tracks with tags array containing the system tag
-      const { data: kbTagTracks } = await supabase
-        .from('tracks')
+      // Get tracks with system:show_in_knowledge_base tag via junction table
+      const { data: kbTagRecord } = await supabase
+        .from('tags')
         .select('id')
-        .eq('organization_id', orgId)
-        .eq('status', 'published')
-        .contains('tags', ['system:show_in_knowledge_base']);
+        .eq('name', 'system:show_in_knowledge_base')
+        .single();
+
+      let kbTagTrackIds: string[] = [];
+      if (kbTagRecord) {
+        const { data: kbTagRelations } = await supabase
+          .from('track_tags')
+          .select('track_id')
+          .eq('tag_id', kbTagRecord.id);
+        kbTagTrackIds = kbTagRelations?.map(r => r.track_id) || [];
+      }
 
       // Combine all track IDs
       const allKbTrackIds = [
         ...(kbBooleanTracks?.map(t => t.id) || []),
-        ...(kbTagTracks?.map(t => t.id) || [])
+        ...kbTagTrackIds
       ];
 
       const uniqueKbTrackIds = [...new Set(allKbTrackIds)];
@@ -854,7 +971,7 @@ export async function getTracks(filters: {
     // If error is about missing column, just log it and continue
     if (error.code === '42703') {
       // Removed console.warn and console.log per code quality standards
-      
+
       // Retry query without the problematic filter
       const simpleQuery = supabase
         .from('tracks')
@@ -881,8 +998,11 @@ export async function getTracks(filters: {
 
       if (retryError) throw retryError;
 
+      // Enrich with tags from junction table
+      const tracksWithJunctionTags = await enrichTracksWithJunctionTags(retryData || []);
+
       // Apply client-side filtering for tags and in-kb if needed (fallback)
-      let filteredData = retryData || [];
+      let filteredData = tracksWithJunctionTags;
 
       if (filters.tags && filters.tags.length > 0) {
         filteredData = filteredData.filter(track => {
@@ -903,7 +1023,8 @@ export async function getTracks(filters: {
     throw error;
   }
 
-  return data || [];
+  // Enrich tracks with tags from junction table (source of truth)
+  return enrichTracksWithJunctionTags(data || []);
 }
 
 /**

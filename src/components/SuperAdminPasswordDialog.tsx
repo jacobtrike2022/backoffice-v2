@@ -13,26 +13,28 @@ import { Label } from './ui/label';
 import { Shield } from 'lucide-react';
 
 interface SuperAdminPasswordDialogProps {
-  isOpen: boolean;
-  onSubmit: (password: string) => void;
-  onCancel: () => void;
+  onClose: () => void;
+  onAuthenticate: (success: boolean) => void;
 }
 
+// Super admin password - in production this should be in environment variables
+const SUPER_ADMIN_PASSWORD = 'simple2';
+
 export function SuperAdminPasswordDialog({
-  isOpen,
-  onSubmit,
-  onCancel
+  onClose,
+  onAuthenticate
 }: SuperAdminPasswordDialogProps) {
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(password);
+    const isValid = password === SUPER_ADMIN_PASSWORD;
+    onAuthenticate(isValid);
     setPassword(''); // Clear password after submission
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-2">
@@ -58,7 +60,7 @@ export function SuperAdminPasswordDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit">

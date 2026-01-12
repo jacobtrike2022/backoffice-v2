@@ -28,6 +28,7 @@ import { getSupabaseClient } from '../../utils/supabase/client';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import * as storesCrud from '../../lib/crud/stores';
 import * as crud from '../../lib/crud';
+import * as tagsCrud from '../../lib/crud/tags';
 import { VariantGenerationChat } from './VariantGenerationChat';
 import { StateVariantWizard } from '../state-variant/StateVariantWizard';
 
@@ -331,6 +332,16 @@ export function CreateVariantModal({
         throw new Error('Failed to create variant track');
       }
 
+      // Sync tags to junction table (source of truth)
+      if (sourceTrackData.tags && sourceTrackData.tags.length > 0) {
+        try {
+          await tagsCrud.assignTrackTagsByName(newTrack.id, sourceTrackData.tags, false);
+          console.log(`🏷️ Synced ${sourceTrackData.tags.length} tags to track_tags junction for variant`);
+        } catch (tagError) {
+          console.warn('Failed to sync tags to junction table:', tagError);
+        }
+      }
+
       // 3. Create relationships
       await trackRelCrud.createVariantRelationship(
         selectedTrack.id,
@@ -344,8 +355,6 @@ export function CreateVariantModal({
         newTrack.id,
         'source'
       );
-
-      // Tags are already copied via the tags array in newTrackData
 
       toast.success('AI-Generated variant created successfully!');
       onVariantCreated(newTrack.id);
