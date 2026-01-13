@@ -805,8 +805,8 @@ export function PublicKBViewer() {
             <div className="px-6 sm:px-8 pt-4">
               <TTSPlayer
                 trackId={track.id}
-                initialAudioUrl={undefined}
-                initialVoice={undefined}
+                initialAudioUrl={(track as any).tts_audio_url || undefined}
+                initialVoice={(track as any).tts_voice || 'alloy'}
                 showVoiceSelector={false}
               />
             </div>

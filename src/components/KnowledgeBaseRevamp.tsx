@@ -2816,10 +2816,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
                   {/* TTS Player for Articles */}
                   {selectedTrack.type === 'article' && (
-                    <TTSPlayer 
+                    <TTSPlayer
                       trackId={selectedTrack.id}
-                      initialAudioUrl={undefined}
-                      initialVoice="alloy"
+                      initialAudioUrl={(selectedTrack as any).tts_audio_url || undefined}
+                      initialVoice={(selectedTrack as any).tts_voice || 'alloy'}
                       showVoiceSelector={false}
                     />
                   )}
