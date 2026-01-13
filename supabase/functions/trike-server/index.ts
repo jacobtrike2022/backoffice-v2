@@ -749,6 +749,37 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // EXTRACTED ENTITIES - Detected JDs and other extractable content
+    // =========================================================================
+
+    // Get extracted entities for a source file
+    if (method === "GET" && path.startsWith("/extracted-entities/")) {
+      const sourceFileId = path.replace("/extracted-entities/", "");
+      return await handleGetExtractedEntities(req, sourceFileId);
+    }
+
+    // Get a single extracted entity with full details
+    if (method === "GET" && path.startsWith("/extracted-entity/")) {
+      const entityId = path.replace("/extracted-entity/", "");
+      return await handleGetExtractedEntity(req, entityId);
+    }
+
+    // Process an extracted entity (extract JD data, skip, reclassify)
+    if (method === "POST" && path === "/process-extracted-entity") {
+      return await handleProcessExtractedEntity(req);
+    }
+
+    // Re-classify chunks (run content classification again)
+    if (method === "POST" && path === "/classify-chunks") {
+      return await handleClassifyChunks(req);
+    }
+
+    // Extract job description data from a source file (direct extraction for JD upload flow)
+    if (method === "POST" && path === "/extract-job-description") {
+      return await handleExtractJobDescription(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -835,7 +866,12 @@ Deno.serve(async (req: Request) => {
         "DELETE /chunks/:source_file_id",
         "POST /generate-tracks-from-chunks",
         "POST /generate-combined-track",
-        "POST /preview-track-generation"
+        "POST /preview-track-generation",
+        "GET /extracted-entities/:source_file_id",
+        "GET /extracted-entity/:entity_id",
+        "POST /process-extracted-entity",
+        "POST /classify-chunks",
+        "POST /extract-job-description"
       ]
     }, 404);
 
@@ -1315,6 +1351,170 @@ interface ChunkResult {
   summary: string;
 }
 
+// =============================================================================
+// CONTENT CLASSIFICATION - Detect content types (JD, policy, etc.)
+// =============================================================================
+
+interface ContentClassification {
+  content_class: 'policy' | 'job_description' | 'form' | 'table' | 'other';
+  confidence: number;
+  is_extractable: boolean;
+  extraction_hints?: Record<string, any>;
+}
+
+// Job description detection patterns
+const JD_PATTERNS = [
+  /job\s+title\s*:/i,
+  /position\s+title\s*:/i,
+  /reports\s+to\s*:/i,
+  /essential\s+(duties|functions)/i,
+  /qualifications?\s*:/i,
+  /responsibilities\s*:/i,
+  /position\s+summary/i,
+  /job\s+summary/i,
+  /required\s+skills/i,
+  /minimum\s+requirements/i,
+  /education\s+requirements?/i,
+  /experience\s+requirements?/i,
+  /flsa\s+status/i,
+  /exempt\s+status/i,
+  /salary\s+(range|grade)/i,
+  /department\s*:/i,
+  /work\s+schedule/i,
+  /physical\s+requirements/i,
+  /working\s+conditions/i,
+  /supervisory\s+responsibilities/i
+];
+
+/**
+ * Classify chunk content to detect JDs and other extractable entities
+ */
+function classifyChunkContent(content: string): ContentClassification {
+  const lowerContent = content.toLowerCase();
+
+  // Count JD pattern matches
+  const jdMatchCount = JD_PATTERNS.filter(pattern => pattern.test(content)).length;
+
+  // Strong JD indicators (if multiple patterns match)
+  if (jdMatchCount >= 4) {
+    // Extract potential role name from first line or "Job Title:" pattern
+    let roleName: string | null = null;
+    const titleMatch = content.match(/(?:job\s+title|position\s+title|position)\s*:\s*([^\n]+)/i);
+    if (titleMatch) {
+      roleName = titleMatch[1].trim();
+    }
+
+    return {
+      content_class: 'job_description',
+      confidence: Math.min(0.95, 0.70 + (jdMatchCount * 0.05)),
+      is_extractable: true,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: jdMatchCount,
+        potential_role_name: roleName
+      }
+    };
+  }
+
+  // Moderate JD indicators (2-3 patterns)
+  if (jdMatchCount >= 2) {
+    return {
+      content_class: 'job_description',
+      confidence: 0.50 + (jdMatchCount * 0.10),
+      is_extractable: jdMatchCount >= 3,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: jdMatchCount,
+        needs_ai_verification: true
+      }
+    };
+  }
+
+  // Check for form patterns
+  if (/_{5,}|:\s*_{3,}|\[\s*\]/.test(content)) {
+    return {
+      content_class: 'form',
+      confidence: 0.80,
+      is_extractable: false
+    };
+  }
+
+  // Default to policy
+  return {
+    content_class: 'policy',
+    confidence: 0.70,
+    is_extractable: false
+  };
+}
+
+/**
+ * AI-enhanced content classification for borderline cases
+ */
+async function classifyChunkContentWithAI(content: string): Promise<ContentClassification> {
+  // First try pattern matching
+  const patternResult = classifyChunkContent(content);
+
+  // If high confidence or clearly not a JD, return pattern result
+  if (patternResult.confidence > 0.80 || patternResult.content_class !== 'job_description') {
+    return patternResult;
+  }
+
+  // For borderline cases, use AI verification
+  if (!OPENAI_API_KEY) {
+    return patternResult;
+  }
+
+  try {
+    const prompt = `Analyze this text and determine if it's a Job Description (JD) or general policy/procedure content.
+
+Job Description indicators:
+- Describes a specific role/position
+- Lists responsibilities, duties, or qualifications
+- Mentions reporting relationships
+- Contains requirements for the role
+
+Policy/Procedure indicators:
+- Describes company rules or guidelines
+- Applies to all employees or departments
+- Contains compliance or regulatory information
+- Describes processes or workflows
+
+Text to analyze:
+${content.slice(0, 2000)}
+
+Respond with JSON: {"is_job_description": boolean, "confidence": 0.0-1.0, "role_name": string|null, "reasoning": string}`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.2, response_format: { type: "json_object" } }
+    );
+
+    const parsed = JSON.parse(response);
+
+    if (parsed.is_job_description) {
+      return {
+        content_class: 'job_description',
+        confidence: parsed.confidence || 0.80,
+        is_extractable: parsed.confidence > 0.70,
+        extraction_hints: {
+          detected_via: 'ai_classification',
+          potential_role_name: parsed.role_name,
+          reasoning: parsed.reasoning
+        }
+      };
+    }
+
+    return {
+      content_class: 'policy',
+      confidence: parsed.confidence || 0.70,
+      is_extractable: false
+    };
+  } catch (error) {
+    console.error('[classifyChunkContentWithAI] AI classification failed:', error);
+    return patternResult;
+  }
+}
+
 /**
  * Intelligently chunk a document using AI
  */
@@ -1380,29 +1580,54 @@ async function handleChunkSource(req: Request): Promise<Response> {
 
     console.log('[chunk-source] Generated', chunks.length, 'chunks');
 
-    // Insert chunks into database
-    const chunkRecords = chunks.map((chunk, index) => ({
-      source_file_id: source_file_id,
-      organization_id: sourceFile.organization_id,
-      chunk_index: index,
-      content: chunk.content,
-      title: chunk.title,
-      summary: chunk.summary,
-      word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
-      char_count: chunk.content.length,
-      estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60), // 200 WPM
-      chunk_type: chunk.chunk_type,
-      hierarchy_level: chunk.hierarchy_level,
-      key_terms: chunk.key_terms,
-      metadata: {
-        chunked_at: new Date().toISOString(),
-        source_type: sourceFile.source_type
-      }
-    }));
+    // Classify content for each chunk
+    console.log('[chunk-source] Classifying chunk content...');
+    const classifyContent = options.classify !== false; // Default to true
+    const classifications: ContentClassification[] = [];
 
-    const { error: insertError } = await supabase
+    if (classifyContent) {
+      for (const chunk of chunks) {
+        const classification = classifyChunkContent(chunk.content);
+        classifications.push(classification);
+      }
+      console.log('[chunk-source] Classifications complete. JDs detected:',
+        classifications.filter(c => c.content_class === 'job_description').length);
+    }
+
+    // Insert chunks into database with classification data
+    const chunkRecords = chunks.map((chunk, index) => {
+      const classification = classifications[index] || { content_class: 'policy', confidence: 0.5, is_extractable: false };
+      return {
+        source_file_id: source_file_id,
+        organization_id: sourceFile.organization_id,
+        chunk_index: index,
+        content: chunk.content,
+        title: chunk.title,
+        summary: chunk.summary,
+        word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+        char_count: chunk.content.length,
+        estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60), // 200 WPM
+        chunk_type: chunk.chunk_type,
+        hierarchy_level: chunk.hierarchy_level,
+        key_terms: chunk.key_terms,
+        // New classification fields
+        content_class: classification.content_class,
+        content_class_confidence: classification.confidence,
+        content_class_detected_at: classifyContent ? new Date().toISOString() : null,
+        is_extractable: classification.is_extractable,
+        extraction_status: 'pending',
+        metadata: {
+          chunked_at: new Date().toISOString(),
+          source_type: sourceFile.source_type,
+          classification_hints: classification.extraction_hints
+        }
+      };
+    });
+
+    const { data: insertedChunks, error: insertError } = await supabase
       .from("source_chunks")
-      .insert(chunkRecords);
+      .insert(chunkRecords)
+      .select("id, chunk_index, content_class, is_extractable");
 
     if (insertError) {
       console.error('[chunk-source] Failed to insert chunks:', insertError);
@@ -1411,6 +1636,46 @@ async function handleChunkSource(req: Request): Promise<Response> {
         error: `Failed to save chunks: ${insertError.message}`,
         code: "INSERT_FAILED"
       }, 500);
+    }
+
+    // Create extracted_entities for extractable chunks (JDs)
+    const extractableChunks = insertedChunks?.filter(c => c.is_extractable) || [];
+    const extractedEntities: any[] = [];
+
+    if (extractableChunks.length > 0) {
+      console.log('[chunk-source] Creating', extractableChunks.length, 'extracted entities...');
+
+      for (const chunk of extractableChunks) {
+        const classification = classifications[chunk.chunk_index];
+        const { data: entity, error: entityError } = await supabase
+          .from("extracted_entities")
+          .insert({
+            organization_id: sourceFile.organization_id,
+            source_file_id: source_file_id,
+            source_chunk_id: chunk.id,
+            entity_type: chunk.content_class,
+            entity_status: 'pending',
+            extracted_data: classification?.extraction_hints || {},
+            extraction_confidence: classification?.confidence || 0.7,
+            extraction_method: classification?.extraction_hints?.detected_via === 'ai_classification' ? 'ai' : 'pattern'
+          })
+          .select()
+          .single();
+
+        if (!entityError && entity) {
+          extractedEntities.push(entity);
+        }
+      }
+
+      // Update source file with entity counts
+      await supabase
+        .from("source_files")
+        .update({
+          detected_entity_count: extractedEntities.length,
+          pending_entity_count: extractedEntities.length,
+          has_job_descriptions: extractedEntities.some(e => e.entity_type === 'job_description')
+        })
+        .eq("id", source_file_id);
     }
 
     // Update source file status
@@ -1436,8 +1701,22 @@ async function handleChunkSource(req: Request): Promise<Response> {
         title: c.title,
         word_count: c.word_count,
         chunk_type: c.chunk_type,
-        hierarchy_level: c.hierarchy_level
-      }))
+        hierarchy_level: c.hierarchy_level,
+        content_class: c.content_class,
+        is_extractable: c.is_extractable
+      })),
+      // New: Include extracted entities info
+      extracted_entities: {
+        total: extractedEntities.length,
+        job_descriptions: extractedEntities.filter(e => e.entity_type === 'job_description').length,
+        entities: extractedEntities.map(e => ({
+          id: e.id,
+          entity_type: e.entity_type,
+          entity_status: e.entity_status,
+          confidence: e.extraction_confidence,
+          potential_role_name: e.extracted_data?.potential_role_name
+        }))
+      }
     });
 
   } catch (error: any) {
@@ -1789,6 +2068,591 @@ async function handleDeleteChunks(req: Request, sourceFileId: string): Promise<R
     console.error('[delete-chunks] Unexpected error:', error);
     return jsonResponse({ error: error.message }, 500);
   }
+}
+
+// =============================================================================
+// EXTRACTED ENTITIES HANDLERS - JD Detection and Processing
+// =============================================================================
+
+/**
+ * Get all extracted entities for a source file
+ */
+async function handleGetExtractedEntities(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { data: entities, error } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, chunk_index, title, content, word_count)
+      `)
+      .eq("source_file_id", sourceFileId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error('[get-extracted-entities] Error:', error);
+      return jsonResponse({ error: "Failed to fetch extracted entities" }, 500);
+    }
+
+    // Group by status
+    const pending = entities?.filter(e => e.entity_status === 'pending') || [];
+    const completed = entities?.filter(e => e.entity_status === 'completed') || [];
+    const skipped = entities?.filter(e => e.entity_status === 'skipped') || [];
+
+    return jsonResponse({
+      success: true,
+      source_file_id: sourceFileId,
+      total: entities?.length || 0,
+      summary: {
+        pending: pending.length,
+        completed: completed.length,
+        skipped: skipped.length,
+        job_descriptions: entities?.filter(e => e.entity_type === 'job_description').length || 0
+      },
+      entities: entities || []
+    });
+  } catch (error: any) {
+    console.error('[get-extracted-entities] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Get a single extracted entity with full details and lineage
+ */
+async function handleGetExtractedEntity(req: Request, entityId: string): Promise<Response> {
+  try {
+    const { data: entity, error } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, chunk_index, title, content, summary, word_count, key_terms),
+        source_file:source_files(id, file_name, source_type, file_url)
+      `)
+      .eq("id", entityId)
+      .single();
+
+    if (error || !entity) {
+      console.error('[get-extracted-entity] Error:', error);
+      return jsonResponse({ error: "Extracted entity not found" }, 404);
+    }
+
+    // If linked to a role, fetch role details
+    let linkedRole = null;
+    if (entity.linked_entity_type === 'roles' && entity.linked_entity_id) {
+      const { data: role } = await supabase
+        .from("roles")
+        .select("id, name, department, job_family, onet_code")
+        .eq("id", entity.linked_entity_id)
+        .single();
+      linkedRole = role;
+    }
+
+    return jsonResponse({
+      success: true,
+      entity: {
+        ...entity,
+        linked_role: linkedRole
+      }
+    });
+  } catch (error: any) {
+    console.error('[get-extracted-entity] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Process an extracted entity (extract JD data, skip, or reclassify)
+ */
+async function handleProcessExtractedEntity(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { entity_id, action, options = {} } = body;
+
+    if (!entity_id || !action) {
+      return jsonResponse({
+        success: false,
+        error: "Missing entity_id or action",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the entity with its chunk content
+    const { data: entity, error: fetchError } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, content, title)
+      `)
+      .eq("id", entity_id)
+      .single();
+
+    if (fetchError || !entity) {
+      return jsonResponse({
+        success: false,
+        error: "Extracted entity not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    // Mark as processing
+    await supabase
+      .from("extracted_entities")
+      .update({ entity_status: 'processing' })
+      .eq("id", entity_id);
+
+    switch (action) {
+      case 'extract_jd': {
+        // Extract full JD data from the chunk content using AI
+        const chunkContent = entity.source_chunk?.content;
+        if (!chunkContent) {
+          return jsonResponse({
+            success: false,
+            error: "No chunk content available",
+            code: "NO_CONTENT"
+          }, 400);
+        }
+
+        // Call the JD extraction AI
+        const extractedData = await extractJobDescriptionData(chunkContent);
+
+        // Search for O*NET matches
+        let onetSuggestions: any[] = [];
+        if (extractedData.onet_search_keywords?.length > 0) {
+          const searchTerm = extractedData.onet_search_keywords.join(' ');
+          const { data: matches } = await supabase.rpc('search_onet_occupations', {
+            search_term: searchTerm,
+            match_limit: 5
+          });
+          onetSuggestions = matches || [];
+        }
+
+        // Update entity with extracted data
+        await supabase
+          .from("extracted_entities")
+          .update({
+            extracted_data: extractedData,
+            onet_suggestions: onetSuggestions,
+            entity_status: 'pending', // Still pending until role is created/linked
+            extraction_method: 'ai'
+          })
+          .eq("id", entity_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'extracted',
+          entity_id,
+          extracted_data: extractedData,
+          onet_suggestions: onetSuggestions
+        });
+      }
+
+      case 'skip': {
+        await supabase
+          .from("extracted_entities")
+          .update({
+            entity_status: 'skipped',
+            processing_notes: options.reason || 'User skipped'
+          })
+          .eq("id", entity_id);
+
+        // Update source chunk
+        await supabase
+          .from("source_chunks")
+          .update({ extraction_status: 'skipped' })
+          .eq("id", entity.source_chunk_id);
+
+        // Update source file counts
+        await updateSourceFileEntityCounts(entity.source_file_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'skipped',
+          entity_id
+        });
+      }
+
+      case 'reclassify': {
+        // User says this is not a JD, reclassify as policy
+        await supabase
+          .from("extracted_entities")
+          .update({
+            entity_status: 'skipped',
+            processing_notes: 'Reclassified by user as non-JD'
+          })
+          .eq("id", entity_id);
+
+        // Update the chunk classification
+        await supabase
+          .from("source_chunks")
+          .update({
+            content_class: 'policy',
+            is_extractable: false,
+            extraction_status: 'skipped'
+          })
+          .eq("id", entity.source_chunk_id);
+
+        // Update source file counts
+        await updateSourceFileEntityCounts(entity.source_file_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'reclassified',
+          entity_id
+        });
+      }
+
+      default:
+        // Reset to pending on unknown action
+        await supabase
+          .from("extracted_entities")
+          .update({ entity_status: 'pending' })
+          .eq("id", entity_id);
+
+        return jsonResponse({
+          success: false,
+          error: `Unknown action: ${action}`,
+          code: "UNKNOWN_ACTION"
+        }, 400);
+    }
+  } catch (error: any) {
+    console.error('[process-extracted-entity] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Processing failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Re-classify chunks for a source file (run content classification again)
+ */
+async function handleClassifyChunks(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_file_id, reclassify = false, use_ai = false } = body;
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks for this source file
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("id, chunk_index, content, content_class, content_class_detected_at")
+      .eq("source_file_id", source_file_id)
+      .order("chunk_index");
+
+    if (fetchError) {
+      return jsonResponse({
+        success: false,
+        error: "Failed to fetch chunks",
+        code: "FETCH_FAILED"
+      }, 500);
+    }
+
+    if (!chunks || chunks.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "No chunks found for this source file",
+        code: "NO_CHUNKS"
+      }, 404);
+    }
+
+    // Get source file info
+    const { data: sourceFile } = await supabase
+      .from("source_files")
+      .select("organization_id")
+      .eq("id", source_file_id)
+      .single();
+
+    const classifications: any[] = [];
+    const newEntities: any[] = [];
+
+    for (const chunk of chunks) {
+      // Skip if already classified and not reclassifying
+      if (!reclassify && chunk.content_class_detected_at) {
+        classifications.push({
+          chunk_id: chunk.id,
+          chunk_index: chunk.chunk_index,
+          content_class: chunk.content_class,
+          skipped: true
+        });
+        continue;
+      }
+
+      // Classify the chunk
+      const classification = use_ai
+        ? await classifyChunkContentWithAI(chunk.content)
+        : classifyChunkContent(chunk.content);
+
+      // Update chunk with classification
+      await supabase
+        .from("source_chunks")
+        .update({
+          content_class: classification.content_class,
+          content_class_confidence: classification.confidence,
+          content_class_detected_at: new Date().toISOString(),
+          is_extractable: classification.is_extractable,
+          extraction_status: 'pending'
+        })
+        .eq("id", chunk.id);
+
+      classifications.push({
+        chunk_id: chunk.id,
+        chunk_index: chunk.chunk_index,
+        ...classification
+      });
+
+      // Create extracted_entity for extractable content
+      if (classification.is_extractable && classification.confidence > 0.70 && sourceFile) {
+        // Check if entity already exists for this chunk
+        const { data: existingEntity } = await supabase
+          .from("extracted_entities")
+          .select("id")
+          .eq("source_chunk_id", chunk.id)
+          .single();
+
+        if (!existingEntity) {
+          const { data: newEntity } = await supabase
+            .from("extracted_entities")
+            .insert({
+              organization_id: sourceFile.organization_id,
+              source_file_id: source_file_id,
+              source_chunk_id: chunk.id,
+              entity_type: classification.content_class,
+              entity_status: 'pending',
+              extracted_data: classification.extraction_hints || {},
+              extraction_confidence: classification.confidence,
+              extraction_method: classification.extraction_hints?.detected_via === 'ai_classification' ? 'ai' : 'pattern'
+            })
+            .select()
+            .single();
+
+          if (newEntity) {
+            newEntities.push(newEntity);
+          }
+        }
+      }
+    }
+
+    // Update source file entity counts
+    await updateSourceFileEntityCounts(source_file_id);
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      total_chunks: chunks.length,
+      classifications,
+      summary: {
+        job_descriptions: classifications.filter(c => c.content_class === 'job_description').length,
+        policy: classifications.filter(c => c.content_class === 'policy').length,
+        extractable: classifications.filter(c => c.is_extractable).length,
+        new_entities_created: newEntities.length
+      },
+      new_entities: newEntities
+    });
+  } catch (error: any) {
+    console.error('[classify-chunks] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Classification failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data directly from a source file
+ * Used for the direct JD upload flow (Role Detail Page, Role Modal)
+ */
+async function handleExtractJobDescription(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_file_id } = body;
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    console.log('[extract-job-description] Processing source_file_id:', source_file_id);
+
+    // Fetch the source file to get extracted text
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, file_name, extracted_text, source_type")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[extract-job-description] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    if (!sourceFile.extracted_text) {
+      return jsonResponse({
+        success: false,
+        error: "No extracted text available. Please run text extraction first.",
+        code: "NO_EXTRACTED_TEXT"
+      }, 400);
+    }
+
+    console.log('[extract-job-description] Found source file with text length:', sourceFile.extracted_text.length);
+
+    // Extract JD data using AI
+    const extractedData = await extractJobDescriptionData(sourceFile.extracted_text);
+
+    // Search for O*NET matches if we have keywords
+    let onetSuggestions: any[] = [];
+    if (extractedData.onet_search_keywords?.length > 0) {
+      const searchTerm = extractedData.onet_search_keywords.join(' ');
+      console.log('[extract-job-description] Searching O*NET with:', searchTerm);
+
+      const { data: matches } = await supabase.rpc('search_onet_occupations', {
+        search_term: searchTerm,
+        match_limit: 5
+      });
+      onetSuggestions = matches || [];
+    }
+
+    // Update source file to mark as JD processed
+    await supabase
+      .from("source_files")
+      .update({
+        source_type: 'job_description',
+        jd_processed: true,
+        jd_processed_at: new Date().toISOString()
+      })
+      .eq("id", source_file_id);
+
+    console.log('[extract-job-description] Extraction complete');
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      extracted_data: extractedData,
+      onet_suggestions: onetSuggestions
+    });
+  } catch (error: any) {
+    console.error('[extract-job-description] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Extraction failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data using AI
+ */
+async function extractJobDescriptionData(content: string): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    // Return basic extraction without AI
+    return {
+      role_name: extractRoleNameFromContent(content),
+      job_description: content,
+      skills: [],
+      knowledge: [],
+      responsibilities: [],
+      onet_search_keywords: []
+    };
+  }
+
+  const prompt = `Extract structured job description data from this text.
+
+Return a JSON object with these fields:
+- role_name: The job title/position name (required)
+- department: Department or division (if mentioned)
+- job_family: Job family or category (if mentioned)
+- is_manager: Boolean - true if this is a supervisory/management role
+- is_frontline: Boolean - true if this is a customer-facing or operational role
+- permission_level: 1-5 scale (1=Frontline, 2=Lead, 3=Manager, 4=Director/Regional, 5=Executive)
+- responsibilities: Array of key responsibilities/duties
+- skills: Array of required skills
+- knowledge: Array of required knowledge areas
+- onet_search_keywords: 3-5 keywords for O*NET occupation matching
+- job_description: The full job description text (cleaned)
+
+Text to analyze:
+${content.slice(0, 4000)}
+
+Return only valid JSON.`;
+
+  try {
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.2, response_format: { type: "json_object" } }
+    );
+
+    return JSON.parse(response);
+  } catch (error) {
+    console.error('[extractJobDescriptionData] AI extraction failed:', error);
+    return {
+      role_name: extractRoleNameFromContent(content),
+      job_description: content,
+      skills: [],
+      knowledge: [],
+      responsibilities: [],
+      onet_search_keywords: []
+    };
+  }
+}
+
+/**
+ * Extract role name from content using patterns
+ */
+function extractRoleNameFromContent(content: string): string | null {
+  const patterns = [
+    /(?:job\s+title|position\s+title|position|role)\s*:\s*([^\n]+)/i,
+    /^([A-Z][A-Za-z\s]+(?:Manager|Director|Specialist|Coordinator|Analyst|Associate|Representative|Clerk|Supervisor|Lead|Engineer|Developer|Administrator))/m
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Update source file entity counts after entity changes
+ */
+async function updateSourceFileEntityCounts(sourceFileId: string): Promise<void> {
+  const { data: entities } = await supabase
+    .from("extracted_entities")
+    .select("entity_type, entity_status")
+    .eq("source_file_id", sourceFileId);
+
+  if (!entities) return;
+
+  const total = entities.length;
+  const pending = entities.filter(e => e.entity_status === 'pending').length;
+  const hasJDs = entities.some(e => e.entity_type === 'job_description');
+
+  await supabase
+    .from("source_files")
+    .update({
+      detected_entity_count: total,
+      pending_entity_count: pending,
+      has_job_descriptions: hasJDs
+    })
+    .eq("id", sourceFileId);
 }
 
 // =============================================================================

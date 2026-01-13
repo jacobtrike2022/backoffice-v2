@@ -42,7 +42,11 @@ export interface Role {
   created_at: string;
   updated_at: string;
   created_by?: string | null;
-  
+
+  // Source Lineage
+  source_entity_id?: string | null;
+  source_file_id?: string | null;
+
   // Computed fields (from joins)
   user_count?: number;
 }
@@ -115,12 +119,15 @@ export interface CreateRoleInput {
   is_frontline?: boolean;
   permission_level?: number;
   job_description?: string;
-  job_description_source?: 'manual' | 'hris' | 'uploaded';
+  job_description_source?: 'manual' | 'hris' | 'uploaded' | 'extracted';
   reports_to_role_id?: string | null;
+  onet_soc_code?: string;
 }
 
 export interface UpdateRoleInput extends Partial<CreateRoleInput> {
   id: string;
   status?: 'active' | 'inactive' | 'archived' | 'pending_review';
+  source_file_id?: string;
+  source_entity_id?: string;
 }
 

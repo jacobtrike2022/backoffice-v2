@@ -71,12 +71,13 @@ interface SourceFile {
   chunk_count?: number;
 }
 
-type SourceType = 'handbook' | 'policy' | 'procedures' | 'communications' | 'training_docs' | 'other';
+type SourceType = 'handbook' | 'policy' | 'procedures' | 'job_description' | 'communications' | 'training_docs' | 'other';
 
 const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string }[] = [
   { value: 'handbook', label: 'Handbook' },
   { value: 'policy', label: 'Policy' },
   { value: 'procedures', label: 'Procedures' },
+  { value: 'job_description', label: 'Job Description' },
   { value: 'communications', label: 'Communications' },
   { value: 'training_docs', label: 'Training Docs' },
   { value: 'other', label: 'Other' },

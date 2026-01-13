@@ -129,7 +129,7 @@ function uploadWithXHR(
 }
 
 /**
- * Upload a source file with all the proper handling
+ * Upload a source file with all the proper handling (storage only)
  */
 export async function uploadSourceFile(
   file: File,
@@ -145,4 +145,73 @@ export async function uploadSourceFile(
     contentType: file.type,
     onProgress
   });
+}
+
+export type SourceType = 'handbook' | 'policy' | 'procedures' | 'job_description' | 'communications' | 'training_docs' | 'other';
+
+export interface SourceFileRecord {
+  id: string;
+  organization_id: string;
+  file_name: string;
+  storage_path: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  source_type: SourceType;
+  created_at: string;
+}
+
+export interface SourceFileUploadResult {
+  success: boolean;
+  file?: SourceFileRecord;
+  error?: string;
+}
+
+/**
+ * Upload a source file AND create the database record
+ * This is the complete flow for JD uploads and other source files
+ */
+export async function uploadSourceFileWithRecord(
+  file: File,
+  organizationId: string,
+  sourceType: SourceType = 'other',
+  onProgress?: (progress: number) => void
+): Promise<SourceFileUploadResult> {
+  try {
+    // Step 1: Upload to storage
+    const uploadResult = await uploadSourceFile(file, organizationId, onProgress);
+
+    if (!uploadResult.success || !uploadResult.path || !uploadResult.signedUrl) {
+      return { success: false, error: uploadResult.error || 'Upload failed' };
+    }
+
+    // Step 2: Insert database record
+    const { data: insertedFile, error: insertError } = await supabase
+      .from('source_files')
+      .insert({
+        organization_id: organizationId,
+        file_name: file.name,
+        storage_path: uploadResult.path,
+        file_url: uploadResult.signedUrl,
+        file_type: file.type,
+        file_size: file.size,
+        source_type: sourceType,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      // Clean up storage if database insert fails
+      await supabase.storage.from('source-files').remove([uploadResult.path]);
+      return { success: false, error: insertError.message };
+    }
+
+    return {
+      success: true,
+      file: insertedFile as SourceFileRecord
+    };
+  } catch (error: any) {
+    console.error('[uploadService] uploadSourceFileWithRecord failed:', error);
+    return { success: false, error: error.message || 'Upload failed' };
+  }
 }

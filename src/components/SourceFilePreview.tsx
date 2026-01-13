@@ -35,11 +35,16 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
+  Briefcase,
+  SkipForward,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { getServerUrl } from '../utils/supabase/info';
 import { ChunkToTrackGenerator } from './ChunkToTrackGenerator';
+import { ExtractedEntityProcessor } from './ExtractedEntityProcessor';
 
 interface SourceFilePreviewProps {
   isOpen: boolean;
@@ -62,16 +67,32 @@ interface SourceFilePreviewProps {
   onSourceTypeChange?: (newType: string) => void;
 }
 
-type SourceType = 'handbook' | 'policy' | 'procedures' | 'communications' | 'training_docs' | 'other';
+type SourceType = 'handbook' | 'policy' | 'procedures' | 'job_description' | 'communications' | 'training_docs' | 'other';
 
 const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string }[] = [
   { value: 'handbook', label: 'Handbook' },
   { value: 'policy', label: 'Policy' },
   { value: 'procedures', label: 'Procedures' },
+  { value: 'job_description', label: 'Job Description' },
   { value: 'communications', label: 'Communications' },
   { value: 'training_docs', label: 'Training Docs' },
   { value: 'other', label: 'Other' },
 ];
+
+interface ExtractedEntity {
+  id: string;
+  entity_type: string;
+  entity_status: 'pending' | 'processing' | 'completed' | 'skipped' | 'failed';
+  extracted_data: {
+    role_name?: string;
+    department?: string;
+    [key: string]: any;
+  };
+  extraction_confidence: number | null;
+  source_chunk_id: string | null;
+  onet_suggestions: any[];
+  created_at: string;
+}
 
 export function SourceFilePreview({
   isOpen,
@@ -92,6 +113,14 @@ export function SourceFilePreview({
   const [showChunks, setShowChunks] = useState(false);
   const [selectedChunkIds, setSelectedChunkIds] = useState<Set<string>>(new Set());
   const [showGenerator, setShowGenerator] = useState(false);
+
+  // Extracted entities state
+  const [extractedEntities, setExtractedEntities] = useState<ExtractedEntity[]>([]);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+  const [showEntities, setShowEntities] = useState(false);
+  const [processingEntityId, setProcessingEntityId] = useState<string | null>(null);
+  const [showEntityProcessor, setShowEntityProcessor] = useState(false);
+  const [selectedEntityForProcessing, setSelectedEntityForProcessing] = useState<string | null>(null);
 
   const toggleChunkSelection = (chunkId: string) => {
     setSelectedChunkIds(prev => {
@@ -204,10 +233,84 @@ export function SourceFilePreview({
     }
   };
 
+  // Load extracted entities for this file
+  const loadExtractedEntities = async () => {
+    if (!sourceFile?.id) return;
+
+    setLoadingEntities(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extracted-entities/${sourceFile.id}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+      });
+
+      const data = await response.json();
+      if (data.entities) {
+        setExtractedEntities(data.entities);
+        // Auto-show if there are pending entities
+        if (data.entities.some((e: ExtractedEntity) => e.entity_status === 'pending')) {
+          setShowEntities(true);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load extracted entities:', error);
+    } finally {
+      setLoadingEntities(false);
+    }
+  };
+
+  // Process an extracted entity (extract_jd or skip)
+  const handleProcessEntity = async (entityId: string, action: 'extract_jd' | 'skip') => {
+    setProcessingEntityId(entityId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/process-extracted-entity`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ entity_id: entityId, action }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Processing failed');
+      }
+
+      if (action === 'skip') {
+        toast.success('Entity skipped');
+      } else {
+        toast.success('Job description extracted', {
+          description: data.extracted_data?.role_name || 'Processing complete'
+        });
+      }
+
+      // Reload entities to get updated status
+      await loadExtractedEntities();
+    } catch (error: any) {
+      console.error('Entity processing error:', error);
+      toast.error('Processing failed', { description: error.message });
+    } finally {
+      setProcessingEntityId(null);
+    }
+  };
+
   // Load existing chunks when modal opens
   React.useEffect(() => {
     if (isOpen && sourceFile?.id) {
       loadExistingChunks();
+      loadExtractedEntities();
     }
   }, [isOpen, sourceFile?.id]);
 
@@ -684,6 +787,161 @@ export function SourceFilePreview({
           )}
         </div>
 
+        {/* Detected Entities Section */}
+        <div className="border-t pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Detected Content</span>
+              {extractedEntities.length > 0 && (
+                <>
+                  <Badge variant="secondary">{extractedEntities.length} detected</Badge>
+                  {extractedEntities.filter(e => e.entity_status === 'pending').length > 0 && (
+                    <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+                      {extractedEntities.filter(e => e.entity_status === 'pending').length} pending review
+                    </Badge>
+                  )}
+                </>
+              )}
+              {loadingEntities && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {extractedEntities.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowEntities(!showEntities)}
+                >
+                  {showEntities ? (
+                    <>
+                      <ChevronDown className="h-4 w-4 mr-1" />
+                      Hide
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="h-4 w-4 mr-1" />
+                      Show
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadExtractedEntities}
+                disabled={loadingEntities}
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          {/* Entities List */}
+          {showEntities && extractedEntities.length > 0 && (
+            <div
+              className="border rounded-md bg-muted/20"
+              style={{ maxHeight: '250px', overflowY: 'auto' }}
+            >
+              <div className="divide-y">
+                {extractedEntities.map((entity) => (
+                  <div
+                    key={entity.id}
+                    className={`p-3 hover:bg-muted/30 transition-colors ${
+                      entity.entity_status === 'pending' ? 'bg-amber-50/50' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className={
+                              entity.entity_type === 'job_description'
+                                ? 'border-blue-500 text-blue-600'
+                                : ''
+                            }
+                          >
+                            {entity.entity_type === 'job_description' ? 'Job Description' : entity.entity_type}
+                          </Badge>
+                          <span className="font-medium text-sm">
+                            {entity.extracted_data?.role_name || 'Unnamed Role'}
+                          </span>
+                          {entity.extracted_data?.department && (
+                            <span className="text-xs text-muted-foreground">
+                              ({entity.extracted_data.department})
+                            </span>
+                          )}
+                          {entity.extraction_confidence && (
+                            <Badge variant="secondary" className="text-xs">
+                              {Math.round(entity.extraction_confidence * 100)}% confidence
+                            </Badge>
+                          )}
+                          {entity.entity_status === 'completed' && (
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                              <Check className="h-3 w-3 mr-1" />
+                              Processed
+                            </Badge>
+                          )}
+                          {entity.entity_status === 'skipped' && (
+                            <Badge variant="secondary" className="text-xs">
+                              Skipped
+                            </Badge>
+                          )}
+                        </div>
+                        {entity.onet_suggestions && entity.onet_suggestions.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            O*NET suggestions: {entity.onet_suggestions.slice(0, 2).map((s: any) => s.title).join(', ')}
+                          </p>
+                        )}
+                      </div>
+                      {entity.entity_status === 'pending' && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-8 bg-[#F74A05] hover:bg-[#F74A05]/90"
+                            onClick={() => {
+                              setSelectedEntityForProcessing(entity.id);
+                              setShowEntityProcessor(true);
+                            }}
+                          >
+                            <Zap className="h-4 w-4 mr-1" />
+                            Process
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8"
+                            onClick={() => handleProcessEntity(entity.id, 'skip')}
+                            disabled={processingEntityId === entity.id}
+                          >
+                            <SkipForward className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {showEntities && extractedEntities.length === 0 && !loadingEntities && (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              No entities detected in this document.
+              {chunks && chunks.length > 0 && (
+                <span className="block mt-1">
+                  Content is classified during chunking.
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Close
@@ -698,6 +956,21 @@ export function SourceFilePreview({
           sourceFileName={sourceFile?.file_name || ''}
           onTracksGenerated={handleTracksGenerated}
         />
+
+        {/* Extracted Entity Processor Modal */}
+        {selectedEntityForProcessing && (
+          <ExtractedEntityProcessor
+            isOpen={showEntityProcessor}
+            onClose={() => {
+              setShowEntityProcessor(false);
+              setSelectedEntityForProcessing(null);
+            }}
+            entityId={selectedEntityForProcessing}
+            onProcessComplete={() => {
+              loadExtractedEntities();
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

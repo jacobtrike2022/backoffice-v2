@@ -22,10 +22,13 @@ import {
 import { Separator } from './ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { ChevronDown, AlertCircle } from 'lucide-react';
+import { ChevronDown, AlertCircle, Upload, Loader2, FileText } from 'lucide-react';
 import type { Role, CreateRoleInput, UpdateRoleInput } from '../types/roles';
 import { rolesApi } from '../lib/api/roles';
 import { toast } from 'sonner@2.0.3';
+import { supabase, supabaseAnonKey, getCurrentUserOrgId } from '../lib/supabase';
+import { getServerUrl } from '../utils/supabase/info';
+import { uploadSourceFileWithRecord } from '../lib/services/uploadService';
 
 interface RoleModalProps {
   isOpen: boolean;
@@ -44,6 +47,8 @@ export function RoleModal({
   const [loading, setLoading] = useState(false);
   const [userCount, setUserCount] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [uploadingJd, setUploadingJd] = useState(false);
+  const jdFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Form state
   const [formData, setFormData] = useState<CreateRoleInput>({
@@ -194,6 +199,112 @@ export function RoleModal({
       });
     }
   };
+
+  // Handle JD file upload
+  async function handleJdUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type', {
+        description: 'Please upload a PDF, Word document, or text file.',
+      });
+      return;
+    }
+
+    setUploadingJd(true);
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('No organization found');
+
+      // Upload file and create database record
+      const uploadResult = await uploadSourceFileWithRecord(file, orgId, 'job_description');
+
+      if (!uploadResult.success || !uploadResult.file) {
+        throw new Error(uploadResult.error || 'Upload failed');
+      }
+
+      const uploadedFile = uploadResult.file;
+
+      // Extract text from the document
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const serverUrl = getServerUrl();
+      const extractResponse = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: uploadedFile.id }),
+      });
+
+      if (!extractResponse.ok) {
+        const errData = await extractResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'Text extraction failed');
+      }
+
+      toast.success('File uploaded', { description: 'Extracting job description...' });
+
+      // Now extract JD data using AI
+      const jdResponse = await fetch(`${serverUrl}/extract-job-description`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: uploadedFile.id }),
+      });
+
+      const jdData = await jdResponse.json();
+      if (!jdResponse.ok) {
+        throw new Error(jdData.error || 'JD extraction failed');
+      }
+
+      // Build job description text from extracted data
+      const extractedJd = jdData.extracted_data || {};
+      const jdText = [
+        extractedJd.job_summary,
+        extractedJd.essential_functions?.length ?
+          `Essential Functions:\n${extractedJd.essential_functions.map((f: string) => `• ${f}`).join('\n')}` : '',
+        extractedJd.qualifications?.length ?
+          `Qualifications:\n${extractedJd.qualifications.map((q: string) => `• ${q}`).join('\n')}` : '',
+        extractedJd.skills?.length ?
+          `Skills:\n${extractedJd.skills.map((s: string) => `• ${s}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n');
+
+      // Update form with extracted JD
+      setFormData(prev => ({
+        ...prev,
+        job_description: jdText || prev.job_description,
+        job_description_source: 'uploaded',
+        // If no name set yet and we extracted one, pre-fill it
+        name: prev.name || extractedJd.role_name || prev.name,
+        department: prev.department || extractedJd.department || prev.department,
+      }));
+
+      // Auto-expand advanced section to show the extracted JD
+      setShowAdvanced(true);
+
+      toast.success('Job description extracted', {
+        description: extractedJd.role_name || 'Review the extracted content below.',
+      });
+    } catch (error: any) {
+      console.error('JD upload error:', error);
+      toast.error('Upload failed', { description: error.message });
+    } finally {
+      setUploadingJd(false);
+      // Reset file input
+      if (jdFileInputRef.current) {
+        jdFileInputRef.current.value = '';
+      }
+    }
+  }
 
   if (!isOpen) return null;
 
@@ -382,6 +493,42 @@ export function RoleModal({
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 mt-4">
               <Separator />
+
+              {/* JD Upload Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Upload Job Description (optional)</Label>
+                  <input
+                    type="file"
+                    ref={jdFileInputRef}
+                    onChange={handleJdUpload}
+                    accept=".pdf,.doc,.docx,.txt"
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => jdFileInputRef.current?.click()}
+                    disabled={uploadingJd}
+                  >
+                    {uploadingJd ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Extracting...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload JD File
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Upload a PDF, Word doc, or text file to auto-extract job description content.
+                </p>
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="job_description">Job Description</Label>
