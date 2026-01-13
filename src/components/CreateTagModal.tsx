@@ -49,7 +49,7 @@ function isValidHexColor(color: string): boolean {
 interface CreateTagModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (createdTagName?: string) => void;  // Pass tag name for auto-selection
   categories: Tag[];
   preselectedCategoryId?: string;
   preselectedParentId?: string;
@@ -166,18 +166,43 @@ export function CreateTagModal({
       setDescription(initialDescription || '');
       setColor('#F74A05');
       const parentTag = findTagById(preselectedParentId);
-      const derivedCategoryId =
-        parentTag?.type === 'system-category'
-          ? parentTag.id
-          : parentTag?.parent_id || preselectedCategoryId || '';
 
-      setTagType(
-        defaultType && defaultType !== 'system-category'
-          ? defaultType
-          : preselectedParentId
-            ? 'child'
-            : 'parent'
-      );
+      console.log('[CreateTagModal] Initializing with:', {
+        preselectedParentId,
+        parentTag,
+        defaultType,
+        categoriesLength: categories.length
+      });
+
+      // Derive the system category ID by traversing up the hierarchy
+      // For AI suggestions: Subcategory (e.g., Compliance) → Parent (Training Topics) → System (Content)
+      let derivedCategoryId = preselectedCategoryId || '';
+      if (parentTag) {
+        if (parentTag.type === 'system-category') {
+          derivedCategoryId = parentTag.id;
+        } else if (parentTag.type === 'subcategory') {
+          // Subcategory → find its parent (Training Topics) → find grandparent (Content)
+          const parentOfSubcat = findTagById(parentTag.parent_id);
+          console.log('[CreateTagModal] Subcategory parent (should be Training Topics):', parentOfSubcat);
+          if (parentOfSubcat?.parent_id) {
+            derivedCategoryId = parentOfSubcat.parent_id;
+            console.log('[CreateTagModal] Derived system category ID:', derivedCategoryId);
+          }
+        } else if (parentTag.type === 'parent') {
+          // Parent tag → its parent is the system category
+          derivedCategoryId = parentTag.parent_id || '';
+        }
+      }
+
+      const finalTagType = defaultType && defaultType !== 'system-category'
+        ? defaultType
+        : preselectedParentId
+          ? 'child'
+          : 'parent';
+
+      console.log('[CreateTagModal] Setting state:', { derivedCategoryId, preselectedParentId, finalTagType });
+
+      setTagType(finalTagType);
       setSelectedCategoryId(derivedCategoryId);
       setSelectedParentId(preselectedParentId || '');
     }
@@ -257,8 +282,13 @@ export function CreateTagModal({
         await createTag(tagData);
         const label = tagType === 'parent' ? 'Parent' : tagType === 'subcategory' ? 'Subcategory' : 'Child';
         toast.success(`${label} tag created successfully`);
+
+        // Pass the created tag name for auto-selection
+        onSuccess(tagName.trim());
+        onClose();
+        return;
       }
-      
+
       onSuccess();
       onClose();
     } catch (error: any) {

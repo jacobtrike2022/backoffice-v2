@@ -226,10 +226,21 @@ export function TagSelectorDialog({
     setTagToEdit(null);
     // Use suggested_description for the tag description (not reasoning)
     // Use suggested_parent_id if available (resolved subcategory ID from backend)
+
+    // Try to find the parent by name if ID is not provided
+    let resolvedParentId = suggestion.suggested_parent_id;
+    if (!resolvedParentId && suggestion.suggested_parent) {
+      const foundParent = findTagByNameInHierarchy(rawHierarchy, suggestion.suggested_parent);
+      resolvedParentId = foundParent?.id;
+      console.log('[handleCreateNewTag] Found parent by name:', suggestion.suggested_parent, '→', foundParent);
+    }
+
+    console.log('[handleCreateNewTag] suggestion:', suggestion, 'resolvedParentId:', resolvedParentId);
+
     setPrefilledTagData({
       name: suggestion.suggested_name,
       description: suggestion.description || suggestion.suggested_description || '',
-      parentId: suggestion.suggested_parent_id || undefined,
+      parentId: resolvedParentId || undefined,
       parentName: suggestion.suggested_parent
     });
     setShowCreateModal(true);
@@ -290,15 +301,19 @@ export function TagSelectorDialog({
   };
 
   // Recursively search for a tag by name in the hierarchy (case-insensitive)
-  const findTagByNameInHierarchy = (tags: Tag[], name: string): Tag | undefined => {
+  const findTagByNameInHierarchy = (tags: Tag[], name: string, depth = 0): Tag | undefined => {
     for (const tag of tags) {
       if (tag.name.toLowerCase() === name.toLowerCase()) {
+        console.log(`[findTagByNameInHierarchy] Found "${name}" at depth ${depth}:`, tag);
         return tag;
       }
       if (tag.children && tag.children.length > 0) {
-        const found = findTagByNameInHierarchy(tag.children, name);
+        const found = findTagByNameInHierarchy(tag.children, name, depth + 1);
         if (found) return found;
       }
+    }
+    if (depth === 0) {
+      console.log(`[findTagByNameInHierarchy] NOT found: "${name}". Available top-level tags:`, tags.map(t => t.name));
     }
     return undefined;
   };
@@ -330,10 +345,19 @@ export function TagSelectorDialog({
     }
   };
 
-  const handleCreateSuccess = () => {
+  const handleCreateSuccess = (createdTagName?: string) => {
     loadTags();
+
+    // If a new tag was created (not edited) and we have the name, auto-select it
+    if (!tagToEdit && createdTagName && !localSelectedTags.includes(createdTagName)) {
+      setLocalSelectedTags(prev => [...prev, createdTagName]);
+      toast.success(`New tag "${createdTagName}" created and selected`);
+    } else {
+      toast.success(tagToEdit ? 'Tag updated' : 'New tag created');
+    }
+
     setTagToEdit(null);
-    toast.success(tagToEdit ? 'Tag updated' : 'New tag created');
+    setPrefilledTagData(null);
   };
 
   const handleEditTag = (e: React.MouseEvent, tag: Tag) => {
@@ -649,18 +673,16 @@ export function TagSelectorDialog({
           tagToEdit={tagToEdit}
           initialTagName={prefilledTagData?.name}
           initialDescription={prefilledTagData?.description}
-          // Priority: 1) Direct parentId from AI, 2) Search by parentName, 3) restrictToParentName
+          // parentId is already resolved in handleCreateNewTag, use it directly
           preselectedParentId={
             prefilledTagData?.parentId
               ? prefilledTagData.parentId
-              : prefilledTagData?.parentName
-                ? findTagByNameInHierarchy(rawHierarchy, prefilledTagData.parentName)?.id
-                : restrictToParentName
-                  ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id
-                  : undefined
+              : restrictToParentName
+                ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id
+                : undefined
           }
           // When creating from AI suggestion with a parent, default to child type
-          defaultType={prefilledTagData?.parentId || prefilledTagData?.parentName ? 'child' : undefined}
+          defaultType={prefilledTagData?.parentId ? 'child' : undefined}
         />
       )}
     </>
