@@ -1165,177 +1165,26 @@ async function handleExtractSource(req: Request): Promise<Response> {
 }
 
 // =============================================================================
-// DOCUMENT TYPE DETECTION
+// DOCUMENT TYPE DETECTION (DEPRECATED)
+// =============================================================================
+// NOTE: This endpoint is deprecated. Document type is now determined at the
+// CHUNK level, not document level. A single document (e.g., handbook) can
+// contain multiple content types (policies, procedures, job descriptions).
+// Use /chunk-source with classify_content=true instead.
 // =============================================================================
 
 async function handleDetectDocumentType(req: Request): Promise<Response> {
-  try {
-    // Parse request body
-    const body = await req.json();
-    const { source_file_id } = body;
+  console.warn('[detect-document-type] DEPRECATED: Use /chunk-source with classify_content=true instead');
 
-    console.log('[detect-document-type] Starting detection for source_file_id:', source_file_id);
-
-    // Validate request
-    if (!source_file_id) {
-      return jsonResponse({
-        error: "Missing source_file_id in request body",
-        code: "MISSING_PARAMETER"
-      }, 400);
+  return jsonResponse({
+    error: "This endpoint is deprecated. Document classification now happens at the chunk level. Use POST /chunk-source with classify_content=true to extract and classify document chunks.",
+    code: "DEPRECATED",
+    migration_guide: {
+      old_flow: "POST /detect-document-type → returns single document type",
+      new_flow: "POST /chunk-source { source_file_id, classify_content: true } → returns chunks with content_class per chunk",
+      reason: "A single document can contain multiple content types (policies, procedures, JDs, training materials)"
     }
-
-    // Validate OpenAI key
-    if (!OPENAI_API_KEY) {
-      return jsonResponse({
-        error: "OpenAI API key not configured",
-        code: "CONFIG_ERROR"
-      }, 500);
-    }
-
-    // Fetch the source_file record with extracted_text
-    const { data: sourceFile, error: fetchError } = await supabase
-      .from("source_files")
-      .select("id, file_name, extracted_text, source_type")
-      .eq("id", source_file_id)
-      .single();
-
-    if (fetchError || !sourceFile) {
-      console.error('[detect-document-type] Source file not found:', fetchError);
-      return jsonResponse({
-        error: "Source file not found",
-        code: "NOT_FOUND"
-      }, 404);
-    }
-
-    if (!sourceFile.extracted_text) {
-      return jsonResponse({
-        error: "No extracted text available. Please extract text from the file first.",
-        code: "NO_TEXT"
-      }, 400);
-    }
-
-    // Get first 3000 characters for classification
-    const textSample = sourceFile.extracted_text.slice(0, 3000);
-
-    console.log('[detect-document-type] Calling OpenAI for classification...');
-
-    // Call OpenAI for classification
-    const prompt = `You are a document classifier for enterprise training content. Analyze this document excerpt and classify it.
-
-Available types:
-- handbook: Employee handbooks covering multiple policies, conduct, benefits, procedures
-- policy: Single-topic policy document (e.g., attendance policy, social media policy)
-- procedures: Step-by-step procedures, SOPs, how-to guides
-- communications: Memos, announcements, newsletters
-- training_docs: Training materials, guides, manuals
-- other: Doesn't fit above categories
-
-Return JSON only, no other text:
-{
-  "detected_type": "handbook",
-  "confidence": 0.92,
-  "reasoning": "Document contains table of contents, multiple policy sections, employee conduct guidelines typical of handbooks",
-  "alternative_type": "policy",
-  "alternative_confidence": 0.15
-}
-
-Document excerpt:
-${textSample}`;
-
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: "You are a document classification expert. Return only valid JSON with no markdown formatting or code blocks."
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-        max_tokens: 500,
-        response_format: { type: "json_object" }
-      }),
-    });
-
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      console.error('[detect-document-type] OpenAI error:', errorText);
-      return jsonResponse({
-        error: "Failed to classify document",
-        code: "AI_ERROR"
-      }, 500);
-    }
-
-    const openaiData = await openaiResponse.json();
-    const content = openaiData.choices?.[0]?.message?.content;
-
-    if (!content) {
-      return jsonResponse({
-        error: "Empty response from AI",
-        code: "AI_EMPTY"
-      }, 500);
-    }
-
-    // Parse the JSON response
-    let result;
-    try {
-      result = JSON.parse(content);
-    } catch (parseError) {
-      console.error('[detect-document-type] Failed to parse AI response:', content);
-      return jsonResponse({
-        error: "Failed to parse AI response",
-        code: "PARSE_ERROR"
-      }, 500);
-    }
-
-    console.log('[detect-document-type] Classification result:', result);
-
-    // Validate the detected_type is a valid option
-    const validTypes = ['handbook', 'policy', 'procedures', 'communications', 'training_docs', 'other'];
-    if (!validTypes.includes(result.detected_type)) {
-      result.detected_type = 'other';
-    }
-
-    // If confidence > 0.8, auto-update the source_type
-    if (result.confidence > 0.8) {
-      console.log('[detect-document-type] High confidence, auto-updating source_type to:', result.detected_type);
-
-      const { error: updateError } = await supabase
-        .from("source_files")
-        .update({ source_type: result.detected_type })
-        .eq("id", source_file_id);
-
-      if (updateError) {
-        console.error('[detect-document-type] Failed to update source_type:', updateError);
-        // Don't fail the request, just log the error
-      }
-    }
-
-    return jsonResponse({
-      detected_type: result.detected_type,
-      confidence: result.confidence,
-      reasoning: result.reasoning,
-      alternative_type: result.alternative_type,
-      alternative_confidence: result.alternative_confidence,
-      auto_applied: result.confidence > 0.8
-    });
-
-  } catch (error) {
-    console.error('[detect-document-type] Unexpected error:', error);
-    return jsonResponse({
-      error: error.message || "An unexpected error occurred",
-      code: "INTERNAL_ERROR"
-    }, 500);
-  }
+  }, 410); // 410 Gone
 }
 
 // =============================================================================
@@ -1352,11 +1201,20 @@ interface ChunkResult {
 }
 
 // =============================================================================
-// CONTENT CLASSIFICATION - Detect content types (JD, policy, etc.)
+// CONTENT CLASSIFICATION - Detect content types in document chunks
+// =============================================================================
+// Content Types:
+// - policy: Rules, expectations, standards (e.g., "Sexual Harassment Policy")
+// - procedure: Step-by-step actions for a goal (e.g., "How to Change Register Paper")
+// - job_description: Role definitions with duties, qualifications, reporting
+// - training_materials: Checklists, OJT, guides to convert to tracks (catchall)
+// - other: Truly miscellaneous content
 // =============================================================================
 
+type ContentClass = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'other';
+
 interface ContentClassification {
-  content_class: 'policy' | 'job_description' | 'form' | 'table' | 'other';
+  content_class: ContentClass;
   confidence: number;
   is_extractable: boolean;
   extraction_hints?: Record<string, any>;
@@ -1386,18 +1244,80 @@ const JD_PATTERNS = [
   /supervisory\s+responsibilities/i
 ];
 
+// Policy detection patterns - rules, standards, expectations
+const POLICY_PATTERNS = [
+  /policy\s*(statement|overview)?/i,
+  /\bpurpose\s*:/i,
+  /\bscope\s*:/i,
+  /this\s+policy\s+(applies|covers|addresses)/i,
+  /employees\s+(must|shall|are\s+required)/i,
+  /prohibited\s+(conduct|behavior|activities)/i,
+  /violation(s)?\s+(of\s+this|may\s+result)/i,
+  /disciplinary\s+action/i,
+  /compliance\s+(with|requirements)/i,
+  /code\s+of\s+conduct/i,
+  /\bstandards\s+of\s+(conduct|behavior)/i,
+  /effective\s+date\s*:/i,
+  /policy\s+number\s*:/i,
+  /approved\s+by\s*:/i
+];
+
+// Procedure detection patterns - step-by-step instructions
+const PROCEDURE_PATTERNS = [
+  /step\s+\d+/i,
+  /\d+\.\s*(first|then|next|finally)/i,
+  /how\s+to\s+\w+/i,
+  /procedure\s*(for|to)?/i,
+  /instructions?\s*(for|to)?/i,
+  /\bsop\b/i,
+  /standard\s+operating\s+procedure/i,
+  /follow\s+these\s+steps/i,
+  /begin\s+by/i,
+  /when\s+complete/i,
+  /repeat\s+(step|until)/i,
+  /troubleshooting/i,
+  /if\s+.*then\s+/i,
+  /ensure\s+that/i,
+  /verify\s+that/i
+];
+
+// Training materials patterns - guides, checklists, OJT content
+const TRAINING_PATTERNS = [
+  /training\s+(guide|manual|module)/i,
+  /learning\s+objectives?/i,
+  /\bcheckpoint\b/i,
+  /\bchecklist\b/i,
+  /assessment\s+(questions?|quiz)/i,
+  /\bojt\b/i,
+  /on[- ]the[- ]job\s+training/i,
+  /orientation/i,
+  /onboarding/i,
+  /\bmodule\s+\d+/i,
+  /lesson\s+\d+/i,
+  /\bunit\s+\d+/i,
+  /review\s+questions/i,
+  /knowledge\s+check/i,
+  /competency/i,
+  /skill\s+(development|building)/i,
+  /\btrainee\b/i,
+  /certification/i,
+  /quiz\s*:/i,
+  /test\s+your\s+knowledge/i
+];
+
 /**
- * Classify chunk content to detect JDs and other extractable entities
+ * Classify chunk content using pattern matching
+ * Priority: job_description > procedure > policy > training_materials > other
  */
 function classifyChunkContent(content: string): ContentClassification {
-  const lowerContent = content.toLowerCase();
-
-  // Count JD pattern matches
+  // Count pattern matches for each type
   const jdMatchCount = JD_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const procedureMatchCount = PROCEDURE_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const policyMatchCount = POLICY_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const trainingMatchCount = TRAINING_PATTERNS.filter(pattern => pattern.test(content)).length;
 
-  // Strong JD indicators (if multiple patterns match)
+  // 1. JOB DESCRIPTION - Strong indicators (4+ patterns)
   if (jdMatchCount >= 4) {
-    // Extract potential role name from first line or "Job Title:" pattern
     let roleName: string | null = null;
     const titleMatch = content.match(/(?:job\s+title|position\s+title|position)\s*:\s*([^\n]+)/i);
     if (titleMatch) {
@@ -1416,7 +1336,7 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // Moderate JD indicators (2-3 patterns)
+  // 2. JOB DESCRIPTION - Moderate indicators (2-3 patterns)
   if (jdMatchCount >= 2) {
     return {
       content_class: 'job_description',
@@ -1430,32 +1350,82 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // Check for form patterns
-  if (/_{5,}|:\s*_{3,}|\[\s*\]/.test(content)) {
+  // 3. PROCEDURE - Step-by-step instructions
+  if (procedureMatchCount >= 3) {
     return {
-      content_class: 'form',
-      confidence: 0.80,
-      is_extractable: false
+      content_class: 'procedure',
+      confidence: Math.min(0.90, 0.60 + (procedureMatchCount * 0.08)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: procedureMatchCount
+      }
     };
   }
 
-  // Default to policy
+  // 4. POLICY - Rules and expectations
+  if (policyMatchCount >= 3) {
+    return {
+      content_class: 'policy',
+      confidence: Math.min(0.90, 0.60 + (policyMatchCount * 0.08)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: policyMatchCount
+      }
+    };
+  }
+
+  // 5. TRAINING MATERIALS - Guides, checklists, OJT
+  if (trainingMatchCount >= 2) {
+    return {
+      content_class: 'training_materials',
+      confidence: Math.min(0.85, 0.55 + (trainingMatchCount * 0.10)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: trainingMatchCount
+      }
+    };
+  }
+
+  // 6. If we have some policy or procedure indicators but not enough for high confidence
+  if (policyMatchCount >= 1 || procedureMatchCount >= 1) {
+    // Tie-break: procedure patterns slightly favor procedure, otherwise policy
+    if (procedureMatchCount > policyMatchCount) {
+      return {
+        content_class: 'procedure',
+        confidence: 0.50,
+        is_extractable: false,
+        extraction_hints: { detected_via: 'weak_pattern_matching', needs_ai_verification: true }
+      };
+    }
+    return {
+      content_class: 'policy',
+      confidence: 0.50,
+      is_extractable: false,
+      extraction_hints: { detected_via: 'weak_pattern_matching', needs_ai_verification: true }
+    };
+  }
+
+  // 7. Default to training_materials (catchall for content that might need track conversion)
   return {
-    content_class: 'policy',
-    confidence: 0.70,
-    is_extractable: false
+    content_class: 'training_materials',
+    confidence: 0.40,
+    is_extractable: false,
+    extraction_hints: { detected_via: 'default_fallback' }
   };
 }
 
 /**
- * AI-enhanced content classification for borderline cases
+ * AI-enhanced content classification for borderline/low-confidence cases
  */
 async function classifyChunkContentWithAI(content: string): Promise<ContentClassification> {
   // First try pattern matching
   const patternResult = classifyChunkContent(content);
 
-  // If high confidence or clearly not a JD, return pattern result
-  if (patternResult.confidence > 0.80 || patternResult.content_class !== 'job_description') {
+  // If high confidence, return pattern result
+  if (patternResult.confidence > 0.75) {
     return patternResult;
   }
 
@@ -1465,24 +1435,40 @@ async function classifyChunkContentWithAI(content: string): Promise<ContentClass
   }
 
   try {
-    const prompt = `Analyze this text and determine if it's a Job Description (JD) or general policy/procedure content.
+    const prompt = `You are classifying content from employee documents. Classify this text into ONE of these categories:
 
-Job Description indicators:
-- Describes a specific role/position
-- Lists responsibilities, duties, or qualifications
-- Mentions reporting relationships
-- Contains requirements for the role
+**POLICY** - Rules, expectations, and standards that employees must follow
+- Examples: Sexual Harassment Policy, Attendance Policy, Code of Conduct
+- Key indicators: "employees must/shall", "prohibited conduct", "disciplinary action", "violation", "compliance"
+- Describes WHAT rules apply, not HOW to do something
 
-Policy/Procedure indicators:
-- Describes company rules or guidelines
-- Applies to all employees or departments
-- Contains compliance or regulatory information
-- Describes processes or workflows
+**PROCEDURE** - Step-by-step instructions for completing a specific task
+- Examples: How to Change the Register Paper, Opening/Closing Procedures, Cash Handling Steps
+- Key indicators: numbered steps, "Step 1", "first...then...next", "how to", "SOP"
+- Describes HOW to do something specific
 
-Text to analyze:
+**JOB_DESCRIPTION** - Definition of a specific role/position
+- Examples: Store Manager Job Description, Cashier Responsibilities
+- Key indicators: "Job Title:", "Reports To:", "Qualifications:", "Essential Duties"
+- Describes a single ROLE and its requirements
+
+**TRAINING_MATERIALS** - Catchall for learning content, guides, checklists, OJT materials
+- Examples: New Hire Orientation Guide, Manager Training Checklist, Safety Training Module
+- Key indicators: "learning objectives", "checklist", "training guide", "assessment", "quiz"
+- Content that could be converted into training tracks
+
+**OTHER** - Content that doesn't fit the above (forms, tables, misc)
+
+Text to classify:
 ${content.slice(0, 2000)}
 
-Respond with JSON: {"is_job_description": boolean, "confidence": 0.0-1.0, "role_name": string|null, "reasoning": string}`;
+Respond with JSON only:
+{
+  "content_class": "policy" | "procedure" | "job_description" | "training_materials" | "other",
+  "confidence": 0.0-1.0,
+  "role_name": string | null (only if job_description),
+  "reasoning": "brief explanation"
+}`;
 
     const response = await callOpenAI(
       [{ role: "user", content: prompt }],
@@ -1490,24 +1476,18 @@ Respond with JSON: {"is_job_description": boolean, "confidence": 0.0-1.0, "role_
     );
 
     const parsed = JSON.parse(response);
-
-    if (parsed.is_job_description) {
-      return {
-        content_class: 'job_description',
-        confidence: parsed.confidence || 0.80,
-        is_extractable: parsed.confidence > 0.70,
-        extraction_hints: {
-          detected_via: 'ai_classification',
-          potential_role_name: parsed.role_name,
-          reasoning: parsed.reasoning
-        }
-      };
-    }
+    const validClasses: ContentClass[] = ['policy', 'procedure', 'job_description', 'training_materials', 'other'];
+    const contentClass = validClasses.includes(parsed.content_class) ? parsed.content_class : 'training_materials';
 
     return {
-      content_class: 'policy',
+      content_class: contentClass,
       confidence: parsed.confidence || 0.70,
-      is_extractable: false
+      is_extractable: contentClass === 'job_description' && (parsed.confidence || 0.70) > 0.70,
+      extraction_hints: {
+        detected_via: 'ai_classification',
+        potential_role_name: parsed.role_name || null,
+        reasoning: parsed.reasoning
+      }
     };
   } catch (error) {
     console.error('[classifyChunkContentWithAI] AI classification failed:', error);

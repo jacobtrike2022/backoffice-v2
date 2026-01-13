@@ -14,7 +14,7 @@ ADD COLUMN IF NOT EXISTS extraction_status TEXT DEFAULT 'pending'
   CHECK (extraction_status IN ('pending', 'extracted', 'skipped', 'failed'));
 
 -- Add comment explaining the columns
-COMMENT ON COLUMN source_chunks.content_class IS 'Content type classification: policy, job_description, form, table, other';
+COMMENT ON COLUMN source_chunks.content_class IS 'Content type classification: policy, procedure, job_description, training_materials, other';
 COMMENT ON COLUMN source_chunks.content_class_confidence IS 'AI confidence score for classification (0.00-1.00)';
 COMMENT ON COLUMN source_chunks.is_extractable IS 'Whether this chunk contains a standalone extractable entity';
 COMMENT ON COLUMN source_chunks.extraction_status IS 'Status of extraction: pending, extracted, skipped, failed';
@@ -52,7 +52,12 @@ CREATE TABLE IF NOT EXISTS content_type_registry (
 -- Add comment
 COMMENT ON TABLE content_type_registry IS 'Registry of detectable content types for intelligent document processing';
 
--- Seed initial content types
+-- Seed the 5 content types
+-- policy: Rules, expectations, standards
+-- procedure: Step-by-step instructions for completing tasks
+-- job_description: Role definitions with duties, qualifications
+-- training_materials: Checklists, OJT, guides (catchall for track conversion)
+-- other: Miscellaneous content
 INSERT INTO content_type_registry (
   type_code,
   display_name,
@@ -65,21 +70,48 @@ INSERT INTO content_type_registry (
 VALUES
   (
     'policy',
-    'Policy Content',
-    'Standard policy, procedure, or guideline content for training track generation',
+    'Policy',
+    'Rules, expectations, and standards that employees must follow (e.g., Sexual Harassment Policy, Attendance Policy)',
     NULL,
     'tracks',
-    ARRAY['policy', 'procedure', 'guideline', 'standard', 'compliance', 'regulation'],
-    ARRAY['policy\s*:', 'procedure\s*:', 'guidelines?\s*:']
+    ARRAY['policy', 'must', 'shall', 'prohibited', 'violation', 'disciplinary', 'compliance', 'conduct', 'standards'],
+    ARRAY['policy\s*(statement|overview)?', '\bpurpose\s*:', '\bscope\s*:', 'employees\s+(must|shall|are\s+required)', 'violation(s)?\s+(of\s+this|may\s+result)']
+  ),
+  (
+    'procedure',
+    'Procedure',
+    'Step-by-step instructions for completing a specific task (e.g., How to Change Register Paper, Opening Procedures)',
+    NULL,
+    'tracks',
+    ARRAY['step', 'procedure', 'instructions', 'sop', 'how to', 'first', 'then', 'next', 'ensure', 'verify'],
+    ARRAY['step\s+\d+', 'how\s+to\s+\w+', 'procedure\s*(for|to)?', 'standard\s+operating\s+procedure', 'follow\s+these\s+steps']
   ),
   (
     'job_description',
     'Job Description',
-    'Role/position descriptions that define job responsibilities, requirements, and qualifications',
+    'Role/position definitions with responsibilities, requirements, and qualifications',
     'extract-job-description',
     'roles',
     ARRAY['job title', 'position', 'responsibilities', 'qualifications', 'reports to', 'duties', 'requirements', 'essential functions', 'job summary', 'position summary'],
     ARRAY['job\s+title\s*:', 'reports\s+to\s*:', 'essential\s+(duties|functions)', 'qualifications?\s*:', 'responsibilities\s*:', 'position\s+summary', 'job\s+summary']
+  ),
+  (
+    'training_materials',
+    'Training Materials',
+    'Checklists, guides, OJT content, learning modules - catchall for content to convert to training tracks',
+    NULL,
+    'tracks',
+    ARRAY['training', 'checklist', 'orientation', 'onboarding', 'learning objectives', 'assessment', 'quiz', 'ojt', 'module', 'lesson', 'competency'],
+    ARRAY['training\s+(guide|manual|module)', 'learning\s+objectives?', '\bchecklist\b', 'on[- ]the[- ]job\s+training', '\bmodule\s+\d+', 'lesson\s+\d+']
+  ),
+  (
+    'other',
+    'Other',
+    'Miscellaneous content that does not fit other categories',
+    NULL,
+    NULL,
+    ARRAY[]::TEXT[],
+    ARRAY[]::TEXT[]
   )
 ON CONFLICT (type_code) DO UPDATE SET
   display_name = EXCLUDED.display_name,

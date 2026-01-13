@@ -13,13 +13,6 @@ import {
   TableRow,
 } from './ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -42,6 +35,7 @@ import {
   Eye,
   Zap,
   Layers,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
@@ -69,19 +63,32 @@ interface SourceFile {
   is_chunked?: boolean;
   chunked_at?: string | null;
   chunk_count?: number;
+  // Detected content type counts from chunks
+  detected_entity_count?: number;
+  pending_entity_count?: number;
+  has_job_descriptions?: boolean;
 }
 
-type SourceType = 'handbook' | 'policy' | 'procedures' | 'job_description' | 'communications' | 'training_docs' | 'other';
+// Content type configuration for pills (matches backend ContentClass types)
+// - policy: Rules, expectations, standards
+// - procedure: Step-by-step instructions
+// - job_description: Role definitions
+// - training_materials: Checklists, guides, OJT (catchall)
+// - other: Miscellaneous
+const CONTENT_TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  policy: { label: 'Policy', color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+  procedure: { label: 'Procedure', color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
+  job_description: { label: 'JD', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
+  training_materials: { label: 'Training', color: 'text-cyan-700 dark:text-cyan-400', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
+  other: { label: 'Other', color: 'text-gray-700 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-900/30' },
+};
 
-const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string }[] = [
-  { value: 'handbook', label: 'Handbook' },
-  { value: 'policy', label: 'Policy' },
-  { value: 'procedures', label: 'Procedures' },
-  { value: 'job_description', label: 'Job Description' },
-  { value: 'communications', label: 'Communications' },
-  { value: 'training_docs', label: 'Training Docs' },
-  { value: 'other', label: 'Other' },
-];
+interface ChunkContentSummary {
+  source_file_id: string;
+  content_class: string;
+  count: number;
+}
+
 
 const ACCEPTED_FILE_TYPES = [
   'application/pdf',
@@ -102,8 +109,13 @@ const ACCEPTED_FILE_TYPES = [
 
 const ACCEPTED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif';
 
-export function SourcesManagement() {
+interface SourcesManagementProps {
+  onOpenEditor?: (sourceFileId: string) => void;
+}
+
+export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
+  const [contentSummaries, setContentSummaries] = useState<Record<string, ChunkContentSummary[]>>({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -134,11 +146,52 @@ export function SourcesManagement() {
 
       if (error) throw error;
       setSourceFiles(data || []);
+
+      // Load content type summaries for chunked files
+      const chunkedFileIds = (data || []).filter(f => f.is_chunked).map(f => f.id);
+      if (chunkedFileIds.length > 0) {
+        await loadContentSummaries(chunkedFileIds);
+      }
     } catch (error: any) {
       console.error('Error loading source files:', error);
       toast.error('Failed to load source files');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load content type summaries from chunks
+  const loadContentSummaries = async (fileIds: string[]) => {
+    try {
+      // Query chunks grouped by content_class for each file
+      const { data: chunks, error } = await supabase
+        .from('source_chunks')
+        .select('source_file_id, content_class')
+        .in('source_file_id', fileIds);
+
+      if (error) throw error;
+
+      // Group and count by file and content class
+      const summaries: Record<string, ChunkContentSummary[]> = {};
+      (chunks || []).forEach((chunk: { source_file_id: string; content_class: string }) => {
+        if (!summaries[chunk.source_file_id]) {
+          summaries[chunk.source_file_id] = [];
+        }
+        const existing = summaries[chunk.source_file_id].find(s => s.content_class === chunk.content_class);
+        if (existing) {
+          existing.count++;
+        } else {
+          summaries[chunk.source_file_id].push({
+            source_file_id: chunk.source_file_id,
+            content_class: chunk.content_class || 'other',
+            count: 1,
+          });
+        }
+      });
+
+      setContentSummaries(summaries);
+    } catch (error: any) {
+      console.error('Error loading content summaries:', error);
     }
   };
 
@@ -534,9 +587,9 @@ export function SourcesManagement() {
               <TableRow>
                 <TableHead className="w-[300px]">File Name</TableHead>
                 <TableHead>Attachment</TableHead>
-                <TableHead className="w-[180px]">Source Type</TableHead>
-                <TableHead className="w-[100px]">Processed?</TableHead>
-                <TableHead className="w-[100px]">Chunked?</TableHead>
+                <TableHead className="w-[200px]">Detected Content</TableHead>
+                <TableHead className="w-[100px]">Extracted?</TableHead>
+                <TableHead className="w-[120px]">Status</TableHead>
                 <TableHead className="w-[100px]">Size</TableHead>
                 <TableHead className="w-[120px]">Uploaded</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
@@ -590,21 +643,29 @@ export function SourcesManagement() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Select
-                      value={file.source_type || ''}
-                      onValueChange={(value) => handleUpdateSourceType(file.id, value as SourceType)}
-                    >
-                      <SelectTrigger className="h-8 w-[160px]">
-                        <SelectValue placeholder="Select type..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SOURCE_TYPE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Show detected content types from chunks */}
+                    {file.is_chunked && contentSummaries[file.id]?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {contentSummaries[file.id].map((summary) => {
+                          const config = CONTENT_TYPE_CONFIG[summary.content_class] || CONTENT_TYPE_CONFIG.other;
+                          return (
+                            <Badge
+                              key={summary.content_class}
+                              variant="secondary"
+                              className={`${config.bgColor} ${config.color} text-xs`}
+                            >
+                              {config.label} ({summary.count})
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    ) : file.is_chunked ? (
+                      <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs">
+                        Unclassified
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {file.is_processed ? (
@@ -621,10 +682,31 @@ export function SourcesManagement() {
                   </TableCell>
                   <TableCell>
                     {file.is_chunked ? (
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                        <Layers className="h-3 w-3 mr-1" />
-                        {file.chunk_count || 0}
-                      </Badge>
+                      <button
+                        onClick={() => onOpenEditor?.(file.id)}
+                        className="inline-flex items-center"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 cursor-pointer transition-colors"
+                        >
+                          <Layers className="h-3 w-3 mr-1" />
+                          {file.chunk_count || 0} chunks
+                        </Badge>
+                      </button>
+                    ) : file.extracted_text ? (
+                      <button
+                        onClick={() => onOpenEditor?.(file.id)}
+                        className="inline-flex items-center"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 cursor-pointer transition-colors"
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Process
+                        </Badge>
+                      </button>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                         <X className="h-3 w-3 mr-1" />
@@ -646,6 +728,12 @@ export function SourcesManagement() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {onOpenEditor && (
+                          <DropdownMenuItem onClick={() => onOpenEditor(file.id)}>
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Process Document
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => handleViewFile(file)}>
                           <Download className="h-4 w-4 mr-2" />
                           Download

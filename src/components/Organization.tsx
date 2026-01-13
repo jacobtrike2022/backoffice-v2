@@ -5,6 +5,7 @@ import { TagsManagement } from './TagsManagement';
 import { RolesManagement } from './RolesManagement';
 import { RoleDetailPage } from './RoleDetailPage';
 import { SourcesManagement } from './SourcesManagement';
+import { DocumentIntelligenceEditor } from './DocumentIntelligenceEditor';
 import { Card, CardContent } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
@@ -39,6 +40,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   const [editDistrictName, setEditDistrictName] = useState('');
   const [unassignedStores, setUnassignedStores] = useState<any[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [editingSourceFileId, setEditingSourceFileId] = useState<string | null>(null);
 
   const tabs = [
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
@@ -442,15 +444,34 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
         )}
 
         {activeTab === 'sources' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold">Source Files</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Upload and manage source documents for content generation
-              </p>
+          editingSourceFileId ? (
+            <DocumentIntelligenceEditor
+              sourceFileId={editingSourceFileId}
+              onBack={() => setEditingSourceFileId(null)}
+              onViewRole={(roleId) => {
+                setActiveTab('roles');
+                setSelectedRoleId(roleId);
+              }}
+              onCreateRole={(prefillData) => {
+                // Store prefill data and navigate to role creation
+                setActiveTab('roles');
+                setSelectedRoleId('new');
+                // TODO: Pass prefill data to RoleDetailPage
+              }}
+            />
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold">Source Files</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Upload and manage source documents for content generation
+                </p>
+              </div>
+              <SourcesManagement
+                onOpenEditor={(sourceFileId) => setEditingSourceFileId(sourceFileId)}
+              />
             </div>
-            <SourcesManagement />
-          </div>
+          )
         )}
       </div>
 
