@@ -508,7 +508,7 @@ export function DashboardLayout({
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Enhanced Top bar */}
         <header className="bg-card border-b border-border px-8 py-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -610,7 +610,7 @@ export function DashboardLayout({
         </header>
 
         {/* Page content with enhanced spacing */}
-        <main className="flex-1 flex flex-col bg-background overflow-hidden">
+        <main className="flex-1 flex flex-col bg-background">
           <div className="flex-1 overflow-y-auto p-8">
             {children}
           </div>

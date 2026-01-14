@@ -45,6 +45,7 @@ import {
   Eye,
   X,
   Zap,
+  GripVertical,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
@@ -193,6 +194,10 @@ export function DocumentIntelligenceEditor({
 
   // Merge operation state
   const [merging, setMerging] = useState(false);
+
+  // Drag-drop merge state
+  const [draggedChunkId, setDraggedChunkId] = useState<string | null>(null);
+  const [dropTargetChunkId, setDropTargetChunkId] = useState<string | null>(null);
 
   // File name editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -668,6 +673,60 @@ export function DocumentIntelligenceEditor({
     }
   }
 
+  // Merge two chunks via drag-drop
+  async function mergeTwoChunks(draggedId: string, targetId: string) {
+    if (merging) return;
+
+    const draggedChunk = chunks.find(c => c.id === draggedId);
+    const targetChunk = chunks.find(c => c.id === targetId);
+
+    if (!draggedChunk || !targetChunk) {
+      toast.error('Could not find chunks to merge');
+      return;
+    }
+
+    setMerging(true);
+
+    // Sort by chunk_index to maintain document order
+    const sortedChunks = [draggedChunk, targetChunk].sort((a, b) => a.chunk_index - b.chunk_index);
+    const primaryChunk = sortedChunks[0];
+    const secondaryChunk = sortedChunks[1];
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      // Merge content
+      const mergedContent = sortedChunks.map(c => c.content).join('\n\n');
+      const mergedTitle = primaryChunk.title || `Merged Section`;
+
+      // Update primary chunk with merged content
+      await supabase
+        .from('source_chunks')
+        .update({
+          content: mergedContent,
+          title: mergedTitle,
+          word_count: mergedContent.split(/\s+/).length,
+        })
+        .eq('id', primaryChunk.id);
+
+      // Delete the secondary chunk
+      await supabase
+        .from('source_chunks')
+        .delete()
+        .eq('id', secondaryChunk.id);
+
+      // Reload chunks
+      await loadChunks();
+      toast.success('Chunks merged successfully');
+
+    } catch (error: any) {
+      toast.error('Failed to merge chunks', { description: error.message });
+    } finally {
+      setMerging(false);
+    }
+  }
+
   // Create role from Job Description chunk
   async function createRoleFromChunk(chunk: ChunkWithMeta) {
     let entityId = chunk.entity?.id;
@@ -949,6 +1008,8 @@ export function DocumentIntelligenceEditor({
                 isSelected={selectedChunks.has(chunk.id)}
                 isExpanded={expandedChunks.has(chunk.id)}
                 isHovered={hoveredChunk === chunk.id}
+                isDragging={draggedChunkId === chunk.id}
+                isDropTarget={dropTargetChunkId === chunk.id && draggedChunkId !== chunk.id}
                 onToggleSelect={() => toggleChunkSelection(chunk.id)}
                 onToggleExpand={() => toggleChunkExpansion(chunk.id)}
                 onHover={(hovered) => setHoveredChunk(hovered ? chunk.id : null)}
@@ -956,6 +1017,28 @@ export function DocumentIntelligenceEditor({
                 onCreateRole={() => createRoleFromChunk(chunk)}
                 onCreateContent={() => handleCreateContent(chunk)}
                 onViewRole={(roleId) => viewLinkedRole(roleId)}
+                onDragStart={() => setDraggedChunkId(chunk.id)}
+                onDragEnd={() => {
+                  setDraggedChunkId(null);
+                  setDropTargetChunkId(null);
+                }}
+                onDragOver={() => {
+                  if (draggedChunkId && draggedChunkId !== chunk.id) {
+                    setDropTargetChunkId(chunk.id);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dropTargetChunkId === chunk.id) {
+                    setDropTargetChunkId(null);
+                  }
+                }}
+                onDrop={() => {
+                  if (draggedChunkId && draggedChunkId !== chunk.id) {
+                    mergeTwoChunks(draggedChunkId, chunk.id);
+                  }
+                  setDraggedChunkId(null);
+                  setDropTargetChunkId(null);
+                }}
               />
             ))}
           </div>
@@ -1101,6 +1184,8 @@ interface ChunkBlockProps {
   isSelected: boolean;
   isExpanded: boolean;
   isHovered: boolean;
+  isDragging: boolean;
+  isDropTarget: boolean;
   onToggleSelect: () => void;
   onToggleExpand: () => void;
   onHover: (hovered: boolean) => void;
@@ -1108,6 +1193,11 @@ interface ChunkBlockProps {
   onCreateRole: () => void;
   onCreateContent: () => void;
   onViewRole: (roleId: string) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: () => void;
+  onDragLeave: () => void;
+  onDrop: () => void;
 }
 
 function ChunkBlock({
@@ -1115,6 +1205,8 @@ function ChunkBlock({
   isSelected,
   isExpanded,
   isHovered,
+  isDragging,
+  isDropTarget,
   onToggleSelect,
   onToggleExpand,
   onHover,
@@ -1122,6 +1214,11 @@ function ChunkBlock({
   onCreateRole,
   onCreateContent,
   onViewRole,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: ChunkBlockProps) {
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
   const Icon = config.icon;
@@ -1130,15 +1227,35 @@ function ChunkBlock({
 
   return (
     <div
-      className="group relative flex gap-3"
+      className={cn(
+        "group relative flex gap-3 transition-all",
+        isDragging && "opacity-50 scale-[0.98]",
+        isDropTarget && "ring-2 ring-orange-500 ring-offset-2 rounded-lg"
+      )}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        onDragOver();
+      }}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop();
+      }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      {/* Checkbox - visible when selected OR on hover */}
-      <div className={cn(
-        "pt-4 transition-opacity",
-        isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-      )}>
+      {/* Drag handle + Checkbox */}
+      <div className="pt-4 flex items-start gap-1">
+        <div className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors">
+          <GripVertical className="h-5 w-5" />
+        </div>
         <Checkbox
           checked={isSelected}
           onCheckedChange={onToggleSelect}
