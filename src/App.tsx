@@ -206,6 +206,13 @@ export default function App() {
         window.location.pathname,
       );
     }
+
+    // Check for tab=sources navigation (deep link to source document)
+    const tab = urlParams.get("tab");
+    if (tab === "sources") {
+      setCurrentView("organization");
+      // Don't clear params here - Organization component will handle sourceFileId
+    }
   }, []);
 
   // Additional URL routing for tracks created from playlists

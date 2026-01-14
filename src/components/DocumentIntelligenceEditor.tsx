@@ -61,7 +61,7 @@ const CONTENT_TYPES = {
   policy: { label: 'Policy', color: 'border-blue-500', bgColor: 'bg-blue-500/10', icon: BookOpen },
   procedure: { label: 'Procedure', color: 'border-purple-500', bgColor: 'bg-purple-500/10', icon: FileText },
   job_description: { label: 'Job Description', color: 'border-green-500', bgColor: 'bg-green-500/10', icon: Briefcase },
-  training_materials: { label: 'Training', color: 'border-gray-400', bgColor: 'bg-gray-200 dark:bg-gray-700/30', icon: BookOpen },
+  training_materials: { label: 'Training', color: 'border-orange-500', bgColor: 'bg-orange-500/10', icon: BookOpen },
   other: { label: 'Other', color: 'border-gray-400', bgColor: 'bg-gray-400/10', icon: HelpCircle },
 } as const;
 
@@ -367,17 +367,21 @@ export function DocumentIntelligenceEditor({
     }
 
     // Get tracks linked via track_source_chunks
-    const { data: trackLinks } = await supabase
+    const { data: trackLinks, error: trackError } = await supabase
       .from('track_source_chunks')
-      .select('source_chunk_id, track_id, tracks(id, name)')
+      .select('source_chunk_id, track_id, tracks(id, title)')
       .in('source_chunk_id', chunkIds);
+
+    if (trackError) {
+      console.log('track_source_chunks query error:', trackError.message);
+    }
 
     trackLinks?.forEach((link: any) => {
       if (link.tracks) {
         linkedMap[link.source_chunk_id].push({
           type: 'track',
           id: link.tracks.id,
-          name: link.tracks.name,
+          name: link.tracks.title, // tracks table uses 'title' not 'name'
         });
       }
     });
@@ -644,12 +648,20 @@ export function DocumentIntelligenceEditor({
   }
 
   // Handle track generation completion
-  function handleTrackGenerationComplete() {
+  function handleTrackGenerationComplete(tracks?: any[]) {
     setShowTrackGenerator(false);
     setChunksForTrackGeneration([]);
     // Reload chunks to show the new linked tracks
     loadChunks();
-    toast.success('Track created successfully');
+
+    const trackName = tracks?.[0]?.title || 'Training content';
+    toast.success('Track created', {
+      description: trackName,
+      action: tracks?.[0] ? {
+        label: 'View',
+        onClick: () => window.open(`/?track=${tracks[0].track_id || tracks[0].id}&type=article`, '_blank')
+      } : undefined
+    });
   }
 
   // Computed values
@@ -716,32 +728,25 @@ export function DocumentIntelligenceEditor({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {!sourceFile.is_chunked ? (
-              <Button
-                onClick={processDocument}
-                disabled={processing}
-                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
-              >
-                {processing ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {processingStep || 'Processing...'}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Process Document
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button variant="outline" size="sm" onClick={onBack}>
-                <Check className="h-4 w-4 mr-2" />
-                Done
-              </Button>
-            )}
-          </div>
+          {!sourceFile.is_chunked && (
+            <Button
+              onClick={processDocument}
+              disabled={processing}
+              className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
+            >
+              {processing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {processingStep || 'Processing...'}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Process Document
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -846,8 +851,8 @@ export function DocumentIntelligenceEditor({
             chunk_type: c.content_class,
           }))}
           sourceFileName={sourceFile.file_name}
-          onTracksGenerated={() => {
-            handleTrackGenerationComplete();
+          onTracksGenerated={(tracks) => {
+            handleTrackGenerationComplete(tracks);
           }}
         />
       )}
@@ -1045,9 +1050,17 @@ function ChunkBlock({
 
           {/* Linked tracks */}
           {linkedTracks.length > 0 ? (
-            <div className="flex items-center gap-1 text-blue-600">
-              <BookOpen className="h-3 w-3" />
-              <span>{linkedTracks.length} track{linkedTracks.length > 1 ? 's' : ''}</span>
+            <div className="space-y-1">
+              {linkedTracks.map(track => (
+                <button
+                  key={track.id}
+                  onClick={() => window.open(`/?track=${track.id}&type=article`, '_blank')}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 text-xs hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
+                >
+                  <BookOpen className="h-3 w-3" />
+                  <span className="truncate max-w-[100px]">{track.name}</span>
+                </button>
+              ))}
             </div>
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button

@@ -14412,6 +14412,37 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           console.log('[generate-tracks] source_chunks conversion columns not available yet');
         }
 
+        // Auto-extract key facts for the new track (non-blocking)
+        try {
+          console.log('[generate-tracks] Auto-extracting key facts for track:', track.id);
+          const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              title: enhanced.title,
+              description: enhanced.description || "",
+              transcript: enhanced.content,
+              trackType: "article",
+              trackId: track.id,
+              companyId: organizationId,
+            }),
+          });
+
+          if (factsResponse.ok) {
+            const factsData = await factsResponse.json();
+            console.log(`[generate-tracks] ✅ Auto-generated ${factsData.factIds?.length || 0} key facts for track ${track.id}`);
+          } else {
+            const error = await factsResponse.json().catch(() => ({}));
+            console.error('[generate-tracks] Failed to auto-generate key facts:', error);
+          }
+        } catch (factError) {
+          console.error('[generate-tracks] Error auto-generating key facts (non-blocking):', factError);
+          // Continue without facts - not a critical failure
+        }
+
         generatedTracks.push({
           track_id: track.id,
           title: track.title,
@@ -14599,6 +14630,37 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
       console.log('[generate-combined] source_chunks conversion columns not available yet');
     }
 
+    // Auto-extract key facts for the new combined track (non-blocking)
+    try {
+      console.log('[generate-combined] Auto-extracting key facts for track:', track.id);
+      const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: combinedContent.title,
+          description: combinedContent.description || "",
+          transcript: combinedContent.content,
+          trackType: "article",
+          trackId: track.id,
+          companyId: organizationId,
+        }),
+      });
+
+      if (factsResponse.ok) {
+        const factsData = await factsResponse.json();
+        console.log(`[generate-combined] ✅ Auto-generated ${factsData.factIds?.length || 0} key facts for track ${track.id}`);
+      } else {
+        const error = await factsResponse.json().catch(() => ({}));
+        console.error('[generate-combined] Failed to auto-generate key facts:', error);
+      }
+    } catch (factError) {
+      console.error('[generate-combined] Error auto-generating key facts (non-blocking):', factError);
+      // Continue without facts - not a critical failure
+    }
+
     const processingTimeMs = Date.now() - startTime;
 
     return jsonResponse({
@@ -14728,24 +14790,40 @@ async function enhanceChunkForTrack(
   }
 
   try {
-    const prompt = `You are creating training content for employees from a ${sourceType} document.
+    const prompt = `You are a document cleanup and formatting engine. Your job is to clean up and format extracted text into proper HTML - NOT to rewrite, paraphrase, or summarize. Preserve the original wording exactly.
 
-Source content:
-${chunk.content.slice(0, 3000)}
+Source content (extracted from PDF/document):
+${chunk.content.slice(0, 4000)}
 
 Original title: ${chunk.title || 'None provided'}
 
-Create engaging training content. Return JSON with:
-- title: Clear, action-oriented title (max 60 chars). Don't use generic titles like "Introduction" - be specific.
-- description: 1-2 sentence description of what the learner will understand (max 200 chars)
-- content: The content formatted as clean HTML for reading. Use <h2> for section headers, <p> for paragraphs, <ul>/<li> for lists. Make it scannable and easy to read. Keep all important information but improve clarity.
-- key_points: Array of 3-5 key takeaways the learner should remember
+CLEANUP TASKS (do all that apply):
+1. IDENTIFY HEADERS: Find main titles and section headers, format as <h2> or <h3>
+2. FIX EXTRACTION ARTIFACTS: Remove weird characters, extra spaces, periods instead of spaces, broken sentences that got split mid-word
+3. REMOVE PRINT ARTIFACTS: Remove signature lines (___), page numbers, repeated headers/footers, "Page X of Y"
+4. FIX LISTS: Convert squares/bullets/dashes to proper <ul><li> lists. Convert hardcoded numbers (1. 2. 3.) to <ol><li> lists
+5. FORMAT PARAGRAPHS: Wrap text blocks in <p> tags
+6. FIX LINE BREAKS: Rejoin sentences that were incorrectly split across lines
+7. PRESERVE EVERYTHING ELSE: Keep all original content, wording, and meaning exactly as written
+
+DO NOT:
+- Rewrite or paraphrase any content
+- Summarize or shorten anything
+- Add new information
+- Change the meaning or tone
+- Remove important content
+
+Return JSON with:
+- title: Extract the main title from the content (or use original if clear). Max 80 chars.
+- description: First 1-2 sentences of the actual content (not a summary you write). Max 200 chars.
+- content: The FULL original content, cleaned up and formatted as HTML. Use <h2>/<h3> for headers, <p> for paragraphs, <ul>/<ol>/<li> for lists, <strong> for emphasis.
+- key_points: Array of 3-5 actual key points/rules mentioned IN the document (quote them, don't paraphrase)
 
 Return only valid JSON.`;
 
     const response = await callOpenAI(
       [{ role: "user", content: prompt }],
-      { temperature: 0.4, response_format: { type: "json_object" } }
+      { temperature: 0.1, response_format: { type: "json_object" } } // Low temp for consistent formatting
     );
 
     const parsed = JSON.parse(response);

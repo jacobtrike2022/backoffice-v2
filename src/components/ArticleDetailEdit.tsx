@@ -48,6 +48,7 @@ import * as trackRelCrud from '../lib/crud/trackRelationships';
 import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import defaultThumbnail from '../assets/default-thumbnail.jpg';
 
 interface ArticleDetailEditProps {
@@ -94,7 +95,15 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   
   // TTS refresh key - increment this to force TTS player to refresh
   const [ttsRefreshKey, setTtsRefreshKey] = useState(0);
-  
+
+  // Source document info (if track was generated from a source chunk)
+  const [sourceDocumentInfo, setSourceDocumentInfo] = useState<{
+    sourceFileId: string;
+    sourceFileName: string;
+    sourceChunkId: string;
+    chunkTitle: string;
+  } | null>(null);
+
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -155,8 +164,59 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         console.error('Error loading attachments:', error);
       }
     };
-    
+
     loadAttachments();
+  }, [track.id]);
+
+  // Load source document info (if track was generated from a source chunk)
+  useEffect(() => {
+    const loadSourceDocumentInfo = async () => {
+      try {
+        // Query track_source_chunks to find the source chunk
+        const { data: trackChunks, error: chunkError } = await supabase
+          .from('track_source_chunks')
+          .select(`
+            source_chunk_id,
+            source_chunks!inner (
+              id,
+              title,
+              source_file_id,
+              source_files!inner (
+                id,
+                file_name
+              )
+            )
+          `)
+          .eq('track_id', track.id)
+          .limit(1);
+
+        if (chunkError) {
+          // Table might not exist yet - that's fine
+          console.log('Could not load source document info:', chunkError.message);
+          return;
+        }
+
+        if (trackChunks && trackChunks.length > 0) {
+          const chunk = trackChunks[0];
+          const sourceChunk = chunk.source_chunks as any;
+          const sourceFile = sourceChunk?.source_files as any;
+
+          if (sourceFile) {
+            setSourceDocumentInfo({
+              sourceFileId: sourceFile.id,
+              sourceFileName: sourceFile.file_name,
+              sourceChunkId: sourceChunk.id,
+              chunkTitle: sourceChunk.title || 'Untitled chunk',
+            });
+          }
+        }
+      } catch (error) {
+        // Silently fail - source document info is optional
+        console.log('Source document lookup failed:', error);
+      }
+    };
+
+    loadSourceDocumentInfo();
   }, [track.id]);
 
   // Calculate reading time based on word count
@@ -1925,6 +1985,28 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   {track.updated_at ? new Date(track.updated_at).toLocaleDateString() : 'N/A'}
                 </span>
               </div>
+
+              {/* Source Document Link */}
+              {sourceDocumentInfo && (
+                <>
+                  <Separator />
+                  <button
+                    onClick={() => {
+                      window.location.href = `/?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}`;
+                    }}
+                    className="flex items-center gap-2 w-full text-left hover:bg-muted/50 rounded-md p-1 -mx-1 transition-colors"
+                  >
+                    <span className="text-sm text-muted-foreground flex items-center gap-2 shrink-0">
+                      <FileText className="h-4 w-4" />
+                      Source Document
+                    </span>
+                    <span className="text-sm font-medium truncate flex-1 text-right" title={sourceDocumentInfo.sourceFileName}>
+                      {sourceDocumentInfo.sourceFileName}
+                    </span>
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                </>
+              )}
             </CardContent>
           </Card>
 

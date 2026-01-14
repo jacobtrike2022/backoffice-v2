@@ -50,6 +50,23 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   ];
 
 
+  // Handle URL parameters for deep linking to source files
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sourceFileIdParam = urlParams.get('sourceFileId');
+    const tabParam = urlParams.get('tab');
+
+    // If navigating to sources tab with a specific file
+    if (tabParam === 'sources') {
+      setActiveTab('sources');
+      if (sourceFileIdParam) {
+        setEditingSourceFileId(sourceFileIdParam);
+        // Clean up URL params after navigation
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []);
+
   // Fetch districts when tab is active
   useEffect(() => {
     if (activeTab === 'districts') {

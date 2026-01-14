@@ -4,22 +4,16 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { Checkbox } from './ui/checkbox';
+import { Switch } from './ui/switch';
 import {
   Loader2,
   Zap,
-  FileText,
-  Layers,
-  ArrowRight,
-  CheckCircle2,
+  BookOpen,
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -51,24 +45,24 @@ export function ChunkToTrackGenerator({
   sourceFileName,
   onTracksGenerated,
 }: ChunkToTrackGeneratorProps) {
-  const [mode, setMode] = useState<'individual' | 'combined'>('individual');
-  const [combinedTitle, setCombinedTitle] = useState('');
-  const [publishImmediately, setPublishImmediately] = useState(false);
-  const [skipAI, setSkipAI] = useState(false);
+  // For single chunk, use its title. For multiple, allow custom title
+  const defaultTitle = selectedChunks.length === 1
+    ? selectedChunks[0].title
+    : '';
+
+  const [title, setTitle] = useState(defaultTitle);
+  const [publishImmediately, setPublishImmediately] = useState(true);
+  const [useAI, setUseAI] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [results, setResults] = useState<{
-    success: boolean;
-    tracks?: any[];
-    error?: string;
-  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const totalWords = selectedChunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
-  const estimatedMinutes = Math.ceil(totalWords / 200);
+  const isSingleChunk = selectedChunks.length === 1;
   const alreadyConverted = selectedChunks.filter(c => c.is_converted).length;
 
   const handleGenerate = async () => {
     setGenerating(true);
-    setResults(null);
+    setError(null);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -80,7 +74,8 @@ export function ChunkToTrackGenerator({
       const chunkIds = selectedChunks.map(c => c.id);
 
       let response;
-      if (mode === 'individual') {
+      if (isSingleChunk) {
+        // Single chunk = individual track
         response = await fetch(`${serverUrl}/generate-tracks-from-chunks`, {
           method: 'POST',
           headers: {
@@ -92,11 +87,13 @@ export function ChunkToTrackGenerator({
             chunk_ids: chunkIds,
             options: {
               publish: publishImmediately,
-              skipAI: skipAI,
+              skipAI: !useAI,
+              customTitle: title || undefined,
             },
           }),
         });
       } else {
+        // Multiple chunks = combined track
         response = await fetch(`${serverUrl}/generate-combined-track`, {
           method: 'POST',
           headers: {
@@ -106,10 +103,10 @@ export function ChunkToTrackGenerator({
           },
           body: JSON.stringify({
             chunk_ids: chunkIds,
-            title: combinedTitle || undefined,
+            title: title || undefined,
             options: {
               publish: publishImmediately,
-              skipAI: skipAI,
+              skipAI: !useAI,
             },
           }),
         });
@@ -121,257 +118,124 @@ export function ChunkToTrackGenerator({
         throw new Error(data.error || 'Generation failed');
       }
 
-      const tracks = mode === 'individual' ? data.tracks : [data.track];
-      setResults({ success: true, tracks });
-
-      toast.success(
-        mode === 'individual'
-          ? `Generated ${tracks.length} tracks`
-          : 'Generated combined track',
-        { description: `Processing took ${data.processing_time_ms}ms` }
-      );
-
+      const tracks = isSingleChunk ? data.tracks : [data.track];
       onTracksGenerated?.(tracks);
+      handleClose();
 
     } catch (error: any) {
       console.error('Generation error:', error);
-      setResults({ success: false, error: error.message });
-      toast.error('Generation failed', { description: error.message });
+      setError(error.message);
+      toast.error('Failed to create track', { description: error.message });
     } finally {
       setGenerating(false);
     }
   };
 
   const handleClose = () => {
-    setResults(null);
-    setMode('individual');
-    setCombinedTitle('');
-    setPublishImmediately(false);
-    setSkipAI(false);
+    setTitle(defaultTitle);
+    setPublishImmediately(true);
+    setUseAI(true);
+    setError(null);
     onClose();
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="max-w-md">
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-[#F74A05]" />
-            Generate Training Content
+            Create Training Track
           </DialogTitle>
-          <DialogDescription>
-            Convert {selectedChunks.length} chunk{selectedChunks.length !== 1 ? 's' : ''} into training tracks
-          </DialogDescription>
         </DialogHeader>
 
-        {!results ? (
-          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-            {/* Source Info */}
-            <div className="bg-muted/50 rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">{sourceFileName}</span>
-              </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>{selectedChunks.length} chunks selected</span>
-                <span>{totalWords.toLocaleString()} total words</span>
-                <span>~{estimatedMinutes} min read</span>
-              </div>
-              {alreadyConverted > 0 && (
-                <div className="flex items-center gap-2 text-sm text-amber-600">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>{alreadyConverted} chunk{alreadyConverted !== 1 ? 's' : ''} already converted</span>
-                </div>
-              )}
+        <div className="space-y-4 py-2">
+          {/* Already converted warning */}
+          {alreadyConverted > 0 && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-lg text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>This content was already converted to a track</span>
             </div>
+          )}
 
-            {/* Generation Mode */}
-            <div className="space-y-3">
-              <Label>Generation Mode</Label>
-              <RadioGroup value={mode} onValueChange={(v) => setMode(v as 'individual' | 'combined')}>
-                <div className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/30 cursor-pointer">
-                  <RadioGroupItem value="individual" id="individual" className="mt-1" />
-                  <div className="flex-1">
-                    <Label htmlFor="individual" className="cursor-pointer font-medium">
-                      Individual Tracks
-                    </Label>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Create {selectedChunks.length} separate track{selectedChunks.length !== 1 ? 's' : ''}, one per chunk.
-                      Best for distinct topics.
-                    </p>
-                  </div>
-                  <Badge variant="secondary">{selectedChunks.length} tracks</Badge>
-                </div>
-                <div className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/30 cursor-pointer">
-                  <RadioGroupItem value="combined" id="combined" className="mt-1" />
-                  <div className="flex-1">
-                    <Label htmlFor="combined" className="cursor-pointer font-medium">
-                      Combined Track
-                    </Label>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Merge all chunks into a single comprehensive track with sections.
-                      Best for related content.
-                    </p>
-                  </div>
-                  <Badge variant="secondary">1 track</Badge>
-                </div>
-              </RadioGroup>
-            </div>
+          {/* Source info */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <BookOpen className="h-4 w-4" />
+            <span>{totalWords.toLocaleString()} words from {sourceFileName}</span>
+          </div>
 
-            {/* Combined Title */}
-            {mode === 'combined' && (
-              <div className="space-y-2">
-                <Label htmlFor="combinedTitle">Module Title (optional)</Label>
-                <Input
-                  id="combinedTitle"
-                  placeholder="e.g., Employee Safety Guidelines"
-                  value={combinedTitle}
-                  onChange={(e) => setCombinedTitle(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to auto-generate a title
-                </p>
-              </div>
+          {/* Title input */}
+          <div className="space-y-2">
+            <Label htmlFor="trackTitle">Track Title</Label>
+            <Input
+              id="trackTitle"
+              placeholder={isSingleChunk ? "Use AI to generate title" : "e.g., Customer Service Guidelines"}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            {!title && useAI && (
+              <p className="text-xs text-muted-foreground">
+                Leave blank for AI-generated title
+              </p>
             )}
+          </div>
 
-            {/* Options */}
-            <div className="space-y-3 pt-2">
-              <Label>Options</Label>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="publish"
-                    checked={publishImmediately}
-                    onCheckedChange={(c) => setPublishImmediately(c === true)}
-                  />
-                  <Label htmlFor="publish" className="text-sm cursor-pointer">
-                    Publish immediately (otherwise saves as draft)
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="skipAI"
-                    checked={skipAI}
-                    onCheckedChange={(c) => setSkipAI(c === true)}
-                  />
-                  <Label htmlFor="skipAI" className="text-sm cursor-pointer">
-                    Skip AI enhancement (faster, uses raw content)
-                  </Label>
-                </div>
+          {/* Options */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="publish" className="text-sm">Publish immediately</Label>
+                <p className="text-xs text-muted-foreground">Otherwise saves as draft</p>
               </div>
+              <Switch
+                id="publish"
+                checked={publishImmediately}
+                onCheckedChange={setPublishImmediately}
+              />
             </div>
 
-            {/* Preview */}
-            <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Layers className="h-4 w-4" />
-                Preview
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="useAI" className="text-sm">AI Enhancement</Label>
+                <p className="text-xs text-muted-foreground">Format and structure content</p>
               </div>
-              <div
-                className="text-sm text-muted-foreground space-y-1"
-                style={{ maxHeight: '120px', overflowY: 'auto' }}
-              >
-                {mode === 'individual' ? (
-                  selectedChunks.map((chunk, i) => (
-                    <div key={chunk.id} className="flex items-center gap-2">
-                      <ArrowRight className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{chunk.title || `Chunk ${chunk.chunk_index + 1}`}</span>
-                      <span className="text-xs shrink-0">({chunk.word_count} words)</span>
-                    </div>
-                  ))
-                ) : (
-                  <div>
-                    <div className="font-medium text-foreground mb-1">
-                      {combinedTitle || 'Auto-generated Title'}
-                    </div>
-                    {selectedChunks.map((chunk, i) => (
-                      <div key={chunk.id} className="flex items-center gap-2 ml-2">
-                        <span className="text-xs text-muted-foreground shrink-0">{i + 1}</span>
-                        <span className="truncate">{chunk.title || `Section ${i + 1}`}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Switch
+                id="useAI"
+                checked={useAI}
+                onCheckedChange={setUseAI}
+              />
             </div>
           </div>
-        ) : (
-          /* Results */
-          <div className="space-y-4">
-            {results.success ? (
+
+          {/* Error display */}
+          {error && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={generating}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
+          >
+            {generating ? (
               <>
-                <div className="flex items-center gap-3 text-green-600">
-                  <CheckCircle2 className="h-8 w-8" />
-                  <div>
-                    <p className="font-semibold text-lg">Generation Complete!</p>
-                    <p className="text-sm text-muted-foreground">
-                      Created {results.tracks?.length} track{results.tracks?.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-                <div className="border rounded-lg divide-y">
-                  {results.tracks?.map((track, i) => (
-                    <div key={track.track_id || track.id} className="p-3 flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{track.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {track.status === 'published' ? 'Published' : 'Draft'}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          // Navigate to track editor using the app's deep link format
-                          // Format: /?track=<id>&type=<type>
-                          const trackId = track.track_id || track.id;
-                          const trackType = track.type || 'article';
-                          window.open(`/?track=${trackId}&type=${trackType}`, '_blank');
-                        }}
-                      >
-                        View
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Creating...
               </>
             ) : (
-              <div className="flex items-center gap-3 text-red-600">
-                <AlertCircle className="h-8 w-8" />
-                <div>
-                  <p className="font-semibold text-lg">Generation Failed</p>
-                  <p className="text-sm">{results.error}</p>
-                </div>
-              </div>
+              <>
+                <Zap className="h-4 w-4 mr-2" />
+                Create Track
+              </>
             )}
-          </div>
-        )}
-
-        <DialogFooter className="shrink-0 pt-4">
-          {!results ? (
-            <>
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button onClick={handleGenerate} disabled={generating}>
-                {generating ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="h-4 w-4 mr-2" />
-                    Generate {mode === 'individual' ? `${selectedChunks.length} Tracks` : 'Track'}
-                  </>
-                )}
-              </Button>
-            </>
-          ) : (
-            <Button onClick={handleClose}>
-              Done
-            </Button>
-          )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
