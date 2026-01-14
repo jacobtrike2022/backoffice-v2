@@ -654,9 +654,10 @@ html {
   border-radius: 4px;
   font-family: 'Courier New', monospace;
   font-size: 0.9em;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  word-break: break-word;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
 }
 
 .article-content pre {
@@ -665,18 +666,55 @@ html {
   padding: 1rem;
   border-radius: var(--radius-md);
   margin-bottom: 1rem;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow-wrap: break-word;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow-x: hidden !important;
 }
 
 .article-content pre code {
   background: none;
   padding: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  word-break: break-word;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Override Tailwind prose code/pre styles for word wrapping */
+.prose code,
+.prose pre,
+.prose pre code,
+.article-content.prose code,
+.article-content.prose pre,
+.article-content.prose pre code {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
+
+/* Force code blocks to respect container width */
+.article-content pre,
+.article-content code,
+.prose pre,
+.prose code {
+  max-width: 100% !important;
+  display: block !important;
+}
+
+/* Inline code should remain inline but still wrap */
+.article-content p code,
+.article-content li code,
+.prose p code,
+.prose li code {
+  display: inline !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
 }
 
 .article-content strong {

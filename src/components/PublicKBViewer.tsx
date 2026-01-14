@@ -491,11 +491,11 @@ export function PublicKBViewer() {
     if (!hasHtmlTags) {
       // Convert Markdown to HTML only if there are no existing HTML tags
 
-      // Code blocks (```)
-      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+      // Code blocks (```) - with inline styles for word wrapping
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>');
 
-      // Inline code (`)
-      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Inline code (`) - with inline styles for word wrapping
+      html = html.replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>');
 
       // Headers (# ## ### etc.)
       html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
@@ -886,9 +886,10 @@ export function PublicKBViewer() {
 
           {/* Article Body (article type only) */}
           {track.type === 'article' && (track.article_body || track.transcript) && (
-            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
+            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800 overflow-hidden">
               <div
-                className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:whitespace-pre-wrap prose-code:break-words prose-pre:bg-gray-100 dark:prose-pre:bg-gray-800 prose-pre:p-4 prose-pre:rounded-lg prose-pre:whitespace-pre-wrap prose-pre:break-words prose-blockquote:border-l-4 prose-blockquote:border-[#FF6B35] prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-[#FF6B35] prose-img:rounded-lg"
+                className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-pre:bg-gray-100 dark:prose-pre:bg-gray-800 prose-pre:p-4 prose-pre:rounded-lg prose-blockquote:border-l-4 prose-blockquote:border-[#FF6B35] prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-[#FF6B35] prose-img:rounded-lg"
+                style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
                 dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(track.article_body || track.transcript || '') }}
               />
             </div>

@@ -1812,11 +1812,11 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     if (!hasHtmlTags) {
       // Convert Markdown to HTML only if there are no existing HTML tags
 
-      // Code blocks (```)
-      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+      // Code blocks (```) - with inline styles for word wrapping
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>');
 
-      // Inline code (`)
-      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Inline code (`) - with inline styles for word wrapping
+      html = html.replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>');
 
       // Headers (# ## ### etc.)
       html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');

@@ -1148,10 +1148,10 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
     // Convert Markdown to HTML
     let html = content
-      // Code blocks (```)
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
-      // Inline code (`)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      // Code blocks (```) - with inline styles for word wrapping
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>')
+      // Inline code (`) - with inline styles for word wrapping
+      .replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>')
       // Headers
       .replace(/^### (.*$)/gim, '<h3>$1</h3>')
       .replace(/^## (.*$)/gim, '<h2>$1</h2>')
