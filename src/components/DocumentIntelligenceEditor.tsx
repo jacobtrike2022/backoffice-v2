@@ -149,6 +149,8 @@ interface DocumentIntelligenceEditorProps {
     department: string;
     jobDescription: string;
   }) => void;
+  /** Chunk ID to auto-expand and scroll to (for deep linking from role JD hotlinks) */
+  highlightChunkId?: string | null;
 }
 
 export function DocumentIntelligenceEditor({
@@ -156,6 +158,7 @@ export function DocumentIntelligenceEditor({
   onBack,
   onViewRole,
   onCreateRole,
+  highlightChunkId,
 }: DocumentIntelligenceEditorProps) {
 
   // Core state
@@ -191,12 +194,43 @@ export function DocumentIntelligenceEditor({
   // Merge operation state
   const [merging, setMerging] = useState(false);
 
+  // File name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedFileName, setEditedFileName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const fileNameInputRef = useRef<HTMLInputElement>(null);
+
   // Load source file and chunks
   useEffect(() => {
     if (sourceFileId) {
       loadSourceFile();
     }
   }, [sourceFileId]);
+
+  // Auto-expand and scroll to highlighted chunk (from JD hotlink deep linking)
+  useEffect(() => {
+    if (highlightChunkId && chunks.length > 0) {
+      // Expand the highlighted chunk
+      setExpandedChunks(prev => {
+        const next = new Set(prev);
+        next.add(highlightChunkId);
+        return next;
+      });
+
+      // Scroll to the chunk after a short delay for DOM to update
+      setTimeout(() => {
+        const chunkElement = document.getElementById(`chunk-${highlightChunkId}`);
+        if (chunkElement) {
+          chunkElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a brief highlight effect
+          chunkElement.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+          setTimeout(() => {
+            chunkElement.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+          }, 2000);
+        }
+      }, 100);
+    }
+  }, [highlightChunkId, chunks.length]);
 
   async function loadSourceFile() {
     if (!sourceFileId) return;
@@ -226,6 +260,64 @@ export function DocumentIntelligenceEditor({
       toast.error('Failed to load document', { description: error.message });
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Start editing the file name
+  function startEditingName() {
+    if (sourceFile) {
+      setEditedFileName(sourceFile.file_name);
+      setIsEditingName(true);
+      // Focus the input after state update
+      setTimeout(() => fileNameInputRef.current?.focus(), 0);
+    }
+  }
+
+  // Cancel editing and reset
+  function cancelEditingName() {
+    setIsEditingName(false);
+    setEditedFileName('');
+  }
+
+  // Save the updated file name to the database
+  async function saveFileName() {
+    if (!sourceFile || !editedFileName.trim()) return;
+
+    const trimmedName = editedFileName.trim();
+    if (trimmedName === sourceFile.file_name) {
+      // No change, just exit edit mode
+      setIsEditingName(false);
+      return;
+    }
+
+    setSavingName(true);
+    try {
+      const { error } = await supabase
+        .from('source_files')
+        .update({ file_name: trimmedName })
+        .eq('id', sourceFile.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setSourceFile({ ...sourceFile, file_name: trimmedName });
+      setIsEditingName(false);
+      toast.success('File name updated');
+    } catch (error: any) {
+      console.error('Error updating file name:', error);
+      toast.error('Failed to update file name', { description: error.message });
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  // Handle Enter key to save, Escape to cancel
+  function handleNameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveFileName();
+    } else if (e.key === 'Escape') {
+      cancelEditingName();
     }
   }
 
@@ -684,7 +776,7 @@ export function DocumentIntelligenceEditor({
   if (loading) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           <Skeleton className="h-10 w-64" />
           <Skeleton className="h-20 w-full" />
           <div className="space-y-4">
@@ -716,7 +808,7 @@ export function DocumentIntelligenceEditor({
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={onBack}>
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -724,7 +816,55 @@ export function DocumentIntelligenceEditor({
             </Button>
             <Separator orientation="vertical" className="h-6" />
             <div>
-              <h1 className="text-lg font-semibold">{sourceFile.file_name}</h1>
+              {isEditingName ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileNameInputRef}
+                    type="text"
+                    value={editedFileName}
+                    onChange={(e) => setEditedFileName(e.target.value)}
+                    onKeyDown={handleNameKeyDown}
+                    onBlur={() => {
+                      // Small delay to allow click on save button
+                      setTimeout(() => {
+                        if (isEditingName && !savingName) cancelEditingName();
+                      }, 150);
+                    }}
+                    className="text-lg font-semibold bg-transparent border-b-2 border-primary outline-none px-1 min-w-[200px]"
+                    disabled={savingName}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={saveFileName}
+                    disabled={savingName || !editedFileName.trim()}
+                    className="h-7 w-7 p-0"
+                  >
+                    {savingName ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4 text-green-600" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={cancelEditingName}
+                    disabled={savingName}
+                    className="h-7 w-7 p-0"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <h1
+                  className="text-lg font-semibold cursor-pointer hover:text-primary transition-colors"
+                  onClick={startEditingName}
+                  title="Click to rename"
+                >
+                  {sourceFile.file_name}
+                </h1>
+              )}
               <p className="text-sm text-muted-foreground">
                 {sourceFile.is_chunked
                   ? `${chunks.length} chunks identified`
@@ -755,7 +895,7 @@ export function DocumentIntelligenceEditor({
       </div>
 
       {/* Content */}
-      <div className="max-w-5xl mx-auto p-6">
+      <div className="max-w-6xl mx-auto p-6">
         {/* Summary bar */}
         {chunks.length > 0 && (
           <div className="mb-6 space-y-4">
@@ -854,11 +994,18 @@ export function DocumentIntelligenceEditor({
             setSelectedEntityId(null);
           }}
           entityId={selectedEntityId}
-          onProcessComplete={() => {
+          onProcessComplete={(createdRoleId?: string) => {
             setShowEntityProcessor(false);
             setSelectedEntityId(null);
             loadChunks(); // Reload to show the linked role
-            toast.success('Role created successfully');
+
+            // Navigate to the role edit page if a role was created/merged
+            if (createdRoleId) {
+              // Build the role edit URL
+              const { origin, pathname } = window.location;
+              const rolesUrl = `${origin}/roles/${createdRoleId}`;
+              window.location.href = rolesUrl;
+            }
           }}
         />
       )}
@@ -926,6 +1073,24 @@ export function DocumentIntelligenceEditor({
           </div>
         </div>
       )}
+
+      {/* Processing Overlay - for JD extraction */}
+      {processing && processingStep && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-card border shadow-2xl">
+            <div className="relative">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 text-white animate-spin" />
+              </div>
+              <div className="absolute -inset-2 rounded-full border-2 border-orange-500/30 animate-pulse" />
+            </div>
+            <div className="text-center">
+              <p className="text-lg font-medium">{processingStep}</p>
+              <p className="text-sm text-muted-foreground mt-1">This may take a moment...</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -982,6 +1147,7 @@ function ChunkBlock({
 
       {/* Main chunk card - clickable for selection */}
       <div
+        id={`chunk-${chunk.id}`}
         className={cn(
           "flex-1 rounded-lg border-l-4 bg-card transition-all cursor-pointer",
           config.color,
@@ -1090,50 +1256,50 @@ function ChunkBlock({
       {/* Margin sidebar - connected content */}
       <div
         className={cn(
-          "w-36 pt-2 transition-opacity",
+          "w-48 pt-2 transition-opacity flex-shrink-0",
           isHovered || chunk.linkedContent.length > 0 ? "opacity-100" : "opacity-0"
         )}
       >
-        <div className="text-xs space-y-2">
+        <div className="text-sm space-y-2">
           {/* Linked role (for Job Descriptions) */}
           {linkedRole ? (
             <button
               onClick={() => onViewRole(linkedRole.id)}
-              className="flex items-center gap-1 text-green-600 hover:underline"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors max-w-full"
             >
-              <Briefcase className="h-3 w-3" />
+              <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
               <span className="truncate">{linkedRole.name}</span>
             </button>
           ) : chunk.content_class === 'job_description' ? (
             <button
               onClick={onCreateRole}
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3.5 w-3.5" />
               <span>Role</span>
             </button>
           ) : null}
 
           {/* Linked tracks */}
           {linkedTracks.length > 0 ? (
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {linkedTracks.map(track => (
                 <button
                   key={track.id}
                   onClick={() => window.open(`/?track=${track.id}&type=article`, '_blank')}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 text-xs hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors max-w-full"
                 >
-                  <BookOpen className="h-3 w-3" />
-                  <span className="truncate max-w-[100px]">{track.name}</span>
+                  <BookOpen className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{track.name}</span>
                 </button>
               ))}
             </div>
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button
               onClick={onCreateContent}
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3.5 w-3.5" />
               <span>Content</span>
             </button>
           ) : null}

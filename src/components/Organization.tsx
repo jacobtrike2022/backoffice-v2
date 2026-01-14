@@ -41,6 +41,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   const [unassignedStores, setUnassignedStores] = useState<any[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [editingSourceFileId, setEditingSourceFileId] = useState<string | null>(null);
+  const [highlightChunkId, setHighlightChunkId] = useState<string | null>(null);
 
   const tabs = [
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
@@ -54,6 +55,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sourceFileIdParam = urlParams.get('sourceFileId');
+    const chunkIdParam = urlParams.get('chunkId');
     const tabParam = urlParams.get('tab');
 
     // If navigating to sources tab with a specific file
@@ -61,6 +63,9 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
       setActiveTab('sources');
       if (sourceFileIdParam) {
         setEditingSourceFileId(sourceFileIdParam);
+        if (chunkIdParam) {
+          setHighlightChunkId(chunkIdParam);
+        }
         // Clean up URL params after navigation
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -464,7 +469,10 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
           editingSourceFileId ? (
             <DocumentIntelligenceEditor
               sourceFileId={editingSourceFileId}
-              onBack={() => setEditingSourceFileId(null)}
+              onBack={() => {
+                setEditingSourceFileId(null);
+                setHighlightChunkId(null);
+              }}
               onViewRole={(roleId) => {
                 setActiveTab('roles');
                 setSelectedRoleId(roleId);
@@ -475,6 +483,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                 setSelectedRoleId('new');
                 // TODO: Pass prefill data to RoleDetailPage
               }}
+              highlightChunkId={highlightChunkId}
             />
           ) : (
             <div className="space-y-6">

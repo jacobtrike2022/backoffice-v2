@@ -32,6 +32,8 @@ import {
   Zap,
   HardHat,
   Upload,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { rolesApi } from '../lib/api/roles';
@@ -146,6 +148,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     id: string;
     file_name: string;
   } | null>(null);
+  const [sourceChunkInfo, setSourceChunkInfo] = useState<{
+    id: string;
+    title: string;
+    source_file_id: string;
+    file_name: string;
+  } | null>(null);
 
   const toPercentFromFive = (value?: number | null) =>
     value === undefined || value === null ? undefined : Number(value) * 20;
@@ -220,6 +228,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       loadSourceFileInfo();
     }
   }, [role?.source_file_id]);
+
+  // Load source chunk info when role changes (for JD hotlink)
+  useEffect(() => {
+    if (role) {
+      loadSourceChunkInfo();
+    }
+  }, [role?.source_chunk_id]);
 
   // Auto-search profiles when role name changes (only if no profile selected or changing profile)
   useEffect(() => {
@@ -361,6 +376,32 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       }
     } catch (error) {
       console.error('Error loading source file info:', error);
+    }
+  }
+
+  // Load source chunk info if role has source_chunk_id (for JD hotlink)
+  async function loadSourceChunkInfo() {
+    if (!role?.source_chunk_id) {
+      setSourceChunkInfo(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('source_chunks')
+        .select('id, title, source_file_id, source_files(file_name)')
+        .eq('id', role.source_chunk_id)
+        .single();
+      if (!error && data) {
+        setSourceChunkInfo({
+          id: data.id,
+          // Use role name for a cleaner hotlink display: "Job Description: [Role Name]"
+          title: `Job Description: ${role.name}`,
+          source_file_id: data.source_file_id,
+          file_name: (data.source_files as any)?.file_name || 'Source Document',
+        });
+      }
+    } catch (error) {
+      console.error('Error loading source chunk info:', error);
     }
   }
 
@@ -1246,28 +1287,45 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             accept=".pdf,.doc,.docx,.txt"
             className="hidden"
           />
-          <Button
-            variant="outline"
-            onClick={() => jdFileInputRef.current?.click()}
-            disabled={uploadingJd || extractingJd}
-          >
-            {uploadingJd ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Uploading...
-              </>
-            ) : extractingJd ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Extracting...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4 mr-2" />
-                {role?.job_description || formData.job_description ? 'Replace Job Description' : 'Upload Job Description'}
-              </>
-            )}
-          </Button>
+          {/* Show JD chunk hotlink if role has linked source chunk, otherwise show upload button */}
+          {sourceChunkInfo ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Navigate to Organization > Sources tab with this file open and chunk highlighted
+                const url = `/organization?tab=sources&sourceFileId=${sourceChunkInfo.source_file_id}&chunkId=${sourceChunkInfo.id}`;
+                window.location.href = url;
+              }}
+              className="gap-2 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="max-w-[200px] truncate">{sourceChunkInfo.title}</span>
+              <ExternalLink className="w-3 h-3 opacity-60" />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => jdFileInputRef.current?.click()}
+              disabled={uploadingJd || extractingJd}
+            >
+              {uploadingJd ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              ) : extractingJd ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Extracting...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  {role?.job_description || formData.job_description ? 'Replace Job Description' : 'Upload Job Description'}
+                </>
+              )}
+            </Button>
+          )}
           <Button
             onClick={handleSave}
             disabled={saving}

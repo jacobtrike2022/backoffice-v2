@@ -1,8 +1,7 @@
 import React from 'react';
 import { Card, CardContent } from './ui/card';
-import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Eye } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from './ui/utils';
 
 interface SmartProfileCardProps {
@@ -12,8 +11,8 @@ interface SmartProfileCardProps {
   isSelected: boolean;
   onPreview: () => void;
   onSelect: () => void;
-  showSelectButton?: boolean; // If true, show "Select Profile" instead of "Preview"
-  isApplied?: boolean; // If true, show gradient orange button to indicate it's applied
+  showSelectButton?: boolean; // Legacy prop - no longer used
+  isApplied?: boolean; // If true, show applied indicator
   showMatchBadge?: boolean; // If false, hides the match badge (used when already applied)
 }
 
@@ -29,9 +28,9 @@ export function SmartProfileCard({
   showMatchBadge = true,
 }: SmartProfileCardProps) {
   const getMatchColor = (percentage: number) => {
-    if (percentage >= 80) return 'bg-green-100 text-green-800 border-green-300';
-    if (percentage >= 60) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-    return 'bg-gray-100 text-gray-800 border-gray-300';
+    if (percentage >= 80) return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+    if (percentage >= 60) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+    return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400';
   };
 
   const displayAlternatives = alternativeTitles.slice(0, 3).join(', ');
@@ -40,80 +39,45 @@ export function SmartProfileCard({
     <Card
       className={cn(
         'transition-all hover:shadow-md cursor-pointer',
-        isSelected && 'ring-2 ring-[#F64A05] border-[#F64A05]'
+        isSelected && 'ring-2 ring-[#F64A05] border-[#F64A05]',
+        isApplied && 'ring-2 ring-[#F64A05] border-[#F64A05] bg-gradient-to-br from-orange-50/50 to-transparent dark:from-orange-950/20'
       )}
       onClick={(e) => {
         // Clicking the card opens preview (doesn't auto-apply)
         onPreview();
       }}
     >
-      <CardContent className="p-4 space-y-3">
-        {/* Match Badge */}
-        {showMatchBadge && (
-          <div className="flex items-center justify-between">
-            <Badge
-              className={cn(
-                'font-semibold',
-                getMatchColor(matchPercentage)
-              )}
-            >
-              {matchPercentage}% Match
-            </Badge>
-          </div>
+      <CardContent className="p-4 space-y-2">
+        {/* Match Badge row (only when not applied) */}
+        {showMatchBadge && !isApplied && (
+          <Badge
+            className={cn(
+              'font-semibold text-xs',
+              getMatchColor(matchPercentage)
+            )}
+          >
+            {matchPercentage}% Match
+          </Badge>
         )}
 
-        {/* Title */}
-        <h3 className="font-semibold text-sm leading-tight line-clamp-2">
-          {title}
-        </h3>
+        {/* Title row with Applied indicator right-justified */}
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-semibold text-sm leading-tight line-clamp-2">
+            {title}
+          </h3>
+          {isApplied && (
+            <div className="flex-shrink-0 w-5 h-5 rounded-full bg-gradient-to-r from-[#F64A05] to-[#FF733C] flex items-center justify-center">
+              <Check className="w-3 h-3 text-white" />
+            </div>
+          )}
+        </div>
 
-        {/* Alternative Titles */}
-        {displayAlternatives && (
+        {/* Alternative Titles - hidden when applied */}
+        {displayAlternatives && !isApplied && (
           <p className="text-xs text-muted-foreground line-clamp-1">
             Also: {displayAlternatives}
             {alternativeTitles.length > 3 && '...'}
           </p>
-        )}
-
-        {/* Preview/Select Button */}
-        {showSelectButton ? (
-          <Button
-            variant={isApplied ? "default" : "outline"}
-            size="sm"
-            className={cn(
-              "w-full",
-              isApplied && "bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
-            )}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect();
-            }}
-          >
-            {isApplied ? (
-              <>
-                <Eye className="w-3 h-3 mr-1.5" />
-                Profile Applied
-              </>
-            ) : (
-              <>
-                <Eye className="w-3 h-3 mr-1.5" />
-                Select Profile
-              </>
-            )}
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPreview();
-            }}
-          >
-            <Eye className="w-3 h-3 mr-1.5" />
-            Preview
-          </Button>
         )}
       </CardContent>
     </Card>
