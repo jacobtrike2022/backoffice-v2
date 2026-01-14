@@ -1245,6 +1245,708 @@ interface ContentClassification {
   extraction_hints?: Record<string, any>;
 }
 
+// =============================================================================
+// SMART CHUNKING PIPELINE v2
+// =============================================================================
+// This pipeline handles the complex case of documents with mixed content types
+// (e.g., a handbook with embedded job descriptions).
+//
+// Flow: Extract → Segment → Classify (with context) → Merge/Split → Final Chunks
+// =============================================================================
+
+/**
+ * A segment is a candidate chunk - larger than final chunks, with metadata
+ */
+interface Segment {
+  id: number;
+  content: string;
+  startPosition: number;  // Character position in original text
+  endPosition: number;
+  estimatedPage?: number; // If we can detect page breaks
+  structuralMarkers: string[]; // Headers, titles found in this segment
+}
+
+/**
+ * A classified segment includes content type and relationship info
+ */
+interface ClassifiedSegment extends Segment {
+  contentClass: ContentClass;
+  confidence: number;
+  continuesFromPrevious: boolean;  // Is this a continuation of the previous segment's content?
+  continuesToNext: boolean;        // Does this continue into the next segment?
+  contextSignals: {
+    hasJdHeader: boolean;          // Has "JOB DESCRIPTION", "JOB TITLE:", etc.
+    hasJdStructure: boolean;       // Has DUTIES, QUALIFICATIONS, etc. sections
+    hasPolicyHeader: boolean;      // Has "POLICY", "PURPOSE:", etc.
+    hasProcedureStructure: boolean; // Has numbered steps, "How to" etc.
+    isListContent: boolean;        // Primarily bullet points or numbered items
+  };
+}
+
+/**
+ * Final smart chunk with full context
+ */
+interface SmartChunk {
+  content: string;
+  contentClass: ContentClass;
+  confidence: number;
+  title: string;
+  summary: string;
+  pageRange?: { start: number; end: number };
+  mergedFrom?: number[];  // IDs of segments that were merged
+  isPartOfLargerUnit: boolean;  // True if this was split from a larger logical unit
+  parentUnitTitle?: string;  // If split, what's the parent title?
+}
+
+// =============================================================================
+// STEP 1: SEGMENT EXTRACTION
+// =============================================================================
+
+/**
+ * Extract segments from text while preserving structural information.
+ * Segments are larger than final chunks - we'll merge/split later based on content type.
+ */
+function extractSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  console.log('[extractSegments] Processing', normalizedText.length, 'chars');
+
+  // For small documents (under 8K), don't over-segment - they're likely a single logical unit
+  if (normalizedText.length < 8000) {
+    console.log('[extractSegments] Small document - creating single segment');
+    segments.push({
+      id: 0,
+      content: normalizedText.trim(),
+      startPosition: 0,
+      endPosition: normalizedText.length,
+      estimatedPage: 1,
+      structuralMarkers: []
+    });
+    return segments;
+  }
+
+  // Detect page breaks (common patterns from PDF extraction)
+  // pdf-parse often inserts multiple newlines or form feeds between pages
+  const pageBreakPattern = /\f|\n{4,}|(?:\n-{10,}\n)/g;
+
+  // Find all potential page breaks
+  const pageBreaks: number[] = [0];
+  let match;
+  while ((match = pageBreakPattern.exec(normalizedText)) !== null) {
+    pageBreaks.push(match.index);
+  }
+  pageBreaks.push(normalizedText.length);
+
+  // Major section markers - these create hard boundaries
+  // Only use these for LARGE documents to avoid over-segmentation
+  const majorSectionPattern = /\n(?:(?:[A-Z][A-Z\s]{5,})\n|(?:#+\s+[A-Z])|(?:JOB\s+(?:TITLE|DESCRIPTION))|(?:POSITION\s+TITLE)|(?:POLICY\s*:)|(?:PROCEDURE\s*:)|(?:TABLE\s+OF\s+CONTENTS))/gi;
+
+  // Find all major section boundaries
+  const sectionBreaks: { position: number; marker: string }[] = [];
+  majorSectionPattern.lastIndex = 0;
+  while ((match = majorSectionPattern.exec(normalizedText)) !== null) {
+    sectionBreaks.push({
+      position: match.index,
+      marker: match[0].trim()
+    });
+  }
+
+  // If we found section markers, use them; otherwise fall back to size-based segmentation
+  if (sectionBreaks.length >= 2) {
+    // Create segments based on section markers
+    for (let i = 0; i < sectionBreaks.length; i++) {
+      const startPos = sectionBreaks[i].position;
+      const endPos = i < sectionBreaks.length - 1
+        ? sectionBreaks[i + 1].position
+        : normalizedText.length;
+
+      const content = normalizedText.slice(startPos, endPos).trim();
+
+      if (content.length >= 50) {  // Minimum viable segment
+        // Estimate page number based on position
+        let estimatedPage = 1;
+        for (let p = 0; p < pageBreaks.length - 1; p++) {
+          if (startPos >= pageBreaks[p] && startPos < pageBreaks[p + 1]) {
+            estimatedPage = p + 1;
+            break;
+          }
+        }
+
+        // Extract structural markers (headers) from this segment
+        const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
+        const markers: string[] = [];
+        let headerMatch;
+        while ((headerMatch = headerPattern.exec(content)) !== null) {
+          markers.push((headerMatch[1] || headerMatch[2]).trim());
+        }
+
+        segments.push({
+          id: segments.length,
+          content,
+          startPosition: startPos,
+          endPosition: endPos,
+          estimatedPage,
+          structuralMarkers: markers.slice(0, 5)  // Keep top 5 markers
+        });
+      }
+    }
+  } else {
+    // Fallback: Create segments of ~2000-3000 chars, breaking at paragraph boundaries
+    let currentPos = 0;
+    const targetSize = 2500;
+
+    while (currentPos < normalizedText.length) {
+      let endPos = Math.min(currentPos + targetSize, normalizedText.length);
+
+      // Try to break at a paragraph boundary
+      if (endPos < normalizedText.length) {
+        const searchWindow = normalizedText.slice(endPos - 500, endPos + 500);
+        const paragraphBreak = searchWindow.lastIndexOf('\n\n');
+        if (paragraphBreak > 200) {
+          endPos = endPos - 500 + paragraphBreak;
+        }
+      }
+
+      const content = normalizedText.slice(currentPos, endPos).trim();
+
+      if (content.length >= 50) {
+        let estimatedPage = 1;
+        for (let p = 0; p < pageBreaks.length - 1; p++) {
+          if (currentPos >= pageBreaks[p] && currentPos < pageBreaks[p + 1]) {
+            estimatedPage = p + 1;
+            break;
+          }
+        }
+
+        const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
+        const markers: string[] = [];
+        let headerMatch;
+        while ((headerMatch = headerPattern.exec(content)) !== null) {
+          markers.push((headerMatch[1] || headerMatch[2]).trim());
+        }
+
+        segments.push({
+          id: segments.length,
+          content,
+          startPosition: currentPos,
+          endPosition: endPos,
+          estimatedPage,
+          structuralMarkers: markers.slice(0, 5)
+        });
+      }
+
+      currentPos = endPos;
+    }
+  }
+
+  console.log('[extractSegments] Created', segments.length, 'segments from', normalizedText.length, 'chars');
+  return segments;
+}
+
+// =============================================================================
+// STEP 2: CONTEXT-AWARE CLASSIFICATION
+// =============================================================================
+
+/**
+ * Analyze a segment for content type signals
+ */
+function analyzeSegmentSignals(content: string): ClassifiedSegment['contextSignals'] {
+  const lowerContent = content.toLowerCase();
+
+  // JD Header detection - strong indicators this IS a JD
+  const hasJdHeader = /job\s+(title|description)|position\s+title|job\s+code|job\s+description\s+clerk/i.test(content);
+
+  // JD Section headers - these are sections commonly found IN a JD
+  const jdSectionHeaders = [
+    /^(?:ESSENTIAL\s+(?:DUTIES|FUNCTIONS))/mi,
+    /^(?:RESPONSIBILITIES\s+AND\s+DUTIES)/mi,
+    /^(?:QUALIFICATIONS)/mi,
+    /^(?:PHYSICAL\s+(?:DEMANDS|REQUIREMENTS))/mi,
+    /^(?:WORK\s+ENVIRONMENT)/mi,
+    /^(?:EDUCATION|EXPERIENCE)/mi,
+    /^(?:CUSTOMER\s+SERVICE)/mi,
+    /^(?:MAINTENANCE)/mi,
+    /^(?:MERCHANDISING)/mi,
+    /^(?:BOOKKEEPING)/mi,
+    /^(?:INVENTORY)/mi,
+    /^(?:ACKNOWLEDGEMENT)/mi,
+    /^(?:GENERAL\s+MANAGEMENT)/mi,
+    /^(?:ADDITIONAL)/mi,
+    /^(?:FOOD\s+SERVICE)/mi
+  ];
+
+  // JD Structure detection - content patterns (not just headers)
+  const jdContentPatterns = [
+    /essential\s+(duties|functions)/i,
+    /qualifications?\s*:/i,
+    /responsibilities/i,
+    /reports\s+to/i,
+    /flsa\s+status/i,
+    /education\s+require/i,
+    /experience\s+require/i,
+    /physical\s+requirements/i,
+    /supervisory\s+responsibilities/i
+  ];
+  const jdSectionCount = jdContentPatterns.filter(p => p.test(content)).length;
+
+  // Check if this segment starts with a JD section header
+  const startsWithJdSection = jdSectionHeaders.some(p => p.test(content));
+  const hasJdStructure = jdSectionCount >= 2 || startsWithJdSection;
+
+  // Policy header detection
+  const hasPolicyHeader = /\bpolicy\b.*:/i.test(content) ||
+    /purpose\s*:\s*\n/i.test(content) ||
+    /scope\s*:\s*\n/i.test(content) ||
+    /policy\s+(statement|overview)/i.test(content);
+
+  // Procedure structure detection
+  const hasProcedureStructure = /step\s+\d+/i.test(content) ||
+    /how\s+to\s+\w+/i.test(content) ||
+    /procedure\s*:/i.test(content) ||
+    (content.match(/^\s*\d+\.\s+/gm)?.length || 0) >= 3;  // Multiple numbered steps
+
+  // List content detection (more than 40% of lines start with bullets/numbers)
+  const lines = content.split('\n').filter(l => l.trim().length > 0);
+  const listLines = lines.filter(l => /^\s*(?:[-•*]|\d+[.)]|\[\s*\])\s+/.test(l));
+  const isListContent = lines.length > 3 && (listLines.length / lines.length) > 0.4;
+
+  return {
+    hasJdHeader,
+    hasJdStructure,
+    hasPolicyHeader,
+    hasProcedureStructure,
+    isListContent
+  };
+}
+
+/**
+ * Classify a segment WITH context from adjacent segments
+ */
+function classifySegmentWithContext(
+  segment: Segment,
+  prevSegment: Segment | null,
+  nextSegment: Segment | null,
+  prevClassification: ClassifiedSegment | null
+): ClassifiedSegment {
+  const signals = analyzeSegmentSignals(segment.content);
+  const prevSignals = prevSegment ? analyzeSegmentSignals(prevSegment.content) : null;
+  const nextSignals = nextSegment ? analyzeSegmentSignals(nextSegment.content) : null;
+
+  // Count pattern matches using existing patterns
+  const content = segment.content;
+  const jdMatchCount = JD_PATTERNS.filter(p => p.test(content)).length;
+  const policyMatchCount = POLICY_PATTERNS.filter(p => p.test(content)).length;
+  const procedureMatchCount = PROCEDURE_PATTERNS.filter(p => p.test(content)).length;
+  const trainingMatchCount = TRAINING_PATTERNS.filter(p => p.test(content)).length;
+
+  // Default to training_materials - we NEVER use 'other' as a classification
+  // The hierarchy is: job_description > policy > procedure > training_materials
+  let contentClass: ContentClass = 'training_materials';
+  let confidence = 0.5;
+  let continuesFromPrevious = false;
+  let continuesToNext = false;
+
+  // === JOB DESCRIPTION DETECTION ===
+  // Direct detection: Has JD header OR strong JD structure
+  if (signals.hasJdHeader || (signals.hasJdStructure && jdMatchCount >= 2)) {
+    contentClass = 'job_description';
+    confidence = signals.hasJdHeader ? 0.95 : 0.85;
+
+    // JDs typically continue for several sections - be aggressive about marking continuation
+    continuesToNext = true;  // Assume JD continues unless we hit a clear boundary
+  }
+  // Context-based detection: Previous was JD and this looks like a JD section
+  else if (prevClassification?.contentClass === 'job_description') {
+    // If previous was JD, this is likely a continuation unless it's clearly something else
+    // Check for clear "not JD" signals
+    const clearlyNotJd = signals.hasPolicyHeader || signals.hasProcedureStructure;
+
+    if (!clearlyNotJd) {
+      // Check if this has JD-like content or structure
+      const looksLikeJdContent = signals.hasJdStructure || jdMatchCount >= 1 || signals.isListContent;
+
+      if (looksLikeJdContent) {
+        contentClass = 'job_description';
+        confidence = 0.80;
+        continuesFromPrevious = true;
+        continuesToNext = true;  // Keep the chain going
+      }
+    }
+  }
+  // Low-confidence JD signals - check context
+  else if (jdMatchCount >= 1 && signals.isListContent && !signals.hasJdHeader) {
+    // This looks like a list with some JD terms - could be training or duties
+    // Check context: if preceded by JD content, it's probably JD
+    if (prevSignals?.hasJdHeader || prevSignals?.hasJdStructure) {
+      contentClass = 'job_description';
+      confidence = 0.70;
+      continuesFromPrevious = true;
+      continuesToNext = true;
+    } else if (!prevClassification) {
+      // First segment with list content and some JD terms - ambiguous
+      contentClass = 'training_materials';
+      confidence = 0.55;
+    }
+  }
+
+  // === POLICY DETECTION ===
+  else if (signals.hasPolicyHeader || policyMatchCount >= 3) {
+    contentClass = 'policy';
+    confidence = signals.hasPolicyHeader ? 0.90 : 0.75;
+  }
+
+  // === PROCEDURE DETECTION ===
+  else if (signals.hasProcedureStructure || procedureMatchCount >= 3) {
+    contentClass = 'procedure';
+    confidence = signals.hasProcedureStructure ? 0.85 : 0.70;
+  }
+
+  // === TRAINING DETECTION ===
+  else if (trainingMatchCount >= 2 || (signals.isListContent && trainingMatchCount >= 1)) {
+    contentClass = 'training_materials';
+    confidence = 0.65;
+  }
+
+  // === CONTINUATION OF PREVIOUS ===
+  else if (prevClassification && !signals.hasPolicyHeader && !signals.hasJdHeader) {
+    // No strong signals - might be continuation of previous
+    if (prevClassification.continuesToNext) {
+      contentClass = prevClassification.contentClass;
+      confidence = Math.max(0.50, prevClassification.confidence - 0.15);
+      continuesFromPrevious = true;
+    }
+  }
+
+  return {
+    ...segment,
+    contentClass,
+    confidence,
+    continuesFromPrevious,
+    continuesToNext,
+    contextSignals: signals
+  };
+}
+
+/**
+ * Classify all segments with context awareness
+ */
+function classifyAllSegments(segments: Segment[]): ClassifiedSegment[] {
+  const classified: ClassifiedSegment[] = [];
+
+  // First pass: classify each segment with previous context
+  for (let i = 0; i < segments.length; i++) {
+    const prevSegment = i > 0 ? segments[i - 1] : null;
+    const nextSegment = i < segments.length - 1 ? segments[i + 1] : null;
+    const prevClassification = i > 0 ? classified[i - 1] : null;
+
+    const classifiedSegment = classifySegmentWithContext(
+      segments[i],
+      prevSegment,
+      nextSegment,
+      prevClassification
+    );
+    classified.push(classifiedSegment);
+  }
+
+  // Second pass: Propagate continuation flags backward
+  // (If segment 3 is JD and segment 2 continues to 3, segment 2 should also be JD)
+  for (let i = classified.length - 2; i >= 0; i--) {
+    if (classified[i + 1].continuesFromPrevious &&
+        classified[i].contentClass !== classified[i + 1].contentClass) {
+      // The next segment claims to continue from this one, but they have different types
+      // Re-evaluate: if next is JD and this has JD signals, this should be JD too
+      if (classified[i + 1].contentClass === 'job_description') {
+        const signals = classified[i].contextSignals;
+        if (signals.hasJdStructure || signals.isListContent) {
+          classified[i].contentClass = 'job_description';
+          classified[i].confidence = Math.min(classified[i].confidence, classified[i + 1].confidence);
+          classified[i].continuesToNext = true;
+        }
+      }
+    }
+  }
+
+  console.log('[classifyAllSegments] Classification results:',
+    classified.reduce((acc, s) => {
+      acc[s.contentClass] = (acc[s.contentClass] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  );
+
+  return classified;
+}
+
+// =============================================================================
+// STEP 3: SMART MERGE AND SPLIT
+// =============================================================================
+
+/**
+ * Merge consecutive segments of the same content type into logical units,
+ * then split oversized units intelligently.
+ */
+function mergeAndSplitSegments(classifiedSegments: ClassifiedSegment[]): SmartChunk[] {
+  const chunks: SmartChunk[] = [];
+
+  if (classifiedSegments.length === 0) return chunks;
+
+  // Group consecutive segments of the same type
+  interface SegmentGroup {
+    segments: ClassifiedSegment[];
+    contentClass: ContentClass;
+    avgConfidence: number;
+  }
+
+  const groups: SegmentGroup[] = [];
+  let currentGroup: SegmentGroup = {
+    segments: [classifiedSegments[0]],
+    contentClass: classifiedSegments[0].contentClass,
+    avgConfidence: classifiedSegments[0].confidence
+  };
+
+  for (let i = 1; i < classifiedSegments.length; i++) {
+    const segment = classifiedSegments[i];
+
+    // Merge if: same content type AND (continuation OR same type with high confidence)
+    const shouldMerge =
+      segment.contentClass === currentGroup.contentClass &&
+      (segment.continuesFromPrevious || segment.confidence >= 0.70);
+
+    if (shouldMerge) {
+      currentGroup.segments.push(segment);
+      currentGroup.avgConfidence =
+        currentGroup.segments.reduce((sum, s) => sum + s.confidence, 0) / currentGroup.segments.length;
+    } else {
+      groups.push(currentGroup);
+      currentGroup = {
+        segments: [segment],
+        contentClass: segment.contentClass,
+        avgConfidence: segment.confidence
+      };
+    }
+  }
+  groups.push(currentGroup);
+
+  console.log('[mergeAndSplitSegments] Created', groups.length, 'groups from', classifiedSegments.length, 'segments');
+
+  // Convert groups to chunks, splitting if necessary
+  for (const group of groups) {
+    const mergedContent = group.segments.map(s => s.content).join('\n\n');
+    const mergedIds = group.segments.map(s => s.id);
+
+    // Find the best title from the merged content
+    const title = extractSmartTitle(mergedContent, group.contentClass);
+
+    // Calculate page range
+    const startPage = group.segments[0].estimatedPage || 1;
+    const endPage = group.segments[group.segments.length - 1].estimatedPage || startPage;
+
+    // If merged content is small enough, keep as one chunk
+    // JDs get a larger limit since they're complete logical units
+    const MAX_CHUNK_SIZE = group.contentClass === 'job_description' ? 8000 : 4000;
+
+    if (mergedContent.length <= MAX_CHUNK_SIZE) {
+      chunks.push({
+        content: mergedContent,
+        contentClass: group.contentClass,
+        confidence: group.avgConfidence,
+        title,
+        summary: mergedContent.slice(0, 250) + (mergedContent.length > 250 ? '...' : ''),
+        pageRange: { start: startPage, end: endPage },
+        mergedFrom: mergedIds,
+        isPartOfLargerUnit: false
+      });
+    } else {
+      // Need to split - do it intelligently based on content type
+      const subChunks = splitLargeGroup(mergedContent, group.contentClass, title, MAX_CHUNK_SIZE);
+
+      subChunks.forEach((subContent, idx) => {
+        chunks.push({
+          content: subContent,
+          contentClass: group.contentClass,
+          confidence: group.avgConfidence * 0.95,  // Slightly lower confidence for split chunks
+          title: subChunks.length > 1 ? `${title} (Part ${idx + 1})` : title,
+          summary: subContent.slice(0, 250) + (subContent.length > 250 ? '...' : ''),
+          pageRange: { start: startPage, end: endPage },
+          mergedFrom: mergedIds,
+          isPartOfLargerUnit: subChunks.length > 1,
+          parentUnitTitle: subChunks.length > 1 ? title : undefined
+        });
+      });
+    }
+  }
+
+  console.log('[mergeAndSplitSegments] Final chunk count:', chunks.length);
+  return chunks;
+}
+
+/**
+ * Extract a smart title based on content type
+ */
+function extractSmartTitle(content: string, contentClass: ContentClass): string {
+  // For JDs, look for job title
+  if (contentClass === 'job_description') {
+    const titleMatch = content.match(/(?:job\s+title|position\s+title|position)\s*:\s*([^\n]+)/i);
+    if (titleMatch) return titleMatch[1].trim();
+
+    // Look for a prominent header at the start
+    const headerMatch = content.match(/^([A-Z][A-Za-z\s]+(?:Clerk|Manager|Associate|Supervisor|Director|Coordinator|Specialist|Technician|Assistant)[A-Za-z\s]*)/m);
+    if (headerMatch) return headerMatch[1].trim();
+  }
+
+  // For policies, look for policy name
+  if (contentClass === 'policy') {
+    const policyMatch = content.match(/(?:^|\n)([A-Z][A-Za-z\s]+Policy)/m);
+    if (policyMatch) return policyMatch[1].trim();
+  }
+
+  // For procedures, look for "How to" or procedure name
+  if (contentClass === 'procedure') {
+    const howToMatch = content.match(/how\s+to\s+([^\n.]+)/i);
+    if (howToMatch) return `How to ${howToMatch[1].trim()}`;
+
+    const procMatch = content.match(/procedure\s*:\s*([^\n]+)/i);
+    if (procMatch) return procMatch[1].trim();
+  }
+
+  // Fallback: Use first header or first line
+  const firstHeader = content.match(/^([A-Z][A-Z\s]{3,})$/m);
+  if (firstHeader) return firstHeader[1].trim();
+
+  const firstLine = content.split('\n')[0].trim().slice(0, 60);
+  return firstLine || `${contentClass} Section`;
+}
+
+/**
+ * Split a large content group intelligently based on content type
+ */
+function splitLargeGroup(content: string, contentClass: ContentClass, parentTitle: string, maxSize: number): string[] {
+  const chunks: string[] = [];
+
+  // For JDs, try to split by major sections (DUTIES, QUALIFICATIONS, etc.)
+  if (contentClass === 'job_description') {
+    const jdSectionPattern = /(?=\n(?:ESSENTIAL\s+(?:DUTIES|FUNCTIONS)|QUALIFICATIONS|RESPONSIBILITIES|REQUIREMENTS|EDUCATION|EXPERIENCE|PHYSICAL\s+REQUIREMENTS|WORKING\s+CONDITIONS))/gi;
+    const sections = content.split(jdSectionPattern).filter(s => s.trim().length > 50);
+
+    if (sections.length >= 2) {
+      // Keep header with first section, group rest if possible
+      let currentChunk = sections[0];
+      for (let i = 1; i < sections.length; i++) {
+        if (currentChunk.length + sections[i].length <= maxSize) {
+          currentChunk += '\n\n' + sections[i];
+        } else {
+          chunks.push(currentChunk.trim());
+          currentChunk = sections[i];
+        }
+      }
+      if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+      }
+      return chunks;
+    }
+  }
+
+  // For policies, try to split by sub-sections
+  if (contentClass === 'policy') {
+    const policySectionPattern = /(?=\n(?:[A-Z][A-Z\s]{5,}|#{1,3}\s+))/g;
+    const sections = content.split(policySectionPattern).filter(s => s.trim().length > 50);
+
+    if (sections.length >= 2) {
+      let currentChunk = sections[0];
+      for (let i = 1; i < sections.length; i++) {
+        if (currentChunk.length + sections[i].length <= maxSize) {
+          currentChunk += '\n\n' + sections[i];
+        } else {
+          chunks.push(currentChunk.trim());
+          currentChunk = sections[i];
+        }
+      }
+      if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+      }
+      return chunks;
+    }
+  }
+
+  // Fallback: Split by paragraphs, respecting size limit
+  const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 20);
+  let currentChunk = '';
+
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > maxSize && currentChunk.length > 200) {
+      chunks.push(currentChunk.trim());
+      currentChunk = para;
+    } else {
+      currentChunk += (currentChunk ? '\n\n' : '') + para;
+    }
+  }
+
+  if (currentChunk.trim().length > 0) {
+    chunks.push(currentChunk.trim());
+  }
+
+  // If we still have chunks that are too big, do character-based splitting
+  const finalChunks: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.length > maxSize) {
+      for (let i = 0; i < chunk.length; i += maxSize - 100) {
+        finalChunks.push(chunk.slice(i, i + maxSize - 100).trim());
+      }
+    } else {
+      finalChunks.push(chunk);
+    }
+  }
+
+  return finalChunks.length > 0 ? finalChunks : [content.slice(0, maxSize)];
+}
+
+// =============================================================================
+// MAIN SMART CHUNKING FUNCTION
+// =============================================================================
+
+/**
+ * Smart chunk a document using the full pipeline:
+ * Extract → Segment → Classify (with context) → Merge/Split
+ */
+async function smartChunkDocument(text: string, sourceType: string): Promise<SmartChunk[]> {
+  console.log('[smartChunkDocument] Starting smart chunking for', text.length, 'chars');
+
+  if (!text || text.trim().length < 50) {
+    console.warn('[smartChunkDocument] Text too short');
+    return [];
+  }
+
+  // Step 1: Extract segments
+  const segments = extractSegments(text);
+  if (segments.length === 0) {
+    console.warn('[smartChunkDocument] No segments extracted');
+    return [];
+  }
+
+  // Step 2: Classify with context
+  const classifiedSegments = classifyAllSegments(segments);
+
+  // Step 3: Merge and split intelligently
+  const smartChunks = mergeAndSplitSegments(classifiedSegments);
+
+  console.log('[smartChunkDocument] Complete:', smartChunks.length, 'smart chunks');
+  return smartChunks;
+}
+
+/**
+ * Convert SmartChunks to the format expected by the existing chunk-source handler
+ */
+function convertSmartChunksToChunkResults(smartChunks: SmartChunk[]): ChunkResult[] {
+  return smartChunks.map(sc => ({
+    title: sc.title,
+    content: sc.content,
+    chunk_type: sc.isPartOfLargerUnit ? 'content' : 'header',
+    hierarchy_level: sc.isPartOfLargerUnit ? 1 : 0,
+    key_terms: [], // Tags handled by separate flow after content is published
+    summary: sc.summary
+  }));
+}
+
 // Job description detection patterns
 const JD_PATTERNS = [
   /job\s+title\s*:/i,
@@ -1587,33 +2289,29 @@ async function handleChunkSource(req: Request): Promise<Response> {
         .eq("source_file_id", source_file_id);
     }
 
-    // Chunk the document
-    const chunks = await chunkDocument(
-      sourceFile.extracted_text,
-      sourceFile.source_type || 'other',
-      options
-    );
+    // Use smart chunking pipeline (context-aware classification + intelligent merging)
+    const useSmartChunking = options.smart !== false;  // Default to smart chunking
+    console.log('[chunk-source] Using smart chunking:', useSmartChunking);
 
-    console.log('[chunk-source] Generated', chunks.length, 'chunks');
+    let chunkRecords: any[];
 
-    // Classify content for each chunk
-    console.log('[chunk-source] Classifying chunk content...');
-    const classifyContent = options.classify !== false; // Default to true
-    const classifications: ContentClassification[] = [];
+    if (useSmartChunking) {
+      // NEW: Smart chunking pipeline - classifies WHILE chunking with context awareness
+      const smartChunks = await smartChunkDocument(
+        sourceFile.extracted_text,
+        sourceFile.source_type || 'other'
+      );
 
-    if (classifyContent) {
-      for (const chunk of chunks) {
-        const classification = classifyChunkContent(chunk.content);
-        classifications.push(classification);
-      }
-      console.log('[chunk-source] Classifications complete. JDs detected:',
-        classifications.filter(c => c.content_class === 'job_description').length);
-    }
+      console.log('[chunk-source] Smart chunking produced', smartChunks.length, 'chunks');
+      console.log('[chunk-source] Content types:',
+        smartChunks.reduce((acc, c) => {
+          acc[c.contentClass] = (acc[c.contentClass] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      );
 
-    // Insert chunks into database with classification data
-    const chunkRecords = chunks.map((chunk, index) => {
-      const classification = classifications[index] || { content_class: 'policy', confidence: 0.5, is_extractable: false };
-      return {
+      // Convert smart chunks to database records
+      chunkRecords = smartChunks.map((chunk, index) => ({
         source_file_id: source_file_id,
         organization_id: sourceFile.organization_id,
         chunk_index: index,
@@ -1622,23 +2320,75 @@ async function handleChunkSource(req: Request): Promise<Response> {
         summary: chunk.summary,
         word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
         char_count: chunk.content.length,
-        estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60), // 200 WPM
-        chunk_type: chunk.chunk_type,
-        hierarchy_level: chunk.hierarchy_level,
-        key_terms: chunk.key_terms,
-        // New classification fields
-        content_class: classification.content_class,
-        content_class_confidence: classification.confidence,
-        content_class_detected_at: classifyContent ? new Date().toISOString() : null,
-        is_extractable: classification.is_extractable,
+        estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60),
+        chunk_type: chunk.isPartOfLargerUnit ? 'content' : 'header',
+        hierarchy_level: chunk.isPartOfLargerUnit ? 1 : 0,
+        key_terms: [], // Tags handled by separate flow after content is published
+        // Classification from smart chunking (context-aware!)
+        content_class: chunk.contentClass,
+        content_class_confidence: chunk.confidence,
+        content_class_detected_at: new Date().toISOString(),
+        is_extractable: chunk.contentClass === 'job_description',
         extraction_status: 'pending',
         metadata: {
           chunked_at: new Date().toISOString(),
           source_type: sourceFile.source_type,
-          classification_hints: classification.extraction_hints
+          smart_chunking: true,
+          page_range: chunk.pageRange,
+          merged_from_segments: chunk.mergedFrom,
+          is_part_of_larger_unit: chunk.isPartOfLargerUnit,
+          parent_unit_title: chunk.parentUnitTitle
         }
-      };
-    });
+      }));
+    } else {
+      // LEGACY: Original chunking (for backwards compatibility)
+      const chunks = await chunkDocument(
+        sourceFile.extracted_text,
+        sourceFile.source_type || 'other',
+        options
+      );
+
+      console.log('[chunk-source] Legacy chunking produced', chunks.length, 'chunks');
+
+      // Classify content for each chunk (old method - no context awareness)
+      const classifications: ContentClassification[] = [];
+      for (const chunk of chunks) {
+        const classification = classifyChunkContent(chunk.content);
+        classifications.push(classification);
+      }
+      console.log('[chunk-source] Classifications complete. JDs detected:',
+        classifications.filter(c => c.content_class === 'job_description').length);
+
+      // Convert to database records
+      chunkRecords = chunks.map((chunk, index) => {
+        const classification = classifications[index] || { content_class: 'policy', confidence: 0.5, is_extractable: false };
+        return {
+          source_file_id: source_file_id,
+          organization_id: sourceFile.organization_id,
+          chunk_index: index,
+          content: chunk.content,
+          title: chunk.title,
+          summary: chunk.summary,
+          word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+          char_count: chunk.content.length,
+          estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60),
+          chunk_type: chunk.chunk_type,
+          hierarchy_level: chunk.hierarchy_level,
+          key_terms: [], // Tags handled by separate flow after content is published
+          content_class: classification.content_class,
+          content_class_confidence: classification.confidence,
+          content_class_detected_at: new Date().toISOString(),
+          is_extractable: classification.is_extractable,
+          extraction_status: 'pending',
+          metadata: {
+            chunked_at: new Date().toISOString(),
+            source_type: sourceFile.source_type,
+            smart_chunking: false,
+            classification_hints: classification.extraction_hints
+          }
+        };
+      });
+    }
 
     const { data: insertedChunks, error: insertError } = await supabase
       .from("source_chunks")
@@ -1662,7 +2412,7 @@ async function handleChunkSource(req: Request): Promise<Response> {
       console.log('[chunk-source] Creating', extractableChunks.length, 'extracted entities...');
 
       for (const chunk of extractableChunks) {
-        const classification = classifications[chunk.chunk_index];
+        const chunkRecord = chunkRecords[chunk.chunk_index];
         const { data: entity, error: entityError } = await supabase
           .from("extracted_entities")
           .insert({
@@ -1671,9 +2421,9 @@ async function handleChunkSource(req: Request): Promise<Response> {
             source_chunk_id: chunk.id,
             entity_type: chunk.content_class,
             entity_status: 'pending',
-            extracted_data: classification?.extraction_hints || {},
-            extraction_confidence: classification?.confidence || 0.7,
-            extraction_method: classification?.extraction_hints?.detected_via === 'ai_classification' ? 'ai' : 'pattern'
+            extracted_data: chunkRecord?.metadata || {},
+            extraction_confidence: chunkRecord?.content_class_confidence || 0.7,
+            extraction_method: useSmartChunking ? 'smart_context' : 'pattern'
           })
           .select()
           .single();
@@ -1700,7 +2450,7 @@ async function handleChunkSource(req: Request): Promise<Response> {
       .update({
         is_chunked: true,
         chunked_at: new Date().toISOString(),
-        chunk_count: chunks.length
+        chunk_count: chunkRecords.length
       })
       .eq("id", source_file_id);
 
@@ -1710,16 +2460,19 @@ async function handleChunkSource(req: Request): Promise<Response> {
     return jsonResponse({
       success: true,
       source_file_id,
-      chunk_count: chunks.length,
+      chunk_count: chunkRecords.length,
       processing_time_ms: processingTimeMs,
       chunks: chunkRecords.map(c => ({
         chunk_index: c.chunk_index,
         title: c.title,
         word_count: c.word_count,
+        char_count: c.char_count,
         chunk_type: c.chunk_type,
         hierarchy_level: c.hierarchy_level,
         content_class: c.content_class,
-        is_extractable: c.is_extractable
+        content_class_confidence: c.content_class_confidence,
+        is_extractable: c.is_extractable,
+        metadata: c.metadata
       })),
       // New: Include extracted entities info
       extracted_entities: {
@@ -1786,7 +2539,7 @@ async function chunkDocument(
     content: section.trim(),
     chunk_type: detectChunkType(section),
     hierarchy_level: detectHierarchyLevel(section),
-    key_terms: extractKeyTerms(section),
+    key_terms: [], // Tags handled by separate flow after content is published
     summary: section.slice(0, 200) + (section.length > 200 ? '...' : '')
   }));
 }
@@ -2054,7 +2807,6 @@ For each section, return a JSON object with:
 - summary: A 1-2 sentence summary of the key information
 - chunk_type: One of "header", "content", "list", "table", "form"
 - hierarchy_level: 0 for main sections, 1 for subsections, 2 for sub-subsections
-- key_terms: Array of 3-7 important terms, concepts, or topics covered
 
 Sections to analyze:
 ${batch.map((s, idx) => `\n--- SECTION ${i + idx + 1} ---\n${s.slice(0, 1500)}`).join('\n')}
@@ -2095,7 +2847,7 @@ Return a JSON array with one object per section, in order. Only return valid JSO
               content: batch[idx],
               chunk_type: result?.chunk_type || 'content',
               hierarchy_level: result?.hierarchy_level ?? 1,
-              key_terms: result?.key_terms || [],
+              key_terms: [], // Tags handled by separate flow after content is published
               summary: result?.summary || batch[idx].slice(0, 200)
             });
           }
@@ -2106,7 +2858,7 @@ Return a JSON array with one object per section, in order. Only return valid JSO
               content: batch[idx],
               chunk_type: detectChunkType(batch[idx]),
               hierarchy_level: detectHierarchyLevel(batch[idx]),
-              key_terms: extractKeyTerms(batch[idx]),
+              key_terms: [], // Tags handled by separate flow after content is published
               summary: batch[idx].slice(0, 200)
             });
           }
@@ -2119,7 +2871,7 @@ Return a JSON array with one object per section, in order. Only return valid JSO
               content: section,
               chunk_type: detectChunkType(section),
               hierarchy_level: detectHierarchyLevel(section),
-              key_terms: extractKeyTerms(section),
+              key_terms: [], // Tags handled by separate flow after content is published
               summary: section.slice(0, 200)
             });
           });
@@ -2133,7 +2885,7 @@ Return a JSON array with one object per section, in order. Only return valid JSO
             content: section,
             chunk_type: detectChunkType(section),
             hierarchy_level: detectHierarchyLevel(section),
-            key_terms: extractKeyTerms(section),
+            key_terms: [], // Tags handled by separate flow after content is published
             summary: section.slice(0, 200)
           });
         });
@@ -2147,7 +2899,7 @@ Return a JSON array with one object per section, in order. Only return valid JSO
           content: section,
           chunk_type: detectChunkType(section),
           hierarchy_level: detectHierarchyLevel(section),
-          key_terms: extractKeyTerms(section),
+          key_terms: [], // Tags handled by separate flow after content is published
           summary: section.slice(0, 200)
         });
       });
