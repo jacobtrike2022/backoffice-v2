@@ -1264,7 +1264,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             ) : (
               <>
                 <Upload className="w-4 h-4 mr-2" />
-                {role?.job_description || formData.job_description ? 'Replace JD' : 'Upload JD'}
+                {role?.job_description || formData.job_description ? 'Replace Job Description' : 'Upload Job Description'}
               </>
             )}
           </Button>

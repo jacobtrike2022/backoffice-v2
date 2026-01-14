@@ -32,7 +32,6 @@ import {
   Check,
   X,
   Loader2,
-  Eye,
   Zap,
   Layers,
   Sparkles,
@@ -41,7 +40,6 @@ import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
 import { uploadSourceFile } from '../lib/services/uploadService';
 import { getServerUrl } from '../utils/supabase/info';
-import { SourceFilePreview } from './SourceFilePreview';
 
 interface SourceFile {
   id: string;
@@ -78,8 +76,8 @@ interface SourceFile {
 const CONTENT_TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
   policy: { label: 'Policy', color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   procedure: { label: 'Procedure', color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
-  job_description: { label: 'JD', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
-  training_materials: { label: 'Training', color: 'text-cyan-700 dark:text-cyan-400', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
+  job_description: { label: 'Job Description', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
+  training_materials: { label: 'Training', color: 'text-gray-700 dark:text-gray-400', bgColor: 'bg-gray-200 dark:bg-gray-700/50' },
   other: { label: 'Other', color: 'text-gray-700 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-900/30' },
 };
 
@@ -122,7 +120,6 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [extracting, setExtracting] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<SourceFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -451,10 +448,6 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
         prev.map(f => f.id === fileId ? { ...f, source_type: newType } : f)
       );
 
-      if (previewFile?.id === fileId) {
-        setPreviewFile(prev => prev ? { ...prev, source_type: newType } : null);
-      }
-
       toast.success('Source type updated');
     } catch (error: any) {
       console.error('Error updating source type:', error);
@@ -599,24 +592,18 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
               {filteredFiles.map((file) => (
                 <TableRow key={file.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onOpenEditor?.(file.id)}
+                      className="flex items-center gap-2 hover:text-primary transition-colors text-left"
+                    >
                       {getFileIcon(file.file_type)}
                       <span className="font-medium truncate max-w-[250px]" title={file.file_name}>
                         {file.file_name}
                       </span>
-                    </div>
+                    </button>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-primary hover:text-primary"
-                        onClick={() => setPreviewFile(file)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Preview
-                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -643,19 +630,24 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {/* Show detected content types from chunks */}
+                    {/* Show detected content types from chunks - clickable to open editor */}
                     {file.is_chunked && contentSummaries[file.id]?.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {contentSummaries[file.id].map((summary) => {
                           const config = CONTENT_TYPE_CONFIG[summary.content_class] || CONTENT_TYPE_CONFIG.other;
                           return (
-                            <Badge
+                            <button
                               key={summary.content_class}
-                              variant="secondary"
-                              className={`${config.bgColor} ${config.color} text-xs`}
+                              onClick={() => onOpenEditor?.(file.id)}
+                              className="transition-opacity hover:opacity-80"
                             >
-                              {config.label} ({summary.count})
-                            </Badge>
+                              <Badge
+                                variant="secondary"
+                                className={`${config.bgColor} ${config.color} text-xs cursor-pointer`}
+                              >
+                                {config.label} ({summary.count})
+                              </Badge>
+                            </button>
                           );
                         })}
                       </div>
@@ -754,18 +746,6 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
           </Table>
         </Card>
       )}
-
-      {/* Preview Modal */}
-      <SourceFilePreview
-        isOpen={!!previewFile}
-        onClose={() => setPreviewFile(null)}
-        sourceFile={previewFile}
-        onSourceTypeChange={(newType) => {
-          if (previewFile) {
-            handleSourceTypeUpdate(previewFile.id, newType);
-          }
-        }}
-      />
     </div>
   );
 }

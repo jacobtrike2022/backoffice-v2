@@ -520,7 +520,7 @@ export function RoleModal({
                     ) : (
                       <>
                         <Upload className="h-4 w-4 mr-2" />
-                        Upload JD File
+                        Upload Job Description
                       </>
                     )}
                   </Button>

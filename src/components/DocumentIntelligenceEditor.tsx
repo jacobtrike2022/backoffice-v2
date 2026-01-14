@@ -48,6 +48,8 @@ import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { getServerUrl } from '../utils/supabase/info';
 import { cn } from './ui/utils';
+import { ChunkToTrackGenerator } from './ChunkToTrackGenerator';
+import { ExtractedEntityProcessor } from './ExtractedEntityProcessor';
 
 // Content type configuration (matches backend ContentClass types)
 // - policy: Rules, expectations, standards (e.g., Sexual Harassment Policy)
@@ -59,7 +61,7 @@ const CONTENT_TYPES = {
   policy: { label: 'Policy', color: 'border-blue-500', bgColor: 'bg-blue-500/10', icon: BookOpen },
   procedure: { label: 'Procedure', color: 'border-purple-500', bgColor: 'bg-purple-500/10', icon: FileText },
   job_description: { label: 'Job Description', color: 'border-green-500', bgColor: 'bg-green-500/10', icon: Briefcase },
-  training_materials: { label: 'Training', color: 'border-cyan-500', bgColor: 'bg-cyan-500/10', icon: BookOpen },
+  training_materials: { label: 'Training', color: 'border-gray-400', bgColor: 'bg-gray-200 dark:bg-gray-700/30', icon: BookOpen },
   other: { label: 'Other', color: 'border-gray-400', bgColor: 'bg-gray-400/10', icon: HelpCircle },
 } as const;
 
@@ -175,6 +177,14 @@ export function DocumentIntelligenceEditor({
     end: number;
     text: string;
   } | null>(null);
+
+  // Track/Content generation state
+  const [showTrackGenerator, setShowTrackGenerator] = useState(false);
+  const [chunksForTrackGeneration, setChunksForTrackGeneration] = useState<ChunkWithMeta[]>([]);
+
+  // Entity/Role processing state
+  const [showEntityProcessor, setShowEntityProcessor] = useState(false);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
 
   // Load source file and chunks
   useEffect(() => {
@@ -558,28 +568,63 @@ export function DocumentIntelligenceEditor({
     }
   }
 
-  // Create role from JD chunk
+  // Create role from Job Description chunk
   async function createRoleFromChunk(chunk: ChunkWithMeta) {
-    if (!chunk.entity) {
-      // Need to extract JD data first
-      toast.error('Please process this JD chunk first');
-      return;
+    let entityId = chunk.entity?.id;
+
+    // If no entity exists, extract JD data first
+    if (!entityId) {
+      setProcessing(true);
+      setProcessingStep('Extracting job description data...');
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+
+        const serverUrl = getServerUrl();
+
+        // Call extract-jd endpoint to create entity from chunk
+        const response = await fetch(`${serverUrl}/extract-jd`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': supabaseAnonKey,
+          },
+          body: JSON.stringify({
+            source_chunk_id: chunk.id,
+            source_file_id: sourceFileId,
+            content: chunk.content,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to extract job description');
+        }
+
+        const data = await response.json();
+        entityId = data.entity_id;
+
+        // Reload chunks to get the new entity
+        await loadChunks();
+
+      } catch (error: any) {
+        console.error('JD extraction error:', error);
+        toast.error('Failed to extract job description', { description: error.message });
+        setProcessing(false);
+        setProcessingStep('');
+        return;
+      }
+
+      setProcessing(false);
+      setProcessingStep('');
     }
 
-    // Navigate to role creation with pre-filled data
-    const extractedData = chunk.entity.extracted_data;
-
-    if (onCreateRole) {
-      onCreateRole({
-        sourceChunkId: chunk.id,
-        sourceFileId: sourceFileId,
-        entityId: chunk.entity.id,
-        roleName: extractedData.role_name || '',
-        department: extractedData.department || '',
-        jobDescription: extractedData.job_summary || chunk.content,
-      });
-    } else {
-      toast.info('Role creation not available in this context');
+    // Open the entity processor modal
+    if (entityId) {
+      setSelectedEntityId(entityId);
+      setShowEntityProcessor(true);
     }
   }
 
@@ -590,6 +635,21 @@ export function DocumentIntelligenceEditor({
     } else {
       toast.info('Role view not available in this context');
     }
+  }
+
+  // Create content (track) from chunk - opens ChunkToTrackGenerator
+  function handleCreateContent(chunk: ChunkWithMeta) {
+    setChunksForTrackGeneration([chunk]);
+    setShowTrackGenerator(true);
+  }
+
+  // Handle track generation completion
+  function handleTrackGenerationComplete() {
+    setShowTrackGenerator(false);
+    setChunksForTrackGeneration([]);
+    // Reload chunks to show the new linked tracks
+    loadChunks();
+    toast.success('Track created successfully');
   }
 
   // Computed values
@@ -676,7 +736,7 @@ export function DocumentIntelligenceEditor({
                 )}
               </Button>
             ) : (
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={onBack}>
                 <Check className="h-4 w-4 mr-2" />
                 Done
               </Button>
@@ -761,12 +821,54 @@ export function DocumentIntelligenceEditor({
                 onHover={(hovered) => setHoveredChunk(hovered ? chunk.id : null)}
                 onClassificationChange={(newClass) => updateChunkClassification(chunk.id, newClass)}
                 onCreateRole={() => createRoleFromChunk(chunk)}
+                onCreateContent={() => handleCreateContent(chunk)}
                 onViewRole={(roleId) => viewLinkedRole(roleId)}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Track Generator Modal */}
+      {showTrackGenerator && chunksForTrackGeneration.length > 0 && sourceFile && (
+        <ChunkToTrackGenerator
+          isOpen={showTrackGenerator}
+          onClose={() => {
+            setShowTrackGenerator(false);
+            setChunksForTrackGeneration([]);
+          }}
+          selectedChunks={chunksForTrackGeneration.map(c => ({
+            id: c.id,
+            chunk_index: c.chunk_index,
+            title: c.title || `Chunk ${c.chunk_index + 1}`,
+            summary: c.summary || undefined,
+            word_count: c.word_count,
+            chunk_type: c.content_class,
+          }))}
+          sourceFileName={sourceFile.file_name}
+          onTracksGenerated={() => {
+            handleTrackGenerationComplete();
+          }}
+        />
+      )}
+
+      {/* Entity Processor Modal (JD to Role flow) */}
+      {showEntityProcessor && selectedEntityId && (
+        <ExtractedEntityProcessor
+          isOpen={showEntityProcessor}
+          onClose={() => {
+            setShowEntityProcessor(false);
+            setSelectedEntityId(null);
+          }}
+          entityId={selectedEntityId}
+          onProcessComplete={() => {
+            setShowEntityProcessor(false);
+            setSelectedEntityId(null);
+            loadChunks(); // Reload to show the linked role
+            toast.success('Role created successfully');
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -782,6 +884,7 @@ interface ChunkBlockProps {
   onHover: (hovered: boolean) => void;
   onClassificationChange: (newClass: ContentType) => void;
   onCreateRole: () => void;
+  onCreateContent: () => void;
   onViewRole: (roleId: string) => void;
 }
 
@@ -795,6 +898,7 @@ function ChunkBlock({
   onHover,
   onClassificationChange,
   onCreateRole,
+  onCreateContent,
   onViewRole,
 }: ChunkBlockProps) {
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
@@ -920,7 +1024,7 @@ function ChunkBlock({
         )}
       >
         <div className="text-xs space-y-2">
-          {/* Linked role */}
+          {/* Linked role (for Job Descriptions) */}
           {linkedRole ? (
             <button
               onClick={() => onViewRole(linkedRole.id)}
@@ -935,17 +1039,25 @@ function ChunkBlock({
               className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
             >
               <Plus className="h-3 w-3" />
-              <span>Create Role</span>
+              <span>Role</span>
             </button>
           ) : null}
 
           {/* Linked tracks */}
-          {linkedTracks.length > 0 && (
+          {linkedTracks.length > 0 ? (
             <div className="flex items-center gap-1 text-blue-600">
               <BookOpen className="h-3 w-3" />
               <span>{linkedTracks.length} track{linkedTracks.length > 1 ? 's' : ''}</span>
             </div>
-          )}
+          ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
+            <button
+              onClick={onCreateContent}
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" />
+              <span>Content</span>
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
