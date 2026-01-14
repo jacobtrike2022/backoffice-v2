@@ -65,7 +65,7 @@ export async function getRecentActivity(
         email,
         organization_id,
         store:stores!users_store_id_fkey(name),
-        role:roles(name)
+        role:roles!users_role_id_fkey(name)
       )
     `)
     .eq('organization_id', organizationId);

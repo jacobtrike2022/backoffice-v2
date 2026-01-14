@@ -1085,9 +1085,34 @@ async function handleExtractSource(req: Request): Promise<Response> {
     const cleanedText = cleanExtractedText(extractedText);
     console.log('[extract-source] Cleaned text length:', cleanedText.length, 'characters');
 
+    // Validate extracted text - check for empty or very short content
+    // This catches PDFs that are scanned images, password-protected, or have encoding issues
+    if (!cleanedText || cleanedText.trim().length === 0) {
+      console.error('[extract-source] No text could be extracted from the document');
+
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: 'No text could be extracted from this document. The file may be a scanned image, password-protected, or have an unsupported text encoding. Try uploading a text-based PDF or use OCR to convert scanned documents.'
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: 'No text could be extracted from this document. The file may be a scanned image, password-protected, or have an unsupported text encoding.',
+        code: "NO_TEXT_EXTRACTED"
+      }, 400);
+    }
+
     // Calculate stats
     const characterCount = cleanedText.length;
     const wordCount = cleanedText.split(/\s+/).filter(word => word.length > 0).length;
+
+    // Warn if very little text was extracted (likely partial extraction)
+    if (wordCount < 10) {
+      console.warn('[extract-source] Very little text extracted:', wordCount, 'words. Document may not have extractable text content.');
+    }
     const processingTimeMs = Date.now() - startTime;
 
     // Build metadata with extraction stats
@@ -1531,11 +1556,22 @@ async function handleChunkSource(req: Request): Promise<Response> {
       }, 404);
     }
 
-    if (!sourceFile.extracted_text) {
+    // Validate extracted text exists and has meaningful content
+    if (!sourceFile.extracted_text || sourceFile.extracted_text.trim().length === 0) {
       return jsonResponse({
         success: false,
         error: "No extracted text available. Please extract text first.",
         code: "NO_TEXT"
+      }, 400);
+    }
+
+    // Check for minimum text length for chunking
+    const trimmedText = sourceFile.extracted_text.trim();
+    if (trimmedText.length < 50) {
+      return jsonResponse({
+        success: false,
+        error: `Document has too little text content (${trimmedText.length} characters). Minimum 50 characters required for chunking.`,
+        code: "TEXT_TOO_SHORT"
       }, 400);
     }
 
@@ -1717,12 +1753,27 @@ async function chunkDocument(
   sourceType: string,
   options: { targetChunkSize?: number; useAI?: boolean } = {}
 ): Promise<ChunkResult[]> {
-  const { targetChunkSize = 500, useAI = true } = options;
+  // Default to NO AI - it's slow and causes timeouts for large documents
+  // AI enhancement can be explicitly enabled via options.useAI = true
+  const { targetChunkSize = 500, useAI = false } = options;
+
+  console.log('[chunkDocument] Input text length:', text?.length || 0, 'characters');
+
+  if (!text || text.trim().length < 50) {
+    console.warn('[chunkDocument] Text too short or empty, cannot chunk');
+    return [];
+  }
 
   // First pass: Split by obvious section markers
   const sections = splitIntoSections(text);
 
   console.log('[chunkDocument] Initial sections:', sections.length);
+
+  // Safety check: if we still have 0 sections after all fallbacks, log error
+  if (sections.length === 0) {
+    console.error('[chunkDocument] CRITICAL: splitIntoSections returned 0 sections for', text.length, 'chars of text');
+    console.error('[chunkDocument] First 500 chars of text:', text.slice(0, 500));
+  }
 
   // If we have a reasonable number of sections and AI is enabled, enhance with AI
   if (useAI && OPENAI_API_KEY && sections.length > 0 && sections.length < 50) {
@@ -1746,30 +1797,100 @@ async function chunkDocument(
 function splitIntoSections(text: string): string[] {
   const sections: string[] = [];
 
+  if (!text || typeof text !== 'string') {
+    console.error('[splitIntoSections] CRITICAL: text is invalid');
+    return [];
+  }
+
+  // Normalize text: ensure consistent line endings
+  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  console.log('[splitIntoSections] Input text length:', normalizedText.length, 'chars');
+
   // Split by common section markers
   // Match: numbered sections (1., 1.1, etc.), headers (ALL CAPS lines), or double newlines with capitalized starts
   const sectionPattern = /(?=\n(?:\d+\.[\d.]*\s+[A-Z]|\n[A-Z][A-Z\s]{10,}\n|\n\n[A-Z]))/g;
 
-  const parts = text.split(sectionPattern).filter(p => p.trim().length > 50);
+  const parts = normalizedText.split(sectionPattern).filter(p => p.trim().length > 50);
+  console.log('[splitIntoSections] Section pattern found', parts.length, 'parts');
 
-  if (parts.length < 3) {
-    // Not enough natural sections, split by paragraphs and group
-    const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 20);
+  if (parts.length >= 3) {
+    sections.push(...parts);
+  } else {
+    // Not enough natural sections, try paragraph-based splitting
+    // First try double newlines
+    let paragraphs = normalizedText.split(/\n\n+/).filter(p => p.trim().length > 20);
+    console.log('[splitIntoSections] Double newline split found', paragraphs.length, 'paragraphs');
 
-    let currentChunk = '';
-    for (const para of paragraphs) {
-      if (currentChunk.length + para.length > 2000 && currentChunk.length > 300) {
+    // If no double newlines, try single newlines with blank-line detection
+    if (paragraphs.length < 3) {
+      // Try splitting on lines that look like paragraph breaks:
+      // - Blank lines (even if just whitespace)
+      // - Lines ending with period followed by newline + capital letter
+      paragraphs = normalizedText.split(/\n\s*\n|\.\s*\n(?=[A-Z])/).filter(p => p.trim().length > 20);
+      console.log('[splitIntoSections] Single newline split found', paragraphs.length, 'paragraphs');
+    }
+
+    // If still not enough paragraphs, use sentence-based or character-based chunking
+    if (paragraphs.length < 3) {
+      console.log('[splitIntoSections] Falling back to sentence-based chunking');
+      // Split entire text into sentences and group them
+      // More flexible regex: matches text followed by period/question/exclamation with optional whitespace
+      const sentences = normalizedText.match(/[^.!?\n]+[.!?]+[\s]*/g) || [];
+      console.log('[splitIntoSections] Found', sentences.length, 'sentences');
+
+      if (sentences.length > 0) {
+        let currentChunk = '';
+        for (const sentence of sentences) {
+          if (currentChunk.length + sentence.length > 1500 && currentChunk.length > 200) {
+            sections.push(currentChunk.trim());
+            currentChunk = sentence;
+          } else {
+            currentChunk += ' ' + sentence;
+          }
+        }
+        if (currentChunk.trim().length > 50) {
+          sections.push(currentChunk.trim());
+        }
+      }
+      console.log('[splitIntoSections] After sentence chunking:', sections.length, 'sections');
+    } else {
+      // Build chunks from paragraphs
+      let currentChunk = '';
+      for (const para of paragraphs) {
+        if (currentChunk.length + para.length > 2000 && currentChunk.length > 300) {
+          sections.push(currentChunk.trim());
+          currentChunk = para;
+        } else {
+          currentChunk += '\n\n' + para;
+        }
+      }
+      if (currentChunk.trim().length > 50) {
         sections.push(currentChunk.trim());
-        currentChunk = para;
-      } else {
-        currentChunk += '\n\n' + para;
       }
     }
-    if (currentChunk.trim().length > 50) {
-      sections.push(currentChunk.trim());
+  }
+
+  // CRITICAL FALLBACK: If we still have no sections but have valid text,
+  // force character-based chunking. This is the LAST RESORT and should ALWAYS
+  // produce chunks for any text >= 50 chars.
+  if (sections.length === 0 && normalizedText.trim().length >= 50) {
+    console.log('[splitIntoSections] CRITICAL: Using forced character-based chunking for', normalizedText.length, 'chars');
+    const trimmedText = normalizedText.trim();
+
+    // For large documents, chunk by ~1500 chars
+    if (trimmedText.length > 1500) {
+      for (let i = 0; i < trimmedText.length; i += 1500) {
+        const chunk = trimmedText.slice(i, i + 1500).trim();
+        if (chunk.length > 0) {
+          sections.push(chunk);
+        }
+      }
+    } else {
+      // For smaller documents, just use the whole text
+      sections.push(trimmedText);
     }
-  } else {
-    sections.push(...parts);
+    console.log('[splitIntoSections] Forced chunking produced', sections.length, 'sections');
   }
 
   // Further split any sections that are too large (>3000 chars)
@@ -1783,6 +1904,13 @@ function splitIntoSections(text: string): string[] {
     }
   }
 
+  // Final safety check - if STILL no sections after everything, that's a critical error
+  if (finalSections.length === 0 && normalizedText.trim().length >= 50) {
+    console.error('[splitIntoSections] CRITICAL ERROR: All chunking strategies failed for', normalizedText.length, 'chars. Forcing single section.');
+    finalSections.push(normalizedText.trim().slice(0, 3000)); // Cap at 3000 chars as safety
+  }
+
+  console.log('[splitIntoSections] Final output:', finalSections.length, 'sections');
   return finalSections;
 }
 
@@ -1944,17 +2072,55 @@ Return a JSON array with one object per section, in order. Only return valid JSO
       try {
         parsed = JSON.parse(response);
         // Handle both array and object with array property
-        const aiResults = Array.isArray(parsed) ? parsed : (parsed.sections || parsed.chunks || Object.values(parsed)[0]);
+        let aiResults = Array.isArray(parsed) ? parsed : (parsed.sections || parsed.chunks || parsed.results || null);
 
-        if (Array.isArray(aiResults)) {
-          aiResults.forEach((result: any, idx: number) => {
+        // If still not an array, try Object.values on the first non-null value
+        if (!Array.isArray(aiResults) && parsed && typeof parsed === 'object') {
+          const values = Object.values(parsed);
+          for (const val of values) {
+            if (Array.isArray(val)) {
+              aiResults = val;
+              break;
+            }
+          }
+        }
+
+        if (Array.isArray(aiResults) && aiResults.length > 0) {
+          // Ensure we don't exceed batch length
+          const maxItems = Math.min(aiResults.length, batch.length);
+          for (let idx = 0; idx < maxItems; idx++) {
+            const result = aiResults[idx];
             results.push({
-              title: result.title || `Section ${i + idx + 1}`,
+              title: result?.title || `Section ${i + idx + 1}`,
               content: batch[idx],
-              chunk_type: result.chunk_type || 'content',
-              hierarchy_level: result.hierarchy_level ?? 1,
-              key_terms: result.key_terms || [],
-              summary: result.summary || batch[idx].slice(0, 200)
+              chunk_type: result?.chunk_type || 'content',
+              hierarchy_level: result?.hierarchy_level ?? 1,
+              key_terms: result?.key_terms || [],
+              summary: result?.summary || batch[idx].slice(0, 200)
+            });
+          }
+          // If AI returned fewer than batch, add remaining with fallback
+          for (let idx = maxItems; idx < batch.length; idx++) {
+            results.push({
+              title: extractTitle(batch[idx]) || `Section ${i + idx + 1}`,
+              content: batch[idx],
+              chunk_type: detectChunkType(batch[idx]),
+              hierarchy_level: detectHierarchyLevel(batch[idx]),
+              key_terms: extractKeyTerms(batch[idx]),
+              summary: batch[idx].slice(0, 200)
+            });
+          }
+        } else {
+          // AI didn't return a valid array - use fallback for entire batch
+          console.warn('[enhanceChunksWithAI] AI response not a valid array, using fallback for batch', i);
+          batch.forEach((section, idx) => {
+            results.push({
+              title: extractTitle(section) || `Section ${i + idx + 1}`,
+              content: section,
+              chunk_type: detectChunkType(section),
+              hierarchy_level: detectHierarchyLevel(section),
+              key_terms: extractKeyTerms(section),
+              summary: section.slice(0, 200)
             });
           });
         }

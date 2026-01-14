@@ -327,6 +327,11 @@ export function DocumentIntelligenceEditor({
     chunkIds: string[],
     entities: ExtractedEntity[]
   ): Promise<Record<string, LinkedContent[]>> {
+    // Guard: return empty map if no chunk IDs to avoid invalid Supabase query
+    if (chunkIds.length === 0) {
+      return {};
+    }
+
     const linkedMap: Record<string, LinkedContent[]> = {};
 
     // Initialize empty arrays
