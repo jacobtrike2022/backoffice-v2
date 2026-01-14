@@ -774,6 +774,11 @@ Deno.serve(async (req: Request) => {
       return await handleClassifyChunks(req);
     }
 
+    // Extract job description data from a chunk and create an entity
+    if (method === "POST" && path === "/extract-jd") {
+      return await handleExtractJdFromChunk(req);
+    }
+
     // Extract job description data from a source file (direct extraction for JD upload flow)
     if (method === "POST" && path === "/extract-job-description") {
       return await handleExtractJobDescription(req);
@@ -871,6 +876,7 @@ Deno.serve(async (req: Request) => {
         "GET /extracted-entity/:entity_id",
         "POST /process-extracted-entity",
         "POST /classify-chunks",
+        "POST /extract-jd",
         "POST /extract-job-description"
       ]
     }, 404);
@@ -3445,6 +3451,123 @@ async function handleExtractJobDescription(req: Request): Promise<Response> {
     });
   } catch (error: any) {
     console.error('[extract-job-description] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Extraction failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data from a source chunk and create an extracted_entity
+ * Used when clicking "+ Role" on a JD chunk in the Document Intelligence Editor
+ */
+async function handleExtractJdFromChunk(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_chunk_id, source_file_id, content } = body;
+
+    if (!source_chunk_id || !content) {
+      return jsonResponse({
+        success: false,
+        error: "source_chunk_id and content are required",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Get org from token
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({
+        success: false,
+        error: "Organization not found",
+        code: "NO_ORG"
+      }, 401);
+    }
+
+    console.log('[extract-jd] Processing chunk:', source_chunk_id);
+
+    // Check if entity already exists for this chunk
+    const { data: existingEntity } = await supabase
+      .from("extracted_entities")
+      .select("id")
+      .eq("source_chunk_id", source_chunk_id)
+      .single();
+
+    if (existingEntity) {
+      console.log('[extract-jd] Entity already exists:', existingEntity.id);
+      return jsonResponse({
+        success: true,
+        entity_id: existingEntity.id,
+        already_exists: true
+      });
+    }
+
+    // Extract JD data using AI
+    const extractedData = await extractJobDescriptionData(content);
+
+    console.log('[extract-jd] Extracted role_name:', extractedData.role_name);
+
+    // Create the extracted entity
+    const { data: entity, error: insertError } = await supabase
+      .from("extracted_entities")
+      .insert({
+        organization_id: orgId,
+        source_file_id: source_file_id || null,
+        source_chunk_id: source_chunk_id,
+        entity_type: 'job_description',
+        entity_status: 'pending',
+        extraction_confidence: 0.85,
+        extracted_data: {
+          role_name: extractedData.role_name,
+          department: extractedData.department,
+          job_summary: extractedData.job_description?.slice(0, 500),
+          responsibilities: extractedData.responsibilities,
+          skills: extractedData.skills,
+          knowledge: extractedData.knowledge,
+          is_manager: extractedData.is_manager,
+          is_frontline: extractedData.is_frontline,
+          permission_level: extractedData.permission_level,
+          onet_search_keywords: extractedData.onet_search_keywords
+        }
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[extract-jd] Failed to create entity:', insertError);
+      return jsonResponse({
+        success: false,
+        error: "Failed to create entity: " + insertError.message,
+        code: "INSERT_FAILED"
+      }, 500);
+    }
+
+    // Update the chunk to mark it as having an entity
+    await supabase
+      .from("source_chunks")
+      .update({
+        is_extractable: true,
+        extraction_status: 'extracted'
+      })
+      .eq("id", source_chunk_id);
+
+    // Update source file entity counts if we have a source_file_id
+    if (source_file_id) {
+      await updateSourceFileEntityCounts(source_file_id);
+    }
+
+    console.log('[extract-jd] Created entity:', entity.id);
+
+    return jsonResponse({
+      success: true,
+      entity_id: entity.id,
+      extracted_data: extractedData
+    });
+
+  } catch (error: any) {
+    console.error('[extract-jd] Unexpected error:', error);
     return jsonResponse({
       success: false,
       error: error.message || "Extraction failed",

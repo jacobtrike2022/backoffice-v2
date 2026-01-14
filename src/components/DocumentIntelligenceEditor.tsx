@@ -43,6 +43,8 @@ import {
   CheckCircle2,
   Clock,
   Eye,
+  X,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
@@ -185,6 +187,9 @@ export function DocumentIntelligenceEditor({
   // Entity/Role processing state
   const [showEntityProcessor, setShowEntityProcessor] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+
+  // Merge operation state
+  const [merging, setMerging] = useState(false);
 
   // Load source file and chunks
   useEffect(() => {
@@ -525,16 +530,13 @@ export function DocumentIntelligenceEditor({
       return;
     }
 
-    const selectedChunksList = chunks.filter(c => selectedChunks.has(c.id));
-    const sortedChunks = selectedChunksList.sort((a, b) => a.chunk_index - b.chunk_index);
+    if (merging) return; // Prevent double-clicks
 
-    // Check if chunks are contiguous
-    for (let i = 1; i < sortedChunks.length; i++) {
-      if (sortedChunks[i].chunk_index !== sortedChunks[i-1].chunk_index + 1) {
-        toast.error('Can only merge contiguous chunks');
-        return;
-      }
-    }
+    setMerging(true);
+
+    const selectedChunksList = chunks.filter(c => selectedChunks.has(c.id));
+    // Sort by chunk_index to maintain document order
+    const sortedChunks = selectedChunksList.sort((a, b) => a.chunk_index - b.chunk_index);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -569,6 +571,8 @@ export function DocumentIntelligenceEditor({
 
     } catch (error: any) {
       toast.error('Failed to merge chunks', { description: error.message });
+    } finally {
+      setMerging(false);
     }
   }
 
@@ -784,22 +788,6 @@ export function DocumentIntelligenceEditor({
               })}
             </div>
 
-            {/* Selection controls */}
-            {selectedChunks.size > 0 && (
-              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                <span className="text-sm font-medium">
-                  {selectedChunks.size} selected
-                </span>
-                <Separator orientation="vertical" className="h-4" />
-                <Button variant="ghost" size="sm" onClick={clearSelection}>
-                  Clear
-                </Button>
-                <Button variant="ghost" size="sm" onClick={mergeSelectedChunks}>
-                  <Merge className="h-4 w-4 mr-1" />
-                  Merge
-                </Button>
-              </div>
-            )}
           </div>
         )}
 
@@ -874,6 +862,70 @@ export function DocumentIntelligenceEditor({
           }}
         />
       )}
+
+      {/* Floating Selection Toolbar */}
+      {selectedChunks.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200">
+          <div className="flex items-center gap-1 px-2 py-2 bg-zinc-900 dark:bg-zinc-800 rounded-full shadow-2xl border border-zinc-700/50 backdrop-blur-xl">
+            {/* Selection count */}
+            <div className="flex items-center gap-2 px-3 py-1">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold">
+                {selectedChunks.size}
+              </div>
+              <span className="text-sm text-zinc-300 font-medium">selected</span>
+            </div>
+
+            <div className="w-px h-6 bg-zinc-700" />
+
+            {/* Merge button */}
+            <button
+              onClick={mergeSelectedChunks}
+              disabled={merging || selectedChunks.size < 2}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all",
+                selectedChunks.size >= 2
+                  ? "bg-zinc-700 hover:bg-zinc-600 text-white"
+                  : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              )}
+            >
+              {merging ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Merge className="h-4 w-4" />
+              )}
+              Merge
+            </button>
+
+            {/* Create Track button - only for training/procedure/policy */}
+            {Array.from(selectedChunks).every(id => {
+              const chunk = chunks.find(c => c.id === id);
+              return chunk && ['training_materials', 'procedure', 'policy'].includes(chunk.content_class);
+            }) && (
+              <button
+                onClick={() => {
+                  const selected = chunks.filter(c => selectedChunks.has(c.id));
+                  setChunksForTrackGeneration(selected);
+                  setShowTrackGenerator(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white transition-all"
+              >
+                <Zap className="h-4 w-4" />
+                Create Track
+              </button>
+            )}
+
+            <div className="w-px h-6 bg-zinc-700" />
+
+            {/* Clear button */}
+            <button
+              onClick={clearSelection}
+              className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -917,27 +969,41 @@ function ChunkBlock({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      {/* Checkbox */}
-      <div className="pt-4 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Checkbox - visible when selected OR on hover */}
+      <div className={cn(
+        "pt-4 transition-opacity",
+        isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      )}>
         <Checkbox
           checked={isSelected}
           onCheckedChange={onToggleSelect}
         />
       </div>
 
-      {/* Main chunk card */}
+      {/* Main chunk card - clickable for selection */}
       <div
         className={cn(
-          "flex-1 rounded-lg border-l-4 bg-card transition-all",
+          "flex-1 rounded-lg border-l-4 bg-card transition-all cursor-pointer",
           config.color,
-          isSelected && "ring-2 ring-primary",
+          isSelected && "ring-2 ring-orange-500 bg-orange-50/50 dark:bg-orange-950/20",
           "hover:shadow-md"
         )}
+        onClick={(e) => {
+          // Don't toggle selection if clicking on interactive elements
+          const target = e.target as HTMLElement;
+          if (target.closest('button') || target.closest('[role="menuitem"]') || target.closest('a')) {
+            return;
+          }
+          onToggleSelect();
+        }}
       >
-        {/* Header */}
+        {/* Header - click to expand/collapse */}
         <div
           className="flex items-center justify-between px-4 py-2 cursor-pointer"
-          onClick={onToggleExpand}
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent card click handler from firing
+            onToggleExpand();
+          }}
         >
           <div className="flex items-center gap-2">
             {/* Type badge with dropdown */}
