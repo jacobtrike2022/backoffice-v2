@@ -435,7 +435,7 @@ export function ExtractedEntityProcessor({
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-5xl w-[90vw]">
           <div className="flex flex-col items-center justify-center py-16">
             <div className="relative">
               <div className="w-16 h-16 rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center">
@@ -453,7 +453,7 @@ export function ExtractedEntityProcessor({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="max-w-4xl p-0"
+        className="max-w-5xl w-[90vw] p-0"
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -464,7 +464,7 @@ export function ExtractedEntityProcessor({
         }}
       >
         {/* Header - fixed */}
-        <div style={{ flexShrink: 0 }} className="px-6 pt-6 pb-4 border-b bg-gradient-to-b from-muted/50 to-background">
+        <div style={{ flexShrink: 0 }} className="px-8 pt-6 pb-4 border-b bg-gradient-to-b from-muted/50 to-background">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 text-xl">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center">
@@ -507,17 +507,17 @@ export function ExtractedEntityProcessor({
         </div>
 
         {/* Step Content - scrollable */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} className="px-6 py-6">
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} className="px-8 py-6">
           {/* Step 1: Review & Confirm (combined extraction review + duplicate check) */}
           {currentStep === 1 && (
             <div className="space-y-6">
               {/* Source info */}
-              <div className="bg-muted/50 rounded-xl p-4">
+              <div className="bg-muted/50 rounded-xl p-5">
                 <p className="text-muted-foreground">
                   Review the extracted data below. Edit any fields as needed, then proceed to create the role.
                 </p>
                 {entityDetails?.source_file && (
-                  <p className="mt-2 text-sm flex items-center gap-2">
+                  <p className="mt-3 text-sm flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     Source: <span className="font-medium">{entityDetails.source_file.file_name}</span>
                   </p>
@@ -652,26 +652,26 @@ export function ExtractedEntityProcessor({
                           setDuplicateAction('merge');
                         }}
                       >
-                        <CardContent className="p-3">
+                        <CardContent className="p-4">
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            <div className="flex items-center gap-4">
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                                 selectedDuplicate === dup.role_id
                                   ? 'border-orange-500 bg-orange-500'
                                   : 'border-muted-foreground/30'
                               }`}>
                                 {selectedDuplicate === dup.role_id && (
-                                  <Check className="h-2.5 w-2.5 text-white" />
+                                  <Check className="h-3 w-3 text-white" />
                                 )}
                               </div>
                               <div>
-                                <p className="font-medium text-sm">{dup.role_name}</p>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="font-medium">{dup.role_name}</p>
+                                <p className="text-sm text-muted-foreground">
                                   {dup.user_count} employee{dup.user_count !== 1 ? 's' : ''} assigned
                                 </p>
                               </div>
                             </div>
-                            <Badge variant="secondary" className="text-xs">
+                            <Badge variant="secondary" className="text-sm px-3 py-1">
                               {Math.round(dup.similarity_score * 100)}% match
                             </Badge>
                           </div>
@@ -713,41 +713,41 @@ export function ExtractedEntityProcessor({
           {/* Step 2: Confirmation & Create */}
           {currentStep === 2 && (
             <div className="space-y-6">
-              <div className="bg-muted/50 rounded-xl p-4">
+              <div className="bg-muted/50 rounded-xl p-5">
                 <p className="text-muted-foreground">
                   {duplicateAction === 'merge'
                     ? 'Confirm merging this job description with the existing role.'
                     : 'Confirm creating a new role with the extracted data.'
                   }
                 </p>
-                <p className="text-sm text-muted-foreground mt-2">
+                <p className="text-sm text-muted-foreground mt-3">
                   After creation, you'll be taken to the role editor to complete O*NET profile matching and fine-tune competencies.
                 </p>
               </div>
 
               <Card>
-                <CardContent className="p-5 space-y-4">
+                <CardContent className="p-6 space-y-5">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-muted-foreground uppercase tracking-wide">Role Name</p>
-                      <p className="font-semibold text-lg">{editedData.role_name}</p>
+                      <p className="font-semibold text-lg mt-1">{editedData.role_name}</p>
                     </div>
                     <Badge className={duplicateAction === 'merge' ? 'bg-blue-500' : 'bg-orange-500'}>
                       {duplicateAction === 'merge' ? 'Merging' : 'Creating New'}
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-6">
                     {editedData.department && (
                       <div>
                         <p className="text-xs text-muted-foreground uppercase tracking-wide">Department</p>
-                        <p className="text-sm">{editedData.department}</p>
+                        <p className="text-sm mt-1">{editedData.department}</p>
                       </div>
                     )}
                     {editedData.job_family && (
                       <div>
                         <p className="text-xs text-muted-foreground uppercase tracking-wide">Job Family</p>
-                        <p className="text-sm">{editedData.job_family}</p>
+                        <p className="text-sm mt-1">{editedData.job_family}</p>
                       </div>
                     )}
                   </div>
@@ -766,30 +766,30 @@ export function ExtractedEntityProcessor({
                   </div>
 
                   {duplicateAction === 'merge' && selectedDuplicate && (
-                    <div className="border-t pt-4">
+                    <div className="border-t pt-5">
                       <p className="text-xs text-muted-foreground uppercase tracking-wide">Merging With</p>
-                      <p className="font-medium flex items-center gap-2">
+                      <p className="font-medium flex items-center gap-2 mt-1">
                         <Merge className="h-4 w-4 text-blue-500" />
                         {potentialDuplicates.find(d => d.role_id === selectedDuplicate)?.role_name}
                       </p>
                     </div>
                   )}
 
-                  <div className="border-t pt-4">
+                  <div className="border-t pt-5">
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">Source</p>
-                    <p className="text-sm flex items-center gap-2">
+                    <p className="text-sm flex items-center gap-2 mt-1">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                       {entityDetails?.source_file?.file_name || 'Unknown source'}
                     </p>
                   </div>
 
                   {/* What happens next */}
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-5 border border-blue-200 dark:border-blue-800">
                     <p className="text-sm font-medium text-blue-800 dark:text-blue-300 flex items-center gap-2">
                       <ArrowRight className="h-4 w-4" />
                       Next: Complete Role Setup
                     </p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
                       You'll be taken to the role editor to select an O*NET profile and customize tasks, skills, and competencies.
                     </p>
                   </div>
@@ -800,7 +800,7 @@ export function ExtractedEntityProcessor({
         </div>
 
         {/* Footer - fixed at bottom */}
-        <div style={{ flexShrink: 0 }} className="px-6 py-4 border-t bg-muted/30 flex items-center justify-between">
+        <div style={{ flexShrink: 0 }} className="px-8 py-4 border-t bg-muted/30 flex items-center justify-between">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
