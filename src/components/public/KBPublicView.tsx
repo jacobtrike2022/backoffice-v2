@@ -352,8 +352,8 @@ export function KBPublicView() {
 
             {/* Article Body */}
             {track.type === 'article' && track.article_body && (
-              <div 
-                className="prose prose-lg max-w-none"
+              <div
+                className="article-content prose prose-lg prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-primary prose-img:rounded-lg"
                 dangerouslySetInnerHTML={{ __html: track.article_body }}
               />
             )}

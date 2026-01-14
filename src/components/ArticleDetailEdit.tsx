@@ -1135,31 +1135,54 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     }, 0);
   };
 
-  // Simple markdown-to-HTML renderer for preview
-  const renderMarkdown = (markdown: string) => {
-    if (!markdown) return '<p class="text-muted-foreground">No content</p>';
-    
-    let html = markdown
+  // Simple markdown-to-HTML renderer for preview - also handles content that might be markdown
+  const renderMarkdown = (content: string) => {
+    if (!content) return '<p class="text-muted-foreground">No content</p>';
+
+    // Check if content already has HTML tags
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(content);
+    if (hasHtmlTags) {
+      // Already HTML, return as-is
+      return content;
+    }
+
+    // Convert Markdown to HTML
+    let html = content
+      // Code blocks (```)
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+      // Inline code (`)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
       // Headers
-      .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-6 mb-3">$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-8 mb-4">$1</h1>')
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
       // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.*?)__/g, '<strong>$1</strong>')
       // Italic
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      // Lists
-      .replace(/^\* (.*$)/gim, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>)/s, '<ul class="list-disc ml-6 my-2">$1</ul>')
+      .replace(/_(.*?)_/g, '<em>$1</em>')
+      // Blockquotes
+      .replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>')
+      // Unordered Lists
+      .replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+      // Ordered Lists
+      .replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>')
       // Images
-      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="max-w-full h-auto rounded-lg my-4" />')
+      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" />')
       // Links
-      .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" class="text-primary hover:underline">$1</a>')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>')
       // Line breaks
-      .replace(/\n\n/g, '</p><p class="mb-4">')
+      .replace(/\n\n+/g, '</p><p>')
       .replace(/\n/g, '<br/>');
 
-    return `<div class="prose prose-sm max-w-none"><p class="mb-4">${html}</p></div>`;
+    // Wrap in paragraph if not already wrapped
+    if (!html.startsWith('<')) {
+      html = '<p>' + html + '</p>';
+    }
+
+    return html;
   };
 
   // Handle back button with unsaved changes check
@@ -1516,9 +1539,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               
               <Card>
                 <CardContent className="p-8">
-                  <div 
-                    className="article-content"
-                    dangerouslySetInnerHTML={{ __html: track.transcript || '<p class="text-muted-foreground">No content available</p>' }}
+                  <div
+                    className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-primary prose-img:rounded-lg"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(track.transcript || '') }}
                   />
                 </CardContent>
               </Card>

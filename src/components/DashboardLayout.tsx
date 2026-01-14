@@ -280,9 +280,9 @@ export function DashboardLayout({
   const filteredGroups = getFilteredGroups();
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <div className={`bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg ${
+    <div className="flex min-h-screen bg-background">
+      {/* Sidebar - Fixed position to extend full viewport height */}
+      <div className={`fixed top-0 left-0 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg z-40 ${
         sidebarCollapsed ? 'w-16' : 'w-72'
       }`}>
         <div className="flex flex-col h-full">
@@ -507,8 +507,13 @@ export function DashboardLayout({
         </div>
       </div>
 
+      {/* Sidebar spacer - matches sidebar width to push content */}
+      <div className={`flex-shrink-0 transition-all duration-300 ${
+        sidebarCollapsed ? 'w-16' : 'w-72'
+      }`} />
+
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-screen">
         {/* Enhanced Top bar */}
         <header className="bg-card border-b border-border px-8 py-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -610,8 +615,8 @@ export function DashboardLayout({
         </header>
 
         {/* Page content with enhanced spacing */}
-        <main className="flex-1 flex flex-col bg-background">
-          <div className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 bg-background">
+          <div className="p-8">
             {children}
           </div>
         </main>

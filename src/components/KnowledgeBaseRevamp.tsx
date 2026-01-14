@@ -1802,6 +1802,64 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       .slice(0, 5);
   }, [displayTracks]);
 
+  // Simple Markdown to HTML converter for content that isn't already HTML
+  const convertMarkdownToHtml = (markdown: string): string => {
+    let html = markdown;
+
+    // Escape HTML entities first (but preserve existing HTML)
+    // Check if content already has HTML tags
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(markdown);
+    if (!hasHtmlTags) {
+      // Convert Markdown to HTML only if there are no existing HTML tags
+
+      // Code blocks (```)
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+
+      // Inline code (`)
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      // Headers (# ## ### etc.)
+      html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
+      html = html.replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>');
+      html = html.replace(/^####\s+(.*)$/gm, '<h4>$1</h4>');
+      html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+
+      // Bold (**text** or __text__)
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+      // Italic (*text* or _text_)
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      // Blockquotes (> text)
+      html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+
+      // Unordered lists (- item or * item)
+      html = html.replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+      // Ordered lists (1. item)
+      html = html.replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>');
+
+      // Links [text](url)
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+      // Line breaks (double newline = paragraph)
+      html = html.replace(/\n\n+/g, '</p><p>');
+      html = html.replace(/\n/g, '<br/>');
+
+      // Wrap in paragraph if not already wrapped
+      if (!html.startsWith('<')) {
+        html = '<p>' + html + '</p>';
+      }
+    }
+
+    return html;
+  };
+
   // Process content for TOC and inject IDs
   const { processedContent, tocSections } = useMemo(() => {
     // Try content_text first (database field), then content (possible alias)
@@ -1812,9 +1870,12 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     if (!rawContent) return { processedContent: '', tocSections: [] };
 
     try {
+      // Convert Markdown to HTML if needed
+      const htmlContent = convertMarkdownToHtml(rawContent);
+
       const parser = new DOMParser();
-      const doc = parser.parseFromString(rawContent, 'text/html');
-      const headers = doc.querySelectorAll('h2, h3');
+      const doc = parser.parseFromString(htmlContent, 'text/html');
+      const headers = doc.querySelectorAll('h1, h2, h3');
       const sections: { id: string; title: string; level: number }[] = [];
 
       headers.forEach((header, index) => {
@@ -1824,12 +1885,12 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/(^-|-$)/g, '') || `section-${index}`;
-        
+
         header.id = id;
         sections.push({
           id,
           title: text,
-          level: header.tagName === 'H2' ? 1 : 2
+          level: header.tagName === 'H1' ? 0 : header.tagName === 'H2' ? 1 : 2
         });
       });
 
@@ -2871,9 +2932,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   {/* Main Body Content - Only show if there's actual content */}
                   {processedContent && processedContent.trim() && (
                     <div className="space-y-6 text-slate-800 dark:text-slate-200 leading-7">
-                      <div 
-                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold"
-                        dangerouslySetInnerHTML={{ __html: processedContent }} 
+                      <div
+                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:whitespace-pre-wrap prose-code:break-words prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:p-4 prose-pre:rounded-lg prose-pre:whitespace-pre-wrap prose-pre:break-words prose-strong:font-bold"
+                        dangerouslySetInnerHTML={{ __html: processedContent }}
                       />
                     </div>
                   )}
