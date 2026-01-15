@@ -69,6 +69,7 @@ import {
   publishPlaybook,
 } from '../../lib/crud/playbooks';
 import { getCurrentUserOrgId } from '../../lib/supabase';
+import { PlaybookProcessingStatus } from './PlaybookProcessingStatus';
 
 // ============================================================================
 // TYPES
@@ -195,13 +196,13 @@ function playbookReducer(state: PlaybookState, action: PlaybookAction): Playbook
 // ============================================================================
 
 const STATUS_CONFIG = {
-  suggestion: { label: 'Suggested', color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
-  confirmed: { label: 'Confirmed', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },
-  generating: { label: 'Generating...', color: 'bg-purple-500/10 text-purple-600 border-purple-500/20' },
-  draft_ready: { label: 'Draft Ready', color: 'bg-green-500/10 text-green-600 border-green-500/20' },
-  approved: { label: 'Approved', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
-  published: { label: 'Published', color: 'bg-teal-500/10 text-teal-600 border-teal-500/20' },
-  skipped: { label: 'Skipped', color: 'bg-gray-500/10 text-gray-500 border-gray-500/20' },
+  suggestion: { label: 'Suggested', color: 'bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent' },
+  confirmed: { label: 'Confirmed', color: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
+  generating: { label: 'Generating...', color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
+  draft_ready: { label: 'Draft Ready', color: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' },
+  approved: { label: 'Approved', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
+  published: { label: 'Published', color: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800' },
+  skipped: { label: 'Skipped', color: 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
 };
 
 // ============================================================================
@@ -436,17 +437,30 @@ export function PlaybookBuildView({
 
   if (state.loading || analyzing) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-[#F74A05]" />
-        <div className="text-center">
-          <h3 className="text-lg font-medium text-white">
-            {analyzing ? 'Analyzing Source Document...' : 'Loading Playbook...'}
-          </h3>
-          <p className="text-sm text-gray-400 mt-1">
-            {analyzing
-              ? 'Using AI to intelligently group chunks into training tracks'
-              : 'Retrieving playbook data'}
-          </p>
+      <div className="flex flex-col h-full bg-background">
+        {/* Header - matches main view */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Separator orientation="vertical" className="h-6" />
+            <div>
+              <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Zap className="h-5 w-5 text-primary" />
+                Building Playbook
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Analyzing source document
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Loading content - centered */}
+        <div className="flex-1 flex items-center justify-center">
+          <PlaybookProcessingStatus />
         </div>
       </div>
     );
@@ -454,11 +468,13 @@ export function PlaybookBuildView({
 
   if (!state.playbook) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 space-y-4">
-        <AlertTriangle className="h-12 w-12 text-amber-500" />
+      <div className="flex flex-col items-center justify-center h-full bg-background p-8 space-y-4">
+        <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+          <AlertTriangle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+        </div>
         <div className="text-center">
-          <h3 className="text-lg font-medium text-white">Failed to Load Playbook</h3>
-          <p className="text-sm text-gray-400 mt-1">
+          <h3 className="text-lg font-semibold text-foreground">Failed to Load Playbook</h3>
+          <p className="text-sm text-muted-foreground mt-1">
             There was an error loading the playbook data.
           </p>
           <Button variant="outline" className="mt-4" onClick={onBack}>
@@ -471,9 +487,9 @@ export function PlaybookBuildView({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#1a1a2e]">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -481,29 +497,32 @@ export function PlaybookBuildView({
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <div>
-            <h1 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Zap className="h-5 w-5 text-[#F74A05]" />
+            <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Zap className="h-5 w-5 text-primary" />
               {state.playbook.title}
             </h1>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {state.playbook.source_file?.file_name} &bull; {totalTracks} proposed tracks
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           {state.syncing && (
-            <span className="text-sm text-gray-400 flex items-center gap-1">
+            <span className="text-sm text-muted-foreground flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
               Saving...
             </span>
           )}
-          <Badge variant="outline" className="text-sm">
+          <Badge
+            variant="outline"
+            className="text-sm bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent"
+          >
             {approvedCount} / {totalTracks} approved
           </Badge>
           <Button
             onClick={() => setPublishDialogOpen(true)}
             disabled={approvedCount === 0}
-            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] hover:opacity-90"
+            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] hover:opacity-90 text-white"
           >
             <Package className="h-4 w-4 mr-2" />
             Publish Album
@@ -514,9 +533,9 @@ export function PlaybookBuildView({
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - Track List */}
-        <div className="w-80 border-r border-gray-800 flex flex-col">
-          <div className="p-4 border-b border-gray-800">
-            <h2 className="text-sm font-medium text-gray-300 uppercase tracking-wider">
+        <div className="w-80 border-r border-border bg-card flex flex-col">
+          <div className="p-4 border-b border-border">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
               Proposed Tracks
             </h2>
           </div>
@@ -534,7 +553,7 @@ export function PlaybookBuildView({
               />
             ))}
           </div>
-          <div className="p-3 border-t border-gray-800">
+          <div className="p-3 border-t border-border">
             <Button variant="outline" size="sm" className="w-full" disabled>
               <Plus className="h-4 w-4 mr-2" />
               Add Track
@@ -543,7 +562,7 @@ export function PlaybookBuildView({
         </div>
 
         {/* Main Area - Track Editor */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-background">
           {selectedTrack ? (
             <TrackEditor
               track={selectedTrack}
@@ -554,7 +573,7 @@ export function PlaybookBuildView({
               onChunkDragStart={handleDragStart}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="flex items-center justify-center h-full text-muted-foreground">
               Select a track to view details
             </div>
           )}
@@ -649,18 +668,18 @@ function TrackListItem({
       className={cn(
         'p-3 rounded-lg cursor-pointer transition-all',
         isSelected
-          ? 'bg-[#F74A05]/10 border border-[#F74A05]/30'
-          : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/50',
-        isDropTarget && 'ring-2 ring-[#F74A05] ring-offset-2 ring-offset-[#1a1a2e]'
+          ? 'bg-primary/10 border border-primary/30'
+          : 'bg-muted/30 border border-transparent hover:bg-muted/50',
+        isDropTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
       )}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-white truncate">{track.title}</h3>
+          <h3 className="text-sm font-medium text-foreground truncate">{track.title}</h3>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-gray-500">{track.chunk_count || 0} chunks</span>
+            <span className="text-xs text-muted-foreground">{track.chunk_count || 0} chunks</span>
             {track.rag_confidence && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-muted-foreground">
                 {Math.round(track.rag_confidence * 100)}% confidence
               </span>
             )}
@@ -703,27 +722,27 @@ function TrackEditor({
       {/* Track Header */}
       <div>
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">{track.title}</h2>
+          <h2 className="text-xl font-semibold text-foreground">{track.title}</h2>
           <Badge className={cn('text-sm', statusConfig.color)}>{statusConfig.label}</Badge>
         </div>
-        <p className="text-sm text-gray-400 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           {track.chunk_count || 0} chunks assigned
         </p>
       </div>
 
       {/* Conflict Banner */}
       {track.has_conflicts && track.conflicts && track.conflicts.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-amber-500">Conflict Detected</h3>
+              <h3 className="text-sm font-medium text-amber-700 dark:text-amber-400">Conflict Detected</h3>
               {track.conflicts.map((conflict, i) => (
-                <div key={i} className="mt-2 text-sm text-gray-300">
+                <div key={i} className="mt-2 text-sm text-foreground">
                   <p>
                     Similar to: <strong>"{conflict.existing_track_title}"</strong>
                   </p>
-                  <p className="text-gray-400">
+                  <p className="text-muted-foreground">
                     {Math.round(conflict.similarity_score * 100)}% match &bull; {conflict.match_type.replace('_', ' ')}
                   </p>
                 </div>
@@ -769,12 +788,12 @@ function TrackEditor({
 
       {/* RAG Reasoning */}
       {track.rag_reasoning && (
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <Lightbulb className="h-5 w-5 text-blue-400 mt-0.5" />
+            <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
             <div>
-              <h3 className="text-sm font-medium text-blue-400">AI Reasoning</h3>
-              <p className="text-sm text-gray-300 mt-1">{track.rag_reasoning}</p>
+              <h3 className="text-sm font-medium text-blue-700 dark:text-blue-400">AI Reasoning</h3>
+              <p className="text-sm text-foreground mt-1">{track.rag_reasoning}</p>
             </div>
           </div>
         </div>
@@ -782,7 +801,7 @@ function TrackEditor({
 
       {/* Chunks List */}
       <div>
-        <h3 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Chunks in this Track
         </h3>
         <div className="space-y-2">
@@ -794,7 +813,7 @@ function TrackEditor({
             />
           ))}
           {(!track.chunks || track.chunks.length === 0) && (
-            <div className="text-center py-8 text-gray-500 border border-dashed border-gray-700 rounded-lg">
+            <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg">
               No chunks assigned. Drag chunks here from other tracks.
             </div>
           )}
@@ -802,7 +821,7 @@ function TrackEditor({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-between pt-4 border-t border-gray-800">
+      <div className="flex items-center justify-between pt-4 border-t border-border">
         <Button variant="ghost" size="sm" onClick={() => onSkip(track.id)}>
           Skip Track
         </Button>
@@ -857,41 +876,41 @@ function ChunkCard({ chunk, onDragStart }: ChunkCardProps) {
     <div
       draggable
       onDragStart={onDragStart}
-      className="bg-gray-800/50 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors cursor-grab active:cursor-grabbing"
+      className="bg-card rounded-lg border border-border hover:border-primary/30 transition-colors cursor-grab active:cursor-grabbing"
     >
       <div
         className="flex items-center gap-3 p-3"
         onClick={() => setExpanded(!expanded)}
       >
-        <GripVertical className="h-4 w-4 text-gray-500 flex-shrink-0" />
+        <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-medium text-white truncate">
+            <h4 className="text-sm font-medium text-foreground truncate">
               {chunk.title || `Chunk ${chunk.chunk_index + 1}`}
             </h4>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent">
               {chunk.content_class}
             </Badge>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {chunk.word_count} words
           </p>
         </div>
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-gray-500" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-gray-500" />
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
         )}
       </div>
       {expanded && (
         <div className="px-3 pb-3 pt-0">
-          <div className="bg-gray-900/50 rounded p-3 text-sm text-gray-300 max-h-48 overflow-y-auto">
+          <div className="bg-muted/50 rounded p-3 text-sm text-foreground max-h-48 overflow-y-auto">
             {chunk.content}
           </div>
           {chunk.key_terms && chunk.key_terms.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
               {chunk.key_terms.map((term, i) => (
-                <Badge key={i} variant="outline" className="text-xs bg-gray-900">
+                <Badge key={i} variant="outline" className="text-xs bg-muted">
                   {term}
                 </Badge>
               ))}
@@ -926,21 +945,21 @@ function DraftPreviewSheet({ isOpen, track, onClose, onApprove }: DraftPreviewSh
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-[600px] sm:max-w-[600px] bg-[#1e1e2f] border-gray-800">
+      <SheetContent className="w-[600px] sm:max-w-[600px] bg-card border-border">
         <SheetHeader>
-          <SheetTitle className="text-white">Draft Preview: {track.title}</SheetTitle>
-          <SheetDescription className="text-gray-400">
+          <SheetTitle className="text-foreground">Draft Preview: {track.title}</SheetTitle>
+          <SheetDescription className="text-muted-foreground">
             Review the generated content before approving.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-6 space-y-4">
-          <div className="bg-gray-900/50 rounded-lg p-4 max-h-[60vh] overflow-y-auto">
+          <div className="bg-muted/50 rounded-lg p-4 max-h-[60vh] overflow-y-auto">
             <div
-              className="prose prose-invert prose-sm max-w-none"
+              className="prose prose-sm max-w-none dark:prose-invert"
               dangerouslySetInnerHTML={{ __html: track.generated_content || '' }}
             />
           </div>
-          <div className="flex justify-end gap-2 pt-4 border-t border-gray-800">
+          <div className="flex justify-end gap-2 pt-4 border-t border-border">
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>
@@ -948,7 +967,7 @@ function DraftPreviewSheet({ isOpen, track, onClose, onApprove }: DraftPreviewSh
               <Button
                 onClick={handleApprove}
                 disabled={approving}
-                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C]"
+                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
               >
                 {approving ? (
                   <>
@@ -964,7 +983,7 @@ function DraftPreviewSheet({ isOpen, track, onClose, onApprove }: DraftPreviewSh
               </Button>
             )}
             {track.status === 'approved' && (
-              <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800">
                 <CheckCircle2 className="h-4 w-4 mr-1" />
                 Approved
               </Badge>
