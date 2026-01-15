@@ -5944,7 +5944,64 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
           }));
           embeddings.unshift(...injectedEmbeddings);
         } else {
-          console.log(`[Brain] WARNING: Current track ${trackId} has no embeddings indexed!`);
+          // CRITICAL FALLBACK: If current track has NO embeddings indexed, fetch content directly from tracks table
+          // This ensures "Explain simply" works even if the track was never indexed
+          console.log(`[Brain] WARNING: Current track ${trackId} has no embeddings indexed! Fetching raw content as fallback...`);
+          const { data: trackContent } = await supabase
+            .from('tracks')
+            .select('id, title, description, content_text, content, transcript, type')
+            .eq('id', trackId)
+            .single();
+
+          if (trackContent) {
+            const trackType = trackContent.type || 'article';
+            // Build text content based on track type (same logic as brainIndexer)
+            let rawText = '';
+            if (trackContent.title) rawText += `Title: ${trackContent.title}\n\n`;
+            if (trackContent.description) rawText += `Description: ${trackContent.description}\n\n`;
+
+            if (trackType === 'article') {
+              // Articles: priority is content_text > content > transcript
+              const bodyContent = trackContent.content_text || trackContent.content || trackContent.transcript;
+              if (bodyContent) {
+                // Strip HTML tags
+                const cleanContent = bodyContent.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                if (cleanContent.length > 0) rawText += `Content: ${cleanContent}`;
+              }
+            } else if (trackType === 'story' && trackContent.transcript) {
+              // Stories: parse slides from transcript JSON
+              try {
+                const storyData = JSON.parse(trackContent.transcript);
+                if (storyData.slides && Array.isArray(storyData.slides)) {
+                  const slideTexts = storyData.slides.map((slide: any, idx: number) => {
+                    const slideTitle = slide.title || slide.name || '';
+                    const slideText = slide.transcript?.text || slide.content || '';
+                    const cleanText = slideText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    return cleanText ? `Slide ${idx + 1}: ${slideTitle ? slideTitle + ': ' : ''}${cleanText}` : '';
+                  }).filter(Boolean).join('\n\n');
+                  if (slideTexts) rawText += slideTexts;
+                }
+              } catch { /* not JSON, ignore */ }
+            }
+
+            if (rawText.trim().length > 50) {
+              console.log(`[Brain] Created synthetic embedding from raw track content (${rawText.length} chars)`);
+              // Create a synthetic embedding entry for citation building
+              const syntheticEmbedding = {
+                id: `synthetic-${trackId}`,
+                content_type: 'track',
+                chunk_text: rawText.substring(0, 3000), // Limit to reasonable context size
+                content_id: trackId,
+                metadata: { trackTitle: trackContent.title, trackType, synthetic: true },
+                similarity: 0.95,
+                injected: true,
+                synthetic: true
+              };
+              embeddings.unshift(syntheticEmbedding);
+            } else {
+              console.log(`[Brain] Raw track content too short to use as fallback (${rawText.length} chars)`);
+            }
+          }
         }
       } else {
         console.log(`[Brain] Current track ${trackId} already in semantic results`);

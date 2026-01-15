@@ -506,9 +506,10 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   // First, check if track exists and user has permission
   // Also get status for brain indexing and check if it's a video
+  // NOTE: Include content and content_text for brain indexing (articles store body in these fields)
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description')
+    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description, content, content_text')
     .eq('id', id)
     .single();
 
@@ -731,22 +732,13 @@ export async function updateTrack(input: UpdateTrackInput) {
 
 /**
  * Publish a track (change status from draft to published)
+ * Note: Brain indexing is handled by updateTrack → handleTrackStatusChange
+ * to avoid duplicate indexing
  */
 export async function publishTrack(trackId: string) {
   const track = await updateTrack({ id: trackId, status: 'published' });
-  
-  // Index to Brain after publishing (fire-and-forget)
-  const trackType = track.type || track.track_type || 'article';
-  if (trackType === 'video') {
-    getTrackTranscript(track.id).then(transcript => {
-      indexTrackToBrain(track, transcript).catch(() => {});
-    }).catch(() => {
-      indexTrackToBrain(track).catch(() => {});
-    });
-  } else {
-    indexTrackToBrain(track).catch(() => {});
-  }
-  
+  // Brain indexing is already triggered by updateTrack via handleTrackStatusChange
+  // No need to call indexTrackToBrain again here
   return track;
 }
 
