@@ -21,9 +21,10 @@ interface OrganizationProps {
   role?: string;
   onBackToDashboard?: () => void;
   onNavigate?: (view: string) => void;
+  onStartPlaybook?: (sourceFileId: string) => void;
 }
 
-export function Organization({ currentRole, role, onBackToDashboard, onNavigate }: OrganizationProps) {
+export function Organization({ currentRole, role, onBackToDashboard, onNavigate, onStartPlaybook }: OrganizationProps) {
   const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
   const [tagSystems, setTagSystems] = useState<TagType[]>([]);
   const [activeTagSystem, setActiveTagSystem] = useState<string>('');
@@ -484,6 +485,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                 // TODO: Pass prefill data to RoleDetailPage
               }}
               highlightChunkId={highlightChunkId}
+              onStartPlaybook={onStartPlaybook}
             />
           ) : (
             <div className="space-y-6">

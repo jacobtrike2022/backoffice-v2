@@ -56,6 +56,7 @@ import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { PublicKBViewer } from "./components/PublicKBViewer";
 import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
@@ -75,6 +76,7 @@ type AppView =
   | "assignments"
   | "assignment"
   | "playlist-wizard"
+  | "playbook-build"
   | "people"
   | "units"
   | "new-unit"
@@ -125,6 +127,7 @@ export default function App() {
     useState<AppView | null>(null); // Track where user came from
   const [contentLibraryKey, setContentLibraryKey] = useState(0); // Key to force ContentLibrary reset
   const [knowledgeBaseKey, setKnowledgeBaseKey] = useState(0); // Key to force KnowledgeBase reset
+  const [playbookSourceFileId, setPlaybookSourceFileId] = useState<string | null>(null); // For playbook build view
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -514,6 +517,26 @@ export default function App() {
             }
           />
         );
+      case "playbook-build":
+        return playbookSourceFileId && user?.organization_id ? (
+          <PlaybookBuildView
+            sourceFileId={playbookSourceFileId}
+            organizationId={user.organization_id}
+            onBack={() => {
+              setPlaybookSourceFileId(null);
+              requestNavigate("organization");
+            }}
+            onComplete={(albumId: string) => {
+              setPlaybookSourceFileId(null);
+              setSelectedAlbumId(albumId);
+              requestNavigate("assignments");
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-gray-500">No source file selected</p>
+          </div>
+        );
       case "people":
         return <People currentRole={currentRole} onBackToDashboard={() => requestNavigate("dashboard")} />;
       case "units":
@@ -536,7 +559,16 @@ export default function App() {
           />
         );
       case "organization":
-        return <Organization role={currentRole} onNavigate={requestNavigate} />;
+        return (
+          <Organization
+            role={currentRole}
+            onNavigate={requestNavigate}
+            onStartPlaybook={(sourceFileId: string) => {
+              setPlaybookSourceFileId(sourceFileId);
+              requestNavigate("playbook-build");
+            }}
+          />
+        );
       case "authoring":
         return (
           <ContentAuthoring

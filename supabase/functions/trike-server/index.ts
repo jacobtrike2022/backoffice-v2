@@ -785,6 +785,46 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // PLAYBOOK - Source-to-Album Automated Workflow
+    // =========================================================================
+
+    // Analyze source and create playbook with suggested track groupings
+    if (method === "POST" && path === "/playbook/analyze") {
+      return await handlePlaybookAnalyze(req);
+    }
+
+    // Get playbook by ID
+    if (method === "GET" && path.startsWith("/playbook/") && !path.includes("/playbook/update") && !path.includes("/playbook/confirm") && !path.includes("/playbook/generate") && !path.includes("/playbook/approve") && !path.includes("/playbook/publish")) {
+      const playbookId = path.replace("/playbook/", "");
+      return await handleGetPlaybook(req, playbookId);
+    }
+
+    // Update track groupings (drag-drop operations)
+    if (method === "POST" && path === "/playbook/update-groupings") {
+      return await handlePlaybookUpdateGroupings(req);
+    }
+
+    // Confirm a track grouping
+    if (method === "POST" && path === "/playbook/confirm-track") {
+      return await handlePlaybookConfirmTrack(req);
+    }
+
+    // Generate draft content for a confirmed track
+    if (method === "POST" && path === "/playbook/generate-draft") {
+      return await handlePlaybookGenerateDraft(req);
+    }
+
+    // Approve a draft track
+    if (method === "POST" && path === "/playbook/approve-track") {
+      return await handlePlaybookApproveTrack(req);
+    }
+
+    // Publish all approved tracks and create album
+    if (method === "POST" && path === "/playbook/publish") {
+      return await handlePlaybookPublish(req);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -877,7 +917,14 @@ Deno.serve(async (req: Request) => {
         "POST /process-extracted-entity",
         "POST /classify-chunks",
         "POST /extract-jd",
-        "POST /extract-job-description"
+        "POST /extract-job-description",
+        "POST /playbook/analyze",
+        "GET /playbook/:id",
+        "POST /playbook/update-groupings",
+        "POST /playbook/confirm-track",
+        "POST /playbook/generate-draft",
+        "POST /playbook/approve-track",
+        "POST /playbook/publish"
       ]
     }, 404);
 
@@ -15315,4 +15362,891 @@ function formatContentAsArticle(content: string, title: string | null): string {
   }
 
   return html.trim();
+}
+
+// =============================================================================
+// PLAYBOOK HANDLERS - Source-to-Album Automated Workflow
+// =============================================================================
+
+/**
+ * Analyze source chunks and create playbook with suggested track groupings
+ * Uses RAG to intelligently group chunks by topic and detect conflicts with existing content
+ */
+async function handlePlaybookAnalyze(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { source_file_id, organization_id, options = {} } = body;
+
+    console.log('[playbook/analyze] Starting analysis for source:', source_file_id);
+
+    if (!source_file_id) {
+      return jsonResponse({ success: false, error: "source_file_id is required" }, 400);
+    }
+
+    if (!organization_id) {
+      return jsonResponse({ success: false, error: "organization_id is required" }, 400);
+    }
+
+    // Fetch source file info
+    const { data: sourceFile, error: sourceError } = await supabase
+      .from("source_files")
+      .select("id, file_name, organization_id, chunk_count")
+      .eq("id", source_file_id)
+      .single();
+
+    if (sourceError || !sourceFile) {
+      return jsonResponse({ success: false, error: "Source file not found" }, 404);
+    }
+
+    // Fetch all chunks for this source
+    const { data: chunks, error: chunksError } = await supabase
+      .from("source_chunks")
+      .select("*")
+      .eq("source_file_id", source_file_id)
+      .order("chunk_index", { ascending: true });
+
+    if (chunksError || !chunks || chunks.length === 0) {
+      return jsonResponse({ success: false, error: "No chunks found for source file" }, 404);
+    }
+
+    console.log('[playbook/analyze] Found', chunks.length, 'chunks');
+
+    // Use GPT-4 to analyze chunks and propose groupings
+    const groupingPrompt = `You are an expert content curator creating training tracks from a source document.
+
+Analyze these document chunks and propose logical groupings for training tracks.
+Each track should:
+- Cover a coherent topic or theme
+- Be learnable in one sitting (ideally 2-10 chunks per track)
+- Have a clear, descriptive title
+
+CHUNKS:
+${chunks.map((c, i) => `
+[Chunk ${i + 1}] (ID: ${c.id})
+Type: ${c.content_class || 'other'}
+Title: ${c.title || 'Untitled'}
+Key Terms: ${(c.key_terms || []).join(', ') || 'None'}
+Content Preview: ${(c.content || '').substring(0, 300)}...
+---`).join('\n')}
+
+Respond with a JSON object containing an array of proposed tracks:
+{
+  "proposed_tracks": [
+    {
+      "title": "Clear descriptive track title",
+      "chunk_ids": ["chunk-id-1", "chunk-id-2"],
+      "reasoning": "Brief explanation of why these chunks belong together",
+      "confidence": 0.85
+    }
+  ],
+  "unassigned_chunk_ids": ["chunk-ids-that-dont-fit-well"]
+}
+
+Guidelines:
+- Group chunks with related topics, key terms, or content types
+- Prefer 3-7 chunks per track for optimal learning
+- Single chunks can be their own track if they're substantial and self-contained
+- Very short/metadata chunks can be left unassigned
+- Confidence should reflect how well the chunks fit together (0.5-1.0)`;
+
+    const groupingResponse = await callOpenAI(
+      [{ role: "user", content: groupingPrompt }],
+      { temperature: 0.3, response_format: { type: "json_object" } }
+    );
+
+    let proposedGroupings;
+    try {
+      proposedGroupings = JSON.parse(groupingResponse);
+    } catch (e) {
+      console.error('[playbook/analyze] Failed to parse grouping response:', e);
+      return jsonResponse({ success: false, error: "Failed to analyze chunks" }, 500);
+    }
+
+    console.log('[playbook/analyze] AI proposed', proposedGroupings.proposed_tracks?.length || 0, 'tracks');
+
+    // Check for conflicts with existing published content if enabled
+    const checkDuplicates = options.check_duplicates !== false;
+    const tracksWithConflicts = [];
+
+    if (checkDuplicates && proposedGroupings.proposed_tracks) {
+      console.log('[playbook/analyze] Checking for conflicts with existing content...');
+
+      for (const track of proposedGroupings.proposed_tracks) {
+        const conflicts = [];
+
+        // Get chunk content for this track
+        const trackChunkIds = track.chunk_ids || [];
+        const trackChunks = chunks.filter(c => trackChunkIds.includes(c.id));
+        const combinedContent = trackChunks.map(c => c.content || '').join(' ').substring(0, 1000);
+
+        if (combinedContent.length > 50) {
+          try {
+            // Search existing brain index for similar content
+            const queryEmbedding = await generateEmbedding(track.title + ' ' + combinedContent.substring(0, 500));
+
+            const { data: searchResults } = await supabase.rpc("match_brain_embeddings", {
+              query_embedding: queryEmbedding,
+              match_threshold: 0.7,
+              match_count: 5,
+              org_id: organization_id,
+            });
+
+            if (searchResults && searchResults.length > 0) {
+              // Group by content_id and get highest similarity per track
+              const trackSimilarities = new Map();
+              for (const result of searchResults) {
+                const existingScore = trackSimilarities.get(result.content_id) || 0;
+                if (result.similarity > existingScore) {
+                  trackSimilarities.set(result.content_id, {
+                    track_id: result.content_id,
+                    similarity: result.similarity,
+                    metadata: result.metadata
+                  });
+                }
+              }
+
+              // Convert to conflicts array
+              for (const [trackId, data] of trackSimilarities) {
+                // Fetch track title
+                const { data: existingTrack } = await supabase
+                  .from("tracks")
+                  .select("id, title")
+                  .eq("id", trackId)
+                  .single();
+
+                if (existingTrack && data.similarity > 0.7) {
+                  let matchType = 'direct_overlap';
+                  if (data.similarity < 0.85) {
+                    matchType = 'version_candidate';
+                  }
+
+                  conflicts.push({
+                    existing_track_id: existingTrack.id,
+                    existing_track_title: existingTrack.title,
+                    similarity_score: Math.round(data.similarity * 100) / 100,
+                    match_type: matchType,
+                    overlap_summary: `Content similarity detected (${Math.round(data.similarity * 100)}% match)`
+                  });
+                }
+              }
+            }
+          } catch (searchError) {
+            console.error('[playbook/analyze] Conflict search failed (non-blocking):', searchError);
+          }
+        }
+
+        tracksWithConflicts.push({
+          ...track,
+          has_conflicts: conflicts.length > 0,
+          conflicts
+        });
+      }
+    } else {
+      // No conflict checking - just add empty conflicts array
+      for (const track of proposedGroupings.proposed_tracks || []) {
+        tracksWithConflicts.push({
+          ...track,
+          has_conflicts: false,
+          conflicts: []
+        });
+      }
+    }
+
+    // Create playbook record
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .insert({
+        source_file_id,
+        organization_id,
+        title: sourceFile.file_name.replace(/\.[^/.]+$/, ''), // Remove file extension
+        status: 'suggestion',
+        rag_analysis: {
+          chunk_count: chunks.length,
+          proposed_track_count: tracksWithConflicts.length,
+          analysis_timestamp: new Date().toISOString()
+        }
+      })
+      .select()
+      .single();
+
+    if (playbookError) {
+      console.error('[playbook/analyze] Failed to create playbook:', playbookError);
+      return jsonResponse({ success: false, error: "Failed to create playbook" }, 500);
+    }
+
+    console.log('[playbook/analyze] Created playbook:', playbook.id);
+
+    // Create playbook tracks and chunk assignments
+    const createdTracks = [];
+    for (let i = 0; i < tracksWithConflicts.length; i++) {
+      const track = tracksWithConflicts[i];
+
+      const { data: playbookTrack, error: trackError } = await supabase
+        .from("playbook_tracks")
+        .insert({
+          playbook_id: playbook.id,
+          organization_id,
+          title: track.title,
+          display_order: i,
+          status: 'suggestion',
+          rag_reasoning: track.reasoning,
+          rag_confidence: track.confidence,
+          has_conflicts: track.has_conflicts,
+          conflicts: track.conflicts
+        })
+        .select()
+        .single();
+
+      if (trackError) {
+        console.error('[playbook/analyze] Failed to create track:', trackError);
+        continue;
+      }
+
+      // Assign chunks to track
+      const chunkAssignments = (track.chunk_ids || []).map((chunkId: string, index: number) => ({
+        playbook_track_id: playbookTrack.id,
+        source_chunk_id: chunkId,
+        sequence_order: index
+      }));
+
+      if (chunkAssignments.length > 0) {
+        await supabase
+          .from("playbook_track_chunks")
+          .insert(chunkAssignments);
+      }
+
+      createdTracks.push({
+        id: playbookTrack.id,
+        title: playbookTrack.title,
+        chunk_ids: track.chunk_ids,
+        reasoning: track.reasoning,
+        confidence: track.confidence,
+        conflicts: track.conflicts
+      });
+    }
+
+    const duration = Date.now() - startTime;
+    console.log('[playbook/analyze] Complete in', duration, 'ms');
+
+    return jsonResponse({
+      success: true,
+      playbook_id: playbook.id,
+      suggested_tracks: createdTracks,
+      unassigned_chunks: proposedGroupings.unassigned_chunk_ids || [],
+      stats: {
+        total_chunks: chunks.length,
+        assigned_chunks: createdTracks.reduce((sum, t) => sum + (t.chunk_ids?.length || 0), 0),
+        track_count: createdTracks.length,
+        conflicts_found: createdTracks.filter(t => t.conflicts?.length > 0).length,
+        duration_ms: duration
+      }
+    });
+
+  } catch (error) {
+    console.error('[playbook/analyze] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Analysis failed" }, 500);
+  }
+}
+
+/**
+ * Get playbook by ID with full details
+ */
+async function handleGetPlaybook(req: Request, playbookId: string): Promise<Response> {
+  try {
+    const { data: playbook, error } = await supabase
+      .from("playbooks")
+      .select(`
+        *,
+        source_file:source_files (
+          id,
+          file_name,
+          chunk_count
+        ),
+        playbook_tracks (
+          *,
+          playbook_track_chunks (
+            id,
+            source_chunk_id,
+            sequence_order,
+            chunk:source_chunks (
+              id,
+              chunk_index,
+              content,
+              title,
+              summary,
+              word_count,
+              chunk_type,
+              content_class,
+              key_terms
+            )
+          )
+        )
+      `)
+      .eq("id", playbookId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+      }
+      throw error;
+    }
+
+    // Transform and sort
+    const tracks = (playbook.playbook_tracks || [])
+      .sort((a: any, b: any) => a.display_order - b.display_order)
+      .map((track: any) => ({
+        ...track,
+        chunks: (track.playbook_track_chunks || [])
+          .sort((a: any, b: any) => a.sequence_order - b.sequence_order),
+        chunk_count: (track.playbook_track_chunks || []).length
+      }));
+
+    return jsonResponse({
+      success: true,
+      playbook: {
+        ...playbook,
+        tracks,
+        track_count: tracks.length
+      }
+    });
+
+  } catch (error) {
+    console.error('[playbook/get] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to get playbook" }, 500);
+  }
+}
+
+/**
+ * Update track groupings after user drag-drop operations
+ */
+async function handlePlaybookUpdateGroupings(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_id, tracks, new_tracks, removed_track_ids } = body;
+
+    console.log('[playbook/update-groupings] Updating playbook:', playbook_id);
+
+    if (!playbook_id) {
+      return jsonResponse({ success: false, error: "playbook_id is required" }, 400);
+    }
+
+    // Get playbook to verify it exists and get org_id
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .select("id, organization_id")
+      .eq("id", playbook_id)
+      .single();
+
+    if (playbookError || !playbook) {
+      return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+    }
+
+    // Remove deleted tracks
+    if (removed_track_ids && removed_track_ids.length > 0) {
+      await supabase
+        .from("playbook_tracks")
+        .delete()
+        .in("id", removed_track_ids);
+      console.log('[playbook/update-groupings] Removed', removed_track_ids.length, 'tracks');
+    }
+
+    // Update existing tracks
+    if (tracks && tracks.length > 0) {
+      for (const track of tracks) {
+        // Update track metadata
+        await supabase
+          .from("playbook_tracks")
+          .update({
+            title: track.title,
+            display_order: track.display_order
+          })
+          .eq("id", track.id);
+
+        // Update chunk assignments
+        await supabase
+          .from("playbook_track_chunks")
+          .delete()
+          .eq("playbook_track_id", track.id);
+
+        if (track.chunk_ids && track.chunk_ids.length > 0) {
+          const assignments = track.chunk_ids.map((chunkId: string, index: number) => ({
+            playbook_track_id: track.id,
+            source_chunk_id: chunkId,
+            sequence_order: index
+          }));
+
+          await supabase
+            .from("playbook_track_chunks")
+            .insert(assignments);
+        }
+      }
+      console.log('[playbook/update-groupings] Updated', tracks.length, 'tracks');
+    }
+
+    // Create new tracks
+    if (new_tracks && new_tracks.length > 0) {
+      for (const newTrack of new_tracks) {
+        const { data: createdTrack } = await supabase
+          .from("playbook_tracks")
+          .insert({
+            playbook_id,
+            organization_id: playbook.organization_id,
+            title: newTrack.title,
+            display_order: newTrack.display_order,
+            status: 'suggestion'
+          })
+          .select()
+          .single();
+
+        if (createdTrack && newTrack.chunk_ids && newTrack.chunk_ids.length > 0) {
+          const assignments = newTrack.chunk_ids.map((chunkId: string, index: number) => ({
+            playbook_track_id: createdTrack.id,
+            source_chunk_id: chunkId,
+            sequence_order: index
+          }));
+
+          await supabase
+            .from("playbook_track_chunks")
+            .insert(assignments);
+        }
+      }
+      console.log('[playbook/update-groupings] Created', new_tracks.length, 'new tracks');
+    }
+
+    // Fetch updated playbook
+    return await handleGetPlaybook(req, playbook_id);
+
+  } catch (error) {
+    console.error('[playbook/update-groupings] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to update groupings" }, 500);
+  }
+}
+
+/**
+ * Confirm a track grouping (ready for draft generation)
+ */
+async function handlePlaybookConfirmTrack(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_track_id, conflict_resolution } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get current track
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select("*, playbook_track_chunks(source_chunk_id)")
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    // If track has conflicts, require resolution
+    if (track.has_conflicts && !conflict_resolution) {
+      return jsonResponse({
+        success: false,
+        error: "Track has conflicts - conflict_resolution is required",
+        conflicts: track.conflicts
+      }, 400);
+    }
+
+    // Update track status
+    const { data: updatedTrack, error: updateError } = await supabase
+      .from("playbook_tracks")
+      .update({
+        status: 'confirmed',
+        conflict_resolution: conflict_resolution || null
+      })
+      .eq("id", playbook_track_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return jsonResponse({
+      success: true,
+      playbook_track: updatedTrack
+    });
+
+  } catch (error) {
+    console.error('[playbook/confirm-track] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to confirm track" }, 500);
+  }
+}
+
+/**
+ * Generate draft content for a confirmed track
+ */
+async function handlePlaybookGenerateDraft(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { playbook_track_id } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get track with chunks
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select(`
+        *,
+        playbook_track_chunks (
+          sequence_order,
+          chunk:source_chunks (*)
+        )
+      `)
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    if (track.status !== 'confirmed') {
+      return jsonResponse({ success: false, error: "Track must be confirmed before generating draft" }, 400);
+    }
+
+    // Update status to generating
+    await supabase
+      .from("playbook_tracks")
+      .update({ status: 'generating' })
+      .eq("id", playbook_track_id);
+
+    // Get chunks in order
+    const sortedChunks = (track.playbook_track_chunks || [])
+      .sort((a: any, b: any) => a.sequence_order - b.sequence_order)
+      .map((ptc: any) => ptc.chunk)
+      .filter(Boolean);
+
+    if (sortedChunks.length === 0) {
+      await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'confirmed',
+          generation_error: 'No chunks found for this track'
+        })
+        .eq("id", playbook_track_id);
+
+      return jsonResponse({ success: false, error: "No chunks found for this track" }, 400);
+    }
+
+    console.log('[playbook/generate-draft] Generating draft from', sortedChunks.length, 'chunks');
+
+    // Use the same generation logic as handleGenerateCombinedTrack
+    try {
+      const combinedContent = await generateCombinedContent(sortedChunks, track.title, 'training_docs', {});
+
+      // Update track with generated content
+      const { data: updatedTrack, error: updateError } = await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'draft_ready',
+          generated_content: combinedContent.content,
+          generated_at: new Date().toISOString(),
+          generation_error: null
+        })
+        .eq("id", playbook_track_id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      const duration = Date.now() - startTime;
+      console.log('[playbook/generate-draft] Complete in', duration, 'ms');
+
+      return jsonResponse({
+        success: true,
+        playbook_track: updatedTrack,
+        generated: {
+          title: combinedContent.title,
+          description: combinedContent.description,
+          content_length: combinedContent.content?.length || 0,
+          sections: combinedContent.sections?.map((s: any) => s.title) || []
+        }
+      });
+
+    } catch (genError) {
+      console.error('[playbook/generate-draft] Generation failed:', genError);
+
+      await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'confirmed',
+          generation_error: genError.message || 'Generation failed'
+        })
+        .eq("id", playbook_track_id);
+
+      return jsonResponse({ success: false, error: "Draft generation failed: " + genError.message }, 500);
+    }
+
+  } catch (error) {
+    console.error('[playbook/generate-draft] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to generate draft" }, 500);
+  }
+}
+
+/**
+ * Approve a draft track
+ */
+async function handlePlaybookApproveTrack(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_track_id, edited_content } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get track
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select("*")
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    if (track.status !== 'draft_ready') {
+      return jsonResponse({ success: false, error: "Track must have a generated draft before approval" }, 400);
+    }
+
+    // Update with edited content if provided
+    const { data: updatedTrack, error: updateError } = await supabase
+      .from("playbook_tracks")
+      .update({
+        status: 'approved',
+        generated_content: edited_content || track.generated_content
+      })
+      .eq("id", playbook_track_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return jsonResponse({
+      success: true,
+      playbook_track: updatedTrack
+    });
+
+  } catch (error) {
+    console.error('[playbook/approve-track] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to approve track" }, 500);
+  }
+}
+
+/**
+ * Publish all approved tracks and create album
+ */
+async function handlePlaybookPublish(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { playbook_id, album_title, album_description } = body;
+
+    if (!playbook_id) {
+      return jsonResponse({ success: false, error: "playbook_id is required" }, 400);
+    }
+
+    // Get playbook with tracks
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .select(`
+        *,
+        playbook_tracks (
+          *,
+          playbook_track_chunks (
+            source_chunk_id,
+            sequence_order
+          )
+        )
+      `)
+      .eq("id", playbook_id)
+      .single();
+
+    if (playbookError || !playbook) {
+      return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+    }
+
+    // Update playbook status
+    await supabase
+      .from("playbooks")
+      .update({ status: 'publishing' })
+      .eq("id", playbook_id);
+
+    const approvedTracks = (playbook.playbook_tracks || []).filter(
+      (t: any) => t.status === 'approved'
+    );
+    const skippedTracks = (playbook.playbook_tracks || []).filter(
+      (t: any) => t.status === 'skipped'
+    );
+
+    if (approvedTracks.length === 0) {
+      return jsonResponse({ success: false, error: "No approved tracks to publish" }, 400);
+    }
+
+    console.log('[playbook/publish] Publishing', approvedTracks.length, 'tracks');
+
+    // Create album
+    const { data: album, error: albumError } = await supabase
+      .from("albums")
+      .insert({
+        organization_id: playbook.organization_id,
+        title: album_title || playbook.title,
+        description: album_description || `Generated from ${playbook.title}`,
+        status: 'published'
+      })
+      .select()
+      .single();
+
+    if (albumError) {
+      console.error('[playbook/publish] Failed to create album:', albumError);
+      return jsonResponse({ success: false, error: "Failed to create album" }, 500);
+    }
+
+    console.log('[playbook/publish] Created album:', album.id);
+
+    // Publish each approved track
+    const publishedTracks = [];
+    const errors = [];
+
+    for (let i = 0; i < approvedTracks.length; i++) {
+      const playbookTrack = approvedTracks[i];
+
+      try {
+        // Calculate stats
+        const wordCount = (playbookTrack.generated_content || '').split(/\s+/).length;
+        const durationMinutes = Math.ceil(wordCount / 200);
+
+        // Create track
+        const { data: track, error: trackCreateError } = await supabase
+          .from("tracks")
+          .insert({
+            organization_id: playbook.organization_id,
+            title: playbookTrack.title,
+            description: playbookTrack.description || '',
+            transcript: playbookTrack.generated_content,
+            type: 'article',
+            status: 'published',
+            duration_minutes: durationMinutes
+          })
+          .select()
+          .single();
+
+        if (trackCreateError || !track) {
+          throw new Error(trackCreateError?.message || 'Failed to create track');
+        }
+
+        // Add to album
+        await supabase
+          .from("album_tracks")
+          .insert({
+            album_id: album.id,
+            track_id: track.id,
+            display_order: i,
+            is_required: true,
+            unlock_previous: false
+          });
+
+        // Update playbook track with published track reference
+        await supabase
+          .from("playbook_tracks")
+          .update({
+            status: 'published',
+            published_track_id: track.id,
+            published_at: new Date().toISOString()
+          })
+          .eq("id", playbookTrack.id);
+
+        // Index to brain (non-blocking)
+        try {
+          const embedding = await generateEmbedding(
+            `${track.title} ${track.description || ''} ${(track.transcript || '').substring(0, 2000)}`
+          );
+
+          await supabase
+            .from("brain_embeddings")
+            .insert({
+              organization_id: playbook.organization_id,
+              content_type: 'track',
+              content_id: track.id,
+              chunk_index: 0,
+              chunk_text: (track.transcript || '').substring(0, 8000),
+              embedding,
+              metadata: { title: track.title, type: 'article' }
+            });
+        } catch (indexError) {
+          console.error('[playbook/publish] Brain indexing failed (non-blocking):', indexError);
+        }
+
+        publishedTracks.push({
+          playbook_track_id: playbookTrack.id,
+          published_track_id: track.id
+        });
+
+        console.log('[playbook/publish] Published track:', track.id);
+
+      } catch (trackError) {
+        console.error('[playbook/publish] Failed to publish track:', playbookTrack.id, trackError);
+        errors.push(`Track "${playbookTrack.title}": ${trackError.message}`);
+      }
+    }
+
+    // Update playbook status
+    await supabase
+      .from("playbooks")
+      .update({
+        status: 'completed',
+        album_id: album.id,
+        completed_at: new Date().toISOString()
+      })
+      .eq("id", playbook_id);
+
+    const duration = Date.now() - startTime;
+    console.log('[playbook/publish] Complete in', duration, 'ms');
+
+    return jsonResponse({
+      success: true,
+      album: {
+        id: album.id,
+        title: album.title,
+        track_count: publishedTracks.length
+      },
+      published_tracks: publishedTracks,
+      skipped_tracks: skippedTracks.map((t: any) => t.id),
+      errors
+    });
+
+  } catch (error) {
+    console.error('[playbook/publish] Error:', error);
+
+    // Revert playbook status on error
+    const body = await req.json().catch(() => ({}));
+    if (body.playbook_id) {
+      await supabase
+        .from("playbooks")
+        .update({ status: 'review' })
+        .eq("id", body.playbook_id);
+    }
+
+    return jsonResponse({ success: false, error: error.message || "Publish failed" }, 500);
+  }
 }

@@ -154,6 +154,8 @@ interface DocumentIntelligenceEditorProps {
   }) => void;
   /** Chunk ID to auto-expand and scroll to (for deep linking from role JD hotlinks) */
   highlightChunkId?: string | null;
+  /** Callback to start the Playbook Build workflow */
+  onStartPlaybook?: (sourceFileId: string) => void;
 }
 
 export function DocumentIntelligenceEditor({
@@ -162,6 +164,7 @@ export function DocumentIntelligenceEditor({
   onViewRole,
   onCreateRole,
   highlightChunkId,
+  onStartPlaybook,
 }: DocumentIntelligenceEditorProps) {
 
   // Core state
@@ -1407,6 +1410,15 @@ export function DocumentIntelligenceEditor({
                   Process Document
                 </>
               )}
+            </Button>
+          )}
+          {sourceFile.is_chunked && chunks.length > 0 && onStartPlaybook && (
+            <Button
+              onClick={() => onStartPlaybook(sourceFileId)}
+              className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90"
+            >
+              <Zap className="h-4 w-4 mr-2" />
+              Build Playbook
             </Button>
           )}
         </div>
