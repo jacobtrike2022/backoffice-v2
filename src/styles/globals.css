@@ -243,6 +243,28 @@ html {
   background: var(--color-muted-foreground);
 }
 
+/* Custom neon orange text selection for chunk content */
+.chunk-content-selectable::selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+.chunk-content-selectable::-moz-selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+/* Also style nested elements within chunk content */
+.chunk-content-selectable *::selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+.chunk-content-selectable *::-moz-selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
 /* Enhanced spacing utilities */
 .section-spacing {
   padding: 2rem 0;

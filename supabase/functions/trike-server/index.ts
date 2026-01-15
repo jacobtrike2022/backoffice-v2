@@ -1312,6 +1312,104 @@ interface SmartChunk {
  * Extract segments from text while preserving structural information.
  * Segments are larger than final chunks - we'll merge/split later based on content type.
  */
+/**
+ * Detect if a document is a "handbook" type (multi-topic policy document)
+ * Handbooks need different chunking strategy - fewer, larger topic-based chunks
+ */
+function detectDocumentType(text: string): 'handbook' | 'single_doc' | 'mixed' {
+  const lowerText = text.toLowerCase();
+
+  // Strong handbook indicators
+  const hasTOC = /table\s+of\s+contents/i.test(text);
+  const hasHandbookTitle = /employee\s+handbook|company\s+handbook|policy\s+manual|staff\s+handbook/i.test(text);
+
+  // Count policy-style ALL-CAPS headers (handbook indicator)
+  const allCapsHeaders = text.match(/\n[A-Z][A-Z\s]{5,}\n/g) || [];
+  const manyPolicySections = allCapsHeaders.length >= 15;
+
+  // Common handbook topic keywords
+  const handbookTopics = [
+    'equal employment', 'at-will', 'harassment', 'discrimination',
+    'fmla', 'leave of absence', 'dress code', 'attendance',
+    'disciplinary', 'termination', 'benefits', 'payroll',
+    'confidentiality', 'social media', 'drug', 'safety'
+  ];
+  const topicMatches = handbookTopics.filter(topic => lowerText.includes(topic)).length;
+  const hasMultipleTopics = topicMatches >= 5;
+
+  // Document length check
+  const isLargeDoc = text.length > 50000; // ~20+ pages
+
+  console.log('[detectDocumentType] TOC:', hasTOC, 'Handbook title:', hasHandbookTitle,
+    'ALL-CAPS headers:', allCapsHeaders.length, 'Topic matches:', topicMatches, 'Large:', isLargeDoc);
+
+  if ((hasTOC || hasHandbookTitle) && (manyPolicySections || hasMultipleTopics)) {
+    return 'handbook';
+  }
+
+  if (isLargeDoc && manyPolicySections && hasMultipleTopics) {
+    return 'handbook';
+  }
+
+  if (text.length < 15000) {
+    return 'single_doc';
+  }
+
+  return 'mixed';
+}
+
+/**
+ * Extract topic boundaries for handbook-style documents
+ * Returns positions of major topic changes (not every header)
+ */
+function extractHandbookTopicBoundaries(text: string): { position: number; topic: string }[] {
+  const boundaries: { position: number; topic: string }[] = [];
+
+  // Look for strong topic indicators - standalone ALL-CAPS lines that represent policy topics
+  // But filter out sub-headers and continuation headers
+  const topicPattern = /\n([A-Z][A-Z\s&\-\/]{4,})\n/g;
+  let match;
+
+  // First pass: collect all potential topics
+  const potentialTopics: { position: number; topic: string; isSubHeader: boolean }[] = [];
+  while ((match = topicPattern.exec(text)) !== null) {
+    const topic = match[1].trim();
+    const position = match.index;
+
+    // Skip if it looks like a sub-header (very short or common sub-section names)
+    const isSubHeader = topic.length < 8 ||
+      /^(PURPOSE|SCOPE|POLICY|PROCEDURE|DEFINITION|NOTE|EXAMPLE|OVERVIEW|SUMMARY|INTRODUCTION)$/i.test(topic) ||
+      /^(SECTION|PART|CHAPTER)\s+\d+/i.test(topic);
+
+    potentialTopics.push({ position, topic, isSubHeader });
+  }
+
+  // Second pass: only keep topics that are followed by substantial content
+  // and skip sub-headers that appear right after main topics
+  let lastMainTopicPos = -1;
+  for (let i = 0; i < potentialTopics.length; i++) {
+    const { position, topic, isSubHeader } = potentialTopics[i];
+
+    // Skip sub-headers
+    if (isSubHeader) continue;
+
+    // Skip if too close to last main topic (likely a sub-section)
+    if (lastMainTopicPos >= 0 && position - lastMainTopicPos < 500) continue;
+
+    // Check if there's substantial content after this topic (at least 200 chars before next topic)
+    const nextTopicPos = potentialTopics[i + 1]?.position || text.length;
+    const contentLength = nextTopicPos - position;
+
+    if (contentLength >= 200) {
+      boundaries.push({ position, topic });
+      lastMainTopicPos = position;
+    }
+  }
+
+  console.log('[extractHandbookTopicBoundaries] Found', boundaries.length, 'topic boundaries');
+  return boundaries;
+}
+
 function extractSegments(text: string): Segment[] {
   const segments: Segment[] = [];
   const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -1332,11 +1430,12 @@ function extractSegments(text: string): Segment[] {
     return segments;
   }
 
-  // Detect page breaks (common patterns from PDF extraction)
-  // pdf-parse often inserts multiple newlines or form feeds between pages
-  const pageBreakPattern = /\f|\n{4,}|(?:\n-{10,}\n)/g;
+  // Detect document type for appropriate chunking strategy
+  const docType = detectDocumentType(normalizedText);
+  console.log('[extractSegments] Document type detected:', docType);
 
-  // Find all potential page breaks
+  // Detect page breaks (common patterns from PDF extraction)
+  const pageBreakPattern = /\f|\n{4,}|(?:\n-{10,}\n)/g;
   const pageBreaks: number[] = [0];
   let match;
   while ((match = pageBreakPattern.exec(normalizedText)) !== null) {
@@ -1344,8 +1443,73 @@ function extractSegments(text: string): Segment[] {
   }
   pageBreaks.push(normalizedText.length);
 
+  // Helper function to estimate page number
+  const getEstimatedPage = (position: number): number => {
+    for (let p = 0; p < pageBreaks.length - 1; p++) {
+      if (position >= pageBreaks[p] && position < pageBreaks[p + 1]) {
+        return p + 1;
+      }
+    }
+    return 1;
+  };
+
+  // Helper function to extract structural markers
+  const extractMarkers = (content: string): string[] => {
+    const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
+    const markers: string[] = [];
+    let headerMatch;
+    while ((headerMatch = headerPattern.exec(content)) !== null) {
+      markers.push((headerMatch[1] || headerMatch[2]).trim());
+    }
+    return markers.slice(0, 5);
+  };
+
+  // HANDBOOK MODE: Use topic-level boundaries for fewer, larger chunks
+  if (docType === 'handbook') {
+    console.log('[extractSegments] Using HANDBOOK chunking strategy');
+
+    const topicBoundaries = extractHandbookTopicBoundaries(normalizedText);
+
+    if (topicBoundaries.length >= 3) {
+      // Add start position if not already there
+      if (topicBoundaries[0].position > 500) {
+        topicBoundaries.unshift({ position: 0, topic: 'INTRODUCTION' });
+      }
+
+      // Create segments from topic boundaries
+      for (let i = 0; i < topicBoundaries.length; i++) {
+        const startPos = topicBoundaries[i].position;
+        const endPos = i < topicBoundaries.length - 1
+          ? topicBoundaries[i + 1].position
+          : normalizedText.length;
+
+        const content = normalizedText.slice(startPos, endPos).trim();
+
+        // For handbooks, use a higher minimum (500 chars) to avoid tiny fragments
+        if (content.length >= 500) {
+          segments.push({
+            id: segments.length,
+            content,
+            startPosition: startPos,
+            endPosition: endPos,
+            estimatedPage: getEstimatedPage(startPos),
+            structuralMarkers: extractMarkers(content)
+          });
+        } else if (content.length >= 50 && segments.length > 0) {
+          // Merge tiny fragments into previous segment
+          const lastSegment = segments[segments.length - 1];
+          lastSegment.content += '\n\n' + content;
+          lastSegment.endPosition = endPos;
+        }
+      }
+
+      console.log('[extractSegments] HANDBOOK mode created', segments.length, 'topic-based segments');
+      return segments;
+    }
+  }
+
+  // STANDARD MODE: Use section markers for regular/mixed documents
   // Major section markers - these create hard boundaries
-  // Only use these for LARGE documents to avoid over-segmentation
   const majorSectionPattern = /\n(?:(?:[A-Z][A-Z\s]{5,})\n|(?:#+\s+[A-Z])|(?:JOB\s+(?:TITLE|DESCRIPTION))|(?:POSITION\s+TITLE)|(?:POLICY\s*:)|(?:PROCEDURE\s*:)|(?:TABLE\s+OF\s+CONTENTS))/gi;
 
   // Find all major section boundaries
@@ -1370,30 +1534,13 @@ function extractSegments(text: string): Segment[] {
       const content = normalizedText.slice(startPos, endPos).trim();
 
       if (content.length >= 50) {  // Minimum viable segment
-        // Estimate page number based on position
-        let estimatedPage = 1;
-        for (let p = 0; p < pageBreaks.length - 1; p++) {
-          if (startPos >= pageBreaks[p] && startPos < pageBreaks[p + 1]) {
-            estimatedPage = p + 1;
-            break;
-          }
-        }
-
-        // Extract structural markers (headers) from this segment
-        const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
-        const markers: string[] = [];
-        let headerMatch;
-        while ((headerMatch = headerPattern.exec(content)) !== null) {
-          markers.push((headerMatch[1] || headerMatch[2]).trim());
-        }
-
         segments.push({
           id: segments.length,
           content,
           startPosition: startPos,
           endPosition: endPos,
-          estimatedPage,
-          structuralMarkers: markers.slice(0, 5)  // Keep top 5 markers
+          estimatedPage: getEstimatedPage(startPos),
+          structuralMarkers: extractMarkers(content)
         });
       }
     }
@@ -1417,28 +1564,13 @@ function extractSegments(text: string): Segment[] {
       const content = normalizedText.slice(currentPos, endPos).trim();
 
       if (content.length >= 50) {
-        let estimatedPage = 1;
-        for (let p = 0; p < pageBreaks.length - 1; p++) {
-          if (currentPos >= pageBreaks[p] && currentPos < pageBreaks[p + 1]) {
-            estimatedPage = p + 1;
-            break;
-          }
-        }
-
-        const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
-        const markers: string[] = [];
-        let headerMatch;
-        while ((headerMatch = headerPattern.exec(content)) !== null) {
-          markers.push((headerMatch[1] || headerMatch[2]).trim());
-        }
-
         segments.push({
           id: segments.length,
           content,
           startPosition: currentPos,
           endPosition: endPos,
-          estimatedPage,
-          structuralMarkers: markers.slice(0, 5)
+          estimatedPage: getEstimatedPage(currentPos),
+          structuralMarkers: extractMarkers(content)
         });
       }
 
@@ -1696,6 +1828,14 @@ function mergeAndSplitSegments(classifiedSegments: ClassifiedSegment[]): SmartCh
 
   if (classifiedSegments.length === 0) return chunks;
 
+  // Detect if this looks like a handbook (many policy segments)
+  const policyCount = classifiedSegments.filter(s => s.contentClass === 'policy').length;
+  const totalCount = classifiedSegments.length;
+  const isHandbookMode = policyCount > 10 && policyCount / totalCount > 0.6;
+
+  console.log('[mergeAndSplitSegments] Policy segments:', policyCount, '/', totalCount,
+    'Handbook mode:', isHandbookMode);
+
   // Group consecutive segments of the same type
   interface SegmentGroup {
     segments: ClassifiedSegment[];
@@ -1713,10 +1853,14 @@ function mergeAndSplitSegments(classifiedSegments: ClassifiedSegment[]): SmartCh
   for (let i = 1; i < classifiedSegments.length; i++) {
     const segment = classifiedSegments[i];
 
-    // Merge if: same content type AND (continuation OR same type with high confidence)
+    // In handbook mode, be MORE aggressive about merging policy content
+    // We want fewer, larger chunks that represent complete topics
+    const mergeThreshold = isHandbookMode && segment.contentClass === 'policy' ? 0.50 : 0.70;
+
+    // Merge if: same content type AND (continuation OR same type with sufficient confidence)
     const shouldMerge =
       segment.contentClass === currentGroup.contentClass &&
-      (segment.continuesFromPrevious || segment.confidence >= 0.70);
+      (segment.continuesFromPrevious || segment.confidence >= mergeThreshold);
 
     if (shouldMerge) {
       currentGroup.segments.push(segment);
@@ -1747,9 +1891,18 @@ function mergeAndSplitSegments(classifiedSegments: ClassifiedSegment[]): SmartCh
     const startPage = group.segments[0].estimatedPage || 1;
     const endPage = group.segments[group.segments.length - 1].estimatedPage || startPage;
 
-    // If merged content is small enough, keep as one chunk
-    // JDs get a larger limit since they're complete logical units
-    const MAX_CHUNK_SIZE = group.contentClass === 'job_description' ? 8000 : 4000;
+    // Size limits vary by content type and mode
+    // - JDs: 8000 (complete logical units)
+    // - Policy in handbook mode: 20000 (keep whole topics together)
+    // - Other: 4000
+    let MAX_CHUNK_SIZE: number;
+    if (group.contentClass === 'job_description') {
+      MAX_CHUNK_SIZE = 8000;
+    } else if (isHandbookMode && group.contentClass === 'policy') {
+      MAX_CHUNK_SIZE = 20000;  // Much higher for handbook policy topics
+    } else {
+      MAX_CHUNK_SIZE = 4000;
+    }
 
     if (mergedContent.length <= MAX_CHUNK_SIZE) {
       chunks.push({

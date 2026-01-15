@@ -46,6 +46,7 @@ import {
   X,
   Zap,
   GripVertical,
+  Scissors,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
@@ -194,6 +195,16 @@ export function DocumentIntelligenceEditor({
 
   // Merge operation state
   const [merging, setMerging] = useState(false);
+
+  // Split operation state - for text selection splitting
+  const [splitting, setSplitting] = useState(false);
+  const [splitSelection, setSplitSelection] = useState<{
+    chunkId: string;
+    selectedText: string;
+    startOffset: number;
+    endOffset: number;
+    anchorPosition: { top: number; left: number };
+  } | null>(null);
 
   // Drag-drop merge state
   const [draggedChunkId, setDraggedChunkId] = useState<string | null>(null);
@@ -727,6 +738,175 @@ export function DocumentIntelligenceEditor({
     }
   }
 
+  /**
+   * Handle text selection in a chunk for potential splitting.
+   * Called on mouseup within chunk content area.
+   */
+  function handleChunkTextSelection(chunkId: string, contentElement: HTMLElement) {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+      // No valid selection - clear any existing split selection
+      setSplitSelection(null);
+      return;
+    }
+
+    const selectedText = selection.toString().trim();
+    const chunk = chunks.find(c => c.id === chunkId);
+    if (!chunk) return;
+
+    // Calculate the position of the selection within the chunk content
+    const range = selection.getRangeAt(0);
+
+    // Get the text content and find offsets
+    const fullText = chunk.content;
+    const startOffset = fullText.indexOf(selectedText);
+    const endOffset = startOffset + selectedText.length;
+
+    if (startOffset === -1) {
+      // Selection doesn't match content (shouldn't happen)
+      setSplitSelection(null);
+      return;
+    }
+
+    // Get position for the scissor icon (top-right of selection)
+    const rect = range.getBoundingClientRect();
+    const containerRect = contentElement.getBoundingClientRect();
+
+    setSplitSelection({
+      chunkId,
+      selectedText,
+      startOffset,
+      endOffset,
+      anchorPosition: {
+        top: rect.top - containerRect.top,
+        left: rect.right - containerRect.left + 8, // 8px offset from selection
+      },
+    });
+  }
+
+  /**
+   * Split a chunk based on the current text selection.
+   * Creates 2 or 3 new chunks depending on selection position.
+   */
+  async function splitChunkAtSelection() {
+    if (!splitSelection) return;
+
+    const chunk = chunks.find(c => c.id === splitSelection.chunkId);
+    if (!chunk) {
+      toast.error('Could not find chunk to split');
+      setSplitSelection(null);
+      return;
+    }
+
+    setSplitting(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const fullText = chunk.content;
+      const { startOffset, endOffset, selectedText } = splitSelection;
+
+      // Determine how many chunks to create
+      const beforeText = fullText.slice(0, startOffset).trim();
+      const afterText = fullText.slice(endOffset).trim();
+
+      // Build the new chunks array
+      const newChunks: { content: string; title: string }[] = [];
+      const baseTitle = chunk.title || 'Section';
+
+      if (beforeText.length > 0) {
+        newChunks.push({
+          content: beforeText,
+          title: newChunks.length === 0 && afterText.length === 0 ? `${baseTitle} (Part 1)` : `${baseTitle} (Part 1)`,
+        });
+      }
+
+      // The selected text is always its own chunk
+      newChunks.push({
+        content: selectedText,
+        title: beforeText.length === 0 && afterText.length === 0
+          ? baseTitle
+          : `${baseTitle} (Part ${newChunks.length + 1})`,
+      });
+
+      if (afterText.length > 0) {
+        newChunks.push({
+          content: afterText,
+          title: `${baseTitle} (Part ${newChunks.length + 1})`,
+        });
+      }
+
+      // If we only have 1 chunk (selected everything), no split needed
+      if (newChunks.length === 1) {
+        toast.info('Selection covers entire chunk - no split needed');
+        setSplitSelection(null);
+        setSplitting(false);
+        return;
+      }
+
+      // Get the highest chunk_index for this file to append new chunks
+      const maxIndex = Math.max(...chunks.map(c => c.chunk_index));
+
+      // Update original chunk with first part, create new chunks for rest
+      const [firstChunk, ...additionalChunks] = newChunks;
+
+      // Update the original chunk with the first part
+      const { error: updateError } = await supabase
+        .from('source_chunks')
+        .update({
+          content: firstChunk.content,
+          title: firstChunk.title,
+          word_count: firstChunk.content.split(/\s+/).length,
+        })
+        .eq('id', chunk.id);
+
+      if (updateError) throw updateError;
+
+      // Create additional chunks
+      for (let i = 0; i < additionalChunks.length; i++) {
+        const newChunk = additionalChunks[i];
+        const { error: insertError } = await supabase
+          .from('source_chunks')
+          .insert({
+            source_file_id: sourceFileId,
+            chunk_index: maxIndex + i + 1,
+            content: newChunk.content,
+            title: newChunk.title,
+            word_count: newChunk.content.split(/\s+/).length,
+            chunk_type: chunk.chunk_type,
+            content_class: chunk.content_class,
+            content_class_confidence: chunk.content_class_confidence,
+            is_extractable: chunk.is_extractable,
+            extraction_status: 'pending',
+            key_terms: [],
+            hierarchy_level: chunk.hierarchy_level,
+          });
+
+        if (insertError) throw insertError;
+      }
+
+      // Clear selection and reload
+      setSplitSelection(null);
+      await loadChunks();
+      toast.success(`Chunk split into ${newChunks.length} parts`);
+
+    } catch (error: any) {
+      console.error('Split error:', error);
+      toast.error('Failed to split chunk', { description: error.message });
+    } finally {
+      setSplitting(false);
+    }
+  }
+
+  /**
+   * Clear split selection when clicking outside
+   */
+  function clearSplitSelection() {
+    setSplitSelection(null);
+    window.getSelection()?.removeAllRanges();
+  }
+
   // Create role from Job Description chunk
   async function createRoleFromChunk(chunk: ChunkWithMeta) {
     let entityId = chunk.entity?.id;
@@ -954,7 +1134,17 @@ export function DocumentIntelligenceEditor({
       </div>
 
       {/* Content */}
-      <div className="max-w-6xl mx-auto p-6">
+      <div
+        className="max-w-6xl mx-auto p-6"
+        onClick={(e) => {
+          // Clear split selection when clicking outside chunk content areas
+          // Only clear if clicking directly on the container, not on child elements
+          const target = e.target as HTMLElement;
+          if (!target.closest('.chunk-content-selectable') && !target.closest('[data-split-button]')) {
+            clearSplitSelection();
+          }
+        }}
+      >
         {/* Summary bar */}
         {chunks.length > 0 && (
           <div className="mb-6 space-y-4">
@@ -1039,6 +1229,11 @@ export function DocumentIntelligenceEditor({
                   setDraggedChunkId(null);
                   setDropTargetChunkId(null);
                 }}
+                // Split functionality
+                splitSelection={splitSelection}
+                onTextSelection={handleChunkTextSelection}
+                onSplitChunk={splitChunkAtSelection}
+                splitting={splitting}
               />
             ))}
           </div>
@@ -1198,6 +1393,17 @@ interface ChunkBlockProps {
   onDragOver: () => void;
   onDragLeave: () => void;
   onDrop: () => void;
+  // Split functionality
+  splitSelection: {
+    chunkId: string;
+    selectedText: string;
+    startOffset: number;
+    endOffset: number;
+    anchorPosition: { top: number; left: number };
+  } | null;
+  onTextSelection: (chunkId: string, contentElement: HTMLElement) => void;
+  onSplitChunk: () => void;
+  splitting: boolean;
 }
 
 function ChunkBlock({
@@ -1219,11 +1425,19 @@ function ChunkBlock({
   onDragOver,
   onDragLeave,
   onDrop,
+  splitSelection,
+  onTextSelection,
+  onSplitChunk,
+  splitting,
 }: ChunkBlockProps) {
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
   const Icon = config.icon;
   const linkedRole = chunk.linkedContent.find(c => c.type === 'role');
   const linkedTracks = chunk.linkedContent.filter(c => c.type === 'track');
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Check if this chunk has an active split selection
+  const hasActiveSplit = splitSelection?.chunkId === chunk.id;
 
   return (
     <div
@@ -1351,10 +1565,62 @@ function ChunkBlock({
 
         {/* Content */}
         {isExpanded && (
-          <div className="px-4 pb-4">
-            <div className="prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap">
+          <div className="px-4 pb-4 relative">
+            {/* Content area with custom selection styling */}
+            <div
+              ref={contentRef}
+              className="prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap chunk-content-selectable relative"
+              onMouseUp={(e) => {
+                // Handle text selection for potential splitting
+                if (contentRef.current) {
+                  onTextSelection(chunk.id, contentRef.current);
+                }
+              }}
+            >
               {chunk.content}
             </div>
+
+            {/* Scissor split button - appears when text is selected in this chunk */}
+            {hasActiveSplit && splitSelection && (
+              <div
+                className="absolute z-10 animate-in fade-in-0 zoom-in-95 duration-150"
+                style={{
+                  top: splitSelection.anchorPosition.top - 4,
+                  left: Math.min(splitSelection.anchorPosition.left, 280), // Keep within bounds
+                }}
+              >
+                <button
+                  data-split-button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSplitChunk();
+                  }}
+                  disabled={splitting}
+                  className={cn(
+                    "group/split flex items-center justify-center",
+                    "w-8 h-8 rounded-lg",
+                    "bg-zinc-900 hover:bg-zinc-800 border border-zinc-700",
+                    "text-orange-400 hover:text-orange-300",
+                    "shadow-lg shadow-black/20",
+                    "transition-all duration-150",
+                    splitting && "opacity-50 cursor-not-allowed"
+                  )}
+                  title="Split into separate chunk"
+                >
+                  {splitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Scissors className="h-4 w-4" />
+                  )}
+                </button>
+                {/* Tooltip */}
+                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/split:opacity-100 transition-opacity">
+                  <div className="bg-zinc-900/95 text-xs text-zinc-300 px-2 py-1 rounded whitespace-nowrap border border-zinc-700">
+                    Split into separate chunk
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Key terms */}
             {chunk.key_terms && chunk.key_terms.length > 0 && (
