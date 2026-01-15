@@ -3,6 +3,36 @@ import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
+import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
+import { getCurrentUserOrgId } from './lib/supabase';
+
+// Expose brain indexing utilities globally for console access
+// Usage: window.brainUtils.reindexAll() or window.brainUtils.backfill()
+if (typeof window !== 'undefined') {
+  (window as any).brainUtils = {
+    reindexAll: async () => {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) {
+        console.error('Not logged in or no organization found');
+        return;
+      }
+      console.log(`Starting re-index for org: ${orgId}`);
+      return reindexAllTracks(orgId);
+    },
+    backfill: async () => {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) {
+        console.error('Not logged in or no organization found');
+        return;
+      }
+      console.log(`Starting backfill for org: ${orgId}`);
+      return backfillBrainIndex(orgId);
+    },
+    reindexAllTracks,
+    backfillBrainIndex,
+  };
+  console.log('[Brain] Utils available at window.brainUtils - use window.brainUtils.reindexAll() to re-index all content');
+}
 import { Reports } from "./components/Reports";
 import { Analytics } from "./components/Analytics";
 import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";

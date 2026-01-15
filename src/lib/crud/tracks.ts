@@ -506,10 +506,10 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   // First, check if track exists and user has permission
   // Also get status for brain indexing and check if it's a video
-  // NOTE: Include content and content_text for brain indexing (articles store body in these fields)
+  // NOTE: Include content_text for brain indexing (articles store body in this field)
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description, content, content_text')
+    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description, content_text')
     .eq('id', id)
     .single();
 

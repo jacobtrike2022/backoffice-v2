@@ -26,12 +26,10 @@ interface IndexableTrack {
   id: string;
   title?: string;
   description?: string;
-  content?: string; // For articles
   content_text?: string; // Primary content field for articles (HTML from TipTap editor)
   transcript?: string; // For videos: transcript text; For stories: JSON slide data; For articles: fallback content
   slides?: Array<{ content?: string; title?: string }>; // For stories
-  track_type?: string;
-  type?: string; // Some places use 'type' instead of 'track_type'
+  type?: string; // Track type: 'article' | 'video' | 'story' | 'checkpoint'
   status?: string;
   organization_id?: string;
   is_system_content?: boolean; // Trike template flag
@@ -61,15 +59,7 @@ export async function indexTrackToBrain(
   transcript?: string,
   additionalMetadata?: Partial<IndexMetadata>
 ): Promise<void> {
-  const trackType = track.track_type || track.type || 'article';
-
-  // DEBUG: Log what data we received for indexing
-  console.log(`[Brain] indexTrackToBrain called for track ${track.id} (${track.title || 'untitled'})`);
-  console.log(`[Brain]   - type: ${trackType}, status: ${track.status}`);
-  console.log(`[Brain]   - content_text: ${track.content_text ? `${track.content_text.length} chars` : 'null'}`);
-  console.log(`[Brain]   - content: ${track.content ? `${track.content.length} chars` : 'null'}`);
-  console.log(`[Brain]   - transcript: ${track.transcript ? `${track.transcript.length} chars` : 'null'}`);
-  console.log(`[Brain]   - external transcript param: ${transcript ? `${transcript.length} chars` : 'null'}`);
+  const trackType = track.type || 'article';
 
   // RULE: Never index checkpoints
   if (SKIP_TRACK_TYPES.includes(trackType)) {
@@ -103,7 +93,7 @@ export async function indexTrackToBrain(
     console.warn(`  - Word count: ${wordCount}`);
     console.warn(`  - Has body content: ${text.includes('Content:')}`);
     console.warn(`  - Track type: ${trackType}`);
-    console.warn(`  - Fields available: content_text=${!!track.content_text}, content=${!!track.content}, transcript=${!!track.transcript}`);
+    console.warn(`  - Fields available: content_text=${!!track.content_text}, transcript=${!!track.transcript}`);
     // Still index, but log warning for debugging
   }
 
@@ -160,7 +150,7 @@ export async function handleTrackStatusChange(
   previousStatus?: string,
   transcript?: string
 ): Promise<void> {
-  const trackType = track.track_type || track.type || 'article';
+  const trackType = track.type || 'article';
   
   // Skip checkpoints always
   if (SKIP_TRACK_TYPES.includes(trackType)) {
@@ -208,9 +198,9 @@ function buildTrackText(
       break;
 
     case 'article':
-      // Articles store body content in content_text (primary), content, or transcript
-      // Priority matches KnowledgeBaseRevamp.tsx display order for consistency
-      const articleContent = track.content_text || track.content || track.transcript;
+      // Articles store body content in content_text (primary) or transcript (fallback)
+      // Note: 'content' column doesn't exist in tracks table
+      const articleContent = track.content_text || track.transcript;
       if (articleContent) {
         const cleanContent = stripHtmlTags(articleContent);
         if (cleanContent.length > 0) {
@@ -220,13 +210,20 @@ function buildTrackText(
       break;
 
     case 'story':
-      // Stories have slides stored in transcript field as JSON, or in slides array
-      let storySlides: Array<{ content?: string; title?: string; name?: string; transcript?: { text?: string } }> = [];
-      
-      // Try to get slides from transcript field (JSON format)
-      if (track.content_text) {
+      // Stories have slides stored in transcript field as JSON (primary) or content_text
+      let storySlides: Array<{
+        content?: string;
+        title?: string;
+        name?: string;
+        transcript?: { text?: string };
+        text?: string; // Some slides store text directly
+      }> = [];
+
+      // Try to get slides from transcript field first (this is where story JSON is stored)
+      const storyJsonSource = track.transcript || track.content_text;
+      if (storyJsonSource) {
         try {
-          const storyData = JSON.parse(track.content_text);
+          const storyData = JSON.parse(storyJsonSource);
           if (storyData.slides && Array.isArray(storyData.slides)) {
             storySlides = storyData.slides;
           }
@@ -234,24 +231,24 @@ function buildTrackText(
           // Not JSON, ignore
         }
       }
-      
+
       // Fallback to slides array if available
       if (storySlides.length === 0 && track.slides && Array.isArray(track.slides)) {
         storySlides = track.slides;
       }
-      
+
       if (storySlides.length > 0) {
         const slideContent = storySlides
           .map((slide, index) => {
             const slideTitle = slide.title || slide.name || '';
-            // Stories may have transcript.text in slide.transcript
-            const slideText = slide.transcript?.text || slide.content || '';
+            // Check multiple possible locations for transcript text
+            const slideText = slide.transcript?.text || slide.text || slide.content || '';
             const cleanText = slideText ? stripHtmlTags(slideText) : '';
             return cleanText ? `Slide ${index + 1}: ${slideTitle ? slideTitle + ': ' : ''}${cleanText}` : '';
           })
           .filter(Boolean)
           .join('\n\n');
-        
+
         if (slideContent) {
           parts.push(slideContent);
         }
@@ -259,8 +256,8 @@ function buildTrackText(
       break;
 
     default:
-      // Fallback: use content if available
-      const fallbackContent = track.content || track.content_text;
+      // Fallback: use content_text or transcript if available
+      const fallbackContent = track.content_text || track.transcript;
       if (fallbackContent) {
         parts.push(`Content: ${stripHtmlTags(fallbackContent)}`);
       }
@@ -425,9 +422,10 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
   try {
     // Fetch all published, non-checkpoint tracks
     // Note: For stories, slides are in content_text as JSON
+    // Note: 'content' column doesn't exist - only content_text
     const { data: tracks, error } = await supabase
       .from('tracks')
-      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
       .eq('organization_id', organizationId)
       .eq('status', 'published')
       .not('type', 'eq', 'checkpoint');
@@ -442,7 +440,7 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
 
     for (const track of tracks) {
       try {
-        const trackType = track.track_type || track.type || 'article';
+        const trackType = track.type || 'article';
         
         // Skip checkpoints (double-check)
         if (SKIP_TRACK_TYPES.includes(trackType)) {
@@ -513,9 +511,10 @@ export async function reindexAllTracks(organizationId: string): Promise<{
     }
 
     // Step 2: Get all published tracks for this organization
+    // Note: 'content' column doesn't exist in tracks table - only content_text
     const { data: tracks, error: tracksError } = await supabase
       .from('tracks')
-      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
       .eq('organization_id', organizationId)
       .eq('status', 'published')
       .not('type', 'eq', 'checkpoint');
@@ -534,7 +533,7 @@ export async function reindexAllTracks(organizationId: string): Promise<{
     // Step 3: Re-index each track
     for (const track of tracks) {
       try {
-        const trackType = track.track_type || track.type || 'article';
+        const trackType = track.type || 'article';
         const trackTitle = track.title || 'Untitled';
 
         // Skip checkpoints (double-check)
@@ -607,9 +606,10 @@ export async function backfillBrainIndex(organizationId: string): Promise<{
     console.log(`[Brain Backfill] Starting backfill for organization ${organizationId}...`);
 
     // Step 1: Get all published tracks for this organization
+    // Note: 'content' column doesn't exist - only content_text
     const { data: tracks, error: tracksError } = await supabase
       .from('tracks')
-      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
       .eq('organization_id', organizationId)
       .eq('status', 'published')
       .not('type', 'eq', 'checkpoint');
@@ -655,7 +655,7 @@ export async function backfillBrainIndex(organizationId: string): Promise<{
     // Step 4: Index each unindexed track
     for (const track of unindexedTracks) {
       try {
-        const trackType = track.track_type || track.type || 'article';
+        const trackType = track.type || 'article';
         const trackTitle = track.title || 'Untitled';
 
         // Skip checkpoints (double-check)

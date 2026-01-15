@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -490,6 +491,20 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Update dropdown position when showing
+  useEffect(() => {
+    if (showSearchDropdown && searchContainerRef.current) {
+      const rect = searchContainerRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, [showSearchDropdown]);
 
   // Dynamic suggested prompts from indexed content - with word count for sizing
   interface PromptWithSize {
@@ -1046,7 +1061,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
     : [];
 
   return (
-    <div className="relative mb-8">
+    <div className={`relative mb-8 ${showSearchDropdown ? 'z-[9999]' : ''}`}>
       {/* Background glow effects - boosted */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <div 
@@ -1121,7 +1136,8 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               </div>
 
               {/* Search Input Bar - full width */}
-              <div 
+              <div
+                ref={searchContainerRef}
                 className="relative w-full max-w-2xl"
                 style={{ marginTop: '30px' }}
                 data-search-container="true"
@@ -1158,15 +1174,21 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                   )}
                 </div>
 
-                {/* Search Dropdown */}
+              </div>
+
+              {/* Search Dropdown - rendered via portal to escape stacking context */}
+              {typeof document !== 'undefined' && createPortal(
                 <AnimatePresence>
-                  {showSearchDropdown && input.trim() && (
+                  {showSearchDropdown && input.trim() && dropdownPosition && (
                     <motion.div
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
-                      className="absolute z-50 left-0 right-0 mt-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                      className="fixed z-[9999] p-2 rounded-xl border border-white/10 overflow-hidden"
                       style={{
+                        top: dropdownPosition.top,
+                        left: dropdownPosition.left,
+                        width: dropdownPosition.width,
                         background: 'rgba(25, 25, 28, 0.95)',
                         backdropFilter: 'blur(16px)',
                         boxShadow: '0 10px 40px -10px rgba(0,0,0,0.5), 0 0 20px rgba(255,107,0,0.1)'
@@ -1191,7 +1213,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           <div className="px-4 py-2 mt-2">
                             <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
                           </div>
-                          
+
                           <div className="space-y-1">
                             {searchResults.map((result) => (
                               <button
@@ -1240,12 +1262,14 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                       )}
                     </motion.div>
                   )}
-                </AnimatePresence>
-              </div>
+                </AnimatePresence>,
+                document.body
+              )}
 
               {/* Suggested Prompts - auto-sizing buttons, 3 top + 2 bottom */}
-              {suggestedPrompts.length > 0 && (
-                <motion.div 
+              {/* Hide when search dropdown is active to prevent overlap */}
+              {suggestedPrompts.length > 0 && !showSearchDropdown && (
+                <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="w-full flex flex-col items-center"
@@ -1375,10 +1399,10 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               </div>
 
               {/* Input bar - DOCKED AT BOTTOM when in conversation */}
-              <div className="px-6 pb-4 pt-2 border-t border-white/5">
+              <div className={`px-6 pb-4 pt-2 border-t border-white/5 ${showSearchDropdown ? 'z-[9999] relative' : ''}`}>
                 <div className="max-w-2xl mx-auto">
-                  <div 
-                    className="relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30"
+                  <div
+                    className={`relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30 ${showSearchDropdown ? 'z-[9999]' : ''}`}
                     data-search-container="true"
                   >
                     <Search className="w-4 h-4 text-white/30 flex-shrink-0" />
@@ -1414,7 +1438,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
-                          className="absolute z-50 left-0 right-0 bottom-full mb-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                          className="absolute z-[9999] left-0 right-0 bottom-full mb-2 p-2 rounded-xl border border-white/10 overflow-hidden"
                           style={{
                             background: 'rgba(25, 25, 28, 0.95)',
                             backdropFilter: 'blur(16px)',
