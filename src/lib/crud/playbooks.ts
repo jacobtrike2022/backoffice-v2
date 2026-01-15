@@ -3,8 +3,20 @@
 // Source-to-Album Automated Workflow
 // ============================================================================
 
-import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile, supabaseAnonKey } from '../supabase';
 import { getServerUrl } from '../../utils/supabase/info';
+
+// Helper to get auth headers for API calls
+async function getAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('User not authenticated');
+
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${session.access_token}`,
+    'apikey': supabaseAnonKey,
+  };
+}
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -570,12 +582,11 @@ export async function analyzeSource(
   unassigned_chunks: string[];
 }> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/analyze`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       source_file_id: sourceFileId,
       organization_id: organizationId,
@@ -598,12 +609,11 @@ export async function analyzeSource(
  */
 export async function updateGroupings(input: UpdateGroupingsInput): Promise<Playbook> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/update-groupings`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(input),
   });
 
@@ -623,12 +633,11 @@ export async function confirmTrack(
   conflictResolution?: ConflictResolution
 ): Promise<PlaybookTrack> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/confirm-track`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       playbook_track_id: playbookTrackId,
       conflict_resolution: conflictResolution,
@@ -648,12 +657,11 @@ export async function confirmTrack(
  */
 export async function generateDraft(playbookTrackId: string): Promise<PlaybookTrack> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/generate-draft`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       playbook_track_id: playbookTrackId,
     }),
@@ -675,12 +683,11 @@ export async function approveTrack(
   editedContent?: string
 ): Promise<PlaybookTrack> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/approve-track`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       playbook_track_id: playbookTrackId,
       edited_content: editedContent,
@@ -716,12 +723,11 @@ export async function publishPlaybook(
   errors: string[];
 }> {
   const serverUrl = getServerUrl();
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${serverUrl}/playbook/publish`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       playbook_id: playbookId,
       album_title: albumTitle,

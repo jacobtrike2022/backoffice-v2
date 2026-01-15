@@ -68,6 +68,7 @@ import {
   approveTrack,
   publishPlaybook,
 } from '../../lib/crud/playbooks';
+import { getCurrentUserOrgId } from '../../lib/supabase';
 
 // ============================================================================
 // TYPES
@@ -75,7 +76,7 @@ import {
 
 interface PlaybookBuildViewProps {
   sourceFileId: string;
-  organizationId: string;
+  organizationId?: string; // Optional - will be fetched if not provided
   onBack: () => void;
   onComplete: (albumId: string) => void;
 }
@@ -209,7 +210,7 @@ const STATUS_CONFIG = {
 
 export function PlaybookBuildView({
   sourceFileId,
-  organizationId,
+  organizationId: propOrganizationId,
   onBack,
   onComplete,
 }: PlaybookBuildViewProps) {
@@ -218,6 +219,7 @@ export function PlaybookBuildView({
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [albumTitle, setAlbumTitle] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [organizationId, setOrganizationId] = useState<string | null>(propOrganizationId || null);
 
   // Drag state
   const [draggedChunkId, setDraggedChunkId] = useState<string | null>(null);
@@ -227,8 +229,22 @@ export function PlaybookBuildView({
   // DATA LOADING
   // ============================================================================
 
+  // Fetch organization ID if not provided
+  useEffect(() => {
+    async function fetchOrgId() {
+      if (!organizationId) {
+        const orgId = await getCurrentUserOrgId();
+        console.log('[PlaybookBuildView] Fetched orgId:', orgId);
+        setOrganizationId(orgId);
+      }
+    }
+    fetchOrgId();
+  }, [organizationId]);
+
   // Check for existing playbook or trigger analysis
   useEffect(() => {
+    if (!organizationId) return; // Wait for org ID
+
     async function initializePlaybook() {
       try {
         // For now, always trigger new analysis
@@ -236,7 +252,7 @@ export function PlaybookBuildView({
         setAnalyzing(true);
         dispatch({ type: 'SET_LOADING', loading: true });
 
-        const result = await analyzeSource(sourceFileId, organizationId, {
+        const result = await analyzeSource(sourceFileId, organizationId!, {
           checkDuplicates: true,
         });
 

@@ -518,10 +518,10 @@ export default function App() {
           />
         );
       case "playbook-build":
-        return playbookSourceFileId && user?.organization_id ? (
+        console.log('[App] playbook-build view - playbookSourceFileId:', playbookSourceFileId);
+        return playbookSourceFileId ? (
           <PlaybookBuildView
             sourceFileId={playbookSourceFileId}
-            organizationId={user.organization_id}
             onBack={() => {
               setPlaybookSourceFileId(null);
               requestNavigate("organization");
@@ -564,6 +564,7 @@ export default function App() {
             role={currentRole}
             onNavigate={requestNavigate}
             onStartPlaybook={(sourceFileId: string) => {
+              console.log('[App] onStartPlaybook called with sourceFileId:', sourceFileId);
               setPlaybookSourceFileId(sourceFileId);
               requestNavigate("playbook-build");
             }}
