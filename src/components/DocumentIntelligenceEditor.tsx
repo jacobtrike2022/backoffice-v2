@@ -668,6 +668,30 @@ export function DocumentIntelligenceEditor({
     }
   }
 
+  // Rename chunk title
+  async function renameChunkTitle(chunkId: string, newTitle: string) {
+    try {
+      // Optimistic UI update
+      setChunks(prev => prev.map(c =>
+        c.id === chunkId ? { ...c, title: newTitle } : c
+      ));
+
+      // Update database
+      const { error } = await supabase
+        .from('source_chunks')
+        .update({ title: newTitle })
+        .eq('id', chunkId);
+
+      if (error) throw error;
+
+      toast.success('Title updated');
+    } catch (error: any) {
+      // Revert on error - refetch to get correct state
+      toast.error('Failed to update title', { description: error.message });
+      fetchChunks();
+    }
+  }
+
   // Merge selected chunks
   async function mergeSelectedChunks() {
     if (selectedChunks.size < 2) {
@@ -683,66 +707,91 @@ export function DocumentIntelligenceEditor({
     // Sort by chunk_index to maintain document order
     const sortedChunks = selectedChunksList.sort((a, b) => a.chunk_index - b.chunk_index);
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+    // Merge content
+    const mergedContent = sortedChunks.map(c => c.content).join('\n\n');
+    const mergedTitle = sortedChunks[0].title || `Merged Section`;
+    const primaryChunk = sortedChunks[0];
+    const chunksToDelete = sortedChunks.slice(1).map(c => c.id);
+    const numDeleted = chunksToDelete.length;
 
-      // Merge content
-      const mergedContent = sortedChunks.map(c => c.content).join('\n\n');
-      const mergedTitle = sortedChunks[0].title || `Merged Section`;
-      const primaryChunk = sortedChunks[0];
+    // OPTIMISTIC UI UPDATE - Update local state immediately for instant feedback
+    setChunks(prevChunks => {
+      // Create merged chunk
+      const updatedPrimary: ChunkWithMeta = {
+        ...primaryChunk,
+        content: mergedContent,
+        title: mergedTitle,
+        word_count: mergedContent.split(/\s+/).length,
+      };
 
-      // Update primary chunk with merged content
-      await supabase
-        .from('source_chunks')
-        .update({
-          content: mergedContent,
-          title: mergedTitle,
-          word_count: mergedContent.split(/\s+/).length,
+      // Filter out deleted chunks and renumber
+      let nextIndex = 0;
+      return prevChunks
+        .filter(c => !chunksToDelete.includes(c.id))
+        .map(c => {
+          if (c.id === primaryChunk.id) return { ...updatedPrimary, chunk_index: nextIndex++ };
+          return { ...c, chunk_index: nextIndex++ };
         })
-        .eq('id', primaryChunk.id);
+        .sort((a, b) => a.chunk_index - b.chunk_index);
+    });
 
-      // Delete other chunks
-      const chunksToDelete = sortedChunks.slice(1).map(c => c.id);
-      const deletedIndices = sortedChunks.slice(1).map(c => c.chunk_index).sort((a, b) => a - b);
+    // Clear selection
+    clearSelection();
+    toast.success(`Merged ${sortedChunks.length} chunks`);
 
-      await supabase
-        .from('source_chunks')
-        .delete()
-        .in('id', chunksToDelete);
+    // BACKGROUND DB SYNC - Don't block UI
+    try {
+      // Run primary operations in parallel
+      await Promise.all([
+        // Update primary chunk with merged content
+        supabase
+          .from('source_chunks')
+          .update({
+            content: mergedContent,
+            title: mergedTitle,
+            word_count: mergedContent.split(/\s+/).length,
+          })
+          .eq('id', primaryChunk.id),
 
-      // Renumber remaining chunks to close gaps and maintain sequential order
-      // Get all chunks after the primary that weren't deleted
+        // Delete other chunks
+        supabase
+          .from('source_chunks')
+          .delete()
+          .in('id', chunksToDelete),
+
+        // Update chunk_count on source file
+        supabase
+          .from('source_files')
+          .update({ chunk_count: chunks.length - numDeleted })
+          .eq('id', sourceFileId),
+      ]);
+
+      // Renumber remaining chunks in parallel
       const remainingChunksAfter = chunks
         .filter(c => c.chunk_index > primaryChunk.chunk_index && !chunksToDelete.includes(c.id))
         .sort((a, b) => a.chunk_index - b.chunk_index);
 
-      // Shift them down to close the gap
-      let nextIndex = primaryChunk.chunk_index + 1;
-      for (const chunkToRenumber of remainingChunksAfter) {
-        if (chunkToRenumber.chunk_index !== nextIndex) {
-          await supabase
-            .from('source_chunks')
-            .update({ chunk_index: nextIndex })
-            .eq('id', chunkToRenumber.id);
+      if (remainingChunksAfter.length > 0) {
+        let nextIndex = primaryChunk.chunk_index + 1;
+        const renumberOps = remainingChunksAfter
+          .filter(c => c.chunk_index !== nextIndex)
+          .map((c, i) =>
+            supabase
+              .from('source_chunks')
+              .update({ chunk_index: primaryChunk.chunk_index + 1 + i })
+              .eq('id', c.id)
+          );
+
+        if (renumberOps.length > 0) {
+          await Promise.all(renumberOps);
         }
-        nextIndex++;
       }
 
-      // Update chunk_count on source file
-      const newChunkCount = chunks.length - chunksToDelete.length;
-      await supabase
-        .from('source_files')
-        .update({ chunk_count: newChunkCount })
-        .eq('id', sourceFileId);
-
-      // Reload chunks
-      await loadChunks();
-      clearSelection();
-      toast.success(`Merged ${sortedChunks.length} chunks`);
-
     } catch (error: any) {
-      toast.error('Failed to merge chunks', { description: error.message });
+      console.error('Merge DB sync error:', error);
+      // On error, reload to get correct state
+      toast.error('Sync error - refreshing', { description: error.message });
+      await loadChunks();
     } finally {
       setMerging(false);
     }
@@ -767,56 +816,92 @@ export function DocumentIntelligenceEditor({
     const primaryChunk = sortedChunks[0];
     const secondaryChunk = sortedChunks[1];
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+    // Merge content
+    const mergedContent = sortedChunks.map(c => c.content).join('\n\n');
+    const mergedTitle = primaryChunk.title || `Merged Section`;
+    const deletedIndex = secondaryChunk.chunk_index;
 
-      // Merge content
-      const mergedContent = sortedChunks.map(c => c.content).join('\n\n');
-      const mergedTitle = primaryChunk.title || `Merged Section`;
+    // OPTIMISTIC UI UPDATE - Update local state immediately for instant feedback
+    setChunks(prevChunks => {
+      // Create merged chunk
+      const updatedPrimary: ChunkWithMeta = {
+        ...primaryChunk,
+        content: mergedContent,
+        title: mergedTitle,
+        word_count: mergedContent.split(/\s+/).length,
+      };
 
-      // Update primary chunk with merged content
-      await supabase
-        .from('source_chunks')
-        .update({
-          content: mergedContent,
-          title: mergedTitle,
-          word_count: mergedContent.split(/\s+/).length,
+      // Filter out secondary chunk and update indices
+      return prevChunks
+        .filter(c => c.id !== secondaryChunk.id)
+        .map(c => {
+          if (c.id === primaryChunk.id) return updatedPrimary;
+          if (c.chunk_index > deletedIndex) {
+            return { ...c, chunk_index: c.chunk_index - 1 };
+          }
+          return c;
         })
-        .eq('id', primaryChunk.id);
-
-      // Delete the secondary chunk
-      const deletedIndex = secondaryChunk.chunk_index;
-      await supabase
-        .from('source_chunks')
-        .delete()
-        .eq('id', secondaryChunk.id);
-
-      // Renumber remaining chunks to close the gap
-      const remainingChunksAfter = chunks
-        .filter(c => c.chunk_index > deletedIndex && c.id !== secondaryChunk.id)
         .sort((a, b) => a.chunk_index - b.chunk_index);
+    });
 
-      for (const chunkToRenumber of remainingChunksAfter) {
-        await supabase
+    // Clear selection state
+    setSelectedChunks(prev => {
+      const next = new Set(prev);
+      next.delete(secondaryChunk.id);
+      return next;
+    });
+
+    toast.success('Chunks merged');
+
+    // BACKGROUND DB SYNC - Don't block UI
+    try {
+      // Run all DB operations in parallel
+      const dbOperations = [
+        // Update primary chunk with merged content
+        supabase
           .from('source_chunks')
-          .update({ chunk_index: chunkToRenumber.chunk_index - 1 })
-          .eq('id', chunkToRenumber.id);
+          .update({
+            content: mergedContent,
+            title: mergedTitle,
+            word_count: mergedContent.split(/\s+/).length,
+          })
+          .eq('id', primaryChunk.id),
+
+        // Delete the secondary chunk
+        supabase
+          .from('source_chunks')
+          .delete()
+          .eq('id', secondaryChunk.id),
+
+        // Update chunk_count on source file
+        supabase
+          .from('source_files')
+          .update({ chunk_count: chunks.length - 1 })
+          .eq('id', sourceFileId),
+      ];
+
+      await Promise.all(dbOperations);
+
+      // Renumber remaining chunks in parallel (after delete completes)
+      const remainingChunksAfter = chunks
+        .filter(c => c.chunk_index > deletedIndex && c.id !== secondaryChunk.id);
+
+      if (remainingChunksAfter.length > 0) {
+        await Promise.all(
+          remainingChunksAfter.map(c =>
+            supabase
+              .from('source_chunks')
+              .update({ chunk_index: c.chunk_index - 1 })
+              .eq('id', c.id)
+          )
+        );
       }
 
-      // Update chunk_count on source file
-      const newChunkCount = chunks.length - 1;
-      await supabase
-        .from('source_files')
-        .update({ chunk_count: newChunkCount })
-        .eq('id', sourceFileId);
-
-      // Reload chunks
-      await loadChunks();
-      toast.success('Chunks merged successfully');
-
     } catch (error: any) {
-      toast.error('Failed to merge chunks', { description: error.message });
+      console.error('Merge DB sync error:', error);
+      // On error, reload to get correct state
+      toast.error('Sync error - refreshing', { description: error.message });
+      await loadChunks();
     } finally {
       setMerging(false);
     }
@@ -824,164 +909,281 @@ export function DocumentIntelligenceEditor({
 
   /**
    * BLADE MODE: Handle click on chunk content to split at that position.
-   * Finds the nearest paragraph break (double newline) to the click position.
+   * Uses browser caret APIs to accurately find click position, then splits at the line ABOVE.
    */
   function handleBladeClick(chunkId: string, clickEvent: React.MouseEvent<HTMLDivElement>) {
-    if (!bladeMode || splitting) return;
+    console.log('[Blade] Click detected, bladeMode:', bladeMode, 'splitting:', splitting);
+
+    if (!bladeMode || splitting) {
+      console.log('[Blade] Early return - mode or splitting check failed');
+      return;
+    }
 
     const chunk = chunks.find(c => c.id === chunkId);
-    if (!chunk) return;
+    if (!chunk) {
+      console.log('[Blade] Chunk not found:', chunkId);
+      return;
+    }
 
-    const contentElement = clickEvent.currentTarget;
     const content = chunk.content;
+    console.log('[Blade] Content length:', content.length);
 
-    // Get click position relative to content
-    const rect = contentElement.getBoundingClientRect();
-    const clickY = clickEvent.clientY - rect.top;
-    const totalHeight = rect.height;
+    // Use caretRangeFromPoint to get accurate click position in text
+    const x = clickEvent.clientX;
+    const y = clickEvent.clientY;
+    let charIndex = -1;
 
-    // Estimate character position based on click Y position (rough approximation)
-    const approximateCharIndex = Math.floor((clickY / totalHeight) * content.length);
+    // Try caretRangeFromPoint (works in Chrome, Safari, Edge)
+    if (document.caretRangeFromPoint) {
+      const range = document.caretRangeFromPoint(x, y);
+      if (range && range.startContainer.nodeType === Node.TEXT_NODE) {
+        // Get the text before the caret in the text node
+        const textNode = range.startContainer as Text;
+        const offsetInNode = range.startOffset;
 
-    // Find nearest paragraph break (double newline or single newline)
-    // Search for paragraph breaks within a reasonable range
-    const searchRange = Math.floor(content.length * 0.1); // Search 10% of content around click
-    const searchStart = Math.max(0, approximateCharIndex - searchRange);
-    const searchEnd = Math.min(content.length, approximateCharIndex + searchRange);
+        // Find where this text node's content appears in the full chunk content
+        const textContent = textNode.textContent || '';
+        const textBefore = textContent.slice(0, offsetInNode);
 
-    // Look for double newlines first (stronger paragraph break)
-    let bestSplitIndex = -1;
-    let bestDistance = Infinity;
-
-    // Search for \n\n (paragraph breaks)
-    for (let i = searchStart; i < searchEnd - 1; i++) {
-      if (content[i] === '\n' && content[i + 1] === '\n') {
-        const distance = Math.abs(i - approximateCharIndex);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestSplitIndex = i + 2; // Split after the double newline
+        // Search for this text in the content to find approximate position
+        // We look for the text node content in the chunk
+        const nodeStartInContent = content.indexOf(textContent);
+        if (nodeStartInContent !== -1) {
+          charIndex = nodeStartInContent + offsetInNode;
+          console.log('[Blade] caretRangeFromPoint found charIndex:', charIndex);
         }
       }
     }
 
-    // If no double newline found, look for single newlines
-    if (bestSplitIndex === -1) {
-      for (let i = searchStart; i < searchEnd; i++) {
-        if (content[i] === '\n') {
-          const distance = Math.abs(i - approximateCharIndex);
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            bestSplitIndex = i + 1; // Split after the newline
-          }
-        }
+    // Fallback: Y-ratio estimation if caret method failed
+    if (charIndex === -1) {
+      const contentElement = clickEvent.currentTarget;
+      const rect = contentElement.getBoundingClientRect();
+      const clickY = clickEvent.clientY - rect.top;
+      const totalHeight = rect.height;
+      charIndex = Math.floor((clickY / totalHeight) * content.length);
+      console.log('[Blade] Fallback Y-ratio, charIndex:', charIndex);
+    }
+
+    // Find the line break BEFORE the click position - split happens ABOVE clicked line
+    let splitIndex = -1;
+    for (let i = Math.min(charIndex, content.length - 1); i >= 0; i--) {
+      if (content[i] === '\n') {
+        splitIndex = i + 1; // Split after this newline (content after this goes to new chunk)
+        break;
       }
     }
 
-    // If still no break found, split at the approximate position
-    if (bestSplitIndex === -1) {
-      bestSplitIndex = approximateCharIndex;
-    }
+    console.log('[Blade] Found split index:', splitIndex, 'from charIndex:', charIndex);
 
-    // Ensure we have content on both sides
-    if (bestSplitIndex < 50 || bestSplitIndex > content.length - 50) {
-      toast.error('Cannot split at the edge of a chunk');
+    // Validate split position
+    if (splitIndex === -1 || splitIndex < 20) {
+      toast.error('Cannot split at the beginning of a chunk');
+      return;
+    }
+    if (splitIndex > content.length - 20) {
+      toast.error('Cannot split at the end of a chunk');
       return;
     }
 
     // Perform the split
-    performBladeSplit(chunkId, bestSplitIndex);
+    console.log('[Blade] Calling performBladeSplit at index:', splitIndex);
+    performBladeSplit(chunkId, splitIndex);
   }
 
   /**
    * Execute the blade split at the given character index.
    */
   async function performBladeSplit(chunkId: string, splitIndex: number) {
+    console.log('[Blade Split] Starting split for chunk:', chunkId, 'at index:', splitIndex);
+
     const chunk = chunks.find(c => c.id === chunkId);
     if (!chunk) {
+      console.error('[Blade Split] Chunk not found');
       toast.error('Could not find chunk to split');
+      return;
+    }
+
+    const fullText = chunk.content;
+    const beforeText = fullText.slice(0, splitIndex).trim();
+    const afterText = fullText.slice(splitIndex).trim();
+
+    console.log('[Blade Split] Before text length:', beforeText.length, 'After text length:', afterText.length);
+
+    // Validate we have content on both sides
+    if (beforeText.length < 20 || afterText.length < 20) {
+      toast.error('Split would create chunks that are too small');
+      console.log('[Blade Split] Validation failed - chunks too small');
       return;
     }
 
     setSplitting(true);
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+    const baseTitle = chunk.title || 'Section';
+    const originalIndex = chunk.chunk_index;
+    const newChunkId = crypto.randomUUID(); // Generate ID for optimistic update
 
-      const fullText = chunk.content;
-      const beforeText = fullText.slice(0, splitIndex).trim();
-      const afterText = fullText.slice(splitIndex).trim();
+    // OPTIMISTIC UI UPDATE - Show split immediately
+    setChunks(prevChunks => {
+      const updatedChunk: ChunkWithMeta = {
+        ...chunk,
+        content: beforeText,
+        title: `${baseTitle} (Part 1)`,
+        word_count: beforeText.split(/\s+/).length,
+      };
 
-      // Validate we have content on both sides
-      if (beforeText.length < 20 || afterText.length < 20) {
-        toast.error('Split would create chunks that are too small');
-        setSplitting(false);
-        return;
-      }
+      const newChunk: ChunkWithMeta = {
+        ...chunk,
+        id: newChunkId,
+        content: afterText,
+        title: `${baseTitle} (Part 2)`,
+        word_count: afterText.split(/\s+/).length,
+        chunk_index: originalIndex + 1,
+        isSelected: false,
+        linkedContent: [],
+        entity: undefined,
+      };
 
-      const baseTitle = chunk.title || 'Section';
+      // Update indices for chunks after the split point
+      const result = prevChunks.map(c => {
+        if (c.id === chunk.id) return updatedChunk;
+        if (c.chunk_index > originalIndex) {
+          return { ...c, chunk_index: c.chunk_index + 1 };
+        }
+        return c;
+      });
 
-      // Get the original chunk's index
-      const originalIndex = chunk.chunk_index;
+      // Insert the new chunk
+      result.push(newChunk);
+      return result.sort((a, b) => a.chunk_index - b.chunk_index);
+    });
 
-      // Shift all chunks after the original up by 1 to make room
-      const chunksToShift = chunks.filter(c => c.chunk_index > originalIndex);
-      for (const chunkToShift of chunksToShift.sort((a, b) => b.chunk_index - a.chunk_index)) {
+    // Auto-expand the new chunk so user can see it
+    setExpandedChunks(prev => {
+      const next = new Set(prev);
+      next.add(newChunkId);
+      return next;
+    });
+
+    toast.success('Chunk split!', { icon: '✂️' });
+    console.log('[Blade Split] Optimistic UI updated');
+
+    // BACKGROUND DB SYNC - fire and forget, don't block UI
+    // Use an async IIFE to handle DB sync without blocking
+    (async () => {
+      try {
+        // Two-phase index shift to avoid unique constraint conflicts:
+        // Phase 1: Shift all affected chunks to temporary high indices (add 10000)
+        // Phase 2: Set final indices
+        const TEMP_OFFSET = 10000;
+        const chunksToShift = chunks
+          .filter(c => c.chunk_index > originalIndex)
+          .sort((a, b) => a.chunk_index - b.chunk_index); // Lowest first for phase 1
+
+        console.log('[Blade Split] Chunks to shift:', chunksToShift.length);
+
+        // Phase 1: Move all to temporary indices (sequential, lowest first)
+        for (const c of chunksToShift) {
+          const { error } = await supabase
+            .from('source_chunks')
+            .update({ chunk_index: c.chunk_index + TEMP_OFFSET })
+            .eq('id', c.id);
+          if (error) {
+            console.warn('[Blade Split] Phase 1 shift warning:', c.id, error.message);
+          }
+        }
+
+        // Phase 2: Set final indices (sequential, highest first to avoid conflicts)
+        for (const c of chunksToShift.slice().reverse()) {
+          const { error } = await supabase
+            .from('source_chunks')
+            .update({ chunk_index: c.chunk_index + 1 }) // Final index is original + 1
+            .eq('id', c.id);
+          if (error) {
+            console.warn('[Blade Split] Phase 2 shift warning:', c.id, error.message);
+          }
+        }
+
+        // Update original chunk and create new chunk in parallel
+        const [updateResult, insertResult] = await Promise.all([
+          supabase
+            .from('source_chunks')
+            .update({
+              content: beforeText,
+              title: `${baseTitle} (Part 1)`,
+              word_count: beforeText.split(/\s+/).length,
+            })
+            .eq('id', chunk.id),
+
+          supabase
+            .from('source_chunks')
+            .insert({
+              source_file_id: sourceFileId,
+              organization_id: sourceFile?.organization_id,
+              chunk_index: originalIndex + 1,
+              content: afterText,
+              title: `${baseTitle} (Part 2)`,
+              word_count: afterText.split(/\s+/).length,
+              chunk_type: chunk.chunk_type,
+              content_class: chunk.content_class,
+              content_class_confidence: chunk.content_class_confidence,
+              is_extractable: chunk.is_extractable,
+              extraction_status: 'pending',
+              key_terms: [],
+              hierarchy_level: chunk.hierarchy_level,
+            })
+            .select()
+            .single(),
+        ]);
+
+        if (updateResult.error) {
+          console.error('[Blade Split] Update error:', updateResult.error);
+        }
+        if (insertResult.error) {
+          console.error('[Blade Split] Insert error:', insertResult.error);
+        }
+
+        // Update the optimistic chunk ID with the real one from DB
+        if (insertResult.data) {
+          const realId = insertResult.data.id;
+          console.log('[Blade Split] New chunk created with ID:', realId);
+          setChunks(prevChunks =>
+            prevChunks.map(c =>
+              c.id === newChunkId ? { ...c, id: realId } : c
+            )
+          );
+          // Also update expanded chunks set with real ID
+          setExpandedChunks(prev => {
+            const next = new Set(prev);
+            if (next.has(newChunkId)) {
+              next.delete(newChunkId);
+              next.add(realId);
+            }
+            return next;
+          });
+        }
+
+        // Update chunk_count on source file
         await supabase
-          .from('source_chunks')
-          .update({ chunk_index: chunkToShift.chunk_index + 1 })
-          .eq('id', chunkToShift.id);
-      }
+          .from('source_files')
+          .update({ chunk_count: chunks.length + 1 })
+          .eq('id', sourceFileId);
 
-      // Update original chunk with first part
-      const { error: updateError } = await supabase
-        .from('source_chunks')
-        .update({
-          content: beforeText,
-          title: `${baseTitle} (Part 1)`,
-          word_count: beforeText.split(/\s+/).length,
-        })
-        .eq('id', chunk.id);
+        console.log('[Blade Split] DB sync complete');
 
-      if (updateError) throw updateError;
-
-      // Create the second chunk
-      const { error: insertError } = await supabase
-        .from('source_chunks')
-        .insert({
-          source_file_id: sourceFileId,
-          organization_id: sourceFile?.organization_id,
-          chunk_index: originalIndex + 1,
-          content: afterText,
-          title: `${baseTitle} (Part 2)`,
-          word_count: afterText.split(/\s+/).length,
-          chunk_type: chunk.chunk_type,
-          content_class: chunk.content_class,
-          content_class_confidence: chunk.content_class_confidence,
-          is_extractable: chunk.is_extractable,
-          extraction_status: 'pending',
-          key_terms: [],
-          hierarchy_level: chunk.hierarchy_level,
+      } catch (error: any) {
+        // Log error but don't refresh - UI state is still valid
+        console.error('[Blade Split] DB sync error:', error);
+        // Only show toast, don't reload - optimistic UI is fine
+        toast.error('Background sync had issues', {
+          description: 'Your changes are saved locally. Refresh if you see issues.',
+          duration: 3000
         });
+      }
+    })();
 
-      if (insertError) throw insertError;
-
-      // Update chunk_count on source file
-      await supabase
-        .from('source_files')
-        .update({ chunk_count: chunks.length + 1 })
-        .eq('id', sourceFileId);
-
-      // Reload chunks
-      await loadChunks();
-      toast.success('Chunk split successfully', { icon: '✂️' });
-
-    } catch (error: any) {
-      console.error('Blade split error:', error);
-      toast.error('Failed to split chunk', { description: error.message });
-    } finally {
-      setSplitting(false);
-    }
+    // Set splitting false immediately after optimistic update
+    setSplitting(false);
   }
 
   // Create role from Job Description chunk
@@ -1211,17 +1413,7 @@ export function DocumentIntelligenceEditor({
       </div>
 
       {/* Content */}
-      <div
-        className="max-w-6xl mx-auto p-6"
-        onClick={(e) => {
-          // Clear split selection when clicking outside chunk content areas
-          // Only clear if clicking directly on the container, not on child elements
-          const target = e.target as HTMLElement;
-          if (!target.closest('.chunk-content-selectable') && !target.closest('[data-split-button]')) {
-            clearSplitSelection();
-          }
-        }}
-      >
+      <div className="max-w-6xl mx-auto p-6">
         {/* Summary bar */}
         {chunks.length > 0 && (
           <div className="mb-6 space-y-4">
@@ -1310,6 +1502,8 @@ export function DocumentIntelligenceEditor({
                 bladeMode={bladeMode}
                 onBladeClick={handleBladeClick}
                 splitting={splitting}
+                // Title rename functionality
+                onRenameTitle={renameChunkTitle}
               />
             ))}
           </div>
@@ -1490,6 +1684,8 @@ interface ChunkBlockProps {
   bladeMode: boolean;
   onBladeClick: (chunkId: string, event: React.MouseEvent<HTMLDivElement>) => void;
   splitting: boolean;
+  // Title rename
+  onRenameTitle: (chunkId: string, newTitle: string) => void;
 }
 
 function ChunkBlock({
@@ -1514,12 +1710,49 @@ function ChunkBlock({
   bladeMode,
   onBladeClick,
   splitting,
+  onRenameTitle,
 }: ChunkBlockProps) {
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
   const Icon = config.icon;
   const linkedRole = chunk.linkedContent.find(c => c.type === 'role');
   const linkedTracks = chunk.linkedContent.filter(c => c.type === 'track');
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Title editing state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(chunk.title || '');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditingTitle]);
+
+  const handleTitleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditedTitle(chunk.title || '');
+    setIsEditingTitle(true);
+  };
+
+  const handleTitleSave = () => {
+    const trimmedTitle = editedTitle.trim();
+    if (trimmedTitle && trimmedTitle !== chunk.title) {
+      onRenameTitle(chunk.id, trimmedTitle);
+    }
+    setIsEditingTitle(false);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleTitleSave();
+    } else if (e.key === 'Escape') {
+      setEditedTitle(chunk.title || '');
+      setIsEditingTitle(false);
+    }
+  };
 
   return (
     <div
@@ -1575,6 +1808,8 @@ function ChunkBlock({
           "hover:shadow-md"
         )}
         onClick={(e) => {
+          // In blade mode, don't toggle selection - let content area handle clicks
+          if (bladeMode) return;
           // Don't toggle selection if clicking on interactive elements
           const target = e.target as HTMLElement;
           if (target.closest('button') || target.closest('[role="menuitem"]') || target.closest('a')) {
@@ -1583,10 +1818,14 @@ function ChunkBlock({
           onToggleSelect();
         }}
       >
-        {/* Header - click to expand/collapse */}
+        {/* Header - click to expand/collapse (disabled in blade mode since all content is shown) */}
         <div
-          className="flex items-center justify-between px-4 py-2 cursor-pointer"
+          className={cn(
+            "flex items-center justify-between px-4 py-2",
+            !bladeMode && "cursor-pointer"
+          )}
           onClick={(e) => {
+            if (bladeMode) return; // In blade mode, content is always visible
             e.stopPropagation(); // Prevent card click handler from firing
             onToggleExpand();
           }}
@@ -1634,10 +1873,26 @@ function ChunkBlock({
               </Badge>
             )}
 
-            {/* Title if available */}
-            {chunk.title && (
-              <span className="text-sm font-medium text-muted-foreground">
-                {chunk.title}
+            {/* Title - double-click to edit */}
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={handleTitleKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                className="text-sm font-medium bg-transparent border-b border-orange-400 outline-none px-1 py-0.5 min-w-[100px] text-foreground"
+                placeholder="Enter title..."
+              />
+            ) : (
+              <span
+                className="text-sm font-medium text-muted-foreground hover:text-foreground cursor-text transition-colors"
+                onDoubleClick={handleTitleDoubleClick}
+                title="Double-click to rename"
+              >
+                {chunk.title || 'Untitled'}
               </span>
             )}
           </div>
@@ -1652,15 +1907,15 @@ function ChunkBlock({
           </div>
         </div>
 
-        {/* Content */}
-        {isExpanded && (
+        {/* Content - always show in blade mode, otherwise respect isExpanded */}
+        {(isExpanded || bladeMode) && (
           <div className="px-4 pb-4 relative">
             {/* Content area - blade mode enables click-to-split */}
             <div
               ref={contentRef}
               className={cn(
                 "prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap relative",
-                bladeMode && "cursor-crosshair hover:bg-orange-50/30 dark:hover:bg-orange-900/10 transition-colors rounded",
+                bladeMode && "cursor-text hover:bg-orange-50/50 dark:hover:bg-orange-900/20 transition-colors rounded p-2 -m-2 border-2 border-dashed border-transparent hover:border-orange-400/50",
                 splitting && "opacity-50 pointer-events-none"
               )}
               onClick={(e) => {
@@ -1671,15 +1926,6 @@ function ChunkBlock({
               }}
             >
               {chunk.content}
-              {/* Blade mode indicator overlay */}
-              {bladeMode && (
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="bg-orange-500/10 border-2 border-dashed border-orange-400/30 rounded-lg p-4 text-center">
-                    <Scissors className="h-6 w-6 text-orange-400 mx-auto mb-1" />
-                    <span className="text-xs text-orange-500 font-medium">Click to split here</span>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Key terms */}
