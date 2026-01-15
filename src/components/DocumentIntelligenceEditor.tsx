@@ -73,6 +73,7 @@ type ContentType = keyof typeof CONTENT_TYPES;
 
 interface SourceFile {
   id: string;
+  organization_id: string;
   file_name: string;
   extracted_text: string | null;
   source_type: string;
@@ -185,6 +186,12 @@ export function DocumentIntelligenceEditor({
     text: string;
   } | null>(null);
 
+  // Blade mode split selection state
+  const [splitSelection, setSplitSelection] = useState<{
+    chunkId: string;
+    splitIndex: number; // Character index where to split
+  } | null>(null);
+
   // Track/Content generation state
   const [showTrackGenerator, setShowTrackGenerator] = useState(false);
   const [chunksForTrackGeneration, setChunksForTrackGeneration] = useState<ChunkWithMeta[]>([]);
@@ -196,15 +203,9 @@ export function DocumentIntelligenceEditor({
   // Merge operation state
   const [merging, setMerging] = useState(false);
 
-  // Split operation state - for text selection splitting
+  // Blade mode state - for splitting chunks with click
+  const [bladeMode, setBladeMode] = useState(false);
   const [splitting, setSplitting] = useState(false);
-  const [splitSelection, setSplitSelection] = useState<{
-    chunkId: string;
-    selectedText: string;
-    startOffset: number;
-    endOffset: number;
-    anchorPosition: { top: number; left: number };
-  } | null>(null);
 
   // Drag-drop merge state
   const [draggedChunkId, setDraggedChunkId] = useState<string | null>(null);
@@ -247,6 +248,42 @@ export function DocumentIntelligenceEditor({
       }, 100);
     }
   }, [highlightChunkId, chunks.length]);
+
+  // Blade mode keyboard shortcut (B key to toggle)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Ignore if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // B key toggles blade mode
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        setBladeMode(prev => {
+          const newMode = !prev;
+          if (newMode) {
+            toast.info('Blade mode ON - Click between paragraphs to split', {
+              duration: 2000,
+              icon: '✂️',
+            });
+          } else {
+            toast.info('Blade mode OFF', { duration: 1500 });
+          }
+          return newMode;
+        });
+      }
+
+      // Escape exits blade mode
+      if (e.key === 'Escape' && bladeMode) {
+        setBladeMode(false);
+        toast.info('Blade mode OFF', { duration: 1500 });
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [bladeMode]);
 
   async function loadSourceFile() {
     if (!sourceFileId) return;
@@ -667,10 +704,37 @@ export function DocumentIntelligenceEditor({
 
       // Delete other chunks
       const chunksToDelete = sortedChunks.slice(1).map(c => c.id);
+      const deletedIndices = sortedChunks.slice(1).map(c => c.chunk_index).sort((a, b) => a - b);
+
       await supabase
         .from('source_chunks')
         .delete()
         .in('id', chunksToDelete);
+
+      // Renumber remaining chunks to close gaps and maintain sequential order
+      // Get all chunks after the primary that weren't deleted
+      const remainingChunksAfter = chunks
+        .filter(c => c.chunk_index > primaryChunk.chunk_index && !chunksToDelete.includes(c.id))
+        .sort((a, b) => a.chunk_index - b.chunk_index);
+
+      // Shift them down to close the gap
+      let nextIndex = primaryChunk.chunk_index + 1;
+      for (const chunkToRenumber of remainingChunksAfter) {
+        if (chunkToRenumber.chunk_index !== nextIndex) {
+          await supabase
+            .from('source_chunks')
+            .update({ chunk_index: nextIndex })
+            .eq('id', chunkToRenumber.id);
+        }
+        nextIndex++;
+      }
+
+      // Update chunk_count on source file
+      const newChunkCount = chunks.length - chunksToDelete.length;
+      await supabase
+        .from('source_files')
+        .update({ chunk_count: newChunkCount })
+        .eq('id', sourceFileId);
 
       // Reload chunks
       await loadChunks();
@@ -722,10 +786,30 @@ export function DocumentIntelligenceEditor({
         .eq('id', primaryChunk.id);
 
       // Delete the secondary chunk
+      const deletedIndex = secondaryChunk.chunk_index;
       await supabase
         .from('source_chunks')
         .delete()
         .eq('id', secondaryChunk.id);
+
+      // Renumber remaining chunks to close the gap
+      const remainingChunksAfter = chunks
+        .filter(c => c.chunk_index > deletedIndex && c.id !== secondaryChunk.id)
+        .sort((a, b) => a.chunk_index - b.chunk_index);
+
+      for (const chunkToRenumber of remainingChunksAfter) {
+        await supabase
+          .from('source_chunks')
+          .update({ chunk_index: chunkToRenumber.chunk_index - 1 })
+          .eq('id', chunkToRenumber.id);
+      }
+
+      // Update chunk_count on source file
+      const newChunkCount = chunks.length - 1;
+      await supabase
+        .from('source_files')
+        .update({ chunk_count: newChunkCount })
+        .eq('id', sourceFileId);
 
       // Reload chunks
       await loadChunks();
@@ -739,62 +823,82 @@ export function DocumentIntelligenceEditor({
   }
 
   /**
-   * Handle text selection in a chunk for potential splitting.
-   * Called on mouseup within chunk content area.
+   * BLADE MODE: Handle click on chunk content to split at that position.
+   * Finds the nearest paragraph break (double newline) to the click position.
    */
-  function handleChunkTextSelection(chunkId: string, contentElement: HTMLElement) {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.toString().trim()) {
-      // No valid selection - clear any existing split selection
-      setSplitSelection(null);
-      return;
-    }
+  function handleBladeClick(chunkId: string, clickEvent: React.MouseEvent<HTMLDivElement>) {
+    if (!bladeMode || splitting) return;
 
-    const selectedText = selection.toString().trim();
     const chunk = chunks.find(c => c.id === chunkId);
     if (!chunk) return;
 
-    // Calculate the position of the selection within the chunk content
-    const range = selection.getRangeAt(0);
+    const contentElement = clickEvent.currentTarget;
+    const content = chunk.content;
 
-    // Get the text content and find offsets
-    const fullText = chunk.content;
-    const startOffset = fullText.indexOf(selectedText);
-    const endOffset = startOffset + selectedText.length;
+    // Get click position relative to content
+    const rect = contentElement.getBoundingClientRect();
+    const clickY = clickEvent.clientY - rect.top;
+    const totalHeight = rect.height;
 
-    if (startOffset === -1) {
-      // Selection doesn't match content (shouldn't happen)
-      setSplitSelection(null);
+    // Estimate character position based on click Y position (rough approximation)
+    const approximateCharIndex = Math.floor((clickY / totalHeight) * content.length);
+
+    // Find nearest paragraph break (double newline or single newline)
+    // Search for paragraph breaks within a reasonable range
+    const searchRange = Math.floor(content.length * 0.1); // Search 10% of content around click
+    const searchStart = Math.max(0, approximateCharIndex - searchRange);
+    const searchEnd = Math.min(content.length, approximateCharIndex + searchRange);
+
+    // Look for double newlines first (stronger paragraph break)
+    let bestSplitIndex = -1;
+    let bestDistance = Infinity;
+
+    // Search for \n\n (paragraph breaks)
+    for (let i = searchStart; i < searchEnd - 1; i++) {
+      if (content[i] === '\n' && content[i + 1] === '\n') {
+        const distance = Math.abs(i - approximateCharIndex);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestSplitIndex = i + 2; // Split after the double newline
+        }
+      }
+    }
+
+    // If no double newline found, look for single newlines
+    if (bestSplitIndex === -1) {
+      for (let i = searchStart; i < searchEnd; i++) {
+        if (content[i] === '\n') {
+          const distance = Math.abs(i - approximateCharIndex);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestSplitIndex = i + 1; // Split after the newline
+          }
+        }
+      }
+    }
+
+    // If still no break found, split at the approximate position
+    if (bestSplitIndex === -1) {
+      bestSplitIndex = approximateCharIndex;
+    }
+
+    // Ensure we have content on both sides
+    if (bestSplitIndex < 50 || bestSplitIndex > content.length - 50) {
+      toast.error('Cannot split at the edge of a chunk');
       return;
     }
 
-    // Get position for the scissor icon (top-right of selection)
-    const rect = range.getBoundingClientRect();
-    const containerRect = contentElement.getBoundingClientRect();
-
-    setSplitSelection({
-      chunkId,
-      selectedText,
-      startOffset,
-      endOffset,
-      anchorPosition: {
-        top: rect.top - containerRect.top,
-        left: rect.right - containerRect.left + 8, // 8px offset from selection
-      },
-    });
+    // Perform the split
+    performBladeSplit(chunkId, bestSplitIndex);
   }
 
   /**
-   * Split a chunk based on the current text selection.
-   * Creates 2 or 3 new chunks depending on selection position.
+   * Execute the blade split at the given character index.
    */
-  async function splitChunkAtSelection() {
-    if (!splitSelection) return;
-
-    const chunk = chunks.find(c => c.id === splitSelection.chunkId);
+  async function performBladeSplit(chunkId: string, splitIndex: number) {
+    const chunk = chunks.find(c => c.id === chunkId);
     if (!chunk) {
       toast.error('Could not find chunk to split');
-      setSplitSelection(null);
       return;
     }
 
@@ -805,106 +909,79 @@ export function DocumentIntelligenceEditor({
       if (!session) throw new Error('Not authenticated');
 
       const fullText = chunk.content;
-      const { startOffset, endOffset, selectedText } = splitSelection;
+      const beforeText = fullText.slice(0, splitIndex).trim();
+      const afterText = fullText.slice(splitIndex).trim();
 
-      // Determine how many chunks to create
-      const beforeText = fullText.slice(0, startOffset).trim();
-      const afterText = fullText.slice(endOffset).trim();
-
-      // Build the new chunks array
-      const newChunks: { content: string; title: string }[] = [];
-      const baseTitle = chunk.title || 'Section';
-
-      if (beforeText.length > 0) {
-        newChunks.push({
-          content: beforeText,
-          title: newChunks.length === 0 && afterText.length === 0 ? `${baseTitle} (Part 1)` : `${baseTitle} (Part 1)`,
-        });
-      }
-
-      // The selected text is always its own chunk
-      newChunks.push({
-        content: selectedText,
-        title: beforeText.length === 0 && afterText.length === 0
-          ? baseTitle
-          : `${baseTitle} (Part ${newChunks.length + 1})`,
-      });
-
-      if (afterText.length > 0) {
-        newChunks.push({
-          content: afterText,
-          title: `${baseTitle} (Part ${newChunks.length + 1})`,
-        });
-      }
-
-      // If we only have 1 chunk (selected everything), no split needed
-      if (newChunks.length === 1) {
-        toast.info('Selection covers entire chunk - no split needed');
-        setSplitSelection(null);
+      // Validate we have content on both sides
+      if (beforeText.length < 20 || afterText.length < 20) {
+        toast.error('Split would create chunks that are too small');
         setSplitting(false);
         return;
       }
 
-      // Get the highest chunk_index for this file to append new chunks
-      const maxIndex = Math.max(...chunks.map(c => c.chunk_index));
+      const baseTitle = chunk.title || 'Section';
 
-      // Update original chunk with first part, create new chunks for rest
-      const [firstChunk, ...additionalChunks] = newChunks;
+      // Get the original chunk's index
+      const originalIndex = chunk.chunk_index;
 
-      // Update the original chunk with the first part
+      // Shift all chunks after the original up by 1 to make room
+      const chunksToShift = chunks.filter(c => c.chunk_index > originalIndex);
+      for (const chunkToShift of chunksToShift.sort((a, b) => b.chunk_index - a.chunk_index)) {
+        await supabase
+          .from('source_chunks')
+          .update({ chunk_index: chunkToShift.chunk_index + 1 })
+          .eq('id', chunkToShift.id);
+      }
+
+      // Update original chunk with first part
       const { error: updateError } = await supabase
         .from('source_chunks')
         .update({
-          content: firstChunk.content,
-          title: firstChunk.title,
-          word_count: firstChunk.content.split(/\s+/).length,
+          content: beforeText,
+          title: `${baseTitle} (Part 1)`,
+          word_count: beforeText.split(/\s+/).length,
         })
         .eq('id', chunk.id);
 
       if (updateError) throw updateError;
 
-      // Create additional chunks
-      for (let i = 0; i < additionalChunks.length; i++) {
-        const newChunk = additionalChunks[i];
-        const { error: insertError } = await supabase
-          .from('source_chunks')
-          .insert({
-            source_file_id: sourceFileId,
-            chunk_index: maxIndex + i + 1,
-            content: newChunk.content,
-            title: newChunk.title,
-            word_count: newChunk.content.split(/\s+/).length,
-            chunk_type: chunk.chunk_type,
-            content_class: chunk.content_class,
-            content_class_confidence: chunk.content_class_confidence,
-            is_extractable: chunk.is_extractable,
-            extraction_status: 'pending',
-            key_terms: [],
-            hierarchy_level: chunk.hierarchy_level,
-          });
+      // Create the second chunk
+      const { error: insertError } = await supabase
+        .from('source_chunks')
+        .insert({
+          source_file_id: sourceFileId,
+          organization_id: sourceFile?.organization_id,
+          chunk_index: originalIndex + 1,
+          content: afterText,
+          title: `${baseTitle} (Part 2)`,
+          word_count: afterText.split(/\s+/).length,
+          chunk_type: chunk.chunk_type,
+          content_class: chunk.content_class,
+          content_class_confidence: chunk.content_class_confidence,
+          is_extractable: chunk.is_extractable,
+          extraction_status: 'pending',
+          key_terms: [],
+          hierarchy_level: chunk.hierarchy_level,
+        });
 
-        if (insertError) throw insertError;
-      }
+      if (insertError) throw insertError;
 
-      // Clear selection and reload
-      setSplitSelection(null);
+      // Update chunk_count on source file
+      await supabase
+        .from('source_files')
+        .update({ chunk_count: chunks.length + 1 })
+        .eq('id', sourceFileId);
+
+      // Reload chunks
       await loadChunks();
-      toast.success(`Chunk split into ${newChunks.length} parts`);
+      toast.success('Chunk split successfully', { icon: '✂️' });
 
     } catch (error: any) {
-      console.error('Split error:', error);
+      console.error('Blade split error:', error);
       toast.error('Failed to split chunk', { description: error.message });
     } finally {
       setSplitting(false);
     }
-  }
-
-  /**
-   * Clear split selection when clicking outside
-   */
-  function clearSplitSelection() {
-    setSplitSelection(null);
-    window.getSelection()?.removeAllRanges();
   }
 
   // Create role from Job Description chunk
@@ -1229,10 +1306,9 @@ export function DocumentIntelligenceEditor({
                   setDraggedChunkId(null);
                   setDropTargetChunkId(null);
                 }}
-                // Split functionality
-                splitSelection={splitSelection}
-                onTextSelection={handleChunkTextSelection}
-                onSplitChunk={splitChunkAtSelection}
+                // Blade mode split functionality
+                bladeMode={bladeMode}
+                onBladeClick={handleBladeClick}
                 splitting={splitting}
               />
             ))}
@@ -1352,6 +1428,23 @@ export function DocumentIntelligenceEditor({
         </div>
       )}
 
+      {/* Blade Mode Indicator */}
+      {bladeMode && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-4 fade-in duration-200">
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-orange-500 text-white rounded-full shadow-lg">
+            <Scissors className="h-5 w-5" />
+            <span className="font-medium">Blade Mode</span>
+            <span className="text-orange-100 text-sm">Press B or Esc to exit</span>
+            <button
+              onClick={() => setBladeMode(false)}
+              className="ml-2 p-1 rounded-full hover:bg-orange-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Processing Overlay - for JD extraction */}
       {processing && processingStep && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
@@ -1393,16 +1486,9 @@ interface ChunkBlockProps {
   onDragOver: () => void;
   onDragLeave: () => void;
   onDrop: () => void;
-  // Split functionality
-  splitSelection: {
-    chunkId: string;
-    selectedText: string;
-    startOffset: number;
-    endOffset: number;
-    anchorPosition: { top: number; left: number };
-  } | null;
-  onTextSelection: (chunkId: string, contentElement: HTMLElement) => void;
-  onSplitChunk: () => void;
+  // Blade mode split functionality
+  bladeMode: boolean;
+  onBladeClick: (chunkId: string, event: React.MouseEvent<HTMLDivElement>) => void;
   splitting: boolean;
 }
 
@@ -1425,9 +1511,8 @@ function ChunkBlock({
   onDragOver,
   onDragLeave,
   onDrop,
-  splitSelection,
-  onTextSelection,
-  onSplitChunk,
+  bladeMode,
+  onBladeClick,
   splitting,
 }: ChunkBlockProps) {
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
@@ -1436,37 +1521,41 @@ function ChunkBlock({
   const linkedTracks = chunk.linkedContent.filter(c => c.type === 'track');
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Check if this chunk has an active split selection
-  const hasActiveSplit = splitSelection?.chunkId === chunk.id;
-
   return (
     <div
       className={cn(
         "group relative flex gap-3 transition-all",
         isDragging && "opacity-50 scale-[0.98]",
-        isDropTarget && "ring-2 ring-orange-500 ring-offset-2 rounded-lg"
+        isDropTarget && "ring-2 ring-orange-500 ring-offset-2 rounded-lg",
+        bladeMode && "ring-1 ring-orange-400/50" // Subtle highlight in blade mode
       )}
-      draggable
+      draggable={!bladeMode} // Disable drag in blade mode
       onDragStart={(e) => {
+        if (bladeMode) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer.effectAllowed = 'move';
         onDragStart();
       }}
       onDragEnd={onDragEnd}
       onDragOver={(e) => {
+        if (bladeMode) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         onDragOver();
       }}
       onDragLeave={onDragLeave}
       onDrop={(e) => {
+        if (bladeMode) return;
         e.preventDefault();
         onDrop();
       }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
-      {/* Drag handle + Checkbox */}
-      <div className="pt-4 flex items-start gap-1">
+      {/* Drag handle + Checkbox - hidden in blade mode */}
+      <div className={cn("pt-4 flex items-start gap-1", bladeMode && "opacity-30 pointer-events-none")}>
         <div className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors">
           <GripVertical className="h-5 w-5" />
         </div>
@@ -1566,61 +1655,32 @@ function ChunkBlock({
         {/* Content */}
         {isExpanded && (
           <div className="px-4 pb-4 relative">
-            {/* Content area with custom selection styling */}
+            {/* Content area - blade mode enables click-to-split */}
             <div
               ref={contentRef}
-              className="prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap chunk-content-selectable relative"
-              onMouseUp={(e) => {
-                // Handle text selection for potential splitting
-                if (contentRef.current) {
-                  onTextSelection(chunk.id, contentRef.current);
+              className={cn(
+                "prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap relative",
+                bladeMode && "cursor-crosshair hover:bg-orange-50/30 dark:hover:bg-orange-900/10 transition-colors rounded",
+                splitting && "opacity-50 pointer-events-none"
+              )}
+              onClick={(e) => {
+                if (bladeMode && !splitting) {
+                  e.stopPropagation();
+                  onBladeClick(chunk.id, e);
                 }
               }}
             >
               {chunk.content}
-            </div>
-
-            {/* Scissor split button - appears when text is selected in this chunk */}
-            {hasActiveSplit && splitSelection && (
-              <div
-                className="absolute z-10 animate-in fade-in-0 zoom-in-95 duration-150"
-                style={{
-                  top: splitSelection.anchorPosition.top - 4,
-                  left: Math.min(splitSelection.anchorPosition.left, 280), // Keep within bounds
-                }}
-              >
-                <button
-                  data-split-button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSplitChunk();
-                  }}
-                  disabled={splitting}
-                  className={cn(
-                    "group/split flex items-center justify-center",
-                    "w-8 h-8 rounded-lg",
-                    "bg-zinc-900 hover:bg-zinc-800 border border-zinc-700",
-                    "text-orange-400 hover:text-orange-300",
-                    "shadow-lg shadow-black/20",
-                    "transition-all duration-150",
-                    splitting && "opacity-50 cursor-not-allowed"
-                  )}
-                  title="Split into separate chunk"
-                >
-                  {splitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Scissors className="h-4 w-4" />
-                  )}
-                </button>
-                {/* Tooltip */}
-                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover/split:opacity-100 transition-opacity">
-                  <div className="bg-zinc-900/95 text-xs text-zinc-300 px-2 py-1 rounded whitespace-nowrap border border-zinc-700">
-                    Split into separate chunk
+              {/* Blade mode indicator overlay */}
+              {bladeMode && (
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="bg-orange-500/10 border-2 border-dashed border-orange-400/30 rounded-lg p-4 text-center">
+                    <Scissors className="h-6 w-6 text-orange-400 mx-auto mb-1" />
+                    <span className="text-xs text-orange-500 font-medium">Click to split here</span>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Key terms */}
             {chunk.key_terms && chunk.key_terms.length > 0 && (
