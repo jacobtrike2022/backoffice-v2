@@ -1831,7 +1831,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
       {/* Sidebar wrapper for sticky positioning */}
       <div className="hidden lg:block w-64 flex-shrink-0 relative">
-        <div className="sticky top-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
+        <div className="sticky top-0">
           <ContentLibrarySidebar
             onPlaylistClick={handlePlaylistClick}
             onAlbumClick={handleAlbumClick}

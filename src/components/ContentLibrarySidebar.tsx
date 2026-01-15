@@ -108,9 +108,9 @@ export function ContentLibrarySidebar({
       )}
     >
       {/* Active Playlists Section */}
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b border-border overflow-hidden">
         <h3 className="text-sm font-semibold text-foreground mb-3">Active Playlists</h3>
-        
+
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
@@ -119,8 +119,8 @@ export function ContentLibrarySidebar({
           </div>
         ) : error ? (
           <div className="text-xs text-red-500">
-            Failed to load. <button 
-              onClick={fetchData} 
+            Failed to load. <button
+              onClick={fetchData}
               className="underline hover:text-red-400"
             >
               Retry
@@ -130,47 +130,28 @@ export function ContentLibrarySidebar({
           <p className="text-xs text-muted-foreground italic">No playlists yet</p>
         ) : (
           <>
-            {playlistsExpanded ? (
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {displayedPlaylists.map((playlist) => (
-                  <PlaylistItem 
-                    key={playlist.id} 
-                    playlist={playlist} 
-                    onClick={() => onPlaylistClick(playlist.id)} 
-                    onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
-                    isActive={activePlaylistFilter === playlist.id}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {displayedPlaylists.map((playlist) => (
-                  <PlaylistItem 
-                    key={playlist.id} 
-                    playlist={playlist} 
-                    onClick={() => onPlaylistClick(playlist.id)} 
-                    onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
-                    isActive={activePlaylistFilter === playlist.id}
-                  />
-                ))}
-              </div>
-            )}
-            
+            <div className="space-y-1">
+              {displayedPlaylists.map((playlist) => (
+                <PlaylistItem
+                  key={playlist.id}
+                  playlist={playlist}
+                  onClick={() => onPlaylistClick(playlist.id)}
+                  onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
+                  isActive={activePlaylistFilter === playlist.id}
+                />
+              ))}
+            </div>
+
             {allPlaylists.length > 4 && (
               <button
                 onClick={handleExpandPlaylists}
-                className="text-xs text-primary hover:text-primary/80 mt-2 flex items-center gap-1"
+                className="mt-2 flex items-center justify-center w-full hover:bg-accent/50 rounded py-1 transition-colors"
+                title={playlistsExpanded ? "Show less" : "Show more"}
               >
                 {playlistsExpanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3" />
-                    Show less
-                  </>
+                  <ChevronUp className="h-4 w-4 text-foreground font-bold" strokeWidth={2.5} />
                 ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3" />
-                    Show more ({allPlaylists.length - 4} more)
-                  </>
+                  <ChevronDown className="h-4 w-4 text-foreground font-bold" strokeWidth={2.5} />
                 )}
               </button>
             )}
@@ -179,9 +160,9 @@ export function ContentLibrarySidebar({
       </div>
 
       {/* Active Albums Section */}
-      <div className="p-4">
+      <div className="p-4 overflow-hidden">
         <h3 className="text-sm font-semibold text-foreground mb-3">Active Albums</h3>
-        
+
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
@@ -190,8 +171,8 @@ export function ContentLibrarySidebar({
           </div>
         ) : error ? (
           <div className="text-xs text-red-500">
-            Failed to load. <button 
-              onClick={fetchData} 
+            Failed to load. <button
+              onClick={fetchData}
               className="underline hover:text-red-400"
             >
               Retry
@@ -201,47 +182,28 @@ export function ContentLibrarySidebar({
           <p className="text-xs text-muted-foreground italic">No albums yet</p>
         ) : (
           <>
-            {albumsExpanded ? (
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {displayedAlbums.map((album) => (
-                  <AlbumItem 
-                    key={album.id} 
-                    album={album} 
-                    onClick={() => onAlbumClick(album.id)} 
-                    onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
-                    isActive={activeAlbumFilter === album.id}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {displayedAlbums.map((album) => (
-                  <AlbumItem 
-                    key={album.id} 
-                    album={album} 
-                    onClick={() => onAlbumClick(album.id)} 
-                    onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
-                    isActive={activeAlbumFilter === album.id}
-                  />
-                ))}
-              </div>
-            )}
-            
+            <div className="space-y-1">
+              {displayedAlbums.map((album) => (
+                <AlbumItem
+                  key={album.id}
+                  album={album}
+                  onClick={() => onAlbumClick(album.id)}
+                  onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
+                  isActive={activeAlbumFilter === album.id}
+                />
+              ))}
+            </div>
+
             {albums.length >= 4 && (
               <button
                 onClick={handleExpandAlbums}
-                className="text-xs text-primary hover:text-primary/80 mt-2 flex items-center gap-1"
+                className="mt-2 flex items-center justify-center w-full hover:bg-accent/50 rounded py-1 transition-colors"
+                title={albumsExpanded ? "Show less" : "Show more"}
               >
                 {albumsExpanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3" />
-                    Show less
-                  </>
+                  <ChevronUp className="h-4 w-4 text-foreground font-bold" strokeWidth={2.5} />
                 ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3" />
-                    Show more
-                  </>
+                  <ChevronDown className="h-4 w-4 text-foreground font-bold" strokeWidth={2.5} />
                 )}
               </button>
             )}
@@ -265,16 +227,16 @@ function PlaylistItem({ playlist, onClick, onEdit, isActive = false }: PlaylistI
     <div
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer',
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer overflow-hidden',
         isActive
           ? 'bg-primary/20 text-primary border border-primary/30'
           : 'hover:bg-accent/50'
       )}
-      title="Filter by playlist"
+      title={playlist.title}
     >
-      <div className="flex items-center gap-3 flex-1 text-left">
+      <div className="flex items-center gap-3 flex-1 min-w-0 text-left overflow-hidden">
         <Play className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <span className="text-sm text-foreground truncate flex-1">{playlist.title}</span>
+        <span className="text-sm text-foreground truncate flex-1 min-w-0">{playlist.title}</span>
       </div>
       {onEdit && (
         <button
@@ -282,7 +244,7 @@ function PlaylistItem({ playlist, onClick, onEdit, isActive = false }: PlaylistI
             e.stopPropagation();
             onEdit();
           }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded flex-shrink-0"
           title="Edit playlist"
         >
           <Edit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
@@ -308,16 +270,16 @@ function AlbumItem({ album, onClick, onEdit, isActive = false }: AlbumItemProps)
     <div
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer',
+        'w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group cursor-pointer overflow-hidden',
         isActive
           ? 'bg-primary/20 text-primary border border-primary/30'
           : 'hover:bg-accent/50'
       )}
-      title="Filter by album"
+      title={album.title}
     >
-      <div className="flex items-center gap-3 flex-1 text-left">
+      <div className="flex items-center gap-3 flex-1 min-w-0 text-left overflow-hidden">
         <FolderOpen className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <span className="text-sm text-foreground truncate block">{album.title}</span>
           <span className="text-xs text-muted-foreground">
             {trackCount} {trackCount === 1 ? 'track' : 'tracks'} • {duration} min
@@ -330,7 +292,7 @@ function AlbumItem({ album, onClick, onEdit, isActive = false }: AlbumItemProps)
             e.stopPropagation();
             onEdit();
           }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded"
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-accent rounded flex-shrink-0"
           title="Edit album"
         >
           <Edit className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
