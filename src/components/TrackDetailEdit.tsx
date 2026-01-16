@@ -34,8 +34,17 @@ import {
   Link as LinkIcon,
   History,
   Zap,
-  ThumbsUp
+  ThumbsUp,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
 import * as crud from '../lib/crud';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -53,9 +62,12 @@ interface TrackDetailEditProps {
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback - navigates back after archive
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: TrackDetailEditProps) {
+export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: TrackDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -79,10 +91,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
-  
+  const [factsLoading, setFactsLoading] = useState(false);
+  const [factsLoadedForTrackId, setFactsLoadedForTrackId] = useState<string | null>(null);
+
   // Original facts loaded from DB (for edit mode comparison)
   const [originalFacts, setOriginalFacts] = useState<any[]>([]);
   
@@ -100,6 +117,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
 
   const isSystemContent = track.is_system_content;
+
+  // Reset facts cache when track changes
+  useEffect(() => {
+    if (track.id !== factsLoadedForTrackId) {
+      setFactsLoadedForTrackId(null);
+      setViewModeFacts([]);
+    }
+  }, [track.id]);
 
   useEffect(() => {
     const loadKBTags = async () => {
@@ -272,13 +297,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   useEffect(() => {
     if (isEditMode) {
       const loadTrackData = async () => {
-        // Fetch facts from database (new facts table)
+        setFactsLoading(true);
+
+        // Fetch facts AND tags in parallel for better performance
+        const [factsResult, tagsResult] = await Promise.allSettled([
+          factsCrud.getFactsForTrack(track.id),
+          tagsCrud.getTrackTagNames(track.id)
+        ]);
+
+        // Process facts result
         let facts: any[] = [];
-        try {
-          const dbFacts = await factsCrud.getFactsForTrack(track.id);
-          
-          // Convert DB facts to frontend format
-          facts = dbFacts.map((f: any) => ({
+        if (factsResult.status === 'fulfilled' && factsResult.value) {
+          facts = factsResult.value.map((f: any) => ({
             title: f.title,
             fact: f.content,
             content: f.content,
@@ -289,21 +319,23 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             _extractedBy: f.extracted_by,
           }));
           console.log(`📊 Loaded ${facts.length} facts from database for track ${track.id}`);
-        } catch (error) {
-          console.warn('Could not fetch facts from database:', error);
+        } else if (factsResult.status === 'rejected') {
+          console.warn('Could not fetch facts from database:', factsResult.reason);
         }
-        
-        // Store original facts for comparison
-        setOriginalFacts(facts);
 
-        // Load tags from junction table (source of truth)
+        // Store original facts for comparison and also set view mode facts
+        setOriginalFacts(facts);
+        setViewModeFacts(facts);
+        setFactsLoadedForTrackId(track.id);
+        setFactsLoading(false);
+
+        // Process tags result
         let tagNames: string[] = track.tags || [];
-        try {
-          tagNames = await tagsCrud.getTrackTagNames(track.id);
+        if (tagsResult.status === 'fulfilled' && tagsResult.value) {
+          tagNames = tagsResult.value;
           console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
-        } catch (tagError) {
-          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
-          tagNames = track.tags || [];
+        } else if (tagsResult.status === 'rejected') {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagsResult.reason);
         }
 
         setEditFormData({
@@ -331,21 +363,31 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     if (isEditMode) {
       return;
     }
-    
+
     if (track.id) {
+      // Skip fetch if facts were already loaded for this track (e.g., from edit mode)
+      if (factsLoadedForTrackId === track.id && viewModeFacts.length > 0) {
+        console.log(`📊 Using cached ${viewModeFacts.length} facts for view mode`);
+        return;
+      }
+
+      // Use editFormData.learning_objectives as fallback if available (just exited edit mode)
+      const fallbackFacts = (editFormData.learning_objectives || []).length > 0
+        ? editFormData.learning_objectives
+        : null;
+
+      if (fallbackFacts) {
+        setViewModeFacts(fallbackFacts);
+        setFactsLoadedForTrackId(track.id);
+        console.log(`📊 Using ${fallbackFacts.length} facts from editFormData`);
+        return;
+      }
+
       const loadViewModeFacts = async () => {
-        // Use editFormData.learning_objectives as fallback if available (just exited edit mode)
-        const fallbackFacts = (editFormData.learning_objectives || []).length > 0 
-          ? editFormData.learning_objectives 
-          : null;
-        
-        if (fallbackFacts) {
-          setViewModeFacts(fallbackFacts);
-        }
-        
+        setFactsLoading(true);
         try {
           const dbFacts = await factsCrud.getFactsForTrack(track.id);
-          
+
           const facts = dbFacts.map((f: any) => ({
             title: f.title,
             fact: f.content,
@@ -354,26 +396,21 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             steps: f.steps || [],
             contexts: [f.context?.specificity || 'universal'],
           }));
-          
-          // Only update if API returned facts, or if we don't have fallback facts
-          if (facts.length > 0 || !fallbackFacts) {
-            setViewModeFacts(facts);
-            console.log(`📊 Loaded ${facts.length} facts for view mode`);
-          } else {
-            console.log(`📊 API returned 0 facts, keeping ${fallbackFacts.length} fallback facts from editFormData`);
-          }
+
+          setViewModeFacts(facts);
+          setFactsLoadedForTrackId(track.id);
+          console.log(`📊 Loaded ${facts.length} facts for view mode`);
         } catch (error) {
           console.warn('Could not fetch facts for view mode:', error);
-          // If we have fallback facts, keep them
-          if (!fallbackFacts) {
-            setViewModeFacts([]);
-          }
+          setViewModeFacts([]);
+        } finally {
+          setFactsLoading(false);
         }
       };
-      
+
       loadViewModeFacts();
     }
-  }, [isEditMode, track]);
+  }, [isEditMode, track.id, factsLoadedForTrackId]);
 
   // Debug: Log when editFormData changes
   useEffect(() => {
@@ -1402,18 +1439,79 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={() => setIsEditMode(true)}
-                className="hero-primary"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Track
-                {isSystemContent && isSuperAdminAuthenticated && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button
+                  onClick={() => setIsEditMode(true)}
+                  className="hero-primary"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Track
+                  {isSystemContent && isSuperAdminAuthenticated && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         )}

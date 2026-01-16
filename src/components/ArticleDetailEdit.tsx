@@ -39,8 +39,17 @@ import {
   ExternalLink,
   History,
   Zap,
-  ThumbsUp
+  ThumbsUp,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
@@ -60,9 +69,12 @@ interface ArticleDetailEditProps {
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: ArticleDetailEditProps) {
+export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: ArticleDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -86,7 +98,10 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
   
@@ -1370,18 +1385,79 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={() => setIsEditMode(true)}
-                className="hero-primary"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Article
-                {isSystemContent && isSuperAdminAuthenticated && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button
+                  onClick={() => setIsEditMode(true)}
+                  className="hero-primary"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Article
+                  {isSystemContent && isSuperAdminAuthenticated && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         )}

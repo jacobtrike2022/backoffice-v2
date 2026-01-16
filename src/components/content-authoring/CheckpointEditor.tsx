@@ -14,9 +14,9 @@ import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { CheckpointPreviewModal } from './CheckpointPreviewModal';
-import { 
-  ArrowLeft, 
-  Save, 
+import {
+  ArrowLeft,
+  Save,
   Eye,
   Upload,
   Image as ImageIcon,
@@ -32,8 +32,17 @@ import {
   Lock,
   History,
   ChevronLeft,
-  Zap
+  Zap,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../ui/popover';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
@@ -66,9 +75,12 @@ interface CheckpointEditorProps {
   isSuperAdminAuthenticated?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck }: CheckpointEditorProps) {
+export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: CheckpointEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,7 +117,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   
   // AI Generation modal
   const [showAIModal, setShowAIModal] = useState(false);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
   // Track source relationship (for AI-generated checkpoints)
   const [sourceTrackId, setSourceTrackId] = useState<string | null>(null);
   
@@ -1131,15 +1146,76 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             
             {/* Edit Button */}
             {(!isSystemContent || isSuperAdmin) && (
-              <Button onClick={() => setIsEditMode(true)} className="hero-primary">
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Track
-                {isSystemContent && isSuperAdmin && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button onClick={() => setIsEditMode(true)} className="hero-primary">
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Track
+                  {isSystemContent && isSuperAdmin && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(existingTrack || track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(existingTrack || track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(existingTrack || track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         </div>

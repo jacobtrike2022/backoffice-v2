@@ -4441,35 +4441,36 @@ async function handleGetTranscript(transcriptId: string): Promise<Response> {
 
 async function handleGetFactsForTrack(trackId: string): Promise<Response> {
   try {
-    // Get fact IDs linked to this track
-    const { data: usageData, error: usageError } = await supabase
+    // Single query with join to get facts linked to this track (optimized from 2 queries to 1)
+    const { data, error } = await supabase
       .from("fact_usage")
-      .select("fact_id")
+      .select(`
+        fact_id,
+        facts!inner (
+          id,
+          title,
+          content,
+          type,
+          steps,
+          context,
+          extracted_by,
+          extraction_confidence,
+          company_id,
+          created_at,
+          updated_at
+        )
+      `)
       .eq("track_id", trackId);
 
-    if (usageError) {
-      console.error("Get fact usage error:", usageError);
-      return jsonResponse({ error: usageError.message }, 500);
+    if (error) {
+      console.error("Get facts for track error:", error);
+      return jsonResponse({ error: error.message }, 500);
     }
 
-    if (!usageData || usageData.length === 0) {
-      return jsonResponse({ facts: [] });
-    }
+    // Extract facts from the joined result
+    const facts = (data || []).map((row: any) => row.facts);
 
-    const factIds = usageData.map((u) => u.fact_id);
-
-    // Get the actual facts
-    const { data: facts, error: factsError } = await supabase
-      .from("facts")
-      .select("*")
-      .in("id", factIds);
-
-    if (factsError) {
-      console.error("Get facts error:", factsError);
-      return jsonResponse({ error: factsError.message }, 500);
-    }
-
-    return jsonResponse({ facts: facts || [] });
+    return jsonResponse({ facts });
   } catch (error) {
     console.error("Get facts for track error:", error);
     return jsonResponse({ error: error.message }, 500);
@@ -15231,6 +15232,7 @@ Return only valid JSON.`;
 
 /**
  * Generate combined content from multiple chunks
+ * Now uses enhanceChunkForTrack for proper cleanup of each chunk before combining
  */
 async function generateCombinedContent(
   chunks: any[],
@@ -15244,21 +15246,22 @@ async function generateCombinedContent(
   tags: string[];
   sections: { title: string; word_count: number }[];
 }> {
-  // Collect all content
-  const sections = chunks.map(c => ({
-    title: c.title || `Section ${c.chunk_index + 1}`,
-    content: c.content,
-    word_count: c.word_count || 0
-  }));
+  console.log('[generateCombinedContent] Processing', chunks.length, 'chunks with enhancement');
 
-  // Collect unique tags
+  // Collect unique tags from all chunks
   const allTags = new Set<string>();
   chunks.forEach(c => {
     (c.key_terms || []).forEach((t: string) => allTags.add(t));
   });
 
-  // If AI disabled, just combine
+  // If AI disabled, just combine with basic formatting
   if (options.skipAI || !OPENAI_API_KEY) {
+    const sections = chunks.map(c => ({
+      title: c.title || `Section ${c.chunk_index + 1}`,
+      content: c.content,
+      word_count: c.word_count || 0
+    }));
+
     const combinedHtml = sections.map(s =>
       `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
     ).join('\n\n');
@@ -15273,10 +15276,25 @@ async function generateCombinedContent(
   }
 
   try {
-    // Use AI to create a cohesive introduction and structure
+    // STEP 1: Enhance each chunk individually using enhanceChunkForTrack
+    // This cleans up extraction artifacts, signatures, page numbers, and formats as proper HTML
+    console.log('[generateCombinedContent] Enhancing chunks with AI cleanup...');
+    const enhancedChunks = await Promise.all(
+      chunks.map(chunk => enhanceChunkForTrack(chunk, sourceType, options))
+    );
+
+    // Build sections from enhanced content
+    const sections = enhancedChunks.map((enhanced, i) => ({
+      title: enhanced.title || chunks[i].title || `Section ${i + 1}`,
+      content: enhanced.content,
+      word_count: chunks[i].word_count || 0,
+      key_points: enhanced.key_points || []
+    }));
+
+    // STEP 2: Generate a cohesive title and description for the combined module
     const sectionSummary = sections.map((s, i) => `${i + 1}. ${s.title} (${s.word_count} words)`).join('\n');
 
-    const prompt = `Create a training module from these ${sections.length} sections of a ${sourceType} document.
+    const prompt = `Create metadata for a training module combining these ${sections.length} sections from a ${sourceType} document.
 
 Sections:
 ${sectionSummary}
@@ -15284,25 +15302,22 @@ ${sectionSummary}
 ${customTitle ? `Requested title: ${customTitle}` : ''}
 
 Return JSON with:
-- title: Engaging module title (max 60 chars)
+- title: Clear, professional module title (max 60 chars). Do NOT use generic phrases like "Welcome to..." or "Module on..."
 - description: What learners will gain from this module (max 200 chars)
-- introduction: A brief HTML introduction paragraph (<p> tags) that sets context for the training
 
 Return only valid JSON.`;
 
     const response = await callOpenAI(
       [{ role: "user", content: prompt }],
-      { temperature: 0.4, response_format: { type: "json_object" } }
+      { temperature: 0.3, response_format: { type: "json_object" } }
     );
 
     const parsed = JSON.parse(response);
 
-    // Build the combined content with AI intro
-    let combinedHtml = parsed.introduction || '';
-    combinedHtml += '\n\n';
-    combinedHtml += sections.map(s =>
-      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
-    ).join('\n\n');
+    // STEP 3: Combine the enhanced sections (no intro paragraph needed - content speaks for itself)
+    const combinedHtml = sections.map(s => s.content).join('\n\n');
+
+    console.log('[generateCombinedContent] Successfully combined', sections.length, 'enhanced sections');
 
     return {
       title: customTitle || parsed.title || 'Training Module',
@@ -15314,7 +15329,13 @@ Return only valid JSON.`;
 
   } catch (error) {
     console.error('[generateCombinedContent] AI failed:', error);
-    // Fallback
+    // Fallback to basic formatting without enhancement
+    const sections = chunks.map(c => ({
+      title: c.title || `Section ${c.chunk_index + 1}`,
+      content: c.content,
+      word_count: c.word_count || 0
+    }));
+
     const combinedHtml = sections.map(s =>
       `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
     ).join('\n\n');
@@ -16175,6 +16196,45 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
             published_at: new Date().toISOString()
           })
           .eq("id", playbookTrack.id);
+
+        // Create track-chunk relationships (link published track back to source chunks)
+        const chunkIds = (playbookTrack.playbook_track_chunks || [])
+          .map((ptc: any) => ptc.source_chunk_id)
+          .filter(Boolean);
+
+        if (chunkIds.length > 0) {
+          try {
+            // Insert track_source_chunks relationships
+            const relationships = chunkIds.map((chunkId: string, index: number) => ({
+              track_id: track.id,
+              source_chunk_id: chunkId,
+              organization_id: playbook.organization_id,
+              sequence_order: index,
+              usage_type: 'content'
+            }));
+
+            await supabase
+              .from("track_source_chunks")
+              .insert(relationships);
+
+            console.log('[playbook/publish] Created', relationships.length, 'track-chunk relationships for track:', track.id);
+
+            // Mark source chunks as converted
+            await supabase
+              .from("source_chunks")
+              .update({
+                is_converted: true,
+                converted_at: new Date().toISOString(),
+                converted_track_id: track.id
+              })
+              .in("id", chunkIds);
+
+            console.log('[playbook/publish] Marked', chunkIds.length, 'chunks as converted');
+          } catch (relError) {
+            console.error('[playbook/publish] Failed to create track-chunk relationships (non-blocking):', relError);
+            // Continue - this is not critical to the publish operation
+          }
+        }
 
         // Index to brain (non-blocking)
         try {

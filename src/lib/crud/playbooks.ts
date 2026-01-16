@@ -669,10 +669,19 @@ export async function generateDraft(playbookTrackId: string): Promise<PlaybookTr
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.message || 'Failed to generate draft');
+    throw new Error(error.message || error.error || 'Failed to generate draft');
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // API returns { success: true, playbook_track: {...} }
+  // Extract the track with generated_content
+  if (data.playbook_track) {
+    return data.playbook_track;
+  }
+
+  // Fallback in case API returns track directly
+  return data;
 }
 
 /**
@@ -696,10 +705,17 @@ export async function approveTrack(
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.message || 'Failed to approve track');
+    throw new Error(error.message || error.error || 'Failed to approve track');
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // API returns { success: true, playbook_track: {...} }
+  if (data.playbook_track) {
+    return data.playbook_track;
+  }
+
+  return data;
 }
 
 /**

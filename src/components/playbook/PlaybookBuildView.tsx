@@ -15,14 +15,6 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Separator } from '../ui/separator';
-import { Skeleton } from '../ui/skeleton';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from '../ui/sheet';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,14 +34,11 @@ import {
   Zap,
   GripVertical,
   Plus,
-  Trash2,
   AlertTriangle,
   CheckCircle2,
   FileText,
   Sparkles,
-  Play,
   Eye,
-  X,
   Package,
   Lightbulb,
 } from 'lucide-react';
@@ -94,6 +83,9 @@ interface SourceChunk {
   key_terms: string[];
 }
 
+// View modes for the playbook builder
+type ViewMode = 'tracks' | 'draft-preview';
+
 // State reducer for managing playbook state
 type PlaybookAction =
   | { type: 'SET_PLAYBOOK'; playbook: Playbook }
@@ -112,10 +104,8 @@ interface PlaybookState {
   loading: boolean;
   syncing: boolean;
   selectedTrackId: string | null;
-  draftPreview: {
-    isOpen: boolean;
-    trackId: string | null;
-  };
+  viewMode: ViewMode;
+  draftPreviewTrackId: string | null;
 }
 
 const initialState: PlaybookState = {
@@ -123,10 +113,8 @@ const initialState: PlaybookState = {
   loading: true,
   syncing: false,
   selectedTrackId: null,
-  draftPreview: {
-    isOpen: false,
-    trackId: null,
-  },
+  viewMode: 'tracks',
+  draftPreviewTrackId: null,
 };
 
 function playbookReducer(state: PlaybookState, action: PlaybookAction): PlaybookState {
@@ -179,12 +167,14 @@ function playbookReducer(state: PlaybookState, action: PlaybookAction): Playbook
     case 'OPEN_DRAFT_PREVIEW':
       return {
         ...state,
-        draftPreview: { isOpen: true, trackId: action.trackId },
+        viewMode: 'draft-preview',
+        draftPreviewTrackId: action.trackId,
       };
     case 'CLOSE_DRAFT_PREVIEW':
       return {
         ...state,
-        draftPreview: { isOpen: false, trackId: null },
+        viewMode: 'tracks',
+        draftPreviewTrackId: null,
       };
     default:
       return state;
@@ -486,6 +476,22 @@ export function PlaybookBuildView({
     );
   }
 
+  // Get the track for draft preview
+  const draftPreviewTrack = state.draftPreviewTrackId
+    ? state.playbook.tracks?.find(t => t.id === state.draftPreviewTrackId)
+    : null;
+
+  // Full-screen Draft Preview View
+  if (state.viewMode === 'draft-preview' && draftPreviewTrack) {
+    return (
+      <DraftPreviewView
+        track={draftPreviewTrack}
+        onBack={() => dispatch({ type: 'CLOSE_DRAFT_PREVIEW' })}
+        onApprove={(content) => handleApproveTrack(draftPreviewTrack.id, content)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
@@ -533,13 +539,13 @@ export function PlaybookBuildView({
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - Track List */}
-        <div className="w-80 border-r border-border bg-card flex flex-col">
-          <div className="p-4 border-b border-border">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="w-72 border-r border-border/50 flex flex-col">
+          <div className="px-4 py-3">
+            <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Proposed Tracks
             </h2>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div className="flex-1 overflow-y-auto px-2 space-y-1">
             {state.playbook.tracks?.map(track => (
               <TrackListItem
                 key={track.id}
@@ -553,7 +559,7 @@ export function PlaybookBuildView({
               />
             ))}
           </div>
-          <div className="p-3 border-t border-border">
+          <div className="px-2 py-3">
             <Button variant="outline" size="sm" className="w-full" disabled>
               <Plus className="h-4 w-4 mr-2" />
               Add Track
@@ -579,14 +585,6 @@ export function PlaybookBuildView({
           )}
         </div>
       </div>
-
-      {/* Draft Preview Sheet */}
-      <DraftPreviewSheet
-        isOpen={state.draftPreview.isOpen}
-        track={state.playbook.tracks?.find(t => t.id === state.draftPreview.trackId) || null}
-        onClose={() => dispatch({ type: 'CLOSE_DRAFT_PREVIEW' })}
-        onApprove={(content) => handleApproveTrack(state.draftPreview.trackId!, content)}
-      />
 
       {/* Publish Dialog */}
       <AlertDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
@@ -922,17 +920,15 @@ function ChunkCard({ chunk, onDragStart }: ChunkCardProps) {
   );
 }
 
-interface DraftPreviewSheetProps {
-  isOpen: boolean;
-  track: PlaybookTrack | null;
-  onClose: () => void;
+interface DraftPreviewViewProps {
+  track: PlaybookTrack;
+  onBack: () => void;
   onApprove: (content?: string) => void;
 }
 
-function DraftPreviewSheet({ isOpen, track, onClose, onApprove }: DraftPreviewSheetProps) {
+function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
   const [approving, setApproving] = useState(false);
-
-  if (!track) return null;
+  const statusConfig = STATUS_CONFIG[track.status] || STATUS_CONFIG.suggestion;
 
   const handleApprove = async () => {
     setApproving(true);
@@ -943,55 +939,112 @@ function DraftPreviewSheet({ isOpen, track, onClose, onApprove }: DraftPreviewSh
     }
   };
 
+  // Check if we have content to display
+  const hasContent = track.generated_content && track.generated_content.trim().length > 0;
+
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-[600px] sm:max-w-[600px] bg-card border-border">
-        <SheetHeader>
-          <SheetTitle className="text-foreground">Draft Preview: {track.title}</SheetTitle>
-          <SheetDescription className="text-muted-foreground">
-            Review the generated content before approving.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="mt-6 space-y-4">
-          <div className="bg-muted/50 rounded-lg p-4 max-h-[60vh] overflow-y-auto">
-            <div
-              className="prose prose-sm max-w-none dark:prose-invert"
-              dangerouslySetInnerHTML={{ __html: track.generated_content || '' }}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-4 border-t border-border">
-            <Button variant="outline" onClick={onClose}>
-              Close
-            </Button>
-            {track.status === 'draft_ready' && (
-              <Button
-                onClick={handleApprove}
-                disabled={approving}
-                className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
-              >
-                {approving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Approving...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    Approve Track
-                  </>
-                )}
-              </Button>
-            )}
-            {track.status === 'approved' && (
-              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800">
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                Approved
-              </Badge>
-            )}
+    <div className="flex flex-col h-full bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Tracks
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <div>
+            <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Draft Preview
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {track.title}
+            </p>
           </div>
         </div>
-      </SheetContent>
-    </Sheet>
+        <div className="flex items-center gap-3">
+          <Badge className={cn('text-sm', statusConfig.color)}>
+            {statusConfig.label}
+          </Badge>
+          {track.status === 'draft_ready' && (
+            <Button
+              onClick={handleApprove}
+              disabled={approving}
+              className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] hover:opacity-90 text-white"
+            >
+              {approving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Approving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Approve Track
+                </>
+              )}
+            </Button>
+          )}
+          {track.status === 'approved' && (
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-5 w-5" />
+              <span className="text-sm font-medium">Approved</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto p-8">
+          {hasContent ? (
+            <div className="bg-card rounded-lg border border-border p-8">
+              <div
+                className="prose prose-lg max-w-none dark:prose-invert
+                  prose-headings:text-foreground prose-headings:font-semibold
+                  prose-p:text-foreground prose-p:leading-relaxed
+                  prose-li:text-foreground
+                  prose-strong:text-foreground
+                  prose-a:text-primary"
+                dangerouslySetInnerHTML={{ __html: track.generated_content || '' }}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+                <AlertTriangle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">No Content Generated</h3>
+              <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                The draft content hasn't been generated yet or failed to generate.
+                Go back and try generating the draft again.
+              </p>
+              <Button variant="outline" className="mt-4" onClick={onBack}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Go Back
+              </Button>
+            </div>
+          )}
+
+          {/* Track metadata */}
+          {hasContent && (
+            <div className="mt-6 pt-6 border-t border-border">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <div className="flex items-center gap-4">
+                  <span>{track.chunk_count || 0} source chunks</span>
+                  {track.generated_at && (
+                    <span>Generated {new Date(track.generated_at).toLocaleString()}</span>
+                  )}
+                </div>
+                {track.rag_confidence && (
+                  <span>{Math.round(track.rag_confidence * 100)}% confidence</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
