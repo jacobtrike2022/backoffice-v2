@@ -156,6 +156,8 @@ interface DocumentIntelligenceEditorProps {
   highlightChunkId?: string | null;
   /** Callback to start the Playbook Build workflow */
   onStartPlaybook?: (sourceFileId: string) => void;
+  /** Callback to navigate to a track in the content library */
+  onNavigateToTrack?: (trackId: string) => void;
 }
 
 export function DocumentIntelligenceEditor({
@@ -165,6 +167,7 @@ export function DocumentIntelligenceEditor({
   onCreateRole,
   highlightChunkId,
   onStartPlaybook,
+  onNavigateToTrack,
 }: DocumentIntelligenceEditorProps) {
 
   // Core state
@@ -1488,6 +1491,7 @@ export function DocumentIntelligenceEditor({
                 onCreateRole={() => createRoleFromChunk(chunk)}
                 onCreateContent={() => handleCreateContent(chunk)}
                 onViewRole={(roleId) => viewLinkedRole(roleId)}
+                onViewTrack={onNavigateToTrack}
                 onDragStart={() => setDraggedChunkId(chunk.id)}
                 onDragEnd={() => {
                   setDraggedChunkId(null);
@@ -1687,6 +1691,7 @@ interface ChunkBlockProps {
   onCreateRole: () => void;
   onCreateContent: () => void;
   onViewRole: (roleId: string) => void;
+  onViewTrack?: (trackId: string) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: () => void;
@@ -1714,6 +1719,7 @@ function ChunkBlock({
   onCreateRole,
   onCreateContent,
   onViewRole,
+  onViewTrack,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -1987,7 +1993,13 @@ function ChunkBlock({
               {linkedTracks.map(track => (
                 <button
                   key={track.id}
-                  onClick={() => window.open(`/?track=${track.id}&type=article`, '_blank')}
+                  onClick={() => {
+                    if (onViewTrack) {
+                      onViewTrack(track.id);
+                    } else {
+                      window.open(`/?track=${track.id}&type=article`, '_blank');
+                    }
+                  }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors max-w-full"
                 >
                   <BookOpen className="h-3.5 w-3.5 flex-shrink-0" />

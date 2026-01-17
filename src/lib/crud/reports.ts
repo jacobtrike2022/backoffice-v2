@@ -26,6 +26,78 @@ export interface LearnerRecord {
   lastActivity: string;
 }
 
+export interface FilterOptions {
+  albums: { id: string; name: string }[];
+  districts: { id: string; name: string }[];
+  stores: { id: string; name: string }[];
+  roles: { id: string; name: string }[];
+  playlists: { id: string; name: string }[];
+  tracks: { id: string; name: string }[];
+  certifications: { id: string; name: string }[];
+}
+
+/**
+ * Fetch all filter options for reports in a single optimized query batch
+ */
+export async function getReportFilterOptions(): Promise<FilterOptions> {
+  try {
+    const orgId = await getCurrentUserOrgId();
+    if (!orgId) throw new Error('User not authenticated');
+
+    // Run all queries in parallel for efficiency
+    const [albums, districts, stores, roles, playlists, tracks, certifications] = await Promise.all([
+      supabase
+        .from('albums')
+        .select('id, title')
+        .eq('organization_id', orgId)
+        .order('title'),
+      supabase
+        .from('districts')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name'),
+      supabase
+        .from('stores')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name'),
+      supabase
+        .from('roles')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name'),
+      supabase
+        .from('playlists')
+        .select('id, title')
+        .eq('organization_id', orgId)
+        .order('title'),
+      supabase
+        .from('tracks')
+        .select('id, title')
+        .eq('organization_id', orgId)
+        .order('title'),
+      supabase
+        .from('certifications')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name'),
+    ]);
+
+    return {
+      albums: (albums.data || []).map(a => ({ id: a.id, name: a.title })),
+      districts: (districts.data || []).map(d => ({ id: d.id, name: d.name })),
+      stores: (stores.data || []).map(s => ({ id: s.id, name: s.name })),
+      roles: (roles.data || []).map(r => ({ id: r.id, name: r.name })),
+      playlists: (playlists.data || []).map(p => ({ id: p.id, name: p.title })),
+      tracks: (tracks.data || []).map(t => ({ id: t.id, name: t.title })),
+      certifications: (certifications.data || []).map(c => ({ id: c.id, name: c.name })),
+    };
+  } catch (error) {
+    console.error('Error fetching filter options:', error);
+    throw error;
+  }
+}
+
 /**
  * Get learner records for reports
  * Returns detailed records of user assignments, progress, and completions
@@ -172,6 +244,28 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
       certificationsByUser.get(cert.user_id)!.push(cert);
     });
 
+    // Build progress calculation maps
+    // Map of playlist_id -> total track count
+    const trackCountByPlaylist = new Map<string, number>();
+    (playlistTracks || []).forEach(pt => {
+      const count = trackCountByPlaylist.get(pt.playlist_id) || 0;
+      trackCountByPlaylist.set(pt.playlist_id, count + 1);
+    });
+
+    // Map of user_id-playlist_id -> completed track count
+    const completedCountByUserPlaylist = new Map<string, number>();
+    (completions || []).forEach(c => {
+      if (c.status === 'completed' || c.status === 'passed') {
+        // Find which playlist(s) this track belongs to
+        const playlistsForTrack = (playlistTracks || []).filter(pt => pt.track_id === c.track_id);
+        playlistsForTrack.forEach(pt => {
+          const key = `${c.user_id}-${pt.playlist_id}`;
+          const count = completedCountByUserPlaylist.get(key) || 0;
+          completedCountByUserPlaylist.set(key, count + 1);
+        });
+      }
+    });
+
     // Build learner records - one record per user-track assignment
     const records: LearnerRecord[] = [];
 
@@ -205,6 +299,11 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
           // Get album name (if any)
           const album = albumMap.get(assignment.playlist_id) || 'N/A';
 
+          // Calculate actual progress for the playlist
+          const totalTracks = trackCountByPlaylist.get(assignment.playlist_id) || 0;
+          const completedTracks = completedCountByUserPlaylist.get(`${user.id}-${assignment.playlist_id}`) || 0;
+          const progress = totalTracks > 0 ? Math.round((completedTracks / totalTracks) * 100) : 0;
+
           records.push({
             id: `${user.id}-${assignment.id}-${pt.track_id}`,
             employeeName: `${user.first_name} ${user.last_name}`,
@@ -216,7 +315,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
             album: album,
             playlist: (assignment.playlist as any)?.title || 'N/A',
             track: (pt.track as any)?.title || 'N/A',
-            progress: completion ? 100 : 0,
+            progress: progress,
             completionDate: completion?.completed_at || null,
             score: completion?.score || 0,
             timeSpent: completion?.time_spent_minutes || 0,

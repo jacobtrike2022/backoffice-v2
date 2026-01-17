@@ -22,9 +22,10 @@ interface OrganizationProps {
   onBackToDashboard?: () => void;
   onNavigate?: (view: string) => void;
   onStartPlaybook?: (sourceFileId: string) => void;
+  onNavigateToTrack?: (trackId: string) => void;
 }
 
-export function Organization({ currentRole, role, onBackToDashboard, onNavigate, onStartPlaybook }: OrganizationProps) {
+export function Organization({ currentRole, role, onBackToDashboard, onNavigate, onStartPlaybook, onNavigateToTrack }: OrganizationProps) {
   const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
   const [tagSystems, setTagSystems] = useState<TagType[]>([]);
   const [activeTagSystem, setActiveTagSystem] = useState<string>('');
@@ -396,8 +397,8 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate,
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-gradient-to-r from-[#F64A05] to-[#FF733C] flex items-center justify-center">
-                              <Building2 className="h-5 w-5 text-white" />
+                            <div className="h-10 w-10 flex items-center justify-center">
+                              <Building2 className="h-5 w-5 text-[#F64A05]" />
                             </div>
                             <div>
                               <h3 className="font-semibold">{district.name}</h3>
@@ -486,6 +487,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate,
               }}
               highlightChunkId={highlightChunkId}
               onStartPlaybook={onStartPlaybook}
+              onNavigateToTrack={onNavigateToTrack}
             />
           ) : (
             <div className="space-y-6">

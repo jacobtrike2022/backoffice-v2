@@ -40,7 +40,8 @@ import {
   Info
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { getLearnerRecords, type LearnerRecord as LearnerRecordType } from '../lib/crud/reports';
+import { getLearnerRecords, getReportFilterOptions, type LearnerRecord as LearnerRecordType, type FilterOptions } from '../lib/crud/reports';
+import { exportToCSV, exportToExcel, exportToPDF } from '../lib/utils/export';
 
 // Mock date formatting function since date-fns is not available
 const format = (date: Date, formatStr: string) => {
@@ -73,495 +74,9 @@ interface FilterState {
   completionStatus: string[];
 }
 
-interface LearnerRecord {
-  id: string;
-  employeeName: string;
-  employeeId: string;
-  district: string;
-  store: string;
-  role: string;
-  department: string;
-  album: string;
-  playlist: string;
-  track: string;
-  progress: number;
-  completionDate: string | null;
-  score: number;
-  timeSpent: number;
-  attempts: number;
-  certification: string | null;
-  certificationDate: string | null;
-  status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
-  lastActivity: string;
-}
-
-// Mock data for learner records
-const mockLearnerData: LearnerRecord[] = [
-  {
-    id: '1',
-    employeeName: 'Sarah Johnson',
-    employeeId: 'EMP001',
-    district: 'North',
-    store: 'Store A',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'Fire Safety Protocol',
-    progress: 100,
-    completionDate: '2024-06-15',
-    score: 95,
-    timeSpent: 45,
-    attempts: 1,
-    certification: 'Fire Safety Certification',
-    certificationDate: '2024-06-15',
-    status: 'completed',
-    lastActivity: '2024-06-15'
-  },
-  {
-    id: '2',
-    employeeName: 'Mike Rodriguez',
-    employeeId: 'EMP002',
-    district: 'South',
-    store: 'Store B',
-    role: 'Store Manager',
-    department: 'Management',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Conflict Resolution',
-    progress: 78,
-    completionDate: null,
-    score: 82,
-    timeSpent: 32,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-20'
-  },
-  {
-    id: '3',
-    employeeName: 'Emily Chen',
-    employeeId: 'EMP003',
-    district: 'East',
-    store: 'Store C',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Customer Communication',
-    track: 'Handling Complaints',
-    progress: 96,
-    completionDate: '2024-06-28',
-    score: 88,
-    timeSpent: 38,
-    attempts: 1,
-    certification: 'Customer Service Pro',
-    certificationDate: '2024-06-28',
-    status: 'completed',
-    lastActivity: '2024-06-28'
-  },
-  {
-    id: '4',
-    employeeName: 'David Thompson',
-    employeeId: 'EMP004',
-    district: 'North',
-    store: 'Store D',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Safety Training Album',
-    playlist: 'Workplace Safety',
-    track: 'Equipment Handling',
-    progress: 65,
-    completionDate: null,
-    score: 75,
-    timeSpent: 28,
-    attempts: 3,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-25'
-  },
-  {
-    id: '5',
-    employeeName: 'Lisa Park',
-    employeeId: 'EMP005',
-    district: 'North',
-    store: 'Store A',
-    role: 'Supervisor',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Advanced Features',
-    progress: 100,
-    completionDate: '2024-06-22',
-    score: 92,
-    timeSpent: 42,
-    attempts: 1,
-    certification: 'Product Expert',
-    certificationDate: '2024-06-22',
-    status: 'completed',
-    lastActivity: '2024-06-22'
-  },
-  {
-    id: '6',
-    employeeName: 'James Wilson',
-    employeeId: 'EMP006',
-    district: 'South',
-    store: 'Store E',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'Evacuation Procedures',
-    progress: 95,
-    completionDate: '2024-06-30',
-    score: 89,
-    timeSpent: 35,
-    attempts: 1,
-    certification: 'Emergency Response',
-    certificationDate: '2024-06-30',
-    status: 'completed',
-    lastActivity: '2024-06-30'
-  },
-  {
-    id: '7',
-    employeeName: 'Maria Garcia',
-    employeeId: 'EMP007',
-    district: 'North',
-    store: 'Store A',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Sales Techniques',
-    track: 'Upselling Strategies',
-    progress: 82,
-    completionDate: null,
-    score: 84,
-    timeSpent: 29,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-26'
-  },
-  {
-    id: '8',
-    employeeName: 'Robert Brown',
-    employeeId: 'EMP008',
-    district: 'South',
-    store: 'Store B',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Performance Management',
-    track: 'Goal Setting',
-    progress: 100,
-    completionDate: '2024-06-18',
-    score: 94,
-    timeSpent: 48,
-    attempts: 1,
-    certification: 'Leadership Certified',
-    certificationDate: '2024-06-18',
-    status: 'completed',
-    lastActivity: '2024-06-18'
-  },
-  {
-    id: '9',
-    employeeName: 'Amanda Lee',
-    employeeId: 'EMP009',
-    district: 'East',
-    store: 'Store C',
-    role: 'Assistant Manager',
-    department: 'Management',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Basic Features',
-    progress: 55,
-    completionDate: null,
-    score: 68,
-    timeSpent: 22,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-29'
-  },
-  {
-    id: '10',
-    employeeName: 'Kevin Nguyen',
-    employeeId: 'EMP010',
-    district: 'South',
-    store: 'Store B',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Workplace Safety',
-    track: 'Personal Protective Equipment',
-    progress: 100,
-    completionDate: '2024-06-21',
-    score: 97,
-    timeSpent: 41,
-    attempts: 1,
-    certification: 'Safety Certified',
-    certificationDate: '2024-06-21',
-    status: 'completed',
-    lastActivity: '2024-06-21'
-  },
-  {
-    id: '11',
-    employeeName: 'Jessica Martinez',
-    employeeId: 'EMP011',
-    district: 'North',
-    store: 'Store D',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Customer Communication',
-    track: 'Active Listening',
-    progress: 0,
-    completionDate: null,
-    score: 0,
-    timeSpent: 0,
-    attempts: 0,
-    certification: null,
-    certificationDate: null,
-    status: 'not-started',
-    lastActivity: '2024-06-10'
-  },
-  {
-    id: '12',
-    employeeName: 'Brandon Taylor',
-    employeeId: 'EMP012',
-    district: 'South',
-    store: 'Store E',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Delegation Skills',
-    progress: 45,
-    completionDate: null,
-    score: 52,
-    timeSpent: 18,
-    attempts: 3,
-    certification: null,
-    certificationDate: null,
-    status: 'overdue',
-    lastActivity: '2024-05-28'
-  },
-  {
-    id: '13',
-    employeeName: 'Rachel Kim',
-    employeeId: 'EMP013',
-    district: 'North',
-    store: 'Store A',
-    role: 'Supervisor',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Advanced Features',
-    progress: 89,
-    completionDate: null,
-    score: 91,
-    timeSpent: 36,
-    attempts: 1,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-30'
-  },
-  {
-    id: '14',
-    employeeName: 'Christopher Davis',
-    employeeId: 'EMP014',
-    district: 'East',
-    store: 'Store C',
-    role: 'Store Manager',
-    department: 'Management',
-    album: 'Leadership Development',
-    playlist: 'Performance Management',
-    track: 'Performance Reviews',
-    progress: 100,
-    completionDate: '2024-06-24',
-    score: 96,
-    timeSpent: 52,
-    attempts: 1,
-    certification: 'Leadership Certified',
-    certificationDate: '2024-06-24',
-    status: 'completed',
-    lastActivity: '2024-06-24'
-  },
-  {
-    id: '15',
-    employeeName: 'Nicole Anderson',
-    employeeId: 'EMP015',
-    district: 'South',
-    store: 'Store B',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Sales Techniques',
-    track: 'Cross-Selling',
-    progress: 72,
-    completionDate: null,
-    score: 78,
-    timeSpent: 26,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-27'
-  },
-  {
-    id: '16',
-    employeeName: 'Joshua White',
-    employeeId: 'EMP016',
-    district: 'North',
-    store: 'Store D',
-    role: 'Assistant Manager',
-    department: 'Management',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'First Aid Basics',
-    progress: 100,
-    completionDate: '2024-06-19',
-    score: 93,
-    timeSpent: 44,
-    attempts: 1,
-    certification: 'First Aid Certification',
-    certificationDate: '2024-06-19',
-    status: 'completed',
-    lastActivity: '2024-06-19'
-  },
-  {
-    id: '17',
-    employeeName: 'Samantha Lopez',
-    employeeId: 'EMP017',
-    district: 'South',
-    store: 'Store E',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Product Specifications',
-    progress: 38,
-    completionDate: null,
-    score: 45,
-    timeSpent: 15,
-    attempts: 4,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-23'
-  },
-  {
-    id: '18',
-    employeeName: 'Daniel Harris',
-    employeeId: 'EMP018',
-    district: 'North',
-    store: 'Store A',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Motivation Techniques',
-    progress: 92,
-    completionDate: null,
-    score: 89,
-    timeSpent: 39,
-    attempts: 1,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-07-01'
-  }
-];
-
-// Filter options with enhanced structure
-const filterProperties = [
-  {
-    id: 'progress',
-    label: 'Progress',
-    icon: Clock,
-    type: 'range',
-    description: 'Filter by completion percentage'
-  },
-  {
-    id: 'albums',
-    label: 'Albums',
-    icon: BookOpen,
-    type: 'multi-select',
-    description: 'Select specific training albums',
-    options: ['Safety Training Album', 'Customer Service Excellence', 'Product Knowledge', 'Leadership Development']
-  },
-  {
-    id: 'location',
-    label: 'Location',
-    icon: MapPin,
-    type: 'multi-select',
-    description: 'Filter by districts and stores',
-    options: ['North', 'South', 'East', 'Store A', 'Store B', 'Store C', 'Store D', 'Store E']
-  },
-  {
-    id: 'districts',
-    label: 'Districts',
-    icon: Building,
-    type: 'multi-select',
-    description: 'Filter by geographic districts',
-    options: ['North', 'South', 'East']
-  },
-  {
-    id: 'roles',
-    label: 'Roles',
-    icon: Users,
-    type: 'multi-select',
-    description: 'Filter by job roles',
-    options: ['Sales Associate', 'Team Lead', 'Supervisor', 'Store Manager', 'Assistant Manager']
-  },
-  {
-    id: 'playlists',
-    label: 'Playlists',
-    icon: Play,
-    type: 'multi-select',
-    description: 'Select specific playlists',
-    options: ['Emergency Procedures', 'Customer Communication', 'Product Features', 'Team Management', 'Sales Techniques', 'Performance Management', 'Workplace Safety']
-  },
-  {
-    id: 'tracks',
-    label: 'Tracks',
-    icon: Play,
-    type: 'multi-select',
-    description: 'Filter by individual tracks',
-    options: ['Fire Safety Protocol', 'Conflict Resolution', 'Handling Complaints', 'Equipment Handling', 'Advanced Features', 'Evacuation Procedures', 'Upselling Strategies', 'Goal Setting']
-  },
-  {
-    id: 'certifications',
-    label: 'Certifications',
-    icon: Award,
-    type: 'multi-select',
-    description: 'Filter by earned certifications',
-    options: ['Fire Safety Certification', 'Customer Service Pro', 'Product Expert', 'Emergency Response', 'Leadership Certified', 'Safety Certified', 'First Aid Certification']
-  },
-  {
-    id: 'completionStatus',
-    label: 'Status',
-    icon: CheckCircle,
-    type: 'multi-select',
-    description: 'Filter by completion status',
-    options: ['completed', 'in-progress', 'not-started', 'overdue']
-  },
-  {
-    id: 'dateRange',
-    label: 'Date Range',
-    icon: CalendarIcon,
-    type: 'date-range',
-    description: 'Filter by date range'
-  }
-];
-
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof LearnerRecord>('employeeName');
+  const [sortField, setSortField] = useState<keyof LearnerRecordType>('employeeName');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [showFilterPicker, setShowFilterPicker] = useState(false);
@@ -571,6 +86,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const [learnerData, setLearnerData] = useState<LearnerRecordType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   
   const [filters, setFilters] = useState<FilterState>({
     progress: { min: 0, max: 100 },
@@ -641,6 +157,91 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     return active;
   }, [filters]);
 
+  // Dynamic filter properties with options from database
+  const filterProperties = useMemo(() => [
+    {
+      id: 'progress',
+      label: 'Progress',
+      icon: Clock,
+      type: 'range',
+      description: 'Filter by completion percentage'
+    },
+    {
+      id: 'albums',
+      label: 'Albums',
+      icon: BookOpen,
+      type: 'multi-select',
+      description: 'Select specific training albums',
+      options: filterOptions?.albums.map(a => a.name) || []
+    },
+    {
+      id: 'location',
+      label: 'Location',
+      icon: MapPin,
+      type: 'multi-select',
+      description: 'Filter by districts and stores',
+      options: [
+        ...(filterOptions?.districts.map(d => d.name) || []),
+        ...(filterOptions?.stores.map(s => s.name) || [])
+      ]
+    },
+    {
+      id: 'districts',
+      label: 'Districts',
+      icon: Building,
+      type: 'multi-select',
+      description: 'Filter by geographic districts',
+      options: filterOptions?.districts.map(d => d.name) || []
+    },
+    {
+      id: 'roles',
+      label: 'Roles',
+      icon: Users,
+      type: 'multi-select',
+      description: 'Filter by job roles',
+      options: filterOptions?.roles.map(r => r.name) || []
+    },
+    {
+      id: 'playlists',
+      label: 'Playlists',
+      icon: Play,
+      type: 'multi-select',
+      description: 'Select specific playlists',
+      options: filterOptions?.playlists.map(p => p.name) || []
+    },
+    {
+      id: 'tracks',
+      label: 'Tracks',
+      icon: Play,
+      type: 'multi-select',
+      description: 'Filter by individual tracks',
+      options: filterOptions?.tracks.map(t => t.name) || []
+    },
+    {
+      id: 'certifications',
+      label: 'Certifications',
+      icon: Award,
+      type: 'multi-select',
+      description: 'Filter by earned certifications',
+      options: filterOptions?.certifications.map(c => c.name) || []
+    },
+    {
+      id: 'completionStatus',
+      label: 'Status',
+      icon: CheckCircle,
+      type: 'multi-select',
+      description: 'Filter by completion status',
+      options: ['completed', 'in-progress', 'not-started', 'overdue']
+    },
+    {
+      id: 'dateRange',
+      label: 'Date Range',
+      icon: CalendarIcon,
+      type: 'date-range',
+      description: 'Filter by date range'
+    }
+  ], [filterOptions]);
+
   // Fetch learner records on mount and when storeFilter changes
   useEffect(() => {
     async function fetchData() {
@@ -658,6 +259,19 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     }
     fetchData();
   }, [storeFilter]);
+
+  // Fetch filter options on mount
+  useEffect(() => {
+    async function fetchFilterOptions() {
+      try {
+        const options = await getReportFilterOptions();
+        setFilterOptions(options);
+      } catch (error) {
+        console.error('Error fetching filter options:', error);
+      }
+    }
+    fetchFilterOptions();
+  }, []);
 
   // Filtered and sorted data
   const filteredData = useMemo(() => {
@@ -767,7 +381,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     return filtered;
   }, [searchTerm, filters, sortField, sortDirection, storeFilter, learnerData]);
 
-  const handleSort = (field: keyof LearnerRecord) => {
+  const handleSort = (field: keyof LearnerRecordType) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -850,11 +464,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   };
 
   const handleExport = (format: 'csv' | 'xlsx' | 'pdf') => {
-    const recordCount = filteredData.length;
-    toast.success(`Exporting ${recordCount} records as ${format.toUpperCase()}...`, {
-      description: 'Your report will be ready for download shortly.',
-      duration: 3000
-    });
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `learner-report-${timestamp}`;
+
+    try {
+      switch (format) {
+        case 'csv':
+          exportToCSV(filteredData, filename);
+          break;
+        case 'xlsx':
+          exportToExcel(filteredData, filename);
+          break;
+        case 'pdf':
+          exportToPDF(filteredData, filename);
+          break;
+      }
+      toast.success(`Exported ${filteredData.length} records as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(`Failed to export as ${format.toUpperCase()}`);
+    }
   };
 
   const handleSelectAll = () => {

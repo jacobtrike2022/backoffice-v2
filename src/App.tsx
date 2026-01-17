@@ -568,6 +568,11 @@ export default function App() {
               setPlaybookSourceFileId(sourceFileId);
               requestNavigate("playbook-build");
             }}
+            onNavigateToTrack={(trackId: string) => {
+              setInitialTrackId(trackId);
+              setPreviousView('organization');
+              requestNavigate("content");
+            }}
           />
         );
       case "authoring":
