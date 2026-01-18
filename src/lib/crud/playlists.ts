@@ -581,9 +581,47 @@ export async function deletePlaylist(playlistId: string) {
 }
 
 /**
- * Archive/deactivate a playlist
+ * Get assignment statistics for a playlist
  */
-export async function archivePlaylist(playlistId: string) {
+export async function getPlaylistAssignmentStats(playlistId: string) {
+  const { data: assignments, error } = await supabase
+    .from('assignments')
+    .select('id, status')
+    .eq('playlist_id', playlistId)
+    .neq('status', 'archived');
+
+  if (error) throw error;
+
+  const totalAssignments = assignments?.length || 0;
+  const completedCount = assignments?.filter(a => a.status === 'completed').length || 0;
+  const inProgressCount = assignments?.filter(a => a.status === 'in_progress').length || 0;
+  const notStartedCount = assignments?.filter(a => a.status === 'assigned' || a.status === 'pending').length || 0;
+
+  return {
+    totalAssignments,
+    completedCount,
+    inProgressCount,
+    notStartedCount
+  };
+}
+
+/**
+ * Archive/deactivate a playlist
+ * @param archiveAssignments - If true, also archives all active assignments for this playlist
+ */
+export async function archivePlaylist(playlistId: string, archiveAssignments: boolean = false) {
+  // Archive related assignments if requested
+  if (archiveAssignments) {
+    const { error: assignmentError } = await supabase
+      .from('assignments')
+      .update({ status: 'archived' })
+      .eq('playlist_id', playlistId)
+      .neq('status', 'archived')
+      .neq('status', 'completed');
+
+    if (assignmentError) throw assignmentError;
+  }
+
   return updatePlaylist(playlistId, { is_active: false });
 }
 

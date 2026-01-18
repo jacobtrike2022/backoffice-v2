@@ -4,6 +4,24 @@
 
 import { supabase, getCurrentUserOrgId } from '../supabase';
 
+// Individual assignment within an employee record
+export interface AssignmentRecord {
+  id: string;
+  playlist: string;
+  album: string;
+  track: string;
+  progress: number;
+  completionDate: string | null;
+  score: number;
+  timeSpent: number;
+  attempts: number;
+  status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
+  lastActivity: string;
+  dueDate: string | null;
+  playlistStatus: 'active' | 'archived'; // Whether the playlist is active or archived
+}
+
+// Employee-level record with nested assignments
 export interface LearnerRecord {
   id: string;
   employeeName: string;
@@ -12,18 +30,21 @@ export interface LearnerRecord {
   store: string;
   role: string;
   department: string;
-  album: string;
-  playlist: string;
-  track: string;
-  progress: number;
-  completionDate: string | null;
-  score: number;
-  timeSpent: number;
-  attempts: number;
+  // Aggregated values across all assignments
+  progress: number; // Average progress
+  score: number; // Average score
+  timeSpent: number; // Total time
+  attempts: number; // Total attempts
   certification: string | null;
   certificationDate: string | null;
   status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
   lastActivity: string;
+  // Nested assignments
+  assignments: AssignmentRecord[];
+  // For backwards compatibility with filters
+  album: string;
+  playlist: string;
+  track: string;
 }
 
 export interface FilterOptions {
@@ -42,6 +63,7 @@ export interface FilterOptions {
 export async function getReportFilterOptions(): Promise<FilterOptions> {
   try {
     const orgId = await getCurrentUserOrgId();
+    console.log('[Reports] getReportFilterOptions - orgId:', orgId);
     if (!orgId) throw new Error('User not authenticated');
 
     // Run all queries in parallel for efficiency
@@ -83,7 +105,16 @@ export async function getReportFilterOptions(): Promise<FilterOptions> {
         .order('name'),
     ]);
 
-    return {
+    // Log any errors from queries
+    if (albums.error) console.error('[Reports] albums query error:', albums.error);
+    if (districts.error) console.error('[Reports] districts query error:', districts.error);
+    if (stores.error) console.error('[Reports] stores query error:', stores.error);
+    if (roles.error) console.error('[Reports] roles query error:', roles.error);
+    if (playlists.error) console.error('[Reports] playlists query error:', playlists.error);
+    if (tracks.error) console.error('[Reports] tracks query error:', tracks.error);
+    if (certifications.error) console.error('[Reports] certifications query error:', certifications.error);
+
+    const result = {
       albums: (albums.data || []).map(a => ({ id: a.id, name: a.title })),
       districts: (districts.data || []).map(d => ({ id: d.id, name: d.name })),
       stores: (stores.data || []).map(s => ({ id: s.id, name: s.name })),
@@ -92,6 +123,18 @@ export async function getReportFilterOptions(): Promise<FilterOptions> {
       tracks: (tracks.data || []).map(t => ({ id: t.id, name: t.title })),
       certifications: (certifications.data || []).map(c => ({ id: c.id, name: c.name })),
     };
+
+    console.log('[Reports] Filter options loaded:', {
+      albums: result.albums.length,
+      districts: result.districts.length,
+      stores: result.stores.length,
+      roles: result.roles.length,
+      playlists: result.playlists.length,
+      tracks: result.tracks.length,
+      certifications: result.certifications.length,
+    });
+
+    return result;
   } catch (error) {
     console.error('Error fetching filter options:', error);
     throw error;
@@ -122,7 +165,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
           code,
           district:districts(name)
         ),
-        role:roles(name)
+        role:roles!users_role_id_fkey(name)
       `)
       .eq('organization_id', orgId)
       .eq('status', 'active');
@@ -152,7 +195,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
 
     const userIds = users.map(u => u.id);
 
-    // Get all assignments with playlist info
+    // Get all active assignments (exclude archived) with playlist info including is_active status
     const { data: assignments, error: assignmentsError } = await supabase
       .from('assignments')
       .select(`
@@ -164,10 +207,12 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
         status,
         playlist:playlists(
           id,
-          title
+          title,
+          is_active
         )
       `)
-      .in('user_id', userIds);
+      .in('user_id', userIds)
+      .neq('status', 'archived');
 
     if (assignmentsError) throw assignmentsError;
 
@@ -266,66 +311,199 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
       }
     });
 
-    // Build learner records - one record per user-track assignment
+    // Build aggregated stats per user-playlist
+    const userPlaylistStats = new Map<string, {
+      totalScore: number;
+      totalTime: number;
+      totalAttempts: number;
+      completedCount: number;
+      lastActivity: string | null;
+      lastCompletionDate: string | null;
+    }>();
+
+    // Aggregate completion stats per user-playlist
+    (completions || []).forEach(c => {
+      const playlistsForTrack = (playlistTracks || []).filter(pt => pt.track_id === c.track_id);
+      playlistsForTrack.forEach(pt => {
+        const key = `${c.user_id}-${pt.playlist_id}`;
+        const existing = userPlaylistStats.get(key) || {
+          totalScore: 0,
+          totalTime: 0,
+          totalAttempts: 0,
+          completedCount: 0,
+          lastActivity: null,
+          lastCompletionDate: null
+        };
+
+        existing.totalScore += c.score || 0;
+        existing.totalTime += c.time_spent_minutes || 0;
+        existing.totalAttempts += c.attempts || 0;
+
+        if (c.status === 'completed' || c.status === 'passed') {
+          existing.completedCount += 1;
+          if (c.completed_at && (!existing.lastCompletionDate || c.completed_at > existing.lastCompletionDate)) {
+            existing.lastCompletionDate = c.completed_at;
+          }
+        }
+
+        if (c.completed_at && (!existing.lastActivity || c.completed_at > existing.lastActivity)) {
+          existing.lastActivity = c.completed_at;
+        }
+
+        userPlaylistStats.set(key, existing);
+      });
+    });
+
+    // Build learner records - one record per employee with nested assignments
     const records: LearnerRecord[] = [];
 
     users.forEach(user => {
       const userAssignments = (assignments || []).filter(a => a.user_id === user.id);
-      
+
+      // Skip users with no assignments
+      if (userAssignments.length === 0) return;
+
+      const userCerts = certificationsByUser.get(user.id) || [];
+      const latestCert = userCerts.length > 0
+        ? userCerts.sort((a, b) =>
+            new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime()
+          )[0]
+        : null;
+
+      // Build assignment records for this user
+      const assignmentRecords: AssignmentRecord[] = [];
+      let totalProgress = 0;
+      let totalScore = 0;
+      let totalTimeSpent = 0;
+      let totalAttempts = 0;
+      let scoreCount = 0;
+      let latestActivity: string | null = null;
+      const allAlbums: string[] = [];
+      const allPlaylists: string[] = [];
+      const allTracks: string[] = [];
+
       userAssignments.forEach(assignment => {
+        // Get album name (if any)
+        const album = albumMap.get(assignment.playlist_id) || (assignment.playlist as any)?.title || 'N/A';
+        const playlistTitle = (assignment.playlist as any)?.title || 'N/A';
+
+        // Calculate progress for the playlist
+        const totalTracksInPlaylist = trackCountByPlaylist.get(assignment.playlist_id) || 0;
+        const completedTracksInPlaylist = completedCountByUserPlaylist.get(`${user.id}-${assignment.playlist_id}`) || 0;
+        const progress = totalTracksInPlaylist > 0 ? Math.round((completedTracksInPlaylist / totalTracksInPlaylist) * 100) : 0;
+
+        // Get aggregated stats for this assignment
+        const stats = userPlaylistStats.get(`${user.id}-${assignment.playlist_id}`);
+        const avgScore = stats && stats.completedCount > 0
+          ? Math.round(stats.totalScore / stats.completedCount)
+          : 0;
+
+        // Determine status based on playlist progress
+        let status: 'completed' | 'in-progress' | 'not-started' | 'overdue' = 'not-started';
+        if (progress === 100) {
+          status = 'completed';
+        } else if (progress > 0) {
+          status = 'in-progress';
+        } else if (assignment.due_date && new Date(assignment.due_date) < new Date()) {
+          status = 'overdue';
+        }
+
+        // Get track names for display
         const assignmentTracks = (playlistTracks || []).filter(
           pt => pt.playlist_id === assignment.playlist_id
         );
+        const trackNames = assignmentTracks
+          .map(pt => (pt.track as any)?.title)
+          .filter(Boolean);
+        const trackDisplay = trackNames.length > 0
+          ? (trackNames.length > 3
+              ? `${trackNames.slice(0, 3).join(', ')} (+${trackNames.length - 3} more)`
+              : trackNames.join(', '))
+          : 'N/A';
 
-        assignmentTracks.forEach(pt => {
-          const completion = completionsByUserTrack.get(`${user.id}-${pt.track_id}`);
-          const userCerts = certificationsByUser.get(user.id) || [];
-          const latestCert = userCerts.length > 0 
-            ? userCerts.sort((a, b) => 
-                new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime()
-              )[0]
-            : null;
+        const assignmentLastActivity = stats?.lastActivity || assignment.assigned_at || new Date().toISOString();
 
-          // Determine status
-          let status: 'completed' | 'in-progress' | 'not-started' | 'overdue' = 'not-started';
-          if (completion && (completion.status === 'completed' || completion.status === 'passed')) {
-            status = 'completed';
-          } else if (completion) {
-            status = 'in-progress';
-          } else if (assignment.due_date && new Date(assignment.due_date) < new Date()) {
-            status = 'overdue';
-          }
+        // Determine playlist status (active or archived)
+        const playlistIsActive = (assignment.playlist as any)?.is_active !== false;
 
-          // Get album name (if any)
-          const album = albumMap.get(assignment.playlist_id) || 'N/A';
-
-          // Calculate actual progress for the playlist
-          const totalTracks = trackCountByPlaylist.get(assignment.playlist_id) || 0;
-          const completedTracks = completedCountByUserPlaylist.get(`${user.id}-${assignment.playlist_id}`) || 0;
-          const progress = totalTracks > 0 ? Math.round((completedTracks / totalTracks) * 100) : 0;
-
-          records.push({
-            id: `${user.id}-${assignment.id}-${pt.track_id}`,
-            employeeName: `${user.first_name} ${user.last_name}`,
-            employeeId: user.employee_id || 'N/A',
-            district: (user.store as any)?.district?.name || 'N/A',
-            store: (user.store as any)?.name || 'N/A',
-            role: (user.role as any)?.name || 'N/A',
-            department: 'N/A', // Not in current schema
-            album: album,
-            playlist: (assignment.playlist as any)?.title || 'N/A',
-            track: (pt.track as any)?.title || 'N/A',
-            progress: progress,
-            completionDate: completion?.completed_at || null,
-            score: completion?.score || 0,
-            timeSpent: completion?.time_spent_minutes || 0,
-            attempts: completion?.attempts || 0,
-            certification: latestCert ? (latestCert.certification as any)?.name || null : null,
-            certificationDate: latestCert?.issued_at || null,
-            status: status,
-            lastActivity: completion?.completed_at || assignment.assigned_at || new Date().toISOString()
-          });
+        assignmentRecords.push({
+          id: assignment.id,
+          playlist: playlistTitle,
+          album: album,
+          track: trackDisplay,
+          progress: progress,
+          completionDate: stats?.lastCompletionDate || null,
+          score: avgScore,
+          timeSpent: stats?.totalTime || 0,
+          attempts: stats?.totalAttempts || 0,
+          status: status,
+          lastActivity: assignmentLastActivity,
+          dueDate: assignment.due_date || null,
+          playlistStatus: playlistIsActive ? 'active' : 'archived'
         });
+
+        // Aggregate for employee-level stats
+        totalProgress += progress;
+        if (avgScore > 0) {
+          totalScore += avgScore;
+          scoreCount++;
+        }
+        totalTimeSpent += stats?.totalTime || 0;
+        totalAttempts += stats?.totalAttempts || 0;
+
+        if (!latestActivity || assignmentLastActivity > latestActivity) {
+          latestActivity = assignmentLastActivity;
+        }
+
+        // Collect for filter compatibility
+        if (album !== 'N/A' && !allAlbums.includes(album)) allAlbums.push(album);
+        if (playlistTitle !== 'N/A' && !allPlaylists.includes(playlistTitle)) allPlaylists.push(playlistTitle);
+        trackNames.forEach(t => { if (!allTracks.includes(t)) allTracks.push(t); });
+      });
+
+      // Calculate employee-level averages
+      const avgProgress = assignmentRecords.length > 0
+        ? Math.round(totalProgress / assignmentRecords.length)
+        : 0;
+      const avgEmployeeScore = scoreCount > 0
+        ? Math.round(totalScore / scoreCount)
+        : 0;
+
+      // Determine overall employee status
+      let employeeStatus: 'completed' | 'in-progress' | 'not-started' | 'overdue' = 'not-started';
+      const completedCount = assignmentRecords.filter(a => a.status === 'completed').length;
+      const inProgressCount = assignmentRecords.filter(a => a.status === 'in-progress').length;
+      const overdueCount = assignmentRecords.filter(a => a.status === 'overdue').length;
+
+      if (completedCount === assignmentRecords.length) {
+        employeeStatus = 'completed';
+      } else if (inProgressCount > 0 || completedCount > 0) {
+        employeeStatus = 'in-progress';
+      } else if (overdueCount > 0) {
+        employeeStatus = 'overdue';
+      }
+
+      records.push({
+        id: user.id,
+        employeeName: `${user.first_name} ${user.last_name}`,
+        employeeId: user.employee_id || 'N/A',
+        district: (user.store as any)?.district?.name || 'N/A',
+        store: (user.store as any)?.name || 'N/A',
+        role: (user.role as any)?.name || 'N/A',
+        department: 'N/A',
+        progress: avgProgress,
+        score: avgEmployeeScore,
+        timeSpent: totalTimeSpent,
+        attempts: totalAttempts,
+        certification: latestCert ? (latestCert.certification as any)?.name || null : null,
+        certificationDate: latestCert?.issued_at || null,
+        status: employeeStatus,
+        lastActivity: latestActivity || new Date().toISOString(),
+        assignments: assignmentRecords,
+        // For filter compatibility
+        album: allAlbums.join(', ') || 'N/A',
+        playlist: allPlaylists.join(', ') || 'N/A',
+        track: allTracks.slice(0, 5).join(', ') || 'N/A'
       });
     });
 

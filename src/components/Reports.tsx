@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Checkbox } from './ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { FilterDialog } from './FilterDialog';
-import { 
+import {
   ArrowLeft,
   Download,
   Filter,
@@ -37,10 +37,11 @@ import {
   Settings,
   CheckCircle,
   Plus,
-  Info
+  Info,
+  Archive
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { getLearnerRecords, getReportFilterOptions, type LearnerRecord as LearnerRecordType, type FilterOptions } from '../lib/crud/reports';
+import { getLearnerRecords, getReportFilterOptions, type LearnerRecord as LearnerRecordType, type FilterOptions, type AssignmentRecord } from '../lib/crud/reports';
 import { exportToCSV, exportToExcel, exportToPDF } from '../lib/utils/export';
 
 // Mock date formatting function since date-fns is not available
@@ -72,6 +73,7 @@ interface FilterState {
   employees: string[];
   certifications: string[];
   completionStatus: string[];
+  playlistStatus: string[]; // 'active' | 'archived'
 }
 
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
@@ -99,7 +101,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     dateRange: { start: null, end: null },
     employees: [],
     certifications: [],
-    completionStatus: []
+    completionStatus: [],
+    playlistStatus: ['active'] // Default to showing only active playlists
   });
 
   // Active filters for display
@@ -145,7 +148,14 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     filters.completionStatus.forEach(status => {
       active.push({ key: 'completionStatus', label: 'Status', value: status });
     });
-    
+
+    // Only show playlistStatus filter chip if not default (which is ['active'])
+    if (filters.playlistStatus.length !== 1 || filters.playlistStatus[0] !== 'active') {
+      filters.playlistStatus.forEach(status => {
+        active.push({ key: 'playlistStatus', label: 'Playlist Status', value: status });
+      });
+    }
+
     if (filters.dateRange.start && filters.dateRange.end) {
       active.push({
         key: 'dateRange',
@@ -232,6 +242,14 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       type: 'multi-select',
       description: 'Filter by completion status',
       options: ['completed', 'in-progress', 'not-started', 'overdue']
+    },
+    {
+      id: 'playlistStatus',
+      label: 'Playlist Status',
+      icon: Archive,
+      type: 'multi-select',
+      description: 'Filter by playlist active/archived status',
+      options: ['active', 'archived']
     },
     {
       id: 'dateRange',
@@ -346,7 +364,18 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       if (filters.completionStatus.length > 0 && !filters.completionStatus.includes(record.status)) {
         return false;
       }
-      
+
+      // Playlist status filter (active/archived)
+      // Filter by whether any assignment has a matching playlist status
+      if (filters.playlistStatus.length > 0 && record.assignments) {
+        const hasMatchingPlaylistStatus = record.assignments.some(
+          (a: AssignmentRecord) => filters.playlistStatus.includes(a.playlistStatus)
+        );
+        if (!hasMatchingPlaylistStatus) {
+          return false;
+        }
+      }
+
       // Date range filter
       if (filters.dateRange.start && filters.dateRange.end) {
         const recordDate = record.completionDate ? new Date(record.completionDate) : new Date(record.lastActivity);
@@ -715,7 +744,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     )}
                   </div>
                 </TableHead>
-                <TableHead><span>Content</span></TableHead>
+                <TableHead><span>Assignments</span></TableHead>
                 <TableHead 
                   className="cursor-pointer hover:bg-accent/50 transition-colors"
                   onClick={() => handleSort('progress')}
@@ -799,13 +828,24 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       <TableCell>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className="text-sm truncate max-w-[200px]">{record.album}</div>
+                            <div className="text-sm">
+                              <span className="font-medium">{record.assignments?.length || 0}</span>
+                              <span className="text-muted-foreground ml-1">
+                                {(record.assignments?.length || 0) === 1 ? 'assignment' : 'assignments'}
+                              </span>
+                            </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <div className="space-y-1 text-xs">
-                              <div><span className="text-muted-foreground">Album:</span> {record.album}</div>
-                              <div><span className="text-muted-foreground">Playlist:</span> {record.playlist}</div>
-                              <div><span className="text-muted-foreground">Track:</span> {record.track}</div>
+                            <div className="space-y-1 text-xs max-w-[250px]">
+                              {(record.assignments || []).slice(0, 5).map((a: AssignmentRecord) => (
+                                <div key={a.id} className="flex justify-between gap-2">
+                                  <span className="truncate">{a.playlist}</span>
+                                  <span className="text-muted-foreground">{a.progress}%</span>
+                                </div>
+                              ))}
+                              {(record.assignments?.length || 0) > 5 && (
+                                <div className="text-muted-foreground">+{(record.assignments?.length || 0) - 5} more...</div>
+                              )}
                             </div>
                           </TooltipContent>
                         </Tooltip>
@@ -836,57 +876,85 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       </TableCell>
                     </TableRow>
                     
-                    {/* Expanded Row Details */}
+                    {/* Expanded Row - Assignment Details */}
                     {isExpanded && (
-                      <TableRow className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}>
+                      <TableRow className="border-b border-border bg-accent/5">
                         <TableCell colSpan={9} className="px-4 py-4">
-                          <div className="grid grid-cols-4 gap-6 pl-8">
+                          {/* Employee Info Header */}
+                          <div className="flex items-center gap-6 mb-4 pl-8 text-sm">
                             <div>
-                              <div className="text-xs text-muted-foreground mb-1">Employee ID</div>
-                              <div className="text-sm font-medium">{record.employeeId}</div>
+                              <span className="text-muted-foreground">ID:</span>{' '}
+                              <span className="font-medium">{record.employeeId}</span>
                             </div>
                             <div>
-                              <div className="text-xs text-muted-foreground mb-1">District</div>
-                              <div className="text-sm font-medium">{record.district}</div>
+                              <span className="text-muted-foreground">Role:</span>{' '}
+                              <span className="font-medium">{record.role}</span>
                             </div>
                             <div>
-                              <div className="text-xs text-muted-foreground mb-1">Role</div>
-                              <div className="text-sm font-medium">{record.role}</div>
+                              <span className="text-muted-foreground">District:</span>{' '}
+                              <span className="font-medium">{record.district}</span>
                             </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Department</div>
-                              <div className="text-sm font-medium">{record.department}</div>
+                            {record.certification && (
+                              <div className="flex items-center gap-1">
+                                <Award className="h-3.5 w-3.5 text-yellow-500" />
+                                <span className="font-medium">{record.certification}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Assignments Table */}
+                          <div className="pl-8">
+                            <div className="text-xs font-medium text-muted-foreground mb-2">
+                              Assignments ({record.assignments?.length || 0})
                             </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Playlist</div>
-                              <div className="text-sm font-medium">{record.playlist}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Track</div>
-                              <div className="text-sm font-medium">{record.track}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Time Spent</div>
-                              <div className="text-sm font-medium">{record.timeSpent} min</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Attempts</div>
-                              <div className="text-sm font-medium">{record.attempts}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Completion Date</div>
-                              <div className="text-sm font-medium">{record.completionDate || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Last Activity</div>
-                              <div className="text-sm font-medium">{record.lastActivity}</div>
-                            </div>
-                            <div className="col-span-2">
-                              <div className="text-xs text-muted-foreground mb-1">Certification</div>
-                              <div className="text-sm font-medium">{record.certification || '—'}</div>
-                              {record.certificationDate && (
-                                <div className="text-xs text-muted-foreground mt-0.5">{record.certificationDate}</div>
-                              )}
+                            <div className="border border-border rounded-lg overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead className="bg-accent/50">
+                                  <tr>
+                                    <th className="text-left px-3 py-2 font-medium">Playlist</th>
+                                    <th className="text-left px-3 py-2 font-medium">Progress</th>
+                                    <th className="text-left px-3 py-2 font-medium">Score</th>
+                                    <th className="text-left px-3 py-2 font-medium">Time</th>
+                                    <th className="text-left px-3 py-2 font-medium">Status</th>
+                                    <th className="text-left px-3 py-2 font-medium">Due Date</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(record.assignments || []).map((assignment: AssignmentRecord, idx: number) => (
+                                    <tr key={assignment.id} className={idx % 2 === 0 ? 'bg-background' : 'bg-accent/10'}>
+                                      <td className="px-3 py-2">
+                                        <div className="font-medium">{assignment.playlist}</div>
+                                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                          {assignment.track}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <div className="flex items-center gap-2">
+                                          <Progress value={assignment.progress} className="h-1.5 w-16" />
+                                          <span className="font-medium">{assignment.progress}%</span>
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2 font-medium">{assignment.score || '—'}</td>
+                                      <td className="px-3 py-2">{assignment.timeSpent} min</td>
+                                      <td className="px-3 py-2">
+                                        {getStatusBadge(assignment.status)}
+                                      </td>
+                                      <td className="px-3 py-2 text-muted-foreground">
+                                        {assignment.dueDate
+                                          ? new Date(assignment.dueDate).toLocaleDateString()
+                                          : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {(!record.assignments || record.assignments.length === 0) && (
+                                    <tr>
+                                      <td colSpan={6} className="px-3 py-4 text-center text-muted-foreground">
+                                        No assignments found
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         </TableCell>

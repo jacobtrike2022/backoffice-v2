@@ -66,6 +66,7 @@ import * as crud from '../lib/crud';
 import * as albumsCrud from '../lib/crud/albums';
 import type { Album } from '../lib/crud/albums';
 import { AlbumDetailView } from './AlbumDetailView';
+import { ArchivePlaylistModal } from './ArchivePlaylistModal';
 import { toast } from 'sonner@2.0.3';
 
 interface PlaylistsProps {
@@ -99,6 +100,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
 
   // Main view tab (playlists vs albums)
   const [mainTab, setMainTab] = useState<'playlists' | 'albums'>(initialTab || 'playlists');
+
+  // Archive modal state
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [playlistToArchive, setPlaylistToArchive] = useState<{ id: string; title: string } | null>(null);
 
   const { user } = useCurrentUser();
 
@@ -281,10 +286,17 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     }
   };
 
-  const handleArchivePlaylist = async (playlistId: string, e: React.MouseEvent) => {
+  // Open archive modal instead of immediately archiving
+  const handleOpenArchiveModal = (playlistId: string, playlistTitle: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setPlaylistToArchive({ id: playlistId, title: playlistTitle });
+    setArchiveModalOpen(true);
+  };
+
+  // Actually perform the archive (called from modal)
+  const handleArchivePlaylist = async (playlistId: string, archiveAssignments: boolean) => {
     try {
-      await crud.archivePlaylist(playlistId);
+      await crud.archivePlaylist(playlistId, archiveAssignments);
       toast.success('Playlist archived successfully');
       fetchPlaylists();
       if (selectedPlaylist?.id === playlistId) {
@@ -293,6 +305,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     } catch (err) {
       console.error('Error archiving playlist:', err);
       toast.error('Failed to archive playlist');
+      throw err; // Re-throw so modal knows it failed
     }
   };
 
@@ -517,7 +530,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <Copy className="h-4 w-4 mr-2" />
                   Duplicate
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={(e) => handleArchivePlaylist(selectedPlaylist.id, e)}>
+                <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(selectedPlaylist.id, selectedPlaylist.title, e)}>
                   <Archive className="h-4 w-4 mr-2" />
                   Archive
                 </DropdownMenuItem>
@@ -1117,7 +1130,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         View Analytics
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={(e) => handleArchivePlaylist(playlist.id, e)}>
+                      <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(playlist.id, playlist.title, e)}>
                         <Archive className="h-4 w-4 mr-2" />
                         Archive
                       </DropdownMenuItem>
@@ -1397,6 +1410,18 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       )}
       
       <Footer />
+
+      {/* Archive Playlist Modal */}
+      <ArchivePlaylistModal
+        isOpen={archiveModalOpen}
+        onClose={() => {
+          setArchiveModalOpen(false);
+          setPlaylistToArchive(null);
+        }}
+        playlistId={playlistToArchive?.id || ''}
+        playlistTitle={playlistToArchive?.title || ''}
+        onArchive={handleArchivePlaylist}
+      />
     </div>
   );
 }
