@@ -20,6 +20,7 @@ import {
   Calendar as CalendarIcon,
   X,
   FileText,
+  FileSpreadsheet,
   Search,
   SlidersHorizontal,
   RefreshCw,
@@ -41,8 +42,20 @@ import {
   Archive
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { getLearnerRecords, getReportFilterOptions, type LearnerRecord as LearnerRecordType, type FilterOptions, type AssignmentRecord } from '../lib/crud/reports';
+import {
+  getLearnerRecords,
+  getReportFilterOptions,
+  flattenToAssignmentRows,
+  aggregateToUnitRows,
+  type LearnerRecord as LearnerRecordType,
+  type FilterOptions,
+  type AssignmentRecord,
+  type ReportType,
+  type FlattenedAssignmentRow,
+  type UnitReportRow
+} from '../lib/crud/reports';
 import { exportToCSV, exportToExcel, exportToPDF } from '../lib/utils/export';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 // Mock date formatting function since date-fns is not available
 const format = (date: Date, formatStr: string) => {
@@ -77,8 +90,10 @@ interface FilterState {
 }
 
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
+  // Report type controls the "grain" of the data
+  const [reportType, setReportType] = useState<ReportType>('people');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof LearnerRecordType>('employeeName');
+  const [sortField, setSortField] = useState<string>('employeeName');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [showFilterPicker, setShowFilterPicker] = useState(false);
@@ -460,6 +475,33 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     setSearchTerm('');
   };
 
+  // Handle report type change - reset selection and expansion state
+  const handleReportTypeChange = (newType: ReportType) => {
+    setReportType(newType);
+    setSelectedRecords([]); // Clear selection when changing modes
+    setExpandedRows([]); // Clear expansion state
+    // Reset sort to appropriate default for the mode
+    if (newType === 'people') {
+      setSortField('employeeName');
+    } else if (newType === 'assignments') {
+      setSortField('employeeName');
+    } else {
+      setSortField('unitName');
+    }
+    setSortDirection('asc');
+  };
+
+  // Transform data based on report type
+  const assignmentRows = useMemo(() => {
+    if (reportType !== 'assignments') return [];
+    return flattenToAssignmentRows(learnerData);
+  }, [reportType, learnerData]);
+
+  const unitRows = useMemo(() => {
+    if (reportType !== 'units') return [];
+    return aggregateToUnitRows(learnerData);
+  }, [reportType, learnerData]);
+
   const filteredProperties = filterProperties.filter(property =>
     property.label.toLowerCase().includes(filterSearch.toLowerCase()) ||
     property.description.toLowerCase().includes(filterSearch.toLowerCase())
@@ -494,21 +536,39 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
 
   const handleExport = (format: 'csv' | 'xlsx' | 'pdf') => {
     const timestamp = new Date().toISOString().split('T')[0];
-    const filename = `learner-report-${timestamp}`;
+    const filename = `${reportType}-report-${timestamp}`;
+
+    // Get the correct data based on current report type
+    let exportData: any[];
+    let recordCount: number;
+    switch (reportType) {
+      case 'people':
+        exportData = filteredData;
+        recordCount = filteredData.length;
+        break;
+      case 'assignments':
+        exportData = assignmentRows;
+        recordCount = assignmentRows.length;
+        break;
+      case 'units':
+        exportData = unitRows;
+        recordCount = unitRows.length;
+        break;
+    }
 
     try {
       switch (format) {
         case 'csv':
-          exportToCSV(filteredData, filename);
+          exportToCSV(exportData, filename, reportType);
           break;
         case 'xlsx':
-          exportToExcel(filteredData, filename);
+          exportToExcel(exportData, filename, reportType);
           break;
         case 'pdf':
-          exportToPDF(filteredData, filename);
+          exportToPDF(exportData, filename, reportType);
           break;
       }
-      toast.success(`Exported ${filteredData.length} records as ${format.toUpperCase()}`);
+      toast.success(`Exported ${recordCount} ${reportType} records as ${format.toUpperCase()}`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error(`Failed to export as ${format.toUpperCase()}`);
@@ -565,21 +625,72 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             Learner activity & progress
           </p>
         </div>
-        
-        {/* Export Actions */}
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
-            <Download className="h-4 w-4 mr-1" />
-            CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport('xlsx')}>
-            <Download className="h-4 w-4 mr-1" />
-            Excel
-          </Button>
-          <Button size="sm" className="hero-primary shadow-brand" onClick={() => handleExport('pdf')}>
-            <FileText className="h-4 w-4 mr-1" />
-            PDF
-          </Button>
+
+        {/* Report Type Toggle + Export Actions */}
+        <div className="flex items-center gap-6">
+          {/* Report Type Pill Toggle */}
+          <ToggleGroup
+            type="single"
+            value={reportType}
+            onValueChange={(value) => value && handleReportTypeChange(value as ReportType)}
+            className="bg-accent/50 p-1 rounded-lg"
+          >
+            <ToggleGroupItem
+              value="people"
+              aria-label="People view"
+              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+            >
+              <Users className="h-4 w-4" />
+              People
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="assignments"
+              aria-label="Assignments view"
+              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Assignments
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="units"
+              aria-label="Units view"
+              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+            >
+              <Building className="h-4 w-4" />
+              Units
+            </ToggleGroupItem>
+          </ToggleGroup>
+
+          {/* Export Actions */}
+          <div className="flex items-center space-x-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-xs text-muted-foreground flex items-center mr-2">
+                  <Info className="h-3 w-3 mr-1" />
+                  Exports match view
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  Your export will contain {reportType === 'people' ? 'one row per learner' :
+                    reportType === 'assignments' ? 'one row per assignment' :
+                    'one row per unit'}.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+            <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+              <Download className="h-4 w-4 mr-1" />
+              CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport('xlsx')}>
+              <Download className="h-4 w-4 mr-1" />
+              Excel
+            </Button>
+            <Button size="sm" className="hero-primary shadow-brand" onClick={() => handleExport('pdf')}>
+              <FileText className="h-4 w-4 mr-1" />
+              PDF
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -648,7 +759,9 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
 
             {/* Results Count */}
             <span className="text-sm text-muted-foreground">
-              {filteredData.length} {filteredData.length === 1 ? 'record' : 'records'}
+              {reportType === 'people' && `${filteredData.length} ${filteredData.length === 1 ? 'person' : 'people'}`}
+              {reportType === 'assignments' && `${assignmentRows.length} ${assignmentRows.length === 1 ? 'assignment' : 'assignments'}`}
+              {reportType === 'units' && `${unitRows.length} ${unitRows.length === 1 ? 'unit' : 'units'}`}
             </span>
           </div>
 
@@ -688,283 +801,629 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center space-x-2">
-            <h3 className="font-semibold">Activity Report</h3>
+            <h3 className="font-semibold">
+              {reportType === 'people' ? 'Learner Report' :
+               reportType === 'assignments' ? 'Assignment Report' :
+               'Unit Report'}
+            </h3>
             {selectedRecords.length > 0 && (
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                 {selectedRecords.length} selected
               </Badge>
             )}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <Info className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">Click rows to expand details</p>
-            </TooltipContent>
-          </Tooltip>
+          {reportType === 'people' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Click rows to expand details</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         
         <div className="overflow-x-auto">
-          <Table className="w-full">
-            <TableHeader>
-              <TableRow className="border-b border-border bg-accent/30">
-                <TableHead className="w-8 pl-4"></TableHead>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={selectedRecords.length === filteredData.length}
-                    onCheckedChange={handleSelectAll}
-                  />
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('employeeName')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Employee</span>
-                    {sortField === 'employeeName' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('district')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Location</span>
-                    {sortField === 'district' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead><span>Assignments</span></TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('progress')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Progress</span>
-                    {sortField === 'progress' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('score')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Score</span>
-                    {sortField === 'score' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead><span>Status</span></TableHead>
-                <TableHead className="pr-4"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
-                      <p className="text-sm text-muted-foreground">Loading learner records...</p>
+          {/* People Mode Table */}
+          {reportType === 'people' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-8 pl-4"></TableHead>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selectedRecords.length === filteredData.length && filteredData.length > 0}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('employeeName')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Employee</span>
+                      {sortField === 'employeeName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
                     </div>
-                  </TableCell>
-                </TableRow>
-              ) : filteredData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
-                      <p className="text-sm font-medium text-foreground">No records found</p>
-                      <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('role')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Role</span>
+                      {sortField === 'role' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
                     </div>
-                  </TableCell>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('district')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>District</span>
+                      {sortField === 'district' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('store')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Location</span>
+                      {sortField === 'store' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Assignments</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('progress')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Progress</span>
+                      {sortField === 'progress' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Status</span></TableHead>
+                  <TableHead className="pr-4"></TableHead>
                 </TableRow>
-              ) : (
-                filteredData.map((record, index) => {
-                const isExpanded = expandedRows.includes(record.id);
-                return (
-                  <React.Fragment key={record.id}>
-                    <TableRow 
-                      className={`border-b border-border hover:bg-accent/20 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
-                      onClick={() => toggleRowExpansion(record.id)}
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading learner records...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No records found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredData.map((record, index) => {
+                  const isExpanded = expandedRows.includes(record.id);
+                  return (
+                    <React.Fragment key={record.id}>
+                      <TableRow
+                        className={`border-b border-border hover:bg-accent/20 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
+                        onClick={() => toggleRowExpansion(record.id)}
+                      >
+                        <TableCell className="pl-4">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedRecords.includes(record.id)}
+                            onCheckedChange={() => handleSelectRecord(record.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-foreground">{record.employeeName}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.role}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.district}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.store}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="text-sm">
+                                <span className="font-medium">{record.assignments?.length || 0}</span>
+                                <span className="text-muted-foreground ml-1">
+                                  {(record.assignments?.length || 0) === 1 ? 'assignment' : 'assignments'}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="space-y-1 text-xs max-w-[250px]">
+                                {(record.assignments || []).slice(0, 5).map((a: AssignmentRecord) => (
+                                  <div key={a.id} className="flex justify-between gap-2">
+                                    <span className="truncate">{a.playlist}</span>
+                                    <span className="text-muted-foreground">{a.progress}%</span>
+                                  </div>
+                                ))}
+                                {(record.assignments?.length || 0) > 5 && (
+                                  <div className="text-muted-foreground">+{(record.assignments?.length || 0) - 5} more...</div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-2">
+                            <Progress value={record.progress} className="h-1.5 w-16" />
+                            <span className="text-sm font-medium min-w-[35px]">{record.progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(record.status)}
+                        </TableCell>
+                        <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-accent">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">View details</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded Row - Full-width detail panel */}
+                      {isExpanded && (
+                        <TableRow className="bg-accent/20">
+                          <TableCell colSpan={10} className="p-0">
+                            <div className="p-4 space-y-3">
+                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Assignments</div>
+                              <div className="grid gap-2">
+                                {(record.assignments || []).length === 0 ? (
+                                  <div className="text-sm text-muted-foreground py-2">No assignments found</div>
+                                ) : (
+                                  (record.assignments || []).map((assignment: AssignmentRecord) => (
+                                    <div
+                                      key={assignment.id}
+                                      className="bg-background border border-border rounded-lg p-3 flex items-center justify-between gap-4"
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-sm">{assignment.playlist}</div>
+                                        <div className="text-xs text-muted-foreground truncate">{assignment.track}</div>
+                                      </div>
+                                      <div className="flex items-center gap-4 text-sm">
+                                        <div className="text-muted-foreground">
+                                          <span className="text-xs">Assigned: </span>
+                                          {assignment.dateAssigned
+                                            ? new Date(assignment.dateAssigned).toLocaleDateString()
+                                            : '—'}
+                                        </div>
+                                        <div className={assignment.dueDate && new Date(assignment.dueDate) < new Date() && !assignment.completionDate ? 'text-red-500' : 'text-muted-foreground'}>
+                                          <span className="text-xs">Due: </span>
+                                          {assignment.dueDate
+                                            ? new Date(assignment.dueDate).toLocaleDateString()
+                                            : '—'}
+                                        </div>
+                                        <div className="flex items-center gap-2 min-w-[100px]">
+                                          <Progress value={assignment.progress} className="h-1.5 w-12" />
+                                          <span className="text-xs">{assignment.progress}%</span>
+                                        </div>
+                                        {getStatusBadge(assignment.status)}
+                                      </div>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                }))}
+              </TableBody>
+            </Table>
+          )}
+
+          {/* Assignments Mode Table */}
+          {reportType === 'assignments' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-10 pl-4">
+                    <Checkbox
+                      checked={selectedRecords.length === assignmentRows.length && assignmentRows.length > 0}
+                      onCheckedChange={() => {
+                        if (selectedRecords.length === assignmentRows.length) {
+                          setSelectedRecords([]);
+                        } else {
+                          setSelectedRecords(assignmentRows.map(r => r.id));
+                        }
+                      }}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'employeeName') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('employeeName');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Employee</span>
+                      {sortField === 'employeeName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'playlist') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('playlist');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Playlist</span>
+                      {sortField === 'playlist' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Track</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'store') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('store');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Location</span>
+                      {sortField === 'store' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Assigned</span></TableHead>
+                  <TableHead><span>Due</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'progress') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('progress');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Progress</span>
+                      {sortField === 'progress' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Status</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading assignments...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : assignmentRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileSpreadsheet className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No assignments found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  assignmentRows.map((row, index) => (
+                    <TableRow
+                      key={row.id}
+                      className={`border-b border-border hover:bg-accent/20 transition-colors ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
                     >
                       <TableCell className="pl-4">
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                          {isExpanded ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
-                          checked={selectedRecords.includes(record.id)}
-                          onCheckedChange={() => handleSelectRecord(record.id)}
+                          checked={selectedRecords.includes(row.id)}
+                          onCheckedChange={() => handleSelectRecord(row.id)}
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{record.employeeName}</div>
+                        <div className="font-medium text-foreground">{row.employeeName}</div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm">{record.store}</div>
+                        <div className="text-sm font-medium">{row.playlist}</div>
                       </TableCell>
                       <TableCell>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="text-sm">
-                              <span className="font-medium">{record.assignments?.length || 0}</span>
-                              <span className="text-muted-foreground ml-1">
-                                {(record.assignments?.length || 0) === 1 ? 'assignment' : 'assignments'}
-                              </span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="space-y-1 text-xs max-w-[250px]">
-                              {(record.assignments || []).slice(0, 5).map((a: AssignmentRecord) => (
-                                <div key={a.id} className="flex justify-between gap-2">
-                                  <span className="truncate">{a.playlist}</span>
-                                  <span className="text-muted-foreground">{a.progress}%</span>
-                                </div>
-                              ))}
-                              {(record.assignments?.length || 0) > 5 && (
-                                <div className="text-muted-foreground">+{(record.assignments?.length || 0) - 5} more...</div>
-                              )}
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
+                        <div className="text-sm text-muted-foreground truncate max-w-[150px]">{row.track}</div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Progress value={record.progress} className="h-1.5 w-16" />
-                          <span className="text-sm font-medium min-w-[35px]">{record.progress}%</span>
+                        <div className="text-sm">{row.store}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm text-muted-foreground">
+                          {row.dateAssigned ? new Date(row.dateAssigned).toLocaleDateString() : '—'}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm font-medium">{record.score}</span>
+                        <div className={`text-sm ${row.dueDate && new Date(row.dueDate) < new Date() && !row.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                          {row.dueDate ? new Date(row.dueDate).toLocaleDateString() : '—'}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(record.status)}
+                        <div className="flex items-center space-x-2">
+                          <Progress value={row.progress} className="h-1.5 w-16" />
+                          <span className="text-sm font-medium min-w-[35px]">{row.progress}%</span>
+                        </div>
                       </TableCell>
-                      <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-accent">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">View details</p>
-                          </TooltipContent>
-                        </Tooltip>
+                      <TableCell>
+                        {getStatusBadge(row.status)}
                       </TableCell>
                     </TableRow>
-                    
-                    {/* Expanded Row - Assignment Details */}
-                    {isExpanded && (
-                      <TableRow className="border-b border-border bg-accent/5">
-                        <TableCell colSpan={9} className="px-4 py-4">
-                          {/* Employee Info Header */}
-                          <div className="flex items-center gap-6 mb-4 pl-8 text-sm">
-                            <div>
-                              <span className="text-muted-foreground">ID:</span>{' '}
-                              <span className="font-medium">{record.employeeId}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Role:</span>{' '}
-                              <span className="font-medium">{record.role}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">District:</span>{' '}
-                              <span className="font-medium">{record.district}</span>
-                            </div>
-                            {record.certification && (
-                              <div className="flex items-center gap-1">
-                                <Award className="h-3.5 w-3.5 text-yellow-500" />
-                                <span className="font-medium">{record.certification}</span>
-                              </div>
-                            )}
-                          </div>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
 
-                          {/* Assignments Table */}
-                          <div className="pl-8">
-                            <div className="text-xs font-medium text-muted-foreground mb-2">
-                              Assignments ({record.assignments?.length || 0})
-                            </div>
-                            <div className="border border-border rounded-lg overflow-hidden">
-                              <table className="w-full text-sm">
-                                <thead className="bg-accent/50">
-                                  <tr>
-                                    <th className="text-left px-3 py-2 font-medium">Playlist</th>
-                                    <th className="text-left px-3 py-2 font-medium">Progress</th>
-                                    <th className="text-left px-3 py-2 font-medium">Score</th>
-                                    <th className="text-left px-3 py-2 font-medium">Time</th>
-                                    <th className="text-left px-3 py-2 font-medium">Status</th>
-                                    <th className="text-left px-3 py-2 font-medium">Due Date</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(record.assignments || []).map((assignment: AssignmentRecord, idx: number) => (
-                                    <tr key={assignment.id} className={idx % 2 === 0 ? 'bg-background' : 'bg-accent/10'}>
-                                      <td className="px-3 py-2">
-                                        <div className="font-medium">{assignment.playlist}</div>
-                                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                          {assignment.track}
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <div className="flex items-center gap-2">
-                                          <Progress value={assignment.progress} className="h-1.5 w-16" />
-                                          <span className="font-medium">{assignment.progress}%</span>
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2 font-medium">{assignment.score || '—'}</td>
-                                      <td className="px-3 py-2">{assignment.timeSpent} min</td>
-                                      <td className="px-3 py-2">
-                                        {getStatusBadge(assignment.status)}
-                                      </td>
-                                      <td className="px-3 py-2 text-muted-foreground">
-                                        {assignment.dueDate
-                                          ? new Date(assignment.dueDate).toLocaleDateString()
-                                          : '—'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                  {(!record.assignments || record.assignments.length === 0) && (
-                                    <tr>
-                                      <td colSpan={6} className="px-3 py-4 text-center text-muted-foreground">
-                                        No assignments found
-                                      </td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              }))}
-            </TableBody>
-          </Table>
+          {/* Units Mode Table */}
+          {reportType === 'units' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-10 pl-4">
+                    <Checkbox
+                      checked={selectedRecords.length === unitRows.length && unitRows.length > 0}
+                      onCheckedChange={() => {
+                        if (selectedRecords.length === unitRows.length) {
+                          setSelectedRecords([]);
+                        } else {
+                          setSelectedRecords(unitRows.map(r => r.id));
+                        }
+                      }}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'unitName') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('unitName');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Unit</span>
+                      {sortField === 'unitName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'district') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('district');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>District</span>
+                      {sortField === 'district' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'employeeCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('employeeCount');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Employees</span>
+                      {sortField === 'employeeCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Assignments</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'avgProgress') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('avgProgress');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Avg Progress</span>
+                      {sortField === 'avgProgress' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Completed</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'overdueCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('overdueCount');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Overdue</span>
+                      {sortField === 'overdueCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading unit data...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : unitRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <Building className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No units found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  unitRows.map((row, index) => (
+                    <TableRow
+                      key={row.id}
+                      className={`border-b border-border hover:bg-accent/20 transition-colors ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
+                    >
+                      <TableCell className="pl-4">
+                        <Checkbox
+                          checked={selectedRecords.includes(row.id)}
+                          onCheckedChange={() => handleSelectRecord(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-foreground">{row.unitName}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{row.district}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium">{row.employeeCount}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{row.assignmentCount}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Progress value={row.avgProgress} className="h-1.5 w-16" />
+                          <span className="text-sm font-medium min-w-[35px]">{row.avgProgress}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm text-green-600 font-medium">{row.completedCount}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`text-sm font-medium ${row.overdueCount > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                          {row.overdueCount}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </div>
 

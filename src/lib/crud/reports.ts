@@ -17,6 +17,7 @@ export interface AssignmentRecord {
   attempts: number;
   status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
   lastActivity: string;
+  dateAssigned: string | null;
   dueDate: string | null;
   playlistStatus: 'active' | 'archived'; // Whether the playlist is active or archived
 }
@@ -29,7 +30,6 @@ export interface LearnerRecord {
   district: string;
   store: string;
   role: string;
-  department: string;
   // Aggregated values across all assignments
   progress: number; // Average progress
   score: number; // Average score
@@ -55,6 +55,44 @@ export interface FilterOptions {
   playlists: { id: string; name: string }[];
   tracks: { id: string; name: string }[];
   certifications: { id: string; name: string }[];
+}
+
+// Report type for the grain selector
+export type ReportType = 'people' | 'assignments' | 'units';
+
+// Flattened assignment row for Assignments mode (one row per learner x assignment)
+export interface FlattenedAssignmentRow {
+  id: string;
+  employeeName: string;
+  employeeId: string;
+  district: string;
+  store: string;
+  role: string;
+  playlist: string;
+  album: string;
+  track: string;
+  progress: number;
+  score: number;
+  status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
+  dateAssigned: string | null;
+  dueDate: string | null;
+  completionDate: string | null;
+  playlistStatus: 'active' | 'archived';
+}
+
+// Unit rollup row for Units mode (one row per store/location)
+export interface UnitReportRow {
+  id: string;
+  unitName: string;
+  district: string;
+  employeeCount: number;
+  assignmentCount: number;
+  avgProgress: number;
+  completedCount: number;
+  inProgressCount: number;
+  overdueCount: number;
+  notStartedCount: number;
+  compliance: number;
 }
 
 /**
@@ -438,6 +476,7 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
           attempts: stats?.totalAttempts || 0,
           status: status,
           lastActivity: assignmentLastActivity,
+          dateAssigned: assignment.assigned_at || null,
           dueDate: assignment.due_date || null,
           playlistStatus: playlistIsActive ? 'active' : 'archived'
         });
@@ -490,7 +529,6 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
         district: (user.store as any)?.district?.name || 'N/A',
         store: (user.store as any)?.name || 'N/A',
         role: (user.role as any)?.name || 'N/A',
-        department: 'N/A',
         progress: avgProgress,
         score: avgEmployeeScore,
         timeSpent: totalTimeSpent,
@@ -512,4 +550,103 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
     console.error('Error fetching learner records:', error);
     throw error;
   }
+}
+
+/**
+ * Flatten learner records to assignment-level rows
+ * One row per learner x assignment combination (for Assignments mode)
+ */
+export function flattenToAssignmentRows(
+  learnerRecords: LearnerRecord[]
+): FlattenedAssignmentRow[] {
+  const rows: FlattenedAssignmentRow[] = [];
+
+  learnerRecords.forEach(learner => {
+    if (learner.assignments && learner.assignments.length > 0) {
+      learner.assignments.forEach(assignment => {
+        rows.push({
+          id: `${learner.id}-${assignment.id}`,
+          employeeName: learner.employeeName,
+          employeeId: learner.employeeId,
+          district: learner.district,
+          store: learner.store,
+          role: learner.role,
+          playlist: assignment.playlist,
+          album: assignment.album,
+          track: assignment.track,
+          progress: assignment.progress,
+          score: assignment.score,
+          status: assignment.status,
+          dateAssigned: assignment.dateAssigned,
+          dueDate: assignment.dueDate,
+          completionDate: assignment.completionDate,
+          playlistStatus: assignment.playlistStatus,
+        });
+      });
+    }
+  });
+
+  return rows;
+}
+
+/**
+ * Aggregate learner records to unit-level rollups
+ * One row per store/unit (for Units mode)
+ */
+export function aggregateToUnitRows(
+  learnerRecords: LearnerRecord[]
+): UnitReportRow[] {
+  // Group learners by store
+  const storeGroups = new Map<string, LearnerRecord[]>();
+
+  learnerRecords.forEach(learner => {
+    const key = learner.store;
+    if (!storeGroups.has(key)) {
+      storeGroups.set(key, []);
+    }
+    storeGroups.get(key)!.push(learner);
+  });
+
+  const unitRows: UnitReportRow[] = [];
+
+  storeGroups.forEach((learners, storeName) => {
+    const firstLearner = learners[0];
+
+    // Aggregate all assignments across all learners in this unit
+    const allAssignments = learners.flatMap(l => l.assignments || []);
+
+    const completedCount = allAssignments.filter(a => a.status === 'completed').length;
+    const inProgressCount = allAssignments.filter(a => a.status === 'in-progress').length;
+    const overdueCount = allAssignments.filter(a => a.status === 'overdue').length;
+    const notStartedCount = allAssignments.filter(a => a.status === 'not-started').length;
+
+    const totalProgress = allAssignments.reduce((sum, a) => sum + a.progress, 0);
+    const avgProgress = allAssignments.length > 0
+      ? Math.round(totalProgress / allAssignments.length)
+      : 0;
+
+    // Compliance is percentage of completed assignments
+    const compliance = allAssignments.length > 0
+      ? Math.round((completedCount / allAssignments.length) * 100)
+      : 0;
+
+    unitRows.push({
+      id: storeName,
+      unitName: storeName,
+      district: firstLearner.district,
+      employeeCount: learners.length,
+      assignmentCount: allAssignments.length,
+      avgProgress,
+      completedCount,
+      inProgressCount,
+      overdueCount,
+      notStartedCount,
+      compliance,
+    });
+  });
+
+  // Sort by unit name
+  unitRows.sort((a, b) => a.unitName.localeCompare(b.unitName));
+
+  return unitRows;
 }
