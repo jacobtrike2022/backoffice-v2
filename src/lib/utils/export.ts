@@ -47,14 +47,15 @@ function getHeadersForMode(mode: ReportType): string[] {
       return [
         'Unit Name',
         'District',
+        'Risk Level',
+        'Top Issue',
         'Employees',
         'Assignments',
-        'Avg Progress',
+        'Compliance',
         'Completed',
-        'In Progress',
         'Overdue',
-        'Not Started',
-        'Compliance'
+        'Stalled',
+        'Avg Days Overdue'
       ];
   }
 }
@@ -98,14 +99,15 @@ function formatRowsForMode(data: ExportData, mode: ReportType): string[][] {
       return (data as UnitReportRow[]).map(row => [
         row.unitName,
         row.district,
+        row.riskLevel.charAt(0).toUpperCase() + row.riskLevel.slice(1),
+        row.topIssueDetail || '—',
         row.employeeCount.toString(),
         row.assignmentCount.toString(),
-        `${row.avgProgress}%`,
+        `${row.compliance}%`,
         row.completedCount.toString(),
-        row.inProgressCount.toString(),
         row.overdueCount.toString(),
-        row.notStartedCount.toString(),
-        `${row.compliance}%`
+        row.stalledCount.toString(),
+        row.avgDaysOverdue.toString()
       ]);
   }
 }
@@ -247,8 +249,8 @@ function getPDFConfig(mode: ReportType): { headers: string[]; colWidths: number[
       };
     case 'units':
       return {
-        headers: ['Unit', 'District', 'Employees', 'Assignments', 'Progress', 'Overdue'],
-        colWidths: [50, 40, 30, 35, 25, 25]
+        headers: ['Risk', 'Unit', 'Top Issue', 'Compliance', 'Overdue', 'Stalled'],
+        colWidths: [25, 45, 60, 30, 25, 22]
       };
   }
 }
@@ -278,12 +280,12 @@ function getPDFRows(data: ExportData, mode: ReportType): string[][] {
       ]);
     case 'units':
       return (data as UnitReportRow[]).map(row => [
-        truncateText(row.unitName, 25),
-        truncateText(row.district, 20),
-        row.employeeCount.toString(),
-        row.assignmentCount.toString(),
-        `${row.avgProgress}%`,
-        row.overdueCount.toString()
+        row.riskLevel.charAt(0).toUpperCase() + row.riskLevel.slice(1),
+        truncateText(row.unitName, 22),
+        truncateText(row.topIssueDetail || '—', 30),
+        `${row.compliance}%`,
+        row.overdueCount.toString(),
+        row.stalledCount.toString()
       ]);
   }
 }

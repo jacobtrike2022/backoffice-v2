@@ -80,6 +80,18 @@ export interface FlattenedAssignmentRow {
   playlistStatus: 'active' | 'archived';
 }
 
+// Risk level for unit health scoring
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+// Top issue categories that explain why a unit might be struggling
+export type TopIssueType =
+  | 'overdue-spike'      // Sudden increase in overdue assignments
+  | 'stalled-learners'   // Employees who haven't made progress recently
+  | 'low-completion'     // Very low completion rate
+  | 'no-activity'        // No recent activity at all
+  | 'high-performer'     // No issues - unit is performing well
+  | 'none';              // No specific issue identified
+
 // Unit rollup row for Units mode (one row per store/location)
 export interface UnitReportRow {
   id: string;
@@ -93,6 +105,14 @@ export interface UnitReportRow {
   overdueCount: number;
   notStartedCount: number;
   compliance: number;
+  // Risk indicators
+  riskLevel: RiskLevel;
+  riskScore: number; // 0-100 score for sorting
+  topIssue: TopIssueType;
+  topIssueDetail: string; // Human-readable explanation
+  // Additional diagnostic signals
+  stalledCount: number; // Learners with no activity in 14+ days
+  avgDaysOverdue: number; // Average days past due for overdue assignments
 }
 
 /**
@@ -592,6 +612,7 @@ export function flattenToAssignmentRows(
 /**
  * Aggregate learner records to unit-level rollups
  * One row per store/unit (for Units mode)
+ * Includes risk indicators and diagnostic signals
  */
 export function aggregateToUnitRows(
   learnerRecords: LearnerRecord[]
@@ -608,6 +629,8 @@ export function aggregateToUnitRows(
   });
 
   const unitRows: UnitReportRow[] = [];
+  const now = new Date();
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
   storeGroups.forEach((learners, storeName) => {
     const firstLearner = learners[0];
@@ -630,6 +653,89 @@ export function aggregateToUnitRows(
       ? Math.round((completedCount / allAssignments.length) * 100)
       : 0;
 
+    // Calculate stalled learners (no activity in 14+ days with incomplete assignments)
+    const stalledCount = learners.filter(l => {
+      const hasIncompleteAssignments = (l.assignments || []).some(
+        a => a.status !== 'completed'
+      );
+      if (!hasIncompleteAssignments) return false;
+      const lastActivityDate = new Date(l.lastActivity);
+      return lastActivityDate < fourteenDaysAgo;
+    }).length;
+
+    // Calculate average days overdue for overdue assignments
+    const overdueAssignments = allAssignments.filter(a => a.status === 'overdue' && a.dueDate);
+    let avgDaysOverdue = 0;
+    if (overdueAssignments.length > 0) {
+      const totalDaysOverdue = overdueAssignments.reduce((sum, a) => {
+        const dueDate = new Date(a.dueDate!);
+        const daysOver = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (24 * 60 * 60 * 1000)));
+        return sum + daysOver;
+      }, 0);
+      avgDaysOverdue = Math.round(totalDaysOverdue / overdueAssignments.length);
+    }
+
+    // Calculate risk score (0-100, higher = more risk)
+    let riskScore = 0;
+
+    // Factor 1: Overdue percentage (up to 40 points)
+    const overduePercentage = allAssignments.length > 0
+      ? (overdueCount / allAssignments.length) * 100
+      : 0;
+    riskScore += Math.min(40, overduePercentage * 0.8);
+
+    // Factor 2: Stalled learner percentage (up to 30 points)
+    const stalledPercentage = learners.length > 0
+      ? (stalledCount / learners.length) * 100
+      : 0;
+    riskScore += Math.min(30, stalledPercentage * 0.6);
+
+    // Factor 3: Low compliance (up to 20 points)
+    const complianceRisk = Math.max(0, 100 - compliance);
+    riskScore += Math.min(20, complianceRisk * 0.2);
+
+    // Factor 4: Average days overdue (up to 10 points)
+    riskScore += Math.min(10, avgDaysOverdue * 0.5);
+
+    riskScore = Math.round(riskScore);
+
+    // Determine risk level based on score
+    let riskLevel: RiskLevel = 'low';
+    if (riskScore >= 70) {
+      riskLevel = 'critical';
+    } else if (riskScore >= 50) {
+      riskLevel = 'high';
+    } else if (riskScore >= 25) {
+      riskLevel = 'medium';
+    }
+
+    // Determine top issue and detail
+    let topIssue: TopIssueType = 'none';
+    let topIssueDetail = '';
+
+    if (riskScore < 15 && compliance >= 80) {
+      topIssue = 'high-performer';
+      topIssueDetail = `${compliance}% compliance rate`;
+    } else if (overduePercentage >= 30) {
+      topIssue = 'overdue-spike';
+      topIssueDetail = `${overdueCount} overdue (${Math.round(overduePercentage)}% of assignments)`;
+    } else if (stalledPercentage >= 25) {
+      topIssue = 'stalled-learners';
+      topIssueDetail = `${stalledCount} employees with no activity in 14+ days`;
+    } else if (compliance < 30 && allAssignments.length > 0) {
+      topIssue = 'low-completion';
+      topIssueDetail = `Only ${compliance}% completion rate`;
+    } else if (stalledCount > 0) {
+      topIssue = 'stalled-learners';
+      topIssueDetail = `${stalledCount} employee${stalledCount > 1 ? 's' : ''} stalled`;
+    } else if (overdueCount > 0) {
+      topIssue = 'overdue-spike';
+      topIssueDetail = `${overdueCount} overdue assignment${overdueCount > 1 ? 's' : ''}`;
+    } else if (notStartedCount > 0 && compliance < 50) {
+      topIssue = 'no-activity';
+      topIssueDetail = `${notStartedCount} not started`;
+    }
+
     unitRows.push({
       id: storeName,
       unitName: storeName,
@@ -642,11 +748,22 @@ export function aggregateToUnitRows(
       overdueCount,
       notStartedCount,
       compliance,
+      riskLevel,
+      riskScore,
+      topIssue,
+      topIssueDetail,
+      stalledCount,
+      avgDaysOverdue,
     });
   });
 
-  // Sort by unit name
-  unitRows.sort((a, b) => a.unitName.localeCompare(b.unitName));
+  // Sort by risk score (highest risk first), then by unit name
+  unitRows.sort((a, b) => {
+    if (b.riskScore !== a.riskScore) {
+      return b.riskScore - a.riskScore;
+    }
+    return a.unitName.localeCompare(b.unitName);
+  });
 
   return unitRows;
 }

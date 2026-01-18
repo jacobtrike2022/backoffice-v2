@@ -39,7 +39,11 @@ import {
   CheckCircle,
   Plus,
   Info,
-  Archive
+  Archive,
+  AlertTriangle,
+  AlertCircle,
+  TrendingDown,
+  Zap
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -52,7 +56,8 @@ import {
   type AssignmentRecord,
   type ReportType,
   type FlattenedAssignmentRow,
-  type UnitReportRow
+  type UnitReportRow,
+  type RiskLevel
 } from '../lib/crud/reports';
 import { exportToCSV, exportToExcel, exportToPDF } from '../lib/utils/export';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
@@ -484,7 +489,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     if (newType === 'people') {
       setSortField('employeeName');
     } else if (newType === 'assignments') {
-      setSortField('employeeName');
+      setSortField('playlist'); // Sort by playlist - assignment is the anchor
     } else {
       setSortField('unitName');
     }
@@ -598,10 +603,28 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       'not-started': 'bg-gray-100 text-gray-800',
       'overdue': 'bg-red-100 text-red-800'
     };
-    
+
     return (
       <Badge className={variants[status as keyof typeof variants] || 'bg-gray-100 text-gray-800'}>
         {status.replace('-', ' ')}
+      </Badge>
+    );
+  };
+
+  const getRiskBadge = (riskLevel: RiskLevel) => {
+    const config = {
+      'low': { className: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle, label: 'Low Risk' },
+      'medium': { className: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: AlertCircle, label: 'Medium' },
+      'high': { className: 'bg-orange-100 text-orange-800 border-orange-200', icon: AlertTriangle, label: 'High' },
+      'critical': { className: 'bg-red-100 text-red-800 border-red-200', icon: Zap, label: 'Critical' }
+    };
+
+    const { className, icon: Icon, label } = config[riskLevel];
+
+    return (
+      <Badge className={`${className} border flex items-center gap-1`}>
+        <Icon className="h-3 w-3" />
+        {label}
       </Badge>
     );
   };
@@ -626,72 +649,56 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
           </p>
         </div>
 
-        {/* Report Type Toggle + Export Actions */}
-        <div className="flex items-center gap-6">
-          {/* Report Type Pill Toggle */}
-          <ToggleGroup
-            type="single"
-            value={reportType}
-            onValueChange={(value) => value && handleReportTypeChange(value as ReportType)}
-            className="bg-accent/50 p-1 rounded-lg"
-          >
-            <ToggleGroupItem
-              value="people"
-              aria-label="People view"
-              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
-            >
-              <Users className="h-4 w-4" />
-              People
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="assignments"
-              aria-label="Assignments view"
-              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              Assignments
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              value="units"
-              aria-label="Units view"
-              className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
-            >
-              <Building className="h-4 w-4" />
-              Units
-            </ToggleGroupItem>
-          </ToggleGroup>
-
-          {/* Export Actions */}
-          <div className="flex items-center space-x-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="text-xs text-muted-foreground flex items-center mr-2">
-                  <Info className="h-3 w-3 mr-1" />
-                  Exports match view
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">
-                  Your export will contain {reportType === 'people' ? 'one row per learner' :
-                    reportType === 'assignments' ? 'one row per assignment' :
-                    'one row per unit'}.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-            <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
-              <Download className="h-4 w-4 mr-1" />
-              CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport('xlsx')}>
-              <Download className="h-4 w-4 mr-1" />
-              Excel
-            </Button>
-            <Button size="sm" className="hero-primary shadow-brand" onClick={() => handleExport('pdf')}>
-              <FileText className="h-4 w-4 mr-1" />
-              PDF
-            </Button>
-          </div>
+        {/* Export Actions */}
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+            <Download className="h-4 w-4 mr-1" />
+            CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport('xlsx')}>
+            <Download className="h-4 w-4 mr-1" />
+            Excel
+          </Button>
+          <Button size="sm" className="hero-primary shadow-brand" onClick={() => handleExport('pdf')}>
+            <FileText className="h-4 w-4 mr-1" />
+            PDF
+          </Button>
         </div>
+      </div>
+
+      {/* Report Type Pill Toggle - Centered */}
+      <div className="flex justify-center">
+        <ToggleGroup
+          type="single"
+          value={reportType}
+          onValueChange={(value) => value && handleReportTypeChange(value as ReportType)}
+          className="bg-accent/50 p-1 rounded-lg"
+        >
+          <ToggleGroupItem
+            value="people"
+            aria-label="People view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <Users className="h-4 w-4" />
+            People
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="assignments"
+            aria-label="Assignments view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Assignments
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="units"
+            aria-label="Units view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <Building className="h-4 w-4" />
+            Units
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {/* Search and Filter Bar */}
@@ -1066,7 +1073,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             </Table>
           )}
 
-          {/* Assignments Mode Table */}
+          {/* Assignments Mode Table - Assignment is the anchor, person is context */}
           {reportType === 'assignments' && (
             <Table className="w-full">
               <TableHeader>
@@ -1086,26 +1093,6 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => {
-                      if (sortField === 'employeeName') {
-                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                      } else {
-                        setSortField('employeeName');
-                        setSortDirection('asc');
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Employee</span>
-                      {sortField === 'employeeName' && (
-                        sortDirection === 'asc' ?
-                        <ChevronUp className="h-3 w-3 text-primary" /> :
-                        <ChevronDown className="h-3 w-3 text-primary" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => {
                       if (sortField === 'playlist') {
                         setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
                       } else {
@@ -1115,7 +1102,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Playlist</span>
+                      <span>Playlist / Track</span>
                       {sortField === 'playlist' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1123,7 +1110,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Track</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'employeeName') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('employeeName');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Assigned To</span>
+                      {sortField === 'employeeName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => {
@@ -1144,7 +1150,6 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Assigned</span></TableHead>
                   <TableHead><span>Due</span></TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
@@ -1172,7 +1177,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-12">
+                    <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
                         <p className="text-sm text-muted-foreground">Loading assignments...</p>
@@ -1181,7 +1186,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                   </TableRow>
                 ) : assignmentRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-12">
+                    <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <FileSpreadsheet className="h-8 w-8 text-muted-foreground opacity-50" />
                         <p className="text-sm font-medium text-foreground">No assignments found</p>
@@ -1202,21 +1207,19 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{row.employeeName}</div>
+                        <div>
+                          <div className="font-medium text-foreground">{row.playlist}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">{row.track}</div>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm font-medium">{row.playlist}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm text-muted-foreground truncate max-w-[150px]">{row.track}</div>
+                        <div>
+                          <div className="text-sm">{row.employeeName}</div>
+                          <div className="text-xs text-muted-foreground">{row.role}</div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">{row.store}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm text-muted-foreground">
-                          {row.dateAssigned ? new Date(row.dateAssigned).toLocaleDateString() : '—'}
-                        </div>
                       </TableCell>
                       <TableCell>
                         <div className={`text-sm ${row.dueDate && new Date(row.dueDate) < new Date() && !row.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
@@ -1239,7 +1242,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             </Table>
           )}
 
-          {/* Units Mode Table */}
+          {/* Units Mode Table - Operational risk focus with diagnostic signals */}
           {reportType === 'units' && (
             <Table className="w-full">
               <TableHeader>
@@ -1255,6 +1258,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                         }
                       }}
                     />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'riskScore') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('riskScore');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Risk</span>
+                      {sortField === 'riskScore' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
                   </TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
@@ -1276,20 +1299,61 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
+                  <TableHead><span>Top Issue</span></TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => {
-                      if (sortField === 'district') {
+                      if (sortField === 'compliance') {
                         setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
                       } else {
-                        setSortField('district');
+                        setSortField('compliance');
                         setSortDirection('asc');
                       }
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>District</span>
-                      {sortField === 'district' && (
+                      <span>Compliance</span>
+                      {sortField === 'compliance' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'overdueCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('overdueCount');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Overdue</span>
+                      {sortField === 'overdueCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'stalledCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('stalledCount');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Stalled</span>
+                      {sortField === 'stalledCount' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
                         <ChevronDown className="h-3 w-3 text-primary" />
@@ -1308,50 +1372,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Employees</span>
+                      <span>Team</span>
                       {sortField === 'employeeCount' && (
-                        sortDirection === 'asc' ?
-                        <ChevronUp className="h-3 w-3 text-primary" /> :
-                        <ChevronDown className="h-3 w-3 text-primary" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead><span>Assignments</span></TableHead>
-                  <TableHead
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'avgProgress') {
-                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                      } else {
-                        setSortField('avgProgress');
-                        setSortDirection('asc');
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Avg Progress</span>
-                      {sortField === 'avgProgress' && (
-                        sortDirection === 'asc' ?
-                        <ChevronUp className="h-3 w-3 text-primary" /> :
-                        <ChevronDown className="h-3 w-3 text-primary" />
-                      )}
-                    </div>
-                  </TableHead>
-                  <TableHead><span>Completed</span></TableHead>
-                  <TableHead
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => {
-                      if (sortField === 'overdueCount') {
-                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-                      } else {
-                        setSortField('overdueCount');
-                        setSortDirection('asc');
-                      }
-                    }}
-                  >
-                    <div className="flex items-center space-x-1">
-                      <span>Overdue</span>
-                      {sortField === 'overdueCount' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
                         <ChevronDown className="h-3 w-3 text-primary" />
@@ -1384,7 +1406,11 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                   unitRows.map((row, index) => (
                     <TableRow
                       key={row.id}
-                      className={`border-b border-border hover:bg-accent/20 transition-colors ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
+                      className={`border-b border-border hover:bg-accent/20 transition-colors ${
+                        row.riskLevel === 'critical' ? 'bg-red-50/50' :
+                        row.riskLevel === 'high' ? 'bg-orange-50/30' :
+                        index % 2 === 0 ? 'bg-background' : 'bg-accent/10'
+                      }`}
                     >
                       <TableCell className="pl-4">
                         <Checkbox
@@ -1393,29 +1419,87 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{row.unitName}</div>
+                        {getRiskBadge(row.riskLevel)}
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm">{row.district}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm font-medium">{row.employeeCount}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">{row.assignmentCount}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Progress value={row.avgProgress} className="h-1.5 w-16" />
-                          <span className="text-sm font-medium min-w-[35px]">{row.avgProgress}%</span>
+                        <div>
+                          <div className="font-medium text-foreground">{row.unitName}</div>
+                          <div className="text-xs text-muted-foreground">{row.district}</div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm text-green-600 font-medium">{row.completedCount}</div>
+                        {row.topIssueDetail ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`text-sm ${
+                                row.topIssue === 'high-performer' ? 'text-green-600' :
+                                row.topIssue === 'overdue-spike' || row.topIssue === 'low-completion' ? 'text-red-600' :
+                                row.topIssue === 'stalled-learners' ? 'text-orange-600' :
+                                'text-muted-foreground'
+                              }`}>
+                                {row.topIssueDetail}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="text-xs space-y-1">
+                                <div>Completed: {row.completedCount} / {row.assignmentCount}</div>
+                                <div>In Progress: {row.inProgressCount}</div>
+                                <div>Not Started: {row.notStartedCount}</div>
+                                {row.avgDaysOverdue > 0 && (
+                                  <div>Avg days overdue: {row.avgDaysOverdue}</div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Progress
+                            value={row.compliance}
+                            className={`h-1.5 w-16 ${
+                              row.compliance >= 80 ? '[&>div]:bg-green-500' :
+                              row.compliance >= 50 ? '[&>div]:bg-yellow-500' :
+                              '[&>div]:bg-red-500'
+                            }`}
+                          />
+                          <span className={`text-sm font-medium min-w-[35px] ${
+                            row.compliance >= 80 ? 'text-green-600' :
+                            row.compliance >= 50 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>{row.compliance}%</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className={`text-sm font-medium ${row.overdueCount > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
                           {row.overdueCount}
+                          {row.avgDaysOverdue > 0 && row.overdueCount > 0 && (
+                            <span className="text-xs text-muted-foreground ml-1">
+                              (~{row.avgDaysOverdue}d)
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className={`text-sm font-medium ${row.stalledCount > 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                              {row.stalledCount}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Employees with no activity in 14+ days</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <span className="font-medium">{row.employeeCount}</span>
+                          <span className="text-muted-foreground ml-1">
+                            ({row.assignmentCount} assignments)
+                          </span>
                         </div>
                       </TableCell>
                     </TableRow>
