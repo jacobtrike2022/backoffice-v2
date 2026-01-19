@@ -188,7 +188,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
             <Table className="data-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer hover:bg-muted/80 transition-colors py-2"
                     onClick={() => handleSort('unit')}
                   >
@@ -197,7 +197,16 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/80 transition-colors py-2"
+                    onClick={() => handleSort('district')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>District</span>
+                      <ArrowUpDown className="h-3 w-3" />
+                    </div>
+                  </TableHead>
+                  <TableHead
                     className="cursor-pointer hover:bg-muted/80 transition-colors py-2"
                     onClick={() => handleSort('employees')}
                   >
@@ -207,7 +216,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer hover:bg-muted/80 transition-colors py-2"
                     onClick={() => handleSort('assignments')}
                   >
@@ -216,7 +225,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer hover:bg-muted/80 transition-colors py-2"
                     onClick={() => handleSort('completion')}
                   >
@@ -231,13 +240,16 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
               </TableHeader>
               <TableBody>
                 {sortedData.map((unit) => (
-                  <TableRow 
-                    key={unit.id} 
+                  <TableRow
+                    key={unit.id}
                     className={`${getRowHighlight(unit.status)} cursor-pointer transition-all`}
                     onClick={() => onNavigateToStore?.(unit.id)}
                   >
                     <TableCell className="py-2">
                       <div className="font-medium">{unit.unit}</div>
+                    </TableCell>
+                    <TableCell className="py-2">
+                      <span className="text-muted-foreground">{unit.district}</span>
                     </TableCell>
                     <TableCell className="py-2">
                       <span className="font-medium">{unit.employees}</span>
@@ -289,7 +301,10 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-semibold">{unit.unit}</h4>
+                    <div>
+                      <h4 className="font-semibold">{unit.unit}</h4>
+                      <p className="text-xs text-muted-foreground">{unit.district}</p>
+                    </div>
                     <Badge variant="outline" className={getStatusColor(unit.status)}>
                       {unit.status}
                     </Badge>
