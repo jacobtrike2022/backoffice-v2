@@ -28,14 +28,13 @@ function getHeadersForMode(mode: ReportType): string[] {
       ];
     case 'assignments':
       return [
+        'Playlist',
+        'Track',
         'Employee Name',
         'Employee ID',
+        'Role',
         'District',
         'Store',
-        'Role',
-        'Playlist',
-        'Album',
-        'Track',
         'Progress',
         'Score',
         'Status',
@@ -80,14 +79,13 @@ function formatRowsForMode(data: ExportData, mode: ReportType): string[][] {
       ]);
     case 'assignments':
       return (data as FlattenedAssignmentRow[]).map(row => [
+        row.playlist,
+        row.track,
         row.employeeName,
         row.employeeId,
+        row.role,
         row.district,
         row.store,
-        row.role,
-        row.playlist,
-        row.album,
-        row.track,
         `${row.progress}%`,
         row.score.toString(),
         row.status,
@@ -244,8 +242,8 @@ function getPDFConfig(mode: ReportType): { headers: string[]; colWidths: number[
       };
     case 'assignments':
       return {
-        headers: ['Employee', 'Playlist', 'Location', 'Due', 'Progress', 'Status'],
-        colWidths: [45, 55, 35, 25, 22, 25]
+        headers: ['Playlist', 'Employee', 'Location', 'Due', 'Progress', 'Status'],
+        colWidths: [55, 45, 35, 25, 22, 25]
       };
     case 'units':
       return {
@@ -271,8 +269,8 @@ function getPDFRows(data: ExportData, mode: ReportType): string[][] {
       ]);
     case 'assignments':
       return (data as FlattenedAssignmentRow[]).map(row => [
-        truncateText(row.employeeName, 22),
         truncateText(row.playlist, 28),
+        truncateText(row.employeeName, 22),
         truncateText(row.store, 18),
         row.dueDate ? new Date(row.dueDate).toLocaleDateString() : '—',
         `${row.progress}%`,

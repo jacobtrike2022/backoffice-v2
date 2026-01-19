@@ -83,10 +83,12 @@ export function AlbumDetailView({
     });
   }, [album]);
 
-  // Sync localTracks when album changes
+  // Sync localTracks when album changes (filter out archived tracks)
   useEffect(() => {
     if (album.tracks) {
-      const sorted = [...album.tracks].sort((a, b) => a.display_order - b.display_order);
+      const sorted = [...album.tracks]
+        .filter((at) => at.track?.status !== 'archived')
+        .sort((a, b) => a.display_order - b.display_order);
       setLocalTracks(sorted);
     }
   }, [album]);

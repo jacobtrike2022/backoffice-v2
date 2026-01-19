@@ -488,24 +488,70 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     // Reset sort to appropriate default for the mode
     if (newType === 'people') {
       setSortField('employeeName');
+      setSortDirection('asc');
     } else if (newType === 'assignments') {
       setSortField('playlist'); // Sort by playlist - assignment is the anchor
+      setSortDirection('asc');
     } else {
-      setSortField('unitName');
+      setSortField('riskScore'); // Sort by risk - highest risk first
+      setSortDirection('desc');
     }
-    setSortDirection('asc');
   };
 
-  // Transform data based on report type
+  // Transform data based on report type - use filteredData as source so filters apply
   const assignmentRows = useMemo(() => {
     if (reportType !== 'assignments') return [];
-    return flattenToAssignmentRows(learnerData);
-  }, [reportType, learnerData]);
+    const rows = flattenToAssignmentRows(filteredData);
+
+    // Apply sorting
+    rows.sort((a, b) => {
+      const aValue = a[sortField as keyof FlattenedAssignmentRow];
+      const bValue = b[sortField as keyof FlattenedAssignmentRow];
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+
+      return 0;
+    });
+
+    return rows;
+  }, [reportType, filteredData, sortField, sortDirection]);
 
   const unitRows = useMemo(() => {
     if (reportType !== 'units') return [];
-    return aggregateToUnitRows(learnerData);
-  }, [reportType, learnerData]);
+    const rows = aggregateToUnitRows(filteredData);
+
+    // Apply sorting (override the default risk-based sort if user clicked a column)
+    rows.sort((a, b) => {
+      const aValue = a[sortField as keyof UnitReportRow];
+      const bValue = b[sortField as keyof UnitReportRow];
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+
+      return 0;
+    });
+
+    return rows;
+  }, [reportType, filteredData, sortField, sortDirection]);
 
   const filteredProperties = filterProperties.filter(property =>
     property.label.toLowerCase().includes(filterSearch.toLowerCase()) ||
@@ -1020,52 +1066,61 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                         </TableCell>
                       </TableRow>
 
-                      {/* Expanded Row - Full-width detail panel */}
-                      {isExpanded && (
-                        <TableRow className="bg-accent/20">
-                          <TableCell colSpan={10} className="p-0">
-                            <div className="p-4 space-y-3">
-                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Assignments</div>
-                              <div className="grid gap-2">
-                                {(record.assignments || []).length === 0 ? (
-                                  <div className="text-sm text-muted-foreground py-2">No assignments found</div>
-                                ) : (
-                                  (record.assignments || []).map((assignment: AssignmentRecord) => (
-                                    <div
-                                      key={assignment.id}
-                                      className="bg-background border border-border rounded-lg p-3 flex items-center justify-between gap-4"
-                                    >
-                                      <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm">{assignment.playlist}</div>
-                                        <div className="text-xs text-muted-foreground truncate">{assignment.track}</div>
-                                      </div>
-                                      <div className="flex items-center gap-4 text-sm">
-                                        <div className="text-muted-foreground">
-                                          <span className="text-xs">Assigned: </span>
-                                          {assignment.dateAssigned
-                                            ? new Date(assignment.dateAssigned).toLocaleDateString()
-                                            : '—'}
-                                        </div>
-                                        <div className={assignment.dueDate && new Date(assignment.dueDate) < new Date() && !assignment.completionDate ? 'text-red-500' : 'text-muted-foreground'}>
-                                          <span className="text-xs">Due: </span>
-                                          {assignment.dueDate
-                                            ? new Date(assignment.dueDate).toLocaleDateString()
-                                            : '—'}
-                                        </div>
-                                        <div className="flex items-center gap-2 min-w-[100px]">
-                                          <Progress value={assignment.progress} className="h-1.5 w-12" />
-                                          <span className="text-xs">{assignment.progress}%</span>
-                                        </div>
-                                        {getStatusBadge(assignment.status)}
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
+                      {/* Expanded Row - Uses table cells to align with parent columns */}
+                      {isExpanded && (record.assignments || []).map((assignment: AssignmentRecord, idx: number) => (
+                        <TableRow
+                          key={assignment.id}
+                          className={`bg-accent/20 ${idx !== (record.assignments?.length || 0) - 1 ? '' : ''}`}
+                        >
+                          {/* Expand column - empty */}
+                          <TableCell className="pl-4 py-2"></TableCell>
+                          {/* Checkbox column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* Playlist - in Employee column */}
+                          <TableCell className="py-2">
+                            <div className="text-sm text-muted-foreground">{assignment.playlist}</div>
+                          </TableCell>
+                          {/* Role column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* District column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* Location column - Assigned date */}
+                          <TableCell className="py-2">
+                            <div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Assigned</div>
+                              <div className="text-sm text-muted-foreground">
+                                {assignment.dateAssigned
+                                  ? new Date(assignment.dateAssigned).toLocaleDateString()
+                                  : '—'}
                               </div>
                             </div>
                           </TableCell>
+                          {/* Assignments column - Due date */}
+                          <TableCell className="py-2">
+                            <div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Due</div>
+                              <div className={`text-sm ${assignment.dueDate && new Date(assignment.dueDate) < new Date() && !assignment.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                                {assignment.dueDate
+                                  ? new Date(assignment.dueDate).toLocaleDateString()
+                                  : '—'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          {/* Progress column */}
+                          <TableCell className="py-2">
+                            <div className="flex items-center space-x-2">
+                              <Progress value={assignment.progress} className="h-1.5 w-16" />
+                              <span className="text-sm font-medium min-w-[35px]">{assignment.progress}%</span>
+                            </div>
+                          </TableCell>
+                          {/* Status column */}
+                          <TableCell className="py-2">
+                            {getStatusBadge(assignment.status)}
+                          </TableCell>
+                          {/* Actions column - empty */}
+                          <TableCell className="pr-4 py-2"></TableCell>
                         </TableRow>
-                      )}
+                      ))}
                     </React.Fragment>
                   );
                 }))}
@@ -1150,7 +1205,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Due</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'dueDate') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('dueDate');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Due</span>
+                      {sortField === 'dueDate' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => {
@@ -1171,7 +1245,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Status</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'status') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('status');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {sortField === 'status' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1407,8 +1500,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableRow
                       key={row.id}
                       className={`border-b border-border hover:bg-accent/20 transition-colors ${
-                        row.riskLevel === 'critical' ? 'bg-red-50/50' :
-                        row.riskLevel === 'high' ? 'bg-orange-50/30' :
+                        row.riskLevel === 'critical' ? 'bg-red-500/10 dark:bg-red-500/20' :
+                        row.riskLevel === 'high' ? 'bg-orange-500/10 dark:bg-orange-500/15' :
                         index % 2 === 0 ? 'bg-background' : 'bg-accent/10'
                       }`}
                     >
@@ -1432,9 +1525,9 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className={`text-sm ${
-                                row.topIssue === 'high-performer' ? 'text-green-600' :
-                                row.topIssue === 'overdue-spike' || row.topIssue === 'low-completion' ? 'text-red-600' :
-                                row.topIssue === 'stalled-learners' ? 'text-orange-600' :
+                                row.topIssue === 'high-performer' ? 'text-green-600 dark:text-green-400' :
+                                row.topIssue === 'overdue-spike' || row.topIssue === 'low-completion' ? 'text-red-600 dark:text-red-400' :
+                                row.topIssue === 'stalled-learners' ? 'text-orange-600 dark:text-orange-400' :
                                 'text-muted-foreground'
                               }`}>
                                 {row.topIssueDetail}

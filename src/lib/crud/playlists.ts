@@ -77,10 +77,17 @@ export async function getPlaylists(filters: {
     .select('playlist_id')
     .in('playlist_id', playlistIds);
 
-  // Batch query 2: Get all track data for all playlists at once
+  // Batch query 2: Get all track data for all playlists at once (with track status to filter archived)
   const { data: allPlaylistTracks } = await supabase
     .from('playlist_tracks')
-    .select('playlist_id, track_id, display_order')
+    .select(`
+      playlist_id,
+      track_id,
+      display_order,
+      track:tracks (
+        status
+      )
+    `)
     .in('playlist_id', playlistIds)
     .order('display_order', { ascending: true });
 
@@ -109,7 +116,8 @@ export async function getPlaylists(filters: {
     if (!tracksByPlaylist[pt.playlist_id]) {
       tracksByPlaylist[pt.playlist_id] = [];
     }
-    if (pt.track_id) {
+    // Only include non-archived tracks
+    if (pt.track_id && pt.track?.status !== 'archived') {
       tracksByPlaylist[pt.playlist_id].push({
         track_id: pt.track_id,
         display_order: pt.display_order || 0,
@@ -204,6 +212,7 @@ export async function getPlaylists(filters: {
 /**
  * Get playlist title and track IDs only (lightweight, for filtering)
  * This is optimized for filtering operations where we don't need full playlist data
+ * Note: This excludes archived tracks
  */
 export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: string; track_ids: string[] } | null> {
   // Run all independent queries in parallel for maximum speed
@@ -214,10 +223,15 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
       .select('id, title')
       .eq('id', playlistId)
       .single(),
-    // Get standalone track IDs (no joins needed)
+    // Get standalone track IDs with track status to filter archived
     supabase
       .from('playlist_tracks')
-      .select('track_id')
+      .select(`
+        track_id,
+        track:tracks (
+          status
+        )
+      `)
       .eq('playlist_id', playlistId),
     // Get album IDs
     supabase
@@ -230,19 +244,30 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
 
   const albumIds = (playlistAlbumsResult.data || []).map((pa: any) => pa.album_id).filter(Boolean);
 
-  // Get track IDs from albums (only if there are albums)
+  // Get track IDs from albums (only if there are albums), excluding archived tracks
   let albumTrackIds: string[] = [];
   if (albumIds.length > 0) {
     const { data: albumTracks } = await supabase
       .from('album_tracks')
-      .select('track_id')
+      .select(`
+        track_id,
+        track:tracks (
+          status
+        )
+      `)
       .in('album_id', albumIds);
-    
-    albumTrackIds = (albumTracks || []).map((at: any) => at.track_id).filter(Boolean);
+
+    albumTrackIds = (albumTracks || [])
+      .filter((at: any) => at.track?.status !== 'archived')
+      .map((at: any) => at.track_id)
+      .filter(Boolean);
   }
 
-  // Combine standalone tracks and album tracks, deduplicate
-  const standaloneTrackIds = (playlistTracksResult.data || []).map((pt: any) => pt.track_id).filter(Boolean);
+  // Combine standalone tracks and album tracks, deduplicate (exclude archived)
+  const standaloneTrackIds = (playlistTracksResult.data || [])
+    .filter((pt: any) => pt.track?.status !== 'archived')
+    .map((pt: any) => pt.track_id)
+    .filter(Boolean);
   const allTrackIds = [...new Set([...standaloneTrackIds, ...albumTrackIds])];
 
   return {

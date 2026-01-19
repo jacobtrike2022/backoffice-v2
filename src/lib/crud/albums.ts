@@ -114,14 +114,17 @@ export async function getAlbums(options: {
     // Sort tracks by display_order
     const sortedTracks = albumTracks
       .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0));
-    const trackCount = sortedTracks.length;
-    const totalDurationMinutes = sortedTracks.reduce((sum: number, at: any) => 
+
+    // Filter out archived tracks for counts and duration calculations
+    const publishedTracks = sortedTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
       sum + (at.track?.duration_minutes || 0), 0
     );
 
     return {
       ...album,
-      tracks: sortedTracks as AlbumTrack[],
+      tracks: sortedTracks as AlbumTrack[],  // Keep all tracks for display with status info
       track_count: trackCount,
       total_duration_minutes: totalDurationMinutes,
     };
@@ -168,15 +171,18 @@ export async function getAlbumById(albumId: string): Promise<Album | null> {
   const sortedTracks = (album.album_tracks || [])
     .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0));
 
-  // Calculate total duration
-  const totalDurationMinutes = sortedTracks.reduce((sum: number, at: any) => 
+  // Filter out archived tracks for counts and duration calculations
+  const publishedTracks = sortedTracks.filter((at: any) => at.track?.status !== 'archived');
+
+  // Calculate total duration (only from non-archived tracks)
+  const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
     sum + (at.track?.duration_minutes || 0), 0
   );
 
   const result = {
     ...album,
-    tracks: sortedTracks as AlbumTrack[],
-    track_count: sortedTracks.length,
+    tracks: sortedTracks as AlbumTrack[],  // Keep all tracks for display with status info
+    track_count: publishedTracks.length,
     total_duration_minutes: totalDurationMinutes,
   } as Album;
 
@@ -548,7 +554,8 @@ export async function getRecentAlbums(limit: number = 4): Promise<Album[]> {
       album_tracks (
         track_id,
         track:tracks (
-          duration_minutes
+          duration_minutes,
+          status
         )
       )
     `)
@@ -558,11 +565,13 @@ export async function getRecentAlbums(limit: number = 4): Promise<Album[]> {
 
   if (error) throw error;
 
-  // Enrich with computed fields
+  // Enrich with computed fields (filter out archived tracks)
   const enrichedAlbums = (albums || []).map((album: any) => {
     const albumTracks = album.album_tracks || [];
-    const trackCount = albumTracks.length;
-    const totalDurationMinutes = albumTracks.reduce((sum: number, at: any) => 
+    // Filter out archived tracks for counts and duration calculations
+    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
       sum + (at.track?.duration_minutes || 0), 0
     );
 
