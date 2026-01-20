@@ -458,6 +458,8 @@ export function DashboardLayout({
                               onNavigate('organization');
                             } else if (item.id === 'settings') {
                               onNavigate('settings');
+                            } else if (item.id === 'compliance-management') {
+                              onNavigate('compliance-management');
                             } else {
                               onNavigate('dashboard');
                             }

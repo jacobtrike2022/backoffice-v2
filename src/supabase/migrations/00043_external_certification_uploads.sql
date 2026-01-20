@@ -77,9 +77,10 @@ CREATE POLICY "Admins can view org certification uploads"
   ON external_certification_uploads FOR SELECT
   USING (
     organization_id IN (
-      SELECT organization_id FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin')
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 
@@ -88,9 +89,10 @@ CREATE POLICY "DMs can view org certification uploads"
   ON external_certification_uploads FOR SELECT
   USING (
     organization_id IN (
-      SELECT organization_id FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name = 'District Manager'
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name = 'District Manager'
     )
   );
 
@@ -99,9 +101,10 @@ CREATE POLICY "Admins can update certification uploads"
   ON external_certification_uploads FOR UPDATE
   USING (
     organization_id IN (
-      SELECT organization_id FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin')
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 
@@ -164,9 +167,10 @@ CREATE POLICY "Admins can view org certification docs"
   USING (
     bucket_id = 'certification-documents'
     AND (storage.foldername(name))[1] IN (
-      SELECT organization_id::text FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin', 'District Manager')
+      SELECT u.organization_id::text FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin', 'District Manager')
     )
   );
 
