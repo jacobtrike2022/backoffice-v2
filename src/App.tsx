@@ -38,6 +38,7 @@ import { Analytics } from "./components/Analytics";
 import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
 import { ComplianceDashboard } from "./components/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
+import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
 import { People } from "./components/People";
 import { Units } from "./components/Units";
 import { NewUnit } from "./components/NewUnit";
@@ -72,6 +73,7 @@ type AppView =
   | "analytics"
   | "compliance"
   | "compliance-audit"
+  | "compliance-management"
   | "content"
   | "assignments"
   | "assignment"
@@ -114,6 +116,7 @@ export default function App() {
     string | undefined
   >(undefined);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [assignmentsInitialTab, setAssignmentsInitialTab] = useState<'playlists' | 'albums'>('playlists');
   const [editingPlaylistId, setEditingPlaylistId] = useState<
     string | undefined
   >(undefined);
@@ -436,6 +439,18 @@ export default function App() {
         );
       case "compliance-audit":
         return <ComplianceAudit role={currentRole} />;
+      case "compliance-management":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <ComplianceManagement
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
       case "content":
         return (
           <ContentLibrary
@@ -447,11 +462,27 @@ export default function App() {
             registerUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
             onNavigateToPlaylist={(playlistId: string) => {
               setSelectedPlaylistId(playlistId);
+              setAssignmentsInitialTab('playlists');
               setPreviousView('content');
               requestNavigate("assignments");
             }}
             onNavigateToAlbum={(albumId: string) => {
               setSelectedAlbumId(albumId);
+              setAssignmentsInitialTab('albums');
+              setPreviousView('content');
+              requestNavigate("assignments");
+            }}
+            onNavigateToPlaylistsTab={() => {
+              setSelectedPlaylistId(undefined);
+              setSelectedAlbumId(null);
+              setAssignmentsInitialTab('playlists');
+              setPreviousView('content');
+              requestNavigate("assignments");
+            }}
+            onNavigateToAlbumsTab={() => {
+              setSelectedPlaylistId(undefined);
+              setSelectedAlbumId(null);
+              setAssignmentsInitialTab('albums');
               setPreviousView('content');
               requestNavigate("assignments");
             }}
@@ -480,7 +511,7 @@ export default function App() {
             }}
             selectedPlaylistId={selectedPlaylistId || undefined}
             selectedAlbumId={selectedAlbumId || undefined}
-            initialTab={selectedAlbumId ? 'albums' : 'playlists'}
+            initialTab={assignmentsInitialTab}
             previousView={previousView}
             onBackToPreviousView={() => {
               setSelectedPlaylistId(undefined);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { signOut } from '../lib/hooks/useAuth';
 import { Button } from './ui/button';
-import { 
+import {
   Home,
   FileText,
   BarChart3,
@@ -9,6 +9,7 @@ import {
   Building,
   Building2,
   Shield,
+  ShieldCheck,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
@@ -163,14 +164,20 @@ const navigationGroups: NavigationGroup[] = [
         id: 'compliance',
         label: 'Compliance',
         icon: UserCheck,
-        roles: ['admin', 'trike-super-admin'],
-        badge: '2'
+        roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'settings',
         label: 'Settings',
         icon: Settings,
         roles: ['admin', 'trike-super-admin']
+      },
+      {
+        id: 'compliance-management',
+        label: 'Compliance Management',
+        icon: ShieldCheck,
+        roles: ['trike-super-admin'],
+        isNew: true
       }
     ]
   }

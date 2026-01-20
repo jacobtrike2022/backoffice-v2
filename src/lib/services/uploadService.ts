@@ -218,3 +218,23 @@ export async function uploadSourceFileWithRecord(
     return { success: false, error: error.message || 'Upload failed' };
   }
 }
+
+/**
+ * Upload a certification document to the certification-documents bucket
+ */
+export async function uploadCertificationDocument(
+  file: File,
+  organizationId: string,
+  userId: string,
+  onProgress?: (progress: number) => void
+): Promise<UploadResult> {
+  const fileExt = file.name.split('.').pop() || 'bin';
+  const fileName = `${organizationId}/${userId}/${crypto.randomUUID()}.${fileExt}`;
+
+  return uploadFile(file, {
+    bucket: 'certification-documents',
+    path: fileName,
+    contentType: file.type,
+    onProgress
+  });
+}

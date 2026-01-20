@@ -86,6 +86,8 @@ interface ContentLibraryProps {
   initialTrackId?: string; // Track ID to open on mount
   onNavigateToPlaylist?: (playlistId: string) => void;
   onNavigateToAlbum?: (albumId: string) => void;  // NEW
+  onNavigateToPlaylistsTab?: () => void;  // Navigate to playlists tab (no specific playlist)
+  onNavigateToAlbumsTab?: () => void;     // Navigate to albums tab (no specific album)
   onBackToLibrary?: () => void; // Callback to notify parent when returning to library
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
   onNavigate?: (view: string, trackId?: string) => void; // Navigation callback for creating/editing content
@@ -107,7 +109,7 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1985,6 +1987,8 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onAlbumClick={handleAlbumClick}
             onEditPlaylist={onNavigateToPlaylist ? handleEditPlaylist : undefined}
             onEditAlbum={onNavigateToAlbum ? handleEditAlbum : undefined}
+            onPlaylistsHeaderClick={onNavigateToPlaylistsTab}
+            onAlbumsHeaderClick={onNavigateToAlbumsTab}
             activePlaylistFilter={filterByPlaylistId}
             activeAlbumFilter={filterByAlbumId}
           />

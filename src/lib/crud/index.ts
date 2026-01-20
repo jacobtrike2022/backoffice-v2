@@ -24,6 +24,9 @@ export * from './forms';
 // Certifications
 export * from './certifications';
 
+// Compliance
+export * from './compliance';
+
 // Users
 export * from './users';
 

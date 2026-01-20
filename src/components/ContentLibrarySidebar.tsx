@@ -9,6 +9,8 @@ interface ContentLibrarySidebarProps {
   onAlbumClick: (albumId: string) => void;
   onEditPlaylist?: (playlistId: string) => void;  // NEW
   onEditAlbum?: (albumId: string) => void;        // NEW
+  onPlaylistsHeaderClick?: () => void;            // Navigate to playlists tab
+  onAlbumsHeaderClick?: () => void;               // Navigate to albums tab
   activePlaylistFilter?: string | null;
   activeAlbumFilter?: string | null;              // NEW
   className?: string;
@@ -22,14 +24,16 @@ interface Playlist {
   [key: string]: any;
 }
 
-export function ContentLibrarySidebar({ 
-  onPlaylistClick, 
+export function ContentLibrarySidebar({
+  onPlaylistClick,
   onAlbumClick,
   onEditPlaylist,
   onEditAlbum,
+  onPlaylistsHeaderClick,
+  onAlbumsHeaderClick,
   activePlaylistFilter,
   activeAlbumFilter,
-  className 
+  className
 }: ContentLibrarySidebarProps) {
   const [playlistsExpanded, setPlaylistsExpanded] = useState(false);
   const [albumsExpanded, setAlbumsExpanded] = useState(false);
@@ -109,7 +113,15 @@ export function ContentLibrarySidebar({
     >
       {/* Active Playlists Section */}
       <div className="p-4 border-b border-border overflow-hidden">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Active Playlists</h3>
+        <h3
+          className={cn(
+            "text-sm font-semibold text-foreground mb-3",
+            onPlaylistsHeaderClick && "cursor-pointer hover:text-primary transition-colors"
+          )}
+          onClick={onPlaylistsHeaderClick}
+        >
+          Active Playlists
+        </h3>
 
         {loading ? (
           <div className="space-y-2">
@@ -161,7 +173,15 @@ export function ContentLibrarySidebar({
 
       {/* Active Albums Section */}
       <div className="p-4 overflow-hidden">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Active Albums</h3>
+        <h3
+          className={cn(
+            "text-sm font-semibold text-foreground mb-3",
+            onAlbumsHeaderClick && "cursor-pointer hover:text-primary transition-colors"
+          )}
+          onClick={onAlbumsHeaderClick}
+        >
+          Active Albums
+        </h3>
 
         {loading ? (
           <div className="space-y-2">
