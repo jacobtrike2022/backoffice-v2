@@ -55,7 +55,7 @@ import {
 
 // US States for dropdown
 const US_STATES = [
-  { value: '', label: 'All States' },
+  { value: 'all', label: 'All States' },
   { value: 'AL', label: 'Alabama' },
   { value: 'AK', label: 'Alaska' },
   { value: 'AZ', label: 'Arizona' },
@@ -151,7 +151,9 @@ export function AuthoritiesManager() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getComplianceAuthorities(stateFilter || undefined);
+      // Convert 'all' back to undefined for the API call
+      const stateCode = stateFilter === 'all' ? undefined : stateFilter;
+      const data = await getComplianceAuthorities(stateCode || undefined);
       setAuthorities(data);
     } catch (err: any) {
       console.error('Error fetching authorities:', err);
@@ -449,15 +451,15 @@ export function AuthoritiesManager() {
               <div className="space-y-2">
                 <Label htmlFor="state_code">State</Label>
                 <Select
-                  value={formData.state_code}
-                  onValueChange={(value) => setFormData({ ...formData, state_code: value })}
+                  value={formData.state_code || 'none'}
+                  onValueChange={(value) => setFormData({ ...formData, state_code: value === 'none' ? '' : value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select state" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">National / No State</SelectItem>
-                    {US_STATES.filter(s => s.value).map((state) => (
+                    <SelectItem value="none">National / No State</SelectItem>
+                    {US_STATES.filter(s => s.value && s.value !== 'all').map((state) => (
                       <SelectItem key={state.value} value={state.value}>
                         {state.label}
                       </SelectItem>
