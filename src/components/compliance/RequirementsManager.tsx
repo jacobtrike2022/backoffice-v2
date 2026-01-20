@@ -70,10 +70,10 @@ export function RequirementsManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter state
+  // Filter state - use 'all' instead of '' for Radix UI Select compatibility
   const [searchTerm, setSearchTerm] = useState('');
-  const [topicFilter, setTopicFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [topicFilter, setTopicFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -124,8 +124,9 @@ export function RequirementsManager() {
   async function fetchRequirements() {
     try {
       const filters: any = {};
-      if (topicFilter) filters.topicId = topicFilter;
-      if (statusFilter) filters.status = statusFilter;
+      // Convert 'all' back to undefined for API - Radix UI Select requires non-empty string values
+      if (topicFilter && topicFilter !== 'all') filters.topicId = topicFilter;
+      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter;
       const data = await getComplianceRequirements(filters);
       setRequirements(data);
     } catch (err: any) {
@@ -319,7 +320,7 @@ export function RequirementsManager() {
                 <SelectValue placeholder="Filter by topic" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Topics</SelectItem>
+                <SelectItem value="all">All Topics</SelectItem>
                 {topics.map((topic) => (
                   <SelectItem key={topic.id} value={topic.id}>
                     {topic.name}
@@ -332,7 +333,7 @@ export function RequirementsManager() {
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Statuses</SelectItem>
+                <SelectItem value="all">All Statuses</SelectItem>
                 {REQUIREMENT_STATUSES.map((status) => (
                   <SelectItem key={status.value} value={status.value}>
                     {status.label}
@@ -527,14 +528,14 @@ export function RequirementsManager() {
               <div className="space-y-2">
                 <Label htmlFor="topic_id">Topic</Label>
                 <Select
-                  value={formData.topic_id}
-                  onValueChange={(value) => setFormData({ ...formData, topic_id: value })}
+                  value={formData.topic_id || 'none'}
+                  onValueChange={(value) => setFormData({ ...formData, topic_id: value === 'none' ? '' : value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select topic" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {topics.map((topic) => (
                       <SelectItem key={topic.id} value={topic.id}>
                         {topic.name}
@@ -546,14 +547,14 @@ export function RequirementsManager() {
               <div className="space-y-2">
                 <Label htmlFor="authority_id">Authority</Label>
                 <Select
-                  value={formData.authority_id}
-                  onValueChange={(value) => setFormData({ ...formData, authority_id: value })}
+                  value={formData.authority_id || 'none'}
+                  onValueChange={(value) => setFormData({ ...formData, authority_id: value === 'none' ? '' : value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select authority" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {authorities.map((authority) => (
                       <SelectItem key={authority.id} value={authority.id}>
                         {authority.abbreviation || authority.name}

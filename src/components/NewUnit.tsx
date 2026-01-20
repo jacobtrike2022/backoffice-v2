@@ -149,12 +149,13 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
     }
   }, [editStore]);
 
-  // Filter managers from live database
-  const managers = users.filter(u => 
-    u.role_name === 'Store Manager' || 
-    u.role_name === 'District Manager' || 
-    u.role_name === 'Admin'
-  );
+  // Filter managers from live database - use joined role data
+  const managers = users.filter(u => {
+    const roleName = (u.role as any)?.name || '';
+    return roleName === 'Store Manager' ||
+           roleName === 'District Manager' ||
+           roleName === 'Admin';
+  });
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -563,7 +564,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                   {managers.length > 0 ? (
                     managers.map((manager) => (
                       <SelectItem key={manager.id} value={manager.id}>
-                        {manager.first_name} {manager.last_name} - {manager.role_name}
+                        {manager.first_name} {manager.last_name} - {(manager.role as any)?.name || 'Unknown'}
                       </SelectItem>
                     ))
                   ) : (
