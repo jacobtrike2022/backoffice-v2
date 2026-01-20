@@ -543,17 +543,23 @@ async function notifyAdminsOfPendingUpload(
   uploadId: string,
   certificateType: string
 ) {
-  // Get all admins for the organization
+  // Get all admins for the organization by joining with roles table
   const { data: admins } = await supabase
     .from('users')
-    .select('id')
+    .select('id, role:roles(name)')
     .eq('organization_id', orgId)
-    .in('role_name', ['Admin', 'Trike Super Admin']);
+    .eq('status', 'active');
 
-  if (!admins || admins.length === 0) return;
+  // Filter for admin roles in JavaScript since we need to match role names from the joined table
+  const adminUsers = admins?.filter(user => {
+    const roleName = (user.role as any)?.name?.toLowerCase() || '';
+    return roleName.includes('admin') || roleName === 'trike super admin';
+  }) || [];
+
+  if (adminUsers.length === 0) return;
 
   // Create notifications for each admin
-  for (const admin of admins) {
+  for (const admin of adminUsers) {
     try {
       await createNotification({
         user_id: admin.id,

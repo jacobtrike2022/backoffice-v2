@@ -847,8 +847,10 @@ export async function getAuditLearners(filters?: {
       email,
       employee_id,
       hire_date,
+      store_id,
       role:roles(name),
       store:stores(
+        id,
         name,
         code,
         district:districts(name)
@@ -880,18 +882,21 @@ export async function getAuditLearners(filters?: {
     let managerName = 'N/A';
 
     // Try to find store manager if this user is not a manager
-    if (user.store && user.role?.name !== 'Store Manager') {
+    if (user.store_id && (user.role as any)?.name !== 'Store Manager') {
       const { data: storeManager } = await supabase
         .from('users')
-        .select('first_name, last_name')
-        .eq('store_id', (user.store as any).id)
+        .select('first_name, last_name, role:roles(name)')
+        .eq('store_id', user.store_id)
         .eq('status', 'active')
-        .ilike('role_name', '%manager%')
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
 
-      if (storeManager) {
-        managerName = `${storeManager.first_name} ${storeManager.last_name}`;
+      // Find someone with "manager" in their role name
+      const manager = storeManager?.find(u =>
+        (u.role as any)?.name?.toLowerCase().includes('manager')
+      );
+
+      if (manager) {
+        managerName = `${manager.first_name} ${manager.last_name}`;
       }
     }
 
