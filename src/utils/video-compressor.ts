@@ -125,7 +125,7 @@ export async function compressVideo(
     }
   };
 
-  onProgress?.(40, 'Compressing video...');
+  onProgress?.(40, 'Processing video...');
 
   // Start recording
   recorder.start(100); // Collect data every 100ms
@@ -143,7 +143,7 @@ export async function compressVideo(
     // Update progress based on video playback
     const progress = 40 + Math.min(50, (video.currentTime / duration) * 50);
     const timeRemaining = Math.ceil((duration - video.currentTime) * 1000);
-    onProgress?.(progress, `Compressing... ${Math.ceil(video.currentTime)}s / ${Math.ceil(duration)}s`);
+    onProgress?.(progress, `Processing... ${Math.ceil(video.currentTime)}s / ${Math.ceil(duration)}s`);
 
     requestAnimationFrame(drawFrame);
   };

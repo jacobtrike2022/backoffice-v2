@@ -1080,17 +1080,19 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   };
 
   const handleKBToggle = async (checked: boolean) => {
+    // If toggling ON, open modal immediately (before database update)
+    // This ensures the modal opens before any re-renders from onUpdate()
+    if (checked) {
+      setTagSelectorConfig({
+        systemCategory: 'knowledge-base',
+        restrictToParentName: 'KB Category'
+      });
+      setIsTagSelectorOpen(true);
+    }
+
     if (isEditMode) {
       // In edit mode, update the form data
       setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
-      
-      if (checked) {
-        setTagSelectorConfig({
-          systemCategory: 'knowledge-base',
-          restrictToParentName: 'KB Category'
-        });
-        setIsTagSelectorOpen(true);
-      }
     } else {
       // In view mode, update the track directly in the database
       try {
@@ -1101,25 +1103,17 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         } else {
           currentTags.delete('system:show_in_knowledge_base');
         }
-        
+
         await crud.updateTrack({
           id: track.id,
           show_in_knowledge_base: checked,
           tags: Array.from(currentTags)
         });
-        
+
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
-        
+
         // Refresh the track data
         onUpdate();
-        
-        if (checked) {
-          setTagSelectorConfig({
-            systemCategory: 'knowledge-base',
-            restrictToParentName: 'KB Category'
-          });
-          setIsTagSelectorOpen(true);
-        }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
         toast.error('Failed to update Knowledge Base setting', {

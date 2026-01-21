@@ -30,7 +30,7 @@ export function VideoCompressionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Film className="h-5 w-5 text-primary" />
-            <span>Compressing Video</span>
+            <span>Processing Video</span>
           </DialogTitle>
           <DialogDescription>
             Optimizing your video for faster uploads and storage...

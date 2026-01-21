@@ -103,10 +103,19 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
   const handleTranscribe = async () => {
     setIsTranscribing(true);
     setError(null);
-    
+
     try {
       console.log('🎬 Starting story transcription...');
-      
+
+      // Extract slides from storyData
+      const slides = extractSlides(storyData);
+
+      if (!trackId || !slides || slides.length === 0) {
+        throw new Error('Missing track ID or no slides available');
+      }
+
+      console.log('📤 Sending transcription request:', { trackId, slidesCount: slides.length });
+
       const response = await fetch(
         `${getServerUrl()}/transcribe-story`,
         {
@@ -116,7 +125,8 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            storyData: storyData,
+            trackId: trackId,
+            slides: slides,
           }),
         }
       );

@@ -425,10 +425,17 @@ export function StoryEditor({
     // Parse story data from transcript field
     let parsedSlides: any[] = [];
     let parsedObjectives: string[] = [];
+    console.log('📖 [loadStoryData] Loading story, transcript field exists:', !!trackData.transcript);
     if (trackData.transcript) {
+      console.log('📖 [loadStoryData] Transcript preview:', trackData.transcript.substring(0, 200) + '...');
       try {
         const storyData = JSON.parse(trackData.transcript);
+        console.log('📖 [loadStoryData] Parsed storyData, slides count:', storyData.slides?.length || 0);
         if (storyData.slides && Array.isArray(storyData.slides)) {
+          storyData.slides.forEach((slide: any, i: number) => {
+            console.log(`  📸 Loaded Slide ${i + 1}: type=${slide.type}, hasUrl=${!!slide.url}, name=${slide.name}`);
+            if (slide.url) console.log(`     URL: ${slide.url.substring(0, 80)}...`);
+          });
           setSlides(storyData.slides);
           parsedSlides = storyData.slides;
         }
@@ -439,6 +446,8 @@ export function StoryEditor({
       } catch (e) {
         console.error('Error parsing story data:', e);
       }
+    } else {
+      console.warn('⚠️ [loadStoryData] No transcript field found in track data!');
     }
     
     // Load objectives from facts table for comparison
@@ -953,6 +962,13 @@ export function StoryEditor({
         })
       };
 
+      // Debug: Log what we're saving
+      console.log('📝 [handleSave] Saving story with', slides.length, 'slides');
+      slides.forEach((slide, i) => {
+        console.log(`  📸 Slide ${i + 1}: type=${slide.type}, hasUrl=${!!slide.url}, name=${slide.name}`);
+        if (slide.url) console.log(`     URL: ${slide.url.substring(0, 80)}...`);
+      });
+
       // Prepare tags including the system KB tag
       const currentTags = new Set<string>(tags || []);
       if (showInKnowledgeBase) {
@@ -1056,7 +1072,15 @@ export function StoryEditor({
         }
         
         // If no assignments or not published OR only metadata changed, update normally
+        console.log('💾 [handleSave] About to call crud.updateTrack with:', {
+          id: currentTrackId,
+          title: trackData.title,
+          transcriptLength: trackData.transcript?.length,
+          transcriptPreview: trackData.transcript?.substring(0, 200),
+          hasSlides: trackData.transcript?.includes('slides'),
+        });
         await crud.updateTrack({ id: currentTrackId, ...trackData });
+        console.log('✅ [handleSave] crud.updateTrack completed successfully');
         toast.success(contentChanged ? 'Changes saved!' : 'Settings updated!');
         
         setIsEditMode(false);
@@ -2949,7 +2973,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Loader2 className="h-5 w-5 mr-2 animate-spin text-primary" />
-                Compressing Video
+                Processing Video
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">

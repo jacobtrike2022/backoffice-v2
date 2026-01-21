@@ -67,7 +67,7 @@ export async function compressVideo(
     
     // Load FFmpeg
     const ffmpegInstance = await loadFFmpeg((progress) => {
-      onProgress?.(Math.min(progress, 90), 'Compressing video...');
+      onProgress?.(Math.min(progress, 90), 'Processing video...');
     });
     
     if (!ffmpegInstance) {
@@ -118,7 +118,7 @@ export async function compressVideo(
       outputFileName
     ];
     
-    onProgress?.(30, 'Compressing video...');
+    onProgress?.(30, 'Processing video...');
     
     // Run FFmpeg
     await ffmpegInstance.exec(ffmpegArgs);

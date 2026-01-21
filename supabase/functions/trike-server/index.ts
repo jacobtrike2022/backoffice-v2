@@ -4075,22 +4075,8 @@ async function handleTranscribe(req: Request): Promise<Response> {
         // If trackId is provided, auto-update track and generate facts (fire-and-forget)
         if (trackId) {
           console.log(`🔄 Auto-updating track ${trackId} with cached transcript and generating facts...`);
-          
-          // Update track with transcript
-          supabase
-            .from("tracks")
-            .update({ transcript: cached.transcript_text || "" })
-            .eq("id", trackId)
-            .then(({ error: updateError }) => {
-              if (updateError) {
-                console.error("Failed to update track with cached transcript:", updateError);
-              } else {
-                console.log("✅ Track updated with cached transcript");
-              }
-            })
-            .catch(err => console.error("Error updating track:", err));
 
-          // Generate key facts (only for video tracks, not stories)
+          // First fetch track type to determine how to handle the transcript
           supabase
             .from("tracks")
             .select("title, description, organization_id, transcript, type")
@@ -4098,14 +4084,29 @@ async function handleTranscribe(req: Request): Promise<Response> {
             .single()
             .then(async ({ data: trackData, error: trackError }) => {
               if (trackError || !trackData) {
-                console.error("Failed to fetch track for fact generation:", trackError);
+                console.error("Failed to fetch track for transcript update:", trackError);
                 return;
               }
 
-              // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+              // CRITICAL: Do NOT overwrite transcript for story tracks!
+              // Story tracks store JSON with slides in the transcript field.
+              // Overwriting it with plain text would wipe out all the slide data.
               if (trackData.type === "story") {
+                console.log("ℹ️ Story track - skipping transcript field update (slides stored in transcript)");
                 console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
                 return;
+              }
+
+              // For non-story tracks (video, article), update the transcript field
+              const { error: updateError } = await supabase
+                .from("tracks")
+                .update({ transcript: cached.transcript_text || "" })
+                .eq("id", trackId);
+
+              if (updateError) {
+                console.error("Failed to update track with cached transcript:", updateError);
+              } else {
+                console.log("✅ Track updated with cached transcript");
               }
 
               // Only generate facts if track doesn't already have them
@@ -4299,23 +4300,8 @@ async function handleTranscribe(req: Request): Promise<Response> {
     // If trackId is provided, automatically update the track and generate key facts
     if (trackId) {
       console.log(`🔄 Auto-updating track ${trackId} with transcript and generating facts...`);
-      
-      // Update track with transcript (fire-and-forget)
-      supabase
-        .from("tracks")
-        .update({ transcript: transcript.text || "" })
-        .eq("id", trackId)
-        .then(({ error: updateError }) => {
-          if (updateError) {
-            console.error("Failed to update track with transcript:", updateError);
-          } else {
-            console.log("✅ Track updated with transcript");
-          }
-        })
-        .catch(err => console.error("Error updating track:", err));
 
-      // Generate key facts (fire-and-forget, only for video tracks, not stories)
-      // Get track info for fact generation
+      // First fetch track type to determine how to handle the transcript
       supabase
         .from("tracks")
         .select("title, description, organization_id, type")
@@ -4323,14 +4309,29 @@ async function handleTranscribe(req: Request): Promise<Response> {
         .single()
         .then(async ({ data: trackData, error: trackError }) => {
           if (trackError || !trackData) {
-            console.error("Failed to fetch track for fact generation:", trackError);
+            console.error("Failed to fetch track for transcript update:", trackError);
             return;
           }
 
-          // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+          // CRITICAL: Do NOT overwrite transcript for story tracks!
+          // Story tracks store JSON with slides in the transcript field.
+          // Overwriting it with plain text would wipe out all the slide data.
           if (trackData.type === "story") {
+            console.log("ℹ️ Story track - skipping transcript field update (slides stored in transcript)");
             console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
             return;
+          }
+
+          // For non-story tracks (video, article), update the transcript field
+          const { error: updateError } = await supabase
+            .from("tracks")
+            .update({ transcript: transcript.text || "" })
+            .eq("id", trackId);
+
+          if (updateError) {
+            console.error("Failed to update track with transcript:", updateError);
+          } else {
+            console.log("✅ Track updated with transcript");
           }
 
           // Only generate facts if track doesn't already have them
