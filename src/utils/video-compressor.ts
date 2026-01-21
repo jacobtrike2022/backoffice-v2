@@ -92,14 +92,14 @@ export async function compressVideo(
 
   // Set up MediaRecorder with canvas stream
   const stream = canvas.captureStream(30); // 30 fps
-  
+
   // Add audio from original video if it exists
   try {
     const audioContext = new AudioContext();
     const source = audioContext.createMediaElementSource(video);
     const dest = audioContext.createMediaStreamDestination();
     source.connect(dest);
-    
+
     if (dest.stream.getAudioTracks().length > 0) {
       dest.stream.getAudioTracks().forEach(track => {
         stream.addTrack(track);
