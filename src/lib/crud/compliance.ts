@@ -1128,3 +1128,293 @@ export async function getComplianceTrendData(months: number = 6) {
 
   return data;
 }
+
+// ============================================================================
+// REQUIREMENT-ROLE ASSIGNMENTS
+// ============================================================================
+// These functions handle the "mad libs" approach: assigning roles to requirements
+// "People with these ROLES in this STATE need this CERTIFICATION"
+// ============================================================================
+
+export interface RequirementRole {
+  id: string;
+  role_id: string;
+  requirement_id: string;
+  is_required: boolean;
+  priority: number;
+  created_at: string;
+  role?: {
+    id: string;
+    name: string;
+    description: string | null;
+    is_frontline: boolean;
+    is_manager: boolean;
+  };
+}
+
+/**
+ * Get roles assigned to a compliance requirement
+ * This is the inverse of getRoleComplianceRequirements - used for the "mad libs" UI
+ */
+export async function getRequirementRoles(requirementId: string): Promise<RequirementRole[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('role_compliance_requirements')
+    .select(`
+      *,
+      role:roles(id, name, description, is_frontline, is_manager)
+    `)
+    .eq('requirement_id', requirementId);
+
+  if (error) throw error;
+
+  // Filter to only include roles from the user's org
+  const filteredData = (data || []).filter((rcr: any) =>
+    rcr.role?.organization_id === orgId || rcr.role?.organization_id === null
+  );
+
+  return filteredData;
+}
+
+/**
+ * Set roles for a compliance requirement (replaces all existing)
+ * This is the main function for the "mad libs" UI
+ */
+export async function setRequirementRoles(
+  requirementId: string,
+  roleIds: string[]
+): Promise<void> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // First, remove all existing role assignments for this requirement in this org
+  const { data: existingRoles } = await supabase
+    .from('role_compliance_requirements')
+    .select('role_id, role:roles(organization_id)')
+    .eq('requirement_id', requirementId);
+
+  // Filter to roles in this org and delete them
+  const rolesToDelete = (existingRoles || [])
+    .filter((r: any) => r.role?.organization_id === orgId)
+    .map((r: any) => r.role_id);
+
+  if (rolesToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from('role_compliance_requirements')
+      .delete()
+      .eq('requirement_id', requirementId)
+      .in('role_id', rolesToDelete);
+
+    if (deleteError) throw deleteError;
+  }
+
+  // Insert new role assignments
+  if (roleIds.length > 0) {
+    const records = roleIds.map((roleId, index) => ({
+      role_id: roleId,
+      requirement_id: requirementId,
+      is_required: true,
+      priority: index + 1
+    }));
+
+    const { error: insertError } = await supabase
+      .from('role_compliance_requirements')
+      .insert(records);
+
+    if (insertError) throw insertError;
+  }
+}
+
+/**
+ * Add a single role to a requirement
+ */
+export async function addRoleToRequirement(
+  requirementId: string,
+  roleId: string,
+  options?: { is_required?: boolean; priority?: number }
+): Promise<void> {
+  const { error } = await supabase
+    .from('role_compliance_requirements')
+    .upsert({
+      role_id: roleId,
+      requirement_id: requirementId,
+      is_required: options?.is_required ?? true,
+      priority: options?.priority ?? 1
+    });
+
+  if (error) throw error;
+}
+
+/**
+ * Remove a single role from a requirement
+ */
+export async function removeRoleFromRequirement(
+  requirementId: string,
+  roleId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('role_compliance_requirements')
+    .delete()
+    .eq('requirement_id', requirementId)
+    .eq('role_id', roleId);
+
+  if (error) throw error;
+}
+
+/**
+ * Get requirements with their assigned roles for the org's states
+ * Used to populate the compliance setup page
+ */
+export async function getRequirementsWithRoles(filters?: {
+  stateCode?: string;
+  topicId?: string;
+}): Promise<(ComplianceRequirement & { roles: RequirementRole[] })[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get requirements
+  let query = supabase
+    .from('compliance_requirements')
+    .select(`
+      *,
+      topic:compliance_topics(*),
+      authority:compliance_authorities(*)
+    `)
+    .order('state_code')
+    .order('requirement_name');
+
+  if (filters?.stateCode) {
+    query = query.eq('state_code', filters.stateCode.toUpperCase());
+  }
+  if (filters?.topicId) {
+    query = query.eq('topic_id', filters.topicId);
+  }
+
+  const { data: requirements, error: reqError } = await query;
+  if (reqError) throw reqError;
+
+  // Get role assignments for all requirements
+  const requirementIds = (requirements || []).map(r => r.id);
+
+  if (requirementIds.length === 0) {
+    return [];
+  }
+
+  const { data: roleAssignments, error: rolesError } = await supabase
+    .from('role_compliance_requirements')
+    .select(`
+      *,
+      role:roles(id, name, description, is_frontline, is_manager, organization_id)
+    `)
+    .in('requirement_id', requirementIds);
+
+  if (rolesError) throw rolesError;
+
+  // Filter role assignments to this org
+  const orgRoleAssignments = (roleAssignments || []).filter((ra: any) =>
+    ra.role?.organization_id === orgId
+  );
+
+  // Group role assignments by requirement
+  const rolesByRequirement = new Map<string, RequirementRole[]>();
+  for (const ra of orgRoleAssignments) {
+    const reqId = ra.requirement_id;
+    if (!rolesByRequirement.has(reqId)) {
+      rolesByRequirement.set(reqId, []);
+    }
+    rolesByRequirement.get(reqId)!.push(ra);
+  }
+
+  // Combine requirements with their roles
+  return (requirements || []).map(req => ({
+    ...req,
+    roles: rolesByRequirement.get(req.id) || []
+  }));
+}
+
+/**
+ * Get all org roles for the role picker dropdown
+ */
+export async function getOrgRolesForPicker(): Promise<{
+  id: string;
+  name: string;
+  description: string | null;
+  is_frontline: boolean;
+  is_manager: boolean;
+}[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('roles')
+    .select('id, name, description, is_frontline, is_manager')
+    .eq('organization_id', orgId)
+    .order('name');
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get states the organization operates in (based on store locations)
+ * Used to filter requirements in the compliance setup UI
+ */
+export async function getOrgStates(): Promise<string[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('stores')
+    .select('state')
+    .eq('organization_id', orgId)
+    .eq('is_active', true);
+
+  if (error) throw error;
+
+  // Get unique states
+  const states = [...new Set((data || []).map(s => s.state?.toUpperCase()).filter(Boolean))];
+  return states.sort();
+}
+
+/**
+ * Get suggested requirements for an org based on their states and industry
+ * This powers the initial setup recommendations
+ */
+export async function getSuggestedRequirements(): Promise<ComplianceRequirement[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get org's states and industry
+  const [states, { data: org }] = await Promise.all([
+    getOrgStates(),
+    supabase
+      .from('organizations')
+      .select('industry_id')
+      .eq('id', orgId)
+      .single()
+  ]);
+
+  if (states.length === 0) {
+    return [];
+  }
+
+  // Get requirements for these states
+  let query = supabase
+    .from('compliance_requirements')
+    .select(`
+      *,
+      topic:compliance_topics(*),
+      authority:compliance_authorities(*)
+    `)
+    .in('state_code', states)
+    .in('ee_training_required', ['required_certified', 'required_program', 'required_no_list'])
+    .order('state_code')
+    .order('requirement_name');
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return data || [];
+}

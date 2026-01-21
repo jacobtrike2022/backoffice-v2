@@ -668,3 +668,228 @@ export async function unarchiveAlbum(albumId: string): Promise<Album> {
   return updateAlbum({ id: albumId, status: 'draft' });
 }
 
+// ============================================================================
+// COMPLIANCE - SYSTEM LOCKED PLAYLISTS
+// ============================================================================
+
+export interface AlbumVersion {
+  id: string;
+  album_id: string;
+  version: number;
+  snapshot: Record<string, any>;
+  change_notes: string | null;
+  locked_at: string;
+  locked_by: string | null;
+  created_at: string;
+}
+
+export interface SystemLockedAlbum extends Album {
+  requirement_id: string | null;
+  is_system_locked: boolean;
+  version: number;
+  locked_at: string | null;
+  locked_by: string | null;
+  requirement?: {
+    id: string;
+    requirement_name: string;
+    state_code: string;
+    topic?: { name: string; icon: string | null };
+  };
+}
+
+/**
+ * Lock a playlist/album for compliance requirement
+ * This links the album to a compliance requirement and creates a version snapshot
+ */
+export async function lockPlaylist(
+  albumId: string,
+  requirementId: string,
+  changeNotes?: string
+): Promise<void> {
+  // First link to requirement
+  const { error: linkError } = await supabase
+    .from('albums')
+    .update({ requirement_id: requirementId })
+    .eq('id', albumId);
+
+  if (linkError) throw linkError;
+
+  // Then call lock function (creates version snapshot)
+  const { error } = await supabase.rpc('lock_album', {
+    p_album_id: albumId,
+    p_change_notes: changeNotes || 'Initial lock for compliance requirement'
+  });
+
+  if (error) throw error;
+}
+
+/**
+ * Unlock a playlist (remove compliance lock)
+ * Note: This should be used with caution as it affects compliance tracking
+ */
+export async function unlockPlaylist(albumId: string): Promise<void> {
+  const { error } = await supabase
+    .from('albums')
+    .update({
+      is_system_locked: false,
+      requirement_id: null,
+      locked_at: null,
+      locked_by: null
+    })
+    .eq('id', albumId);
+
+  if (error) throw error;
+}
+
+/**
+ * Get version history for a playlist/album
+ */
+export async function getPlaylistVersions(albumId: string): Promise<AlbumVersion[]> {
+  const { data, error } = await supabase
+    .from('album_versions')
+    .select('*')
+    .eq('album_id', albumId)
+    .order('version', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get a specific version of a playlist
+ */
+export async function getPlaylistVersion(
+  albumId: string,
+  version: number
+): Promise<AlbumVersion | null> {
+  const { data, error } = await supabase
+    .from('album_versions')
+    .select('*')
+    .eq('album_id', albumId)
+    .eq('version', version)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get all system-locked playlists for the organization
+ */
+export async function getSystemLockedPlaylists(): Promise<SystemLockedAlbum[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`
+      *,
+      requirement:compliance_requirements(
+        id,
+        requirement_name,
+        state_code,
+        topic:compliance_topics(name, icon)
+      ),
+      album_tracks (
+        track_id,
+        track:tracks (
+          duration_minutes,
+          status
+        )
+      )
+    `)
+    .eq('organization_id', orgId)
+    .eq('is_system_locked', true)
+    .order('locked_at', { ascending: false });
+
+  if (error) throw error;
+
+  // Enrich with computed fields
+  const enrichedAlbums = (data || []).map((album: any) => {
+    const albumTracks = album.album_tracks || [];
+    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
+      sum + (at.track?.duration_minutes || 0), 0
+    );
+
+    return {
+      ...album,
+      track_count: trackCount,
+      total_duration_minutes: totalDurationMinutes,
+    };
+  });
+
+  return enrichedAlbums as SystemLockedAlbum[];
+}
+
+/**
+ * Get playlists linked to a specific compliance requirement
+ */
+export async function getPlaylistsForRequirement(requirementId: string): Promise<Album[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`
+      *,
+      album_tracks (
+        track_id,
+        track:tracks (
+          duration_minutes,
+          status
+        )
+      )
+    `)
+    .eq('organization_id', orgId)
+    .eq('requirement_id', requirementId)
+    .order('title');
+
+  if (error) throw error;
+
+  // Enrich with computed fields
+  const enrichedAlbums = (data || []).map((album: any) => {
+    const albumTracks = album.album_tracks || [];
+    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
+      sum + (at.track?.duration_minutes || 0), 0
+    );
+
+    return {
+      ...album,
+      track_count: trackCount,
+      total_duration_minutes: totalDurationMinutes,
+    };
+  });
+
+  return enrichedAlbums as Album[];
+}
+
+/**
+ * Update a locked playlist (creates new version automatically via trigger)
+ * Use this instead of regular updateAlbum for locked playlists
+ */
+export async function updateLockedPlaylist(
+  albumId: string,
+  data: UpdateAlbumInput,
+  changeNotes: string
+): Promise<Album> {
+  // First update the album
+  const album = await updateAlbum(data);
+
+  // Then create a new version with the changes
+  const { error } = await supabase.rpc('lock_album', {
+    p_album_id: albumId,
+    p_change_notes: changeNotes
+  });
+
+  if (error) throw error;
+
+  return getAlbumById(albumId) as Promise<Album>;
+}
+
