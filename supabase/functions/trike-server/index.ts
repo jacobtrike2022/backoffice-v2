@@ -13652,6 +13652,13 @@ async function handleUploadMedia(req: Request): Promise<Response> {
       return jsonResponse({ error: 'File too large. Maximum size is 50MB.' }, 400);
     }
 
+    // Ensure the track-media bucket exists
+    const bucketName = 'track-media';
+    const bucketReady = await ensureBucketExists(bucketName);
+    if (!bucketReady) {
+      return jsonResponse({ error: 'Storage bucket not available' }, 500);
+    }
+
     const timestamp = Date.now();
     const fileExt = file.name.split('.').pop();
     const fileName = `track-${timestamp}.${fileExt}`;
@@ -13659,7 +13666,7 @@ async function handleUploadMedia(req: Request): Promise<Response> {
     console.log('Uploading file:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
 
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('track-media')
+      .from(bucketName)
       .upload(fileName, file.stream(), {
         contentType: file.type,
         upsert: false,
@@ -13671,7 +13678,7 @@ async function handleUploadMedia(req: Request): Promise<Response> {
     }
 
     const { data: urlData } = supabase.storage
-      .from('track-media')
+      .from(bucketName)
       .getPublicUrl(fileName);
 
     return jsonResponse({
