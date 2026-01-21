@@ -131,25 +131,28 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const loadKBTags = async () => {
-      try {
-        const hierarchy = await crud.getTagHierarchy('knowledge-base');
-        const names = new Set<string>();
-        const traverse = (nodes: any[]) => {
-          for (const node of nodes) {
-            names.add(node.name);
-            if (node.children) traverse(node.children);
-          }
-        };
-        traverse(hierarchy);
-        setKbTagNames(names);
-      } catch (e) {
-        console.error("Failed to load KB tags", e);
-      }
-    };
-    loadKBTags();
+  // Function to load KB tags - extracted so it can be called on demand
+  const loadKBTags = useCallback(async () => {
+    try {
+      const hierarchy = await crud.getTagHierarchy('knowledge-base');
+      const names = new Set<string>();
+      const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+          names.add(node.name);
+          if (node.children) traverse(node.children);
+        }
+      };
+      traverse(hierarchy);
+      setKbTagNames(names);
+    } catch (e) {
+      console.error("Failed to load KB tags", e);
+    }
   }, []);
+
+  // Load KB tags on mount
+  useEffect(() => {
+    loadKBTags();
+  }, [loadKBTags]);
 
   const isSystemContent = track.is_system_content;
 
@@ -2254,7 +2257,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       {/* Tag Selector Dialog */}
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
-        onClose={() => setIsTagSelectorOpen(false)}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          // Refresh KB tags in case new tags were created
+          loadKBTags();
+        }}
         selectedTags={isEditMode ? (editFormData.tags || []) : (track.tags || [])}
         onTagsChange={async (tags) => {
           if (isEditMode) {
@@ -2275,6 +2282,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               });
             }
           }
+          // Refresh KB tags to include any newly created tags
+          loadKBTags();
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}

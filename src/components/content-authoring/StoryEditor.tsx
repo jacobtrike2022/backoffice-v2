@@ -198,26 +198,28 @@ export function StoryEditor({
   
   const storyDuration = calculateStoryDuration();
 
-  // Load KB tags
-  useEffect(() => {
-    const loadKBTags = async () => {
-      try {
-        const hierarchy = await crud.getTagHierarchy('knowledge-base');
-        const names = new Set<string>();
-        const traverse = (nodes: any[]) => {
-          for (const node of nodes) {
-            names.add(node.name);
-            if (node.children) traverse(node.children);
-          }
-        };
-        traverse(hierarchy);
-        setKbTagNames(names);
-      } catch (e) {
-        console.error("Failed to load KB tags", e);
-      }
-    };
-    loadKBTags();
+  // Function to load KB tags - extracted so it can be called on demand
+  const loadKBTags = useCallback(async () => {
+    try {
+      const hierarchy = await crud.getTagHierarchy('knowledge-base');
+      const names = new Set<string>();
+      const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+          names.add(node.name);
+          if (node.children) traverse(node.children);
+        }
+      };
+      traverse(hierarchy);
+      setKbTagNames(names);
+    } catch (e) {
+      console.error("Failed to load KB tags", e);
+    }
   }, []);
+
+  // Load KB tags on mount
+  useEffect(() => {
+    loadKBTags();
+  }, [loadKBTags]);
 
   // Load existing story
   useEffect(() => {
@@ -2828,7 +2830,11 @@ export function StoryEditor({
 
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
-        onClose={() => setIsTagSelectorOpen(false)}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          // Refresh KB tags in case new tags were created
+          loadKBTags();
+        }}
         selectedTags={tags}
         onTagsChange={async (newTags) => {
           if (isEditMode) {
@@ -2838,7 +2844,7 @@ export function StoryEditor({
             try {
               const currentTrackId = track?.id || trackId;
               if (!currentTrackId) return;
-              
+
               await crud.updateTrack({
                 id: currentTrackId,
                 tags: newTags
@@ -2855,6 +2861,8 @@ export function StoryEditor({
               });
             }
           }
+          // Refresh KB tags to include any newly created tags
+          loadKBTags();
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
