@@ -683,11 +683,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -791,11 +791,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -980,11 +980,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -1416,9 +1416,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 <div>
                   <p className="text-muted-foreground">Est. Duration</p>
                   <p className="font-medium text-foreground">
-                    {timeLimit && timeLimit.trim() !== '' 
+                    {timeLimit && timeLimit.trim() !== ''
                       ? `${timeLimit} ${parseInt(timeLimit) === 1 ? 'min' : 'mins'}`
-                      : `${questions.length} ${questions.length === 1 ? 'min' : 'mins'}`
+                      : `${Math.ceil(questions.length * 0.5)} ${Math.ceil(questions.length * 0.5) === 1 ? 'min' : 'mins'}`
                     }
                   </p>
                 </div>
