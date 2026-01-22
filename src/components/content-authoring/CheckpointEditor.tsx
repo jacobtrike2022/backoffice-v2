@@ -121,8 +121,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   // Actions menu popover state
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
 
-  // Track source relationship (for AI-generated checkpoints)
-  const [sourceTrackId, setSourceTrackId] = useState<string | null>(null);
+  // Track source relationships (for AI-generated checkpoints - supports multiple sources)
+  const [sourceTrackIds, setSourceTrackIds] = useState<string[]>([]);
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
@@ -394,12 +394,26 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     return () => clearTimeout(autoSaveTimer);
   }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
 
-  const handleAIGenerate = async (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; thumbnailUrl?: string; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
-    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+  const handleAIGenerate = async (generatedQuestions: any[], sourceInfo: {
+    trackIds: string[];
+    trackTitles: string[];
+    factCount: number;
+    thumbnailUrl?: string;
+    metadata?: { suggestedTitle: string; suggestedDescription: string };
+    trackId: string;
+    trackTitle: string;
+  }) => {
+    const trackCount = sourceInfo.trackIds?.length || 1;
+    const trackDescription = trackCount > 1
+      ? `${trackCount} source tracks`
+      : sourceInfo.trackTitle;
 
-    // Store the source track ID for relationship tracking
-    setSourceTrackId(sourceInfo.trackId);
-    console.log('📎 Source track ID stored for relationship:', sourceInfo.trackId);
+    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', trackDescription);
+
+    // Store the source track IDs for relationship tracking (supports multiple)
+    const trackIdsToStore = sourceInfo.trackIds || [sourceInfo.trackId];
+    setSourceTrackIds(trackIdsToStore);
+    console.log('📎 Source track IDs stored for relationships:', trackIdsToStore);
 
     // Check if there are existing questions with content
     const hasExistingQuestions = questions.some(q => q.question?.trim());
@@ -441,7 +455,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       });
     }
 
-    // Inherit tags from source track (excluding Content Type and KB Category tags)
+    // Inherit tags from source tracks (excluding Content Type and KB Category tags)
     // Only inherit if checkpoint doesn't already have tags
     if (tags.length === 0) {
       try {
@@ -455,52 +469,63 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
         const excludedParentIds = new Set(excludedParents?.map(p => p.id) || []);
 
-        // Fetch source track's tags from tags array column
-        const { data: sourceTrack } = await supabase
+        // Fetch tags from all source tracks
+        const sourceTrackIdsToFetch = sourceInfo.trackIds || [sourceInfo.trackId];
+        const { data: sourceTracks } = await supabase
           .from('tracks')
-          .select('tags')
-          .eq('id', sourceInfo.trackId)
-          .single();
+          .select('id, tags')
+          .in('id', sourceTrackIdsToFetch);
 
-        const inheritedTagNames: string[] = [];
-
-        if (sourceTrack?.tags && Array.isArray(sourceTrack.tags)) {
-          // For each tag, look up its parent to filter out excluded categories
-          for (const tagName of sourceTrack.tags) {
-            // Skip system tags
-            if (tagName.startsWith('system:')) continue;
-
-            // Look up the tag to check its parent
-            const { data: tagData } = await supabase
-              .from('tags')
-              .select('id, name, parent_id')
-              .eq('name', tagName)
-              .maybeSingle();
-
-            if (tagData) {
-              // Exclude if parent is "Content Type" or "KB Category"
-              if (tagData.parent_id && excludedParentIds.has(tagData.parent_id)) {
-                console.log(`🚫 Excluding tag (Content Type/KB Category): ${tagName}`);
-                continue;
-              }
-              inheritedTagNames.push(tagName);
-            } else {
-              // Tag not found in tags table, include it anyway (might be a custom tag)
-              inheritedTagNames.push(tagName);
+        // Collect unique tags from all source tracks
+        const allTagNames = new Set<string>();
+        for (const sourceTrack of sourceTracks || []) {
+          if (sourceTrack?.tags && Array.isArray(sourceTrack.tags)) {
+            for (const tagName of sourceTrack.tags) {
+              allTagNames.add(tagName);
             }
           }
         }
 
+        const inheritedTagNames: string[] = [];
+
+        // For each unique tag, look up its parent to filter out excluded categories
+        for (const tagName of allTagNames) {
+          // Skip system tags
+          if (tagName.startsWith('system:')) continue;
+
+          // Look up the tag to check its parent
+          const { data: tagData } = await supabase
+            .from('tags')
+            .select('id, name, parent_id')
+            .eq('name', tagName)
+            .maybeSingle();
+
+          if (tagData) {
+            // Exclude if parent is "Content Type" or "KB Category"
+            if (tagData.parent_id && excludedParentIds.has(tagData.parent_id)) {
+              console.log(`🚫 Excluding tag (Content Type/KB Category): ${tagName}`);
+              continue;
+            }
+            inheritedTagNames.push(tagName);
+          } else {
+            // Tag not found in tags table, include it anyway (might be a custom tag)
+            inheritedTagNames.push(tagName);
+          }
+        }
+
         if (inheritedTagNames.length > 0) {
-          console.log('🏷️ Inheriting tags from source track:', inheritedTagNames);
+          const trackCountDesc = sourceTrackIdsToFetch.length > 1
+            ? `${sourceTrackIdsToFetch.length} source tracks`
+            : 'source content';
+          console.log('🏷️ Inheriting tags from source tracks:', inheritedTagNames);
           setTags(inheritedTagNames);
-          toast.success(`Inherited ${inheritedTagNames.length} tag(s) from source content`, {
+          toast.success(`Inherited ${inheritedTagNames.length} tag(s) from ${trackCountDesc}`, {
             description: 'Content Type and KB Category tags were excluded.',
             duration: 3000
           });
         }
       } catch (error) {
-        console.error('Error inheriting tags from source track:', error);
+        console.error('Error inheriting tags from source tracks:', error);
         // Non-blocking - continue without tags if fetch fails
       }
     }
@@ -839,16 +864,20 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         // Mark that we've created a track to prevent double-save
         setHasCreatedTrack(true);
         
-        // Create track relationship if this checkpoint was AI-generated from a source
-        if (sourceTrackId) {
-          try {
-            console.log('📎 Creating track relationship: source=' + sourceTrackId + ', derived=' + newTrack.id);
-            await trackRelCrud.createTrackRelationship(sourceTrackId, newTrack.id, 'source');
-            console.log('✅ Track relationship created successfully');
-          } catch (relError: any) {
-            console.error('❌ Failed to create track relationship:', relError);
-            // Don't block the save - relationship is nice-to-have
+        // Create track relationships if this checkpoint was AI-generated from source(s)
+        if (sourceTrackIds.length > 0) {
+          console.log('📎 Creating track relationships for', sourceTrackIds.length, 'source track(s)');
+          for (const srcTrackId of sourceTrackIds) {
+            try {
+              console.log('📎 Creating track relationship: source=' + srcTrackId + ', derived=' + newTrack.id);
+              await trackRelCrud.createTrackRelationship(srcTrackId, newTrack.id, 'source');
+              console.log('✅ Track relationship created successfully for source:', srcTrackId);
+            } catch (relError: any) {
+              console.error('❌ Failed to create track relationship for source ' + srcTrackId + ':', relError);
+              // Don't block the save - relationship is nice-to-have
+            }
           }
+          console.log('✅ All track relationships created');
         }
         
         // Mark that we just saved (before state updates) to bypass unsaved changes check

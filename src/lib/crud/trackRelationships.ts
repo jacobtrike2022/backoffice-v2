@@ -144,14 +144,14 @@ export async function getDerivedTracks(
 }
 
 /**
- * Get the source track for a derived track (parent)
+ * Get the source track for a derived track (parent) - returns first source for backward compatibility
  */
 export async function getSourceTrack(
   derivedTrackId: string,
   relationshipType?: 'source' | 'prerequisite' | 'related'
 ): Promise<TrackRelationship | null> {
   const accessToken = await getAccessToken();
-  
+
   let url = `${getServerUrl()}/track-relationships/source/${derivedTrackId}`;
   if (relationshipType) {
     url += `?type=${relationshipType}`;
@@ -174,6 +174,39 @@ export async function getSourceTrack(
 
   const data = await response.json();
   return data.source;
+}
+
+/**
+ * Get all source tracks for a derived track (supports multiple sources)
+ */
+export async function getSourceTracks(
+  derivedTrackId: string,
+  relationshipType?: 'source' | 'prerequisite' | 'related'
+): Promise<TrackRelationship[]> {
+  const accessToken = await getAccessToken();
+
+  let url = `${getServerUrl()}/track-relationships/source/${derivedTrackId}`;
+  if (relationshipType) {
+    url += `?type=${relationshipType}`;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      const functionName = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'trike-server';
+      console.error(`❌ Track relationships endpoint not found. Check that VITE_SUPABASE_FUNCTION_NAME is set to 'trike-server' (currently: '${functionName}')`);
+    }
+    const error = await response.json().catch(() => ({ error: 'Not found' }));
+    throw new Error(error.error || 'Failed to fetch source tracks');
+  }
+
+  const data = await response.json();
+  return data.sources || (data.source ? [data.source] : []);
 }
 
 /**

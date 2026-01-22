@@ -38,7 +38,8 @@ import {
   MoreVertical,
   Copy,
   Archive,
-  GitBranch
+  GitBranch,
+  Image as ImageIcon
 } from 'lucide-react';
 import {
   Popover,
@@ -105,7 +106,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   // Original facts loaded from DB (for edit mode comparison)
   const [originalFacts, setOriginalFacts] = useState<any[]>([]);
-  
+
+  // Track if user has explicitly modified the thumbnail
+  // This is loaded from DB (thumbnail_user_set) and persisted across sessions
+  // Prevents auto-extraction from overwriting user's thumbnail preference
+  const [thumbnailUserSet, setThumbnailUserSet] = useState(track.thumbnail_user_set || false);
+
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -115,6 +121,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     learning_objectives: [],
     tags: [],
     content_url: '',
+    thumbnail_user_set: false, // Persisted flag for user thumbnail preference
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
@@ -377,9 +384,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           tags: tagNames,
           content_url: String(track.content_url || ''),
           thumbnail_url: String(track.thumbnail_url || ''),
+          thumbnail_user_set: track.thumbnail_user_set || false, // Load persisted user preference
           type: track.type || 'video',
           show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
         });
+        // Also update the component state from DB
+        setThumbnailUserSet(track.thumbnail_user_set || false);
       };
 
       loadTrackData();
@@ -530,6 +540,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
+        thumbnail_user_set: editFormData.thumbnail_user_set || false, // Persist user's thumbnail preference
         type: editFormData.type,
         transcript_data: editFormData.transcript_data || track.transcript_data || null,
       };
@@ -1120,14 +1131,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       const data = await response.json();
       console.log('Upload successful:', data);
-      
-      // Upload thumbnail if we have one
+
+      // Upload thumbnail if we have one AND user hasn't explicitly set their preference
+      // This respects user's thumbnail choice (including explicitly removing it)
+      // thumbnailUserSet is persisted in DB, so it survives across sessions
       let thumbnailUrl = editFormData.thumbnail_url;
-      if (thumbnailBlob) {
-        console.log('Uploading thumbnail...');
+      const shouldAutoExtractThumbnail = thumbnailBlob && !thumbnailUserSet && !editFormData.thumbnail_url;
+
+      if (shouldAutoExtractThumbnail) {
+        console.log('Auto-extracting thumbnail (no user preference set, no existing thumbnail)...');
         const thumbnailFormData = new FormData();
         thumbnailFormData.append('file', thumbnailBlob, 'thumbnail.jpg');
-        
+
         const thumbnailResponse = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
@@ -1135,23 +1150,25 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           },
           body: thumbnailFormData,
         });
-        
+
         if (thumbnailResponse.ok) {
           const thumbnailData = await thumbnailResponse.json();
           thumbnailUrl = thumbnailData.url;
-          console.log('Thumbnail uploaded:', thumbnailUrl);
+          console.log('Thumbnail auto-extracted:', thumbnailUrl);
         }
+      } else if (thumbnailBlob) {
+        console.log('Skipping auto-extract: thumbnailUserSet=', thumbnailUserSet, ', existingThumbnail=', !!editFormData.thumbnail_url);
       }
-      
+
       // Update form with all metadata
-      setEditFormData({ 
-        ...editFormData, 
+      setEditFormData({
+        ...editFormData,
         content_url: data.url,
         duration_minutes: duration, // Always use extracted duration (don't fallback to old value)
         thumbnail_url: thumbnailUrl,
         type: isVideo ? 'video' : isAudio ? 'audio' : editFormData.type,
       });
-      
+
       console.log('Updated form with metadata:', { duration, thumbnailUrl, type: isVideo ? 'video' : 'audio' });
       toast.success('Media file uploaded successfully! Click \"Save Changes\" to persist.');
     } catch (error: any) {
@@ -1197,18 +1214,24 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       const data = await response.json();
       console.log('Transcription successful:', data);
 
+      // Normalize transcript data - extract transcript_json if nested (from media_transcripts)
+      let transcriptData = data.transcript;
+      if (transcriptData && transcriptData.transcript_json) {
+        transcriptData = transcriptData.transcript_json;
+      }
+
       // Auto-save the transcript directly to database (without requiring edit mode)
       await crud.updateTrack({
         id: track.id,
-        transcript: data.transcript.text,
-        transcript_data: data.transcript,
+        transcript: transcriptData.text,
+        transcript_data: transcriptData,
       });
 
       // Update editFormData so UI shows transcript immediately (works in both edit and view mode)
       setEditFormData(prev => ({
         ...prev,
-        transcript: data.transcript.text,
-        transcript_data: data.transcript,
+        transcript: transcriptData.text,
+        transcript_data: transcriptData,
       }));
 
       toast.success('Transcript generated and saved!');
@@ -1324,12 +1347,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
+        thumbnail_user_set: editFormData.thumbnail_user_set || false, // Persist user's thumbnail preference
         type: editFormData.type,
         transcript_data: editFormData.transcript_data || track.transcript_data || null,
       };
 
       // Check for meaningful content changes
-      const contentChanged = 
+      const contentChanged =
         saveData.title !== track.title ||
         saveData.description !== track.description ||
         saveData.duration_minutes !== (track.duration_minutes || 0) ||
@@ -2145,9 +2169,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     onChange={async (e) => {
                       const newUrl = e.target.value;
                       setEditFormData({ ...editFormData, content_url: newUrl });
-                      
+
                       // Auto-extract thumbnail for YouTube/Vimeo URLs
-                      if (newUrl && (isYouTubeUrl(newUrl) || isVimeoUrl(newUrl))) {
+                      // Only if user hasn't explicitly set thumbnail preference AND no existing thumbnail
+                      if (newUrl && (isYouTubeUrl(newUrl) || isVimeoUrl(newUrl)) && !thumbnailUserSet && !editFormData.thumbnail_url) {
                         const thumbnailUrl = await extractThumbnailFromUrl(newUrl);
                         if (thumbnailUrl) {
                           setEditFormData((prev: any) => ({ ...prev, thumbnail_url: thumbnailUrl }));
@@ -2193,6 +2218,124 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     Max size: 50MB
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Thumbnail - edit mode only */}
+          {isEditMode && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center">
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Thumbnail
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {editFormData.thumbnail_url ? (
+                  <div className="space-y-3">
+                    <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
+                      <img
+                        src={editFormData.thumbnail_url}
+                        alt="Track thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <label className="flex-1">
+                        <Button variant="outline" size="sm" className="w-full" asChild disabled={isUploading}>
+                          <span>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Replace
+                          </span>
+                        </Button>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              try {
+                                setIsUploading(true);
+                                const result = await crud.uploadTrackFile(track.id, file);
+                                setEditFormData((prev: any) => ({
+                                  ...prev,
+                                  thumbnail_url: result.url,
+                                  thumbnail_user_set: true // User explicitly set thumbnail
+                                }));
+                                setThumbnailUserSet(true); // Update component state too
+                                toast.success('Thumbnail updated!');
+                              } catch (error: any) {
+                                console.error('Error uploading thumbnail:', error);
+                                toast.error('Failed to upload thumbnail');
+                              } finally {
+                                setIsUploading(false);
+                              }
+                            }
+                          }}
+                          disabled={isUploading}
+                        />
+                      </label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditFormData((prev: any) => ({
+                            ...prev,
+                            thumbnail_url: '',
+                            thumbnail_user_set: true // User explicitly removed thumbnail
+                          }));
+                          setThumbnailUserSet(true); // Update component state too
+                        }}
+                        disabled={isUploading}
+                        title="Remove thumbnail"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <label>
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
+                      <div className="text-center">
+                        <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
+                        <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                      </div>
+                    </div>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          try {
+                            setIsUploading(true);
+                            const result = await crud.uploadTrackFile(track.id, file);
+                            setEditFormData((prev: any) => ({
+                              ...prev,
+                              thumbnail_url: result.url,
+                              thumbnail_user_set: true // User explicitly uploaded thumbnail
+                            }));
+                            setThumbnailUserSet(true); // Update component state too
+                            toast.success('Thumbnail uploaded!');
+                          } catch (error: any) {
+                            console.error('Error uploading thumbnail:', error);
+                            toast.error('Failed to upload thumbnail');
+                          } finally {
+                            setIsUploading(false);
+                          }
+                        }
+                      }}
+                      disabled={isUploading}
+                    />
+                  </label>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Used in playlists, library views, and video player poster
+                </p>
               </CardContent>
             </Card>
           )}

@@ -46,6 +46,8 @@ import * as albumsCrud from '../lib/crud/albums';
 import * as crud from '../lib/crud';
 import type { Album, AlbumTrack } from '../lib/crud/albums';
 
+const defaultThumbnail = '/default-thumbnail.png';
+
 interface AlbumDetailViewProps {
   album: Album;
   onBack: () => void;
@@ -393,13 +395,13 @@ export function AlbumDetailView({
                     <span className="text-sm w-6 text-center">{index + 1}</span>
                   </div>
                   
-                  {albumTrack.track?.thumbnail_url && (
-                    <img
-                      src={albumTrack.track.thumbnail_url}
-                      alt=""
-                      className="w-12 h-12 rounded object-cover"
-                    />
-                  )}
+                  <img
+                    src={albumTrack.track?.thumbnail_url && albumTrack.track.thumbnail_url !== '/default-thumbnail.png'
+                      ? albumTrack.track.thumbnail_url
+                      : defaultThumbnail}
+                    alt=""
+                    className="w-12 h-12 rounded object-cover bg-muted"
+                  />
                   
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{albumTrack.track?.title || 'Untitled'}</p>
@@ -475,13 +477,13 @@ export function AlbumDetailView({
                     onChange={() => toggleTrackSelection(track.id)}
                     className="h-4 w-4"
                   />
-                  {track.thumbnail_url && (
-                    <img
-                      src={track.thumbnail_url}
-                      alt=""
-                      className="w-10 h-10 rounded object-cover"
-                    />
-                  )}
+                  <img
+                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png'
+                      ? track.thumbnail_url
+                      : defaultThumbnail}
+                    alt=""
+                    className="w-10 h-10 rounded object-cover bg-muted"
+                  />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{track.title}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">

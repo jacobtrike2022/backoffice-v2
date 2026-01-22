@@ -4097,16 +4097,20 @@ async function handleTranscribe(req: Request): Promise<Response> {
                 return;
               }
 
-              // For non-story tracks (video, article), update the transcript field
+              // For non-story tracks (video, article), update the transcript field AND transcript_data
+              // transcript_data contains the structured JSON with word-level timestamps for interactive display
               const { error: updateError } = await supabase
                 .from("tracks")
-                .update({ transcript: cached.transcript_text || "" })
+                .update({
+                  transcript: cached.transcript_text || "",
+                  transcript_data: cached  // Include full cached data for InteractiveTranscript component
+                })
                 .eq("id", trackId);
 
               if (updateError) {
                 console.error("Failed to update track with cached transcript:", updateError);
               } else {
-                console.log("✅ Track updated with cached transcript");
+                console.log("✅ Track updated with cached transcript and transcript_data");
               }
 
               // Only generate facts if track doesn't already have them
@@ -4322,16 +4326,20 @@ async function handleTranscribe(req: Request): Promise<Response> {
             return;
           }
 
-          // For non-story tracks (video, article), update the transcript field
+          // For non-story tracks (video, article), update the transcript field AND transcript_data
+          // transcript_data contains the structured JSON with word-level timestamps for interactive display
           const { error: updateError } = await supabase
             .from("tracks")
-            .update({ transcript: transcript.text || "" })
+            .update({
+              transcript: transcript.text || "",
+              transcript_data: newTranscript  // Include full transcript data for InteractiveTranscript component
+            })
             .eq("id", trackId);
 
           if (updateError) {
             console.error("Failed to update track with transcript:", updateError);
           } else {
-            console.log("✅ Track updated with transcript");
+            console.log("✅ Track updated with transcript and transcript_data");
           }
 
           // Only generate facts if track doesn't already have them
@@ -5186,7 +5194,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
   try {
     let orgId = await getOrgIdFromToken(req);
     console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
-    
+
     // Fallback: Get org_id from the track itself if token extraction failed
     if (!orgId) {
       console.log("⚠️ [GetSourceTrack] No orgId from token, trying to get from track...");
@@ -5195,7 +5203,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
         .select("organization_id")
         .eq("id", trackId)
         .single();
-      
+
       if (!trackError && track?.organization_id) {
         orgId = track.organization_id;
         console.log(`✅ [GetSourceTrack] Got orgId from track: ${orgId}`);
@@ -5205,6 +5213,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
       }
     }
 
+    // Query ALL source relationships (a checkpoint can have multiple sources)
     let query = supabase
       .from("track_relationships")
       .select(`
@@ -5228,41 +5237,49 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
       query = query.eq("relationship_type", relationshipType);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query;
 
-    console.log(`📊 [GetSourceTrack] Query result:`, { 
-      hasData: !!data, 
-      hasError: !!error, 
+    console.log(`📊 [GetSourceTrack] Query result:`, {
+      hasData: !!data,
+      count: data?.length || 0,
+      hasError: !!error,
       errorCode: error?.code,
-      dataKeys: data ? Object.keys(data) : []
     });
 
     if (error) {
-      if (error.code === "PGRST116") {
-        // No rows returned
-        console.log("📊 [GetSourceTrack] No relationship found (PGRST116)");
-        return jsonResponse({ source: null });
-      }
       console.error("❌ [GetSourceTrack] Error:", error);
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // If join didn't work, fetch track separately
-    if (data && !data.source_track && data.source_track_id) {
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("id, title, type, thumbnail_url, status")
-        .eq("id", data.source_track_id)
-        .eq("organization_id", orgId)
-        .single();
+    // If no relationships found
+    if (!data || data.length === 0) {
+      console.log("📊 [GetSourceTrack] No relationships found");
+      return jsonResponse({ source: null, sources: [] });
+    }
 
-      if (!trackError && track) {
-        data.source_track = track;
+    // For each relationship where join didn't work, fetch track separately
+    for (const rel of data) {
+      if (!rel.source_track && rel.source_track_id) {
+        const { data: track, error: trackError } = await supabase
+          .from("tracks")
+          .select("id, title, type, thumbnail_url, status")
+          .eq("id", rel.source_track_id)
+          .eq("organization_id", orgId)
+          .single();
+
+        if (!trackError && track) {
+          rel.source_track = track;
+        }
       }
     }
 
-    console.log(`✅ [GetSourceTrack] Returning source relationship`);
-    return jsonResponse({ source: data });
+    console.log(`✅ [GetSourceTrack] Returning ${data.length} source relationship(s)`);
+
+    // Return both legacy format (first source) and new format (all sources)
+    return jsonResponse({
+      source: data[0] || null,  // Legacy: single source for backward compatibility
+      sources: data             // New: array of all source relationships
+    });
   } catch (error) {
     console.error("❌ [GetSourceTrack] Exception:", error);
     return jsonResponse({ error: error.message }, 500);
@@ -13813,53 +13830,83 @@ async function handleTranscribeStory(req: Request): Promise<Response> {
  */
 async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
   try {
-    const { trackId } = await req.json();
+    const body = await req.json();
+    // Support both single trackId (legacy) and multiple trackIds
+    const trackIds: string[] = body.trackIds || (body.trackId ? [body.trackId] : []);
 
-    if (!trackId) {
-      return jsonResponse({ error: 'trackId is required' }, 400);
+    // Question count settings (optional - if not provided, use default calculation)
+    const customMinQuestions: number | undefined = body.minQuestions;
+    const customMaxQuestions: number | undefined = body.maxQuestions;
+    const hasCustomQuestionCount = customMinQuestions !== undefined && customMaxQuestions !== undefined;
+
+    if (trackIds.length === 0) {
+      return jsonResponse({ error: 'trackId or trackIds is required' }, 400);
     }
 
-    console.log('🎯 Checkpoint AI generation requested for track:', trackId);
+    console.log('🎯 Checkpoint AI generation requested for tracks:', trackIds);
 
-    // 1. Fetch track from database
-    const { data: track, error: trackError } = await supabase
+    // 1. Fetch all tracks from database
+    const { data: tracks, error: tracksError } = await supabase
       .from('tracks')
       .select('*')
-      .eq('id', trackId)
-      .single();
+      .in('id', trackIds);
 
-    if (trackError || !track) {
-      console.error('Track not found:', trackError);
-      return jsonResponse({ error: 'Track not found' }, 404);
+    if (tracksError || !tracks || tracks.length === 0) {
+      console.error('Tracks not found:', tracksError);
+      return jsonResponse({ error: 'One or more tracks not found' }, 404);
     }
+
+    // Verify all tracks were found
+    if (tracks.length !== trackIds.length) {
+      const foundIds = new Set(tracks.map((t: any) => t.id));
+      const missingIds = trackIds.filter(id => !foundIds.has(id));
+      return jsonResponse({ error: `Tracks not found: ${missingIds.join(', ')}` }, 404);
+    }
+
+    // Sort tracks to match the order they were selected
+    const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+    const orderedTracks = trackIds.map(id => trackMap.get(id)).filter(Boolean);
 
     // Support article, video, and story tracks
-    if (!['article', 'video', 'story'].includes(track.type)) {
-      return jsonResponse({ error: 'Only articles, videos, and stories are supported for AI generation' }, 400);
-    }
-
-    // 2. Check minimum content
-    const articleContent = track.transcript || track.description || '';
-    const strippedContent = articleContent
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const wordCount = strippedContent.split(/\s+/).filter((w: string) => w.length > 0).length;
-
-    console.log('📊 Content validation:', { trackId, wordCount, minRequired: 150 });
-
-    if (wordCount < 150) {
+    const invalidTracks = orderedTracks.filter((t: any) => !['article', 'video', 'story'].includes(t.type));
+    if (invalidTracks.length > 0) {
       return jsonResponse({
-        error: `Content too short (${wordCount} words). Need at least 150 words to generate meaningful questions.`
+        error: `Only articles, videos, and stories are supported. Invalid tracks: ${invalidTracks.map((t: any) => t.title).join(', ')}`
       }, 400);
     }
 
-    // 3. Fetch key facts via fact_usage junction table
-    console.log('🔍 Fetching facts for trackId:', trackId);
+    // 2. Check minimum content (combined across all tracks)
+    let combinedContent = '';
+    const trackContents: Array<{ track: any; content: string; wordCount: number }> = [];
 
-    const { data: factUsage, error: factsError } = await supabase
+    for (const track of orderedTracks) {
+      const articleContent = track.transcript || track.description || '';
+      const strippedContent = articleContent
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const wordCount = strippedContent.split(/\s+/).filter((w: string) => w.length > 0).length;
+
+      trackContents.push({ track, content: strippedContent, wordCount });
+      combinedContent += `\n\n--- ${track.title} ---\n${strippedContent}`;
+    }
+
+    const totalWordCount = trackContents.reduce((sum, tc) => sum + tc.wordCount, 0);
+    console.log('📊 Content validation:', { trackIds, totalWordCount, minRequired: 150 });
+
+    if (totalWordCount < 150) {
+      return jsonResponse({
+        error: `Combined content too short (${totalWordCount} words). Need at least 150 words to generate meaningful questions.`
+      }, 400);
+    }
+
+    // 3. Fetch key facts for ALL tracks via fact_usage junction table
+    console.log('🔍 Fetching facts for trackIds:', trackIds);
+
+    const { data: allFactUsage, error: factsError } = await supabase
       .from('fact_usage')
       .select(`
+        track_id,
         display_order,
         facts (
           id,
@@ -13870,56 +13917,126 @@ async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
           context
         )
       `)
-      .eq('track_id', trackId)
+      .in('track_id', trackIds)
       .order('display_order', { ascending: true });
-
-    const facts = factUsage?.map((fu: any) => fu.facts).filter(Boolean) || [];
-
-    console.log('📊 Facts query result:', {
-      trackId,
-      factUsageCount: factUsage?.length || 0,
-      factsFound: facts?.length || 0,
-    });
 
     if (factsError) {
       console.error('❌ Error fetching facts:', factsError);
       return jsonResponse({ error: 'Failed to fetch key facts from database' }, 500);
     }
 
+    // Group facts by track for better organization
+    const factsByTrack = new Map<string, any[]>();
+    for (const trackId of trackIds) {
+      factsByTrack.set(trackId, []);
+    }
+
+    for (const fu of allFactUsage || []) {
+      if (fu.facts) {
+        const trackFacts = factsByTrack.get(fu.track_id) || [];
+        trackFacts.push(fu.facts);
+        factsByTrack.set(fu.track_id, trackFacts);
+      }
+    }
+
+    // Check which tracks are missing facts
+    const tracksMissingFacts = trackIds.filter(id => (factsByTrack.get(id) || []).length === 0);
+    const tracksWithFacts = trackIds.filter(id => (factsByTrack.get(id) || []).length > 0);
+
+    // All facts combined (in order of track selection, then display order)
+    const allFacts: any[] = [];
+    for (const trackId of trackIds) {
+      const trackFacts = factsByTrack.get(trackId) || [];
+      allFacts.push(...trackFacts);
+    }
+
+    console.log('📊 Facts query result:', {
+      trackIds,
+      totalFactsFound: allFacts.length,
+      factsByTrack: Object.fromEntries([...factsByTrack.entries()].map(([k, v]) => [k, v.length])),
+      tracksMissingFacts,
+    });
+
     // Handle no facts - helpful error message
-    if (!facts || facts.length === 0) {
-      console.warn('⚠️ No facts found for track:', trackId);
+    if (allFacts.length === 0) {
+      console.warn('⚠️ No facts found for any tracks:', trackIds);
       return jsonResponse({
-        error: 'No key facts found for this content. Please go to the content detail page and click "Generate Key Facts" first, then try again.',
-        needsFactExtraction: true
+        error: 'No key facts found for the selected content. Please go to each content detail page and click "Generate Key Facts" first, then try again.',
+        needsFactExtraction: true,
+        tracksMissingFacts: trackIds
       }, 400);
     }
 
-    console.log(`✅ Found ${facts.length} facts - proceeding with generation`);
+    // Warn about tracks missing facts but continue if some have facts
+    if (tracksMissingFacts.length > 0 && tracksWithFacts.length > 0) {
+      const missingTitles = tracksMissingFacts.map(id => trackMap.get(id)?.title).filter(Boolean);
+      console.warn(`⚠️ Some tracks missing facts: ${missingTitles.join(', ')}`);
+    }
 
-    // 4. Calculate question count based on facts
-    const questionCount = facts.length <= 2 ? facts.length
-      : facts.length <= 5 ? 3
-      : facts.length <= 10 ? 5
-      : facts.length <= 15 ? 8
-      : facts.length <= 20 ? 10
-      : facts.length <= 30 ? 12
-      : 15;
+    console.log(`✅ Found ${allFacts.length} total facts across ${tracksWithFacts.length} tracks - proceeding with generation`);
 
-    console.log('🎲 Will generate', questionCount, 'questions');
+    // 4. Calculate question count based on total facts OR custom settings
+    let questionCount: number;
+    let needsQuestionVariations = false; // Flag if we need to ask questions in multiple ways
+
+    if (hasCustomQuestionCount) {
+      // User specified custom min/max
+      const min = Math.max(3, Math.min(99, customMinQuestions!));
+      const max = Math.max(3, Math.min(99, customMaxQuestions!));
+
+      // If we have fewer facts than min, we'll need to ask questions in different ways
+      if (allFacts.length < min) {
+        questionCount = min; // Still generate the minimum requested
+        needsQuestionVariations = true;
+        console.log(`⚠️ User requested min ${min} questions but only ${allFacts.length} facts - will use variations`);
+      } else {
+        // We have enough facts, pick a count in the user's range based on available facts
+        questionCount = Math.min(max, Math.max(min, Math.ceil(allFacts.length * 0.6)));
+      }
+    } else {
+      // Default calculation based on facts
+      questionCount = allFacts.length <= 2 ? allFacts.length
+        : allFacts.length <= 5 ? 3
+        : allFacts.length <= 10 ? 5
+        : allFacts.length <= 15 ? 8
+        : allFacts.length <= 20 ? 10
+        : allFacts.length <= 30 ? 12
+        : 15;
+    }
+
+    console.log('🎲 Will generate', questionCount, 'questions from', allFacts.length, 'facts', hasCustomQuestionCount ? `(custom: ${customMinQuestions}-${customMaxQuestions})` : '(default)', needsQuestionVariations ? '[WITH VARIATIONS]' : '');
 
     // 5. Generate questions with AI
     if (!OPENAI_API_KEY) {
       return jsonResponse({ error: 'AI service not configured' }, 503);
     }
 
-    const systemPrompt = `You are an expert training content developer for convenience store and foodservice operations. Your job is to create practical, job-relevant assessment questions.
+    const isMultiTrack = orderedTracks.length > 1;
+    const trackTitles = orderedTracks.map((t: any) => t.title);
 
+    // Build variations instructions if needed
+    const variationsInstructions = needsQuestionVariations
+      ? `
+IMPORTANT - QUESTION VARIATIONS:
+You need to generate ${questionCount} questions but there are only ${allFacts.length} key facts available. To meet the question count:
+- First, create a direct question for each key fact
+- Then, for additional questions, RE-ASK about the same facts using DIFFERENT approaches:
+  * Rephrase the question entirely (different wording, same concept)
+  * Change question type (if original was multiple choice, make it true/false or vice versa)
+  * Ask about the same fact from a different angle (e.g., "What should you do..." vs "Why is it important to...")
+  * Create scenario-based variations (e.g., "If a customer asks about X, what would you say about...")
+- NEVER repeat the exact same question - each must feel unique to the learner
+- Spread the variations across different facts rather than asking 3 questions about one fact in a row
+`
+      : '';
+
+    const systemPrompt = `You are an expert training content developer for convenience store and foodservice operations. Your job is to create practical, job-relevant assessment questions.
+${variationsInstructions}
 RULES:
 1. Generate exactly ${questionCount} questions
 2. Mix 75% multiple choice (4 options each) and 25% true/false
 3. Base questions on the provided key facts, prioritizing the most operationally important ones
-4. Questions should follow the order facts appear in the article
+4. ${isMultiTrack ? 'Questions should cover content from ALL source tracks proportionally, ensuring comprehensive assessment across topics' : 'Questions should follow the order facts appear in the article'}
 5. Focus on practical application, not trivia or memorization
 6. Difficulty: Medium (not too easy, not obscure)
 7. **CRITICAL**: For multiple choice, distribute correct answers randomly across positions A/B/C/D. Avoid patterns like all A's or all C's. Vary the position of the correct answer naturally.
@@ -13928,6 +14045,7 @@ RULES:
 10. True/false questions should not be obvious
 11. Each question must be self-contained (no pronouns referring to previous questions)
 12. Include an optional brief explanation for each question (1-2 sentences explaining why the answer is correct)
+${isMultiTrack ? '13. Do NOT ask questions that compare or contrast information between different source tracks - treat all content as a unified body of knowledge' : ''}
 
 FORMAT:
 Return JSON only, no markdown:
@@ -13956,13 +14074,38 @@ Return JSON only, no markdown:
   ]
 }`;
 
-    const userPrompt = `ARTICLE TITLE: ${track.title}
+    // Build facts list organized by track for multi-track
+    let factsSection = '';
+    if (isMultiTrack) {
+      let factIndex = 1;
+      for (const trackId of trackIds) {
+        const track = trackMap.get(trackId);
+        const trackFacts = factsByTrack.get(trackId) || [];
+        if (trackFacts.length > 0) {
+          factsSection += `\n\nFrom "${track.title}":\n`;
+          factsSection += trackFacts.map((f: any) => `${factIndex++}. ${f.title}: ${f.content}`).join('\n');
+        }
+      }
+    } else {
+      factsSection = allFacts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n');
+    }
+
+    const userPrompt = isMultiTrack
+      ? `SOURCE CONTENT TITLES: ${trackTitles.join(', ')}
+
+KEY FACTS (organized by source):${factsSection}
+
+COMBINED CONTENT (for context):
+${combinedContent.substring(0, 4000)}${combinedContent.length > 4000 ? '...' : ''}
+
+Generate ${questionCount} questions that comprehensively test understanding across all the source content.`
+      : `ARTICLE TITLE: ${orderedTracks[0].title}
 
 KEY FACTS (in order of appearance):
-${facts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n')}
+${factsSection}
 
 FULL ARTICLE CONTENT (for context):
-${strippedContent.substring(0, 3000)}${strippedContent.length > 3000 ? '...' : ''}
+${trackContents[0].content.substring(0, 3000)}${trackContents[0].content.length > 3000 ? '...' : ''}
 
 Generate ${questionCount} questions that test understanding of the most important concepts for job performance.`;
 
@@ -13998,16 +14141,30 @@ Generate ${questionCount} questions that test understanding of the most importan
       explanation: q.explanation || undefined
     }));
 
+    // Build suggested title and description
+    const suggestedTitle = isMultiTrack
+      ? `${trackTitles.slice(0, 2).join(' & ')}${trackTitles.length > 2 ? ` (+${trackTitles.length - 2} more)` : ''} - Checkpoint`
+      : `${orderedTracks[0].title} - Checkpoint`;
+
+    const suggestedDescription = isMultiTrack
+      ? `Assessment questions generated from ${trackTitles.length} source tracks: ${trackTitles.join(', ')}.`
+      : `Assessment questions generated from "${orderedTracks[0].title}" to verify understanding of key concepts.`;
+
     return jsonResponse({
       questions: formattedQuestions,
-      sourceTrackId: trackId,
-      sourceTrackTitle: track.title,
-      thumbnailUrl: track.thumbnail_url || undefined,
-      factCount: facts.length,
+      // Multi-track response fields
+      sourceTrackIds: trackIds,
+      sourceTrackTitles: trackTitles,
+      // Legacy single-track fields for backward compatibility
+      sourceTrackId: trackIds[0],
+      sourceTrackTitle: trackTitles[0],
+      thumbnailUrl: orderedTracks[0].thumbnail_url || undefined,
+      factCount: allFacts.length,
       questionCount: formattedQuestions.length,
+      tracksMissingFacts: tracksMissingFacts.length > 0 ? tracksMissingFacts : undefined,
       metadata: {
-        suggestedTitle: `${track.title} - Checkpoint`,
-        suggestedDescription: `Assessment questions generated from "${track.title}" to verify understanding of key concepts.`
+        suggestedTitle,
+        suggestedDescription
       }
     });
 

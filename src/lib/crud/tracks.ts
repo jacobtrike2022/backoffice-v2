@@ -97,11 +97,56 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
     }
   });
 
-  // Enrich tracks with their tags
-  return tracks.map(track => ({
-    ...track,
-    tags: trackIdToTagNames[track.id] || []
-  }));
+  // Enrich tracks with their tags and parse/normalize transcript_data
+  return tracks.map(track => {
+    let parsedTranscriptData = track.transcript_data;
+
+    // DEBUG: Log the raw transcript_data type and structure
+    if (track.transcript_data) {
+      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} transcript_data:`, {
+        type: typeof track.transcript_data,
+        hasTranscriptJson: !!(track.transcript_data?.transcript_json),
+        hasText: !!(track.transcript_data?.text),
+        hasWords: !!(track.transcript_data?.words),
+        preview: typeof track.transcript_data === 'string'
+          ? track.transcript_data.substring(0, 100) + '...'
+          : JSON.stringify(track.transcript_data).substring(0, 100) + '...'
+      });
+    }
+
+    // Parse if stored as JSON string
+    if (typeof track.transcript_data === 'string') {
+      try {
+        parsedTranscriptData = JSON.parse(track.transcript_data);
+        console.log(`[enrichTracksWithJunctionTags] Parsed string transcript_data for track ${track.id}`);
+      } catch (e) {
+        console.warn('[enrichTracksWithJunctionTags] Failed to parse transcript_data for track', track.id, e);
+      }
+    }
+
+    // Normalize: if transcript_data has nested transcript_json, extract it
+    // This happens when transcript comes from media_transcripts table with full metadata
+    if (parsedTranscriptData && parsedTranscriptData.transcript_json) {
+      console.log(`[enrichTracksWithJunctionTags] Extracting nested transcript_json for track ${track.id}`);
+      parsedTranscriptData = parsedTranscriptData.transcript_json;
+    }
+
+    // DEBUG: Log the final normalized transcript_data
+    if (parsedTranscriptData) {
+      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} FINAL transcript_data:`, {
+        hasText: !!parsedTranscriptData.text,
+        hasWords: !!parsedTranscriptData.words,
+        hasUtterances: !!parsedTranscriptData.utterances,
+        textPreview: parsedTranscriptData.text?.substring(0, 50)
+      });
+    }
+
+    return {
+      ...track,
+      tags: trackIdToTagNames[track.id] || [],
+      transcript_data: parsedTranscriptData,
+    };
+  });
 }
 
 /**
@@ -288,7 +333,7 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
 
     const transcribeData = await transcribeResponse.json();
     const transcriptText = transcribeData.transcript?.transcript_text || transcribeData.transcript?.text || '';
-    
+
     if (!transcriptText) {
       console.warn('[Video Workflow] No transcript text received');
       return;
@@ -296,18 +341,28 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
 
     console.log(`[Video Workflow] ✓ Transcript generated (${transcriptText.length} chars)`);
 
-    // Step 2: Update track with transcript
+    // Normalize transcript_data - extract transcript_json if nested (from media_transcripts)
+    let transcriptData = transcribeData.transcript;
+    if (transcriptData && transcriptData.transcript_json) {
+      transcriptData = transcriptData.transcript_json;
+    }
+
+    // Step 2: Update track with transcript and transcript_data
+    // transcript_data contains the structured JSON with word-level timestamps for interactive display
     console.log('[Video Workflow] Step 2: Saving transcript to track...');
     const { error: updateError } = await supabase
       .from('tracks')
-      .update({ transcript: transcriptText })
+      .update({
+        transcript: transcriptText,
+        transcript_data: transcribeData.transcript  // Include full transcript data for InteractiveTranscript component
+      })
       .eq('id', track.id);
 
     if (updateError) {
       console.error('[Video Workflow] Failed to save transcript:', updateError);
       // Continue anyway - transcript is cached in media_transcripts
     } else {
-      console.log('[Video Workflow] ✓ Transcript saved to track');
+      console.log('[Video Workflow] ✓ Transcript and transcript_data saved to track');
     }
 
     // Step 3: Generate key facts

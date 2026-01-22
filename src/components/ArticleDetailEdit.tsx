@@ -649,9 +649,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       
       // Force TTS player to refresh ONLY if the actual text content changed
       // TTS is only affected by transcript/content_text changes, not metadata (tags, title, thumbnail, etc.)
+      // The backend uses content hashing to determine if regeneration is actually needed,
+      // so we just need to trigger a refresh when content changes
       const ttsContentChanged = updateData.transcript !== (track.transcript || '');
-      if (ttsContentChanged && track.transcript) {
-        console.log('🔊 TTS content changed, forcing TTS refresh...');
+      if (ttsContentChanged) {
+        console.log('🔊 TTS content changed, forcing TTS refresh (backend will hash-check)...');
         setTtsRefreshKey(prev => prev + 1);
       } else {
         console.log('🔊 TTS content unchanged, skipping TTS refresh (metadata-only change)');
