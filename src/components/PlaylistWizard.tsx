@@ -533,16 +533,24 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       }
 
       // Build release schedule for progressive playlists
+      // Store full stage data including names and content associations
       let releaseSchedule = null;
-      const releaseType = stages.length > 1 && stages.some(s => s.unlockType !== 'immediate') 
-        ? 'progressive' 
+      const releaseType = stages.length > 1 && stages.some(s => s.unlockType !== 'immediate')
+        ? 'progressive'
         : 'immediate';
 
-      if (releaseType === 'progressive') {
-        releaseSchedule = {};
-        stages.forEach((stage, index) => {
-          releaseSchedule[`stage${index + 1}`] = stage.unlockDays || index;
-        });
+      if (releaseType === 'progressive' || stages.length > 0) {
+        // Store full stage data for display in view mode
+        releaseSchedule = {
+          stages: stages.map((stage, index) => ({
+            id: stage.id,
+            name: stage.name || `Stage ${index + 1}`,
+            unlockDays: stage.unlockDays || 0,
+            unlockType: stage.unlockType || 'immediate',
+            albumIds: stage.albums.map((a: any) => typeof a === 'string' ? a : a.id),
+            trackIds: stage.tracks.map((t: any) => typeof t === 'string' ? t : t.id),
+          })),
+        };
       }
 
       // 1. Create or update the playlist
@@ -639,10 +647,15 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       }
 
       toast.success(`Playlist "${playlistName}" ${mode === 'edit' ? 'updated' : 'published'} successfully!`, {
-        description: assignmentType === 'manual' 
-          ? `Assigned to ${selectedEmployees.length} employees` 
+        description: assignmentType === 'manual'
+          ? `Assigned to ${selectedEmployees.length} employees`
           : 'Auto-assignment configured',
       });
+
+      // Clear unsaved changes check before closing to allow navigation
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
 
       // Close the wizard
       onClose();
