@@ -304,6 +304,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         // Load assigned employees for manual playlists
+        let loadedEmployeeIds: string[] = [];
         if (playlist.type === 'manual') {
           const { data: assignments } = await supabase
             .from('assignments')
@@ -312,9 +313,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             .eq('organization_id', user.organization_id);
 
           if (assignments && assignments.length > 0) {
-            const employeeIds = assignments.map(a => a.user_id);
-            setSelectedEmployees(employeeIds);
-            console.log('👥 Loaded', employeeIds.length, 'assigned employees');
+            loadedEmployeeIds = assignments.map(a => a.user_id);
+            setSelectedEmployees(loadedEmployeeIds);
+            console.log('👥 Loaded', loadedEmployeeIds.length, 'assigned employees');
           }
         }
 
@@ -345,17 +346,17 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         setStages(loadedStages);
-        
+
         // Save original state for unsaved changes detection
         setOriginalState({
           playlistName: playlist.title || '',
           playlistDescription: playlist.description || '',
           assignmentType: playlist.type || 'manual',
           playlistTags: loadedTags.map(t => t.name),
-          triggerConditions: playlist.type === 'auto' && playlist.trigger_rules 
-            ? [{ field: 'role', operator: 'equals', value: '' }] 
+          triggerConditions: playlist.type === 'auto' && playlist.trigger_rules
+            ? [{ field: 'role', operator: 'equals', value: '' }]
             : [{ field: 'role', operator: 'equals', value: '' }],
-          selectedEmployees: assignments?.map(a => a.user_id) || [],
+          selectedEmployees: loadedEmployeeIds,
           stages: loadedStages,
           startImmediately,
           startDelayDays,
@@ -489,24 +490,35 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     setIsSubmitting(true);
 
     try {
+      // Debug: log stages state before collecting IDs
+      console.log('🔍 Stages before collecting IDs:', JSON.stringify(stages, null, 2));
+
       // Collect album and track IDs from all stages
       const allAlbumIds: string[] = [];
       const allTrackIds: string[] = [];
 
-      stages.forEach(stage => {
-        // Albums are stored as IDs (strings)
-        stage.albums.forEach((albumId: string) => {
+      stages.forEach((stage, stageIndex) => {
+        console.log(`🔍 Stage ${stageIndex} albums:`, stage.albums);
+        console.log(`🔍 Stage ${stageIndex} tracks:`, stage.tracks);
+
+        // Albums can be stored as IDs (strings) or objects with id property
+        (stage.albums || []).forEach((album: any) => {
+          const albumId = typeof album === 'string' ? album : album?.id;
           if (albumId && !allAlbumIds.includes(albumId)) {
             allAlbumIds.push(albumId);
           }
         });
-        // Tracks are stored as IDs (strings)
-        stage.tracks.forEach((trackId: string) => {
+        // Tracks can be stored as IDs (strings) or objects with id property
+        (stage.tracks || []).forEach((track: any) => {
+          const trackId = typeof track === 'string' ? track : track?.id;
           if (trackId && !allTrackIds.includes(trackId)) {
             allTrackIds.push(trackId);
           }
         });
       });
+
+      console.log('🔍 Collected allAlbumIds:', allAlbumIds);
+      console.log('🔍 Collected allTrackIds:', allTrackIds);
 
       // Build trigger rules for auto-assignment
       let triggerRules = null;
@@ -719,6 +731,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     const albums = stage.albums.includes(albumId)
       ? stage.albums.filter((id: string) => id !== albumId)
       : [...stage.albums, albumId];
+    console.log(`📀 toggleAlbumInStage: stageIndex=${stageIndex}, albumId=${albumId}, newAlbums=`, albums);
     updateStage(stageIndex, { albums });
   };
 
@@ -1336,9 +1349,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <div className="flex-1">
                               <p className="font-medium text-sm">{album.title}</p>
                               <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
-                                <span>{album.duration_minutes || 0} min</span>
+                                <span>{album.track_count || 0} tracks</span>
                                 <span>•</span>
-                                <span>{new Date(album.updated_at || album.created_at).toLocaleDateString()}</span>
+                                <span>{album.total_duration_minutes || album.duration_minutes || 0} min</span>
                                 {album.version_number && album.version_number > 1 && (
                                   <>
                                     <span>•</span>

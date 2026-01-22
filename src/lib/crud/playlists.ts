@@ -356,6 +356,8 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
  * Get a single playlist by ID with full details
  */
 export async function getPlaylistById(playlistId: string) {
+  console.log('🔍 getPlaylistById called with:', playlistId);
+
   const { data: playlist, error } = await supabase
     .from('playlists')
     .select(`
@@ -368,13 +370,14 @@ export async function getPlaylistById(playlistId: string) {
   if (error) throw error;
 
   // Get albums in this playlist
-  const { data: playlistAlbums } = await supabase
+  // Note: Use "album:albums" syntax for the foreign key relationship (album_id -> albums.id)
+  const { data: playlistAlbums, error: albumsError } = await supabase
     .from('playlist_albums')
     .select(`
       id,
       display_order,
       release_stage,
-      albums(
+      album:albums(
         id,
         title,
         description,
@@ -385,14 +388,17 @@ export async function getPlaylistById(playlistId: string) {
     .eq('playlist_id', playlistId)
     .order('display_order');
 
+  console.log('🔍 getPlaylistById playlistAlbums query result:', { playlistAlbums, albumsError });
+
   // Get standalone tracks in this playlist
+  // Note: Use "track:tracks" syntax for the foreign key relationship (track_id -> tracks.id)
   const { data: playlistTracks } = await supabase
     .from('playlist_tracks')
     .select(`
       id,
       display_order,
       release_stage,
-      tracks(
+      track:tracks(
         id,
         title,
         description,
@@ -500,6 +506,13 @@ export async function getPlaylistById(playlistId: string) {
  * Create a new playlist
  */
 export async function createPlaylist(input: CreatePlaylistInput) {
+  console.log('🔍 CRUD createPlaylist received:', {
+    title: input.title,
+    album_ids: input.album_ids,
+    track_ids: input.track_ids,
+    release_schedule: input.release_schedule,
+  });
+
   // Input validation
   if (!input.title || typeof input.title !== 'string' || input.title.trim().length === 0) {
     throw new Error('Invalid title: must be a non-empty string');
@@ -565,11 +578,19 @@ export async function createPlaylist(input: CreatePlaylistInput) {
       release_stage: albumToStage[albumId] || 1,
     }));
 
+    console.log('🔍 Inserting into playlist_albums:', albumRecords);
+
     const { error: albumError } = await supabase
       .from('playlist_albums')
       .insert(albumRecords);
 
-    if (albumError) throw albumError;
+    if (albumError) {
+      console.error('❌ Error inserting playlist_albums:', albumError);
+      throw albumError;
+    }
+    console.log('✅ Successfully inserted', albumRecords.length, 'albums into playlist_albums');
+  } else {
+    console.log('⚠️ No album_ids provided to insert into playlist_albums');
   }
 
   // Add standalone tracks to playlist with correct release_stage
@@ -609,6 +630,14 @@ export async function createPlaylist(input: CreatePlaylistInput) {
  * Update an existing playlist
  */
 export async function updatePlaylist(playlistId: string, input: UpdatePlaylistInput) {
+  console.log('🔍 CRUD updatePlaylist received:', {
+    playlistId,
+    title: input.title,
+    album_ids: input.album_ids,
+    track_ids: input.track_ids,
+    release_schedule: input.release_schedule,
+  });
+
   // Input validation
   if (!playlistId || typeof playlistId !== 'string') {
     throw new Error('Invalid playlistId: must be a non-empty string');
@@ -665,6 +694,7 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
 
   // Handle album updates if provided
   if (album_ids !== undefined) {
+    console.log('🔍 updatePlaylist: Deleting existing playlist_albums for playlist:', playlistId);
     // Delete existing albums
     await supabase
       .from('playlist_albums')
@@ -680,12 +710,22 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
         release_stage: albumToStage[albumId] || 1,
       }));
 
+      console.log('🔍 updatePlaylist: Inserting into playlist_albums:', albumRecords);
+
       const { error: albumError } = await supabase
         .from('playlist_albums')
         .insert(albumRecords);
 
-      if (albumError) throw albumError;
+      if (albumError) {
+        console.error('❌ Error inserting playlist_albums in update:', albumError);
+        throw albumError;
+      }
+      console.log('✅ updatePlaylist: Successfully inserted', albumRecords.length, 'albums');
+    } else {
+      console.log('⚠️ updatePlaylist: album_ids is empty array, no albums to insert');
     }
+  } else {
+    console.log('⚠️ updatePlaylist: album_ids is undefined, skipping album update');
   }
 
   // Handle track updates if provided

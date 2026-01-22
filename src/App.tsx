@@ -130,6 +130,7 @@ export default function App() {
     useState<AppView | null>(null); // Track where user came from
   const [contentLibraryKey, setContentLibraryKey] = useState(0); // Key to force ContentLibrary reset
   const [knowledgeBaseKey, setKnowledgeBaseKey] = useState(0); // Key to force KnowledgeBase reset
+  const [playlistsRefreshKey, setPlaylistsRefreshKey] = useState(0); // Key to force Playlists refresh after wizard
   const [playbookSourceFileId, setPlaybookSourceFileId] = useState<string | null>(null); // For playbook build view
   const [
     isSuperAdminAuthenticated,
@@ -500,6 +501,7 @@ export default function App() {
       case "assignments":
         return (
           <Playlists
+            key={`playlists-${playlistsRefreshKey}`}
             currentRole={currentRole}
             onOpenPlaylistWizard={() => {
               setEditingPlaylistId(undefined);
@@ -523,6 +525,7 @@ export default function App() {
       case "assignment":
         return (
           <Playlists
+            key={`playlists-${playlistsRefreshKey}`}
             currentRole={currentRole}
             onOpenPlaylistWizard={() => {
               setEditingPlaylistId(undefined);
@@ -541,7 +544,12 @@ export default function App() {
             existingPlaylistId={editingPlaylistId}
             onClose={() => {
               setEditingPlaylistId(undefined);
-              requestNavigate("assignments");
+              // Increment refresh key to force Playlists component to re-fetch data
+              setPlaylistsRefreshKey(prev => prev + 1);
+              // Use handleNavigate directly to bypass unsaved changes check
+              // The wizard clears the check before calling onClose, but React state
+              // updates are async so requestNavigate might still see stale state
+              handleNavigate("assignments");
             }}
             registerUnsavedChangesCheck={(checkFn) =>
               setHasUnsavedChangesRef(() => checkFn)
