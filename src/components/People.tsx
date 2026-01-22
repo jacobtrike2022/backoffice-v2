@@ -460,7 +460,10 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
         </CardHeader>
         <CardContent className="p-0">
           {/* Table Header */}
-          <div className="grid grid-cols-[auto_1fr_120px_120px_140px_100px_80px_32px] gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
+          <div
+            className="grid gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground"
+            style={{ gridTemplateColumns: 'auto 1fr 120px 120px 140px 100px 80px 32px' }}
+          >
             <div className="w-10"></div>
             <div>Employee</div>
             <div>Unit</div>
@@ -499,7 +502,8 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                 return (
                   <div
                     key={employee.id}
-                    className="grid grid-cols-[auto_1fr_120px_120px_140px_100px_80px_32px] gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center relative group"
+                    className="grid gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center relative group"
+                    style={{ gridTemplateColumns: 'auto 1fr 120px 120px 140px 100px 80px 32px' }}
                     onClick={() => setSelectedEmployee(employee)}
                   >
                     {(currentRole === 'admin' || currentRole === 'district-manager') && (

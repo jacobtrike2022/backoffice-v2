@@ -452,7 +452,10 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
         </CardHeader>
         <CardContent className="p-0">
           {/* Table Header */}
-          <div className="grid grid-cols-[auto_1fr_150px_120px_140px_100px_32px] gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
+          <div
+            className="grid gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground"
+            style={{ gridTemplateColumns: 'auto 1fr 150px 120px 140px 100px 32px' }}
+          >
             <div className="w-12"></div>
             <div>Unit</div>
             <div>District</div>
@@ -471,7 +474,8 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
               filteredStores.map((store) => (
                 <div
                   key={store.id}
-                  className="grid grid-cols-[auto_1fr_150px_120px_140px_100px_32px] gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center"
+                  className="grid gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center"
+                  style={{ gridTemplateColumns: 'auto 1fr 150px 120px 140px 100px 32px' }}
                   onClick={() => setSelectedStore(store)}
                 >
                   <div className="h-12 w-12 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
