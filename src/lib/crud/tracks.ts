@@ -126,14 +126,73 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
 
     // Normalize: if transcript_data has nested transcript_json, extract it
     // This happens when transcript comes from media_transcripts table with full metadata
-    if (parsedTranscriptData && parsedTranscriptData.transcript_json) {
-      console.log(`[enrichTracksWithJunctionTags] Extracting nested transcript_json for track ${track.id}`);
-      parsedTranscriptData = parsedTranscriptData.transcript_json;
+    if (parsedTranscriptData) {
+      // Check if this is the media_transcripts structure (has transcript_json key)
+      const hasMediaTranscriptStructure = 'transcript_json' in parsedTranscriptData ||
+                                          'transcript_text' in parsedTranscriptData ||
+                                          'transcription_service' in parsedTranscriptData;
+
+      if (hasMediaTranscriptStructure) {
+        console.log(`[enrichTracksWithJunctionTags] Track ${track.id} has media_transcripts structure`);
+        console.log(`[enrichTracksWithJunctionTags] transcript_json type:`, typeof parsedTranscriptData.transcript_json);
+        console.log(`[enrichTracksWithJunctionTags] transcript_json value preview:`,
+          parsedTranscriptData.transcript_json
+            ? JSON.stringify(parsedTranscriptData.transcript_json).substring(0, 200) + '...'
+            : 'null/undefined'
+        );
+
+        // Handle transcript_json - might be object or string (if serialized from JSONB)
+        let transcriptJson = parsedTranscriptData.transcript_json;
+
+        // Parse if transcript_json is a string
+        if (typeof transcriptJson === 'string' && transcriptJson.length > 0) {
+          try {
+            transcriptJson = JSON.parse(transcriptJson);
+            console.log(`[enrichTracksWithJunctionTags] Parsed string transcript_json for track ${track.id}`);
+          } catch (e) {
+            console.warn(`[enrichTracksWithJunctionTags] Failed to parse transcript_json string for track ${track.id}`, e);
+            transcriptJson = null;
+          }
+        }
+
+        // Prefer transcript_json if it has data
+        if (transcriptJson &&
+            typeof transcriptJson === 'object' &&
+            Object.keys(transcriptJson).length > 0) {
+          console.log(`[enrichTracksWithJunctionTags] Extracting nested transcript_json for track ${track.id}`);
+          parsedTranscriptData = transcriptJson;
+        }
+        // Fallback: construct from transcript_text/utterances
+        else if (parsedTranscriptData.transcript_text || parsedTranscriptData.transcript_utterances) {
+          console.log(`[enrichTracksWithJunctionTags] Using transcript_text/utterances fallback for track ${track.id}`);
+
+          // Also try to parse transcript_utterances if it's a string
+          let utterances = parsedTranscriptData.transcript_utterances;
+          if (typeof utterances === 'string') {
+            try {
+              utterances = JSON.parse(utterances);
+            } catch (e) {
+              utterances = [];
+            }
+          }
+
+          parsedTranscriptData = {
+            text: parsedTranscriptData.transcript_text || '',
+            utterances: utterances || [],
+            words: [] // May not have word-level data
+          };
+        }
+        else {
+          console.warn(`[enrichTracksWithJunctionTags] Track ${track.id} has media_transcripts structure but no usable transcript data`);
+        }
+      }
     }
 
     // DEBUG: Log the final normalized transcript_data
     if (parsedTranscriptData) {
-      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} FINAL transcript_data:`, {
+      const keys = Object.keys(parsedTranscriptData);
+      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} FINAL transcript_data (${keys.length} keys):`, {
+        keys: keys.slice(0, 10), // First 10 keys
         hasText: !!parsedTranscriptData.text,
         hasWords: !!parsedTranscriptData.words,
         hasUtterances: !!parsedTranscriptData.utterances,
@@ -342,19 +401,22 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
     console.log(`[Video Workflow] ✓ Transcript generated (${transcriptText.length} chars)`);
 
     // Normalize transcript_data - extract transcript_json if nested (from media_transcripts)
+    // The API returns media_transcripts row structure, we want just the transcript_json for interactive display
     let transcriptData = transcribeData.transcript;
     if (transcriptData && transcriptData.transcript_json) {
+      console.log('[Video Workflow] Extracting transcript_json from media_transcripts structure');
       transcriptData = transcriptData.transcript_json;
     }
 
     // Step 2: Update track with transcript and transcript_data
-    // transcript_data contains the structured JSON with word-level timestamps for interactive display
+    // transcript_data should contain the actual transcript with text/words/utterances for InteractiveTranscript
     console.log('[Video Workflow] Step 2: Saving transcript to track...');
+    console.log('[Video Workflow] transcript_data keys:', transcriptData ? Object.keys(transcriptData) : 'null');
     const { error: updateError } = await supabase
       .from('tracks')
       .update({
         transcript: transcriptText,
-        transcript_data: transcribeData.transcript  // Include full transcript data for InteractiveTranscript component
+        transcript_data: transcriptData  // Save the normalized transcript_json, not the full media_transcripts row
       })
       .eq('id', track.id);
 
@@ -624,20 +686,28 @@ export async function updateTrack(input: UpdateTrackInput) {
   const tagsToSync = updateData.tags;
   const { tags: _removedTags, ...updateDataWithoutTags } = updateData as any;
 
-  // Update the track (without tags - they go to junction table only)
-  const { data: track, error } = await supabase
-    .from('tracks')
-    .update(updateDataWithoutTags)
-    .eq('id', id)
-    .select()
-    .single();
+  // Check if we have any non-tag fields to update
+  const hasNonTagUpdates = Object.keys(updateDataWithoutTags).length > 0;
 
-  if (error) {
-    // Check if it's a permission error (RLS blocked the update)
-    if (error.code === 'PGRST116' || error.message?.includes('not found')) {
-      throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
+  let track = existingTrack;
+
+  // Only update the track if there are non-tag fields to update
+  if (hasNonTagUpdates) {
+    const { data: updatedTrack, error } = await supabase
+      .from('tracks')
+      .update(updateDataWithoutTags)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      // Check if it's a permission error (RLS blocked the update)
+      if (error.code === 'PGRST116' || error.message?.includes('not found')) {
+        throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
+      }
+      throw error;
     }
-    throw error;
+    track = updatedTrack;
   }
 
   // Sync tags to junction table (source of truth) if tags were provided
@@ -2062,7 +2132,7 @@ export async function softDeleteTrack(trackId: string) {
   try {
     const { error } = await supabase
       .from('tracks')
-      .update({ 
+      .update({
         deleted_at: new Date().toISOString(),
         status: 'archived'
       })
@@ -2070,13 +2140,18 @@ export async function softDeleteTrack(trackId: string) {
 
     if (error) {
       // If deleted_at column doesn't exist, just set status
-      if (error.code === '42703') {
+      // Check for both PostgreSQL error code and Supabase schema cache error
+      const isColumnNotFound = error.code === '42703' ||
+        error.message?.includes('Could not find') ||
+        error.message?.includes('deleted_at');
+
+      if (isColumnNotFound) {
         console.log('⚠️ deleted_at column not found, using status only');
         const { error: statusError } = await supabase
           .from('tracks')
           .update({ status: 'archived' })
           .eq('id', trackId);
-        
+
         if (statusError) throw statusError;
       } else {
         throw error;

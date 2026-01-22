@@ -404,6 +404,58 @@ export function StoryEditor({
     }
   }, [isEditMode, track?.id, trackId]);
 
+  // Load facts from DB when entering edit mode
+  useEffect(() => {
+    if (isEditMode && currentTrackId) {
+      const loadEditModeFacts = async () => {
+        try {
+          const dbFacts = await factsCrud.getFactsForTrack(currentTrackId);
+          
+          if (dbFacts.length > 0) {
+            // Map DB facts to objectives format with IDs and metadata
+            const factsWithIds = dbFacts.map((f: any) => {
+              const factObj: any = {
+                _dbId: f.id,
+                fact: f.content || f.title,
+                title: f.title,
+                type: f.type,
+              };
+              
+              // Preserve slide association if it exists
+              if (f.usage && f.usage.length > 0) {
+                const usage = f.usage[0];
+                if (usage.source_media_id) {
+                  factObj.slideId = usage.source_media_id;
+                  factObj.slideIndex = usage.display_order || 0;
+                  
+                  // Try to find slide name
+                  if (slides.length > 0) {
+                    const slide = slides.find((s: any) => s.id === usage.source_media_id);
+                    if (slide) {
+                      factObj.slideName = slide.name || `Slide ${factObj.slideIndex + 1}`;
+                    }
+                  }
+                }
+              }
+              
+              return factObj;
+            });
+            
+            setObjectives(factsWithIds);
+            console.log(`📊 Edit mode: Loaded ${factsWithIds.length} facts from DB with IDs`);
+          } else {
+            // No DB facts, keep existing objectives (might be from transcript JSON)
+            console.log(`📊 Edit mode: No DB facts found, keeping existing objectives`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for edit mode:', error);
+        }
+      };
+      
+      loadEditModeFacts();
+    }
+  }, [isEditMode, currentTrackId]);
+
   const loadStory = async () => {
     if (!trackId) return;
     
@@ -1232,11 +1284,28 @@ export function StoryEditor({
     setObjectives(updated);
   };
 
-  const removeObjective = (index: number) => {
+  const removeObjective = async (index: number) => {
     if (objectives.length === 1) {
       toast.error('Story must have at least one learning objective');
       return;
     }
+    
+    const factToRemove = objectives[index];
+    
+    // If fact has a database ID and track exists, delete from database
+    if (factToRemove && typeof factToRemove === 'object' && factToRemove._dbId && currentTrackId) {
+      try {
+        console.log(`🗑️ Deleting fact ${factToRemove._dbId} from database...`);
+        await factsCrud.deleteFactFromTrack(factToRemove._dbId, currentTrackId);
+        toast.success('Key fact removed');
+      } catch (error: any) {
+        console.error('Failed to delete fact:', error);
+        toast.error('Failed to remove fact from database');
+        return; // Don't remove from UI if database delete failed
+      }
+    }
+    
+    // Remove from UI state (always remove, even if no DB ID - might be unsaved fact)
     setObjectives(objectives.filter((_, i) => i !== index));
   };
 
@@ -1268,7 +1337,7 @@ export function StoryEditor({
     const hasExistingFacts = existingFactsCount > 0;
     if (hasExistingFacts) {
       const action = confirm(
-        `You currently have ${objectives.filter(o => o.trim()).length} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
+        `You currently have ${existingFactsCount} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
       );
       
       const shouldReplace = action;
@@ -1276,6 +1345,25 @@ export function StoryEditor({
       setIsGeneratingKeyFacts(true);
       
       try {
+        // If replacing, delete all existing facts from database first
+        if (shouldReplace && currentTrackId) {
+          console.log('🗑️ Deleting existing facts before replacing...');
+          
+          for (const existingFact of objectives) {
+            if (existingFact && typeof existingFact === 'object' && existingFact._dbId) {
+              try {
+                await factsCrud.deleteFactFromTrack(existingFact._dbId, currentTrackId);
+                console.log(`   ✓ Deleted fact: ${existingFact._dbId}`);
+              } catch (error) {
+                console.error('Error deleting fact:', error);
+                // Continue with others
+              }
+            }
+          }
+          
+          console.log('✅ Old facts deleted, generating new ones...');
+        }
+        
         console.log('🎬 Step 1: Transcribing all story videos...');
         
         // Step 1: Transcribe all videos in the story
@@ -1288,7 +1376,8 @@ export function StoryEditor({
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              storyData: slides,
+              trackId: currentTrackId,
+              slides,
             }),
           }
         );
@@ -1358,13 +1447,20 @@ export function StoryEditor({
           return;
         }
         
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: factsData.factIds?.[index], // Add the database UUID
+          fact: fact.content || fact.fact || fact.title, // Normalize to 'fact' property
+        }));
+        
         const updatedFacts = shouldReplace 
-          ? newFacts
+          ? newFactsWithIds
           : [...objectives.filter((o: any) => {
               if (typeof o === 'string') return o.trim();
               if (typeof o === 'object' && o?.fact) return o.fact.trim();
               return false;
-            }), ...newFacts];
+            }), ...newFactsWithIds];
         
         setObjectives(updatedFacts);
         
@@ -1393,7 +1489,8 @@ export function StoryEditor({
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              storyData: slides,
+              trackId: currentTrackId,
+              slides,
             }),
           }
         );
@@ -1460,9 +1557,16 @@ export function StoryEditor({
           return;
         }
         
-        setObjectives(newFacts);
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: factsData.factIds?.[index], // Add the database UUID
+          fact: fact.content || fact.fact || fact.title, // Normalize to 'fact' property
+        }));
         
-        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        setObjectives(newFactsWithIds);
+        
+        toast.success(`✨ Generated ${newFactsWithIds.length} key fact${newFactsWithIds.length > 1 ? 's' : ''}!`);
         
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
@@ -2366,8 +2470,8 @@ export function StoryEditor({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => {
-                                    setObjectives(objectives.filter((_, i) => i !== index));
+                                  onClick={async () => {
+                                    await removeObjective(index);
                                   }}
                                   className="flex-shrink-0"
                                 >
@@ -2411,8 +2515,8 @@ export function StoryEditor({
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      setObjectives(objectives.filter((_, i) => i !== index));
+                                    onClick={async () => {
+                                      await removeObjective(index);
                                     }}
                                     className="flex-shrink-0"
                                   >

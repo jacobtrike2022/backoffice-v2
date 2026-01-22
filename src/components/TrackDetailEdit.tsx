@@ -126,6 +126,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
 
+  // View mode transcript state (updated by polling when transcript becomes available)
+  const [viewModeTranscript, setViewModeTranscript] = useState<string | null>(track.transcript || null);
+  const [viewModeTranscriptData, setViewModeTranscriptData] = useState<any>(track.transcript_data || null);
+
   const isSystemContent = track.is_system_content;
 
   // Reset facts cache when track changes
@@ -174,6 +178,21 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     }
   }, [track]); // Runs when track data changes (after onUpdate)
 
+  // Sync view mode transcript state when track prop changes
+  useEffect(() => {
+    console.log('[TrackDetailEdit] Sync transcript useEffect fired:', {
+      hasTrackTranscript: !!track.transcript,
+      hasTrackTranscriptData: !!track.transcript_data,
+      trackTranscriptDataKeys: track.transcript_data ? Object.keys(track.transcript_data) : []
+    });
+    if (track.transcript) {
+      setViewModeTranscript(track.transcript);
+    }
+    if (track.transcript_data) {
+      setViewModeTranscriptData(track.transcript_data);
+    }
+  }, [track.transcript, track.transcript_data]);
+
   // Auto-refresh transcript for video tracks that don't have one yet
   useEffect(() => {
     // Only poll if:
@@ -212,13 +231,17 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // If transcript appeared, refresh the UI
         if (freshTrack.transcript) {
           console.log('[TrackDetailEdit] ✓ Transcript found! Refreshing UI...');
-          // Update editFormData if in edit mode so the transcript shows immediately
+          // Update local state so the transcript shows immediately
           if (isEditMode) {
             setEditFormData(prev => ({
               ...prev,
               transcript: freshTrack.transcript || '',
               transcript_data: freshTrack.transcript_data || null,
             }));
+          } else {
+            // In view mode, update local transcript state
+            setViewModeTranscript(freshTrack.transcript || null);
+            setViewModeTranscriptData(freshTrack.transcript_data || null);
           }
           await onUpdate();
           return; // Stop polling
@@ -1709,14 +1732,29 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           </Card>
 
           {/* Transcript Section - Moved under video player */}
-          {track.type !== 'article' && (
+          {track.type !== 'article' && (() => {
+            // Determine which transcript data to use
+            const transcriptData = isEditMode
+              ? (editFormData.transcript_data || track.transcript_data)
+              : (viewModeTranscriptData || track.transcript_data);
+
+            console.log('[TrackDetailEdit] Transcript render:', {
+              isEditMode,
+              hasEditFormTranscriptData: !!editFormData.transcript_data,
+              hasTrackTranscriptData: !!track.transcript_data,
+              hasViewModeTranscriptData: !!viewModeTranscriptData,
+              finalTranscriptData: !!transcriptData,
+              transcriptDataKeys: transcriptData ? Object.keys(transcriptData) : []
+            });
+
+            return (
             <InteractiveTranscript
-              transcript={editFormData.transcript_data || track.transcript_data}
+              transcript={transcriptData}
               currentTime={currentTime}
               onSeek={handleSeek}
               canTranscribe={
                 !!track.content_url &&
-                !(editFormData.transcript_data || track.transcript_data) &&
+                !transcriptData &&
                 !isYouTubeUrl(track.content_url) &&
                 !isVimeoUrl(track.content_url)
               }
@@ -1726,7 +1764,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               onTranscriptEdit={handleTranscriptEdit}
               contentUrl={track.content_url}
             />
-          )}
+            );
+          })()}
 
           {/* Description */}
           <Card>
@@ -1780,7 +1819,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsTagSelectorOpen(true)}
+                      onClick={handleAddTag}
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />
@@ -1800,7 +1839,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsTagSelectorOpen(true)}
+                      onClick={handleAddTag}
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />

@@ -519,8 +519,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       // Fetch fresh track data and redirect to latest version if needed
       try {
         const { track: freshTrack, isLatest, latestTrackId } = await crud.getTrackByIdOrLatest(track.id);
-        setSelectedTrack(freshTrack);
         console.log('Loaded fresh track data:', freshTrack);
+        console.log('Fresh track transcript_data keys:', freshTrack.transcript_data ? Object.keys(freshTrack.transcript_data) : 'null');
+        setSelectedTrack(freshTrack);
         
         // Update URL without page reload
         const trackType = freshTrack.type;
@@ -792,8 +793,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // Then update the selected track
       const updatedTrack = await crud.getTrackById(trackIdToFetch) as any;
-      setSelectedTrack(updatedTrack);
       console.log('ContentLibrary - updated track:', updatedTrack);
+      console.log('ContentLibrary - updated track transcript_data keys:', updatedTrack?.transcript_data ? Object.keys(updatedTrack.transcript_data) : 'null');
+      setSelectedTrack(updatedTrack);
       
       // If we're loading a new version, update the URL
       if (newTrackId && updatedTrack) {

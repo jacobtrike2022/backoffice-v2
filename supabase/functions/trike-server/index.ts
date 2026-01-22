@@ -4098,12 +4098,20 @@ async function handleTranscribe(req: Request): Promise<Response> {
               }
 
               // For non-story tracks (video, article), update the transcript field AND transcript_data
-              // transcript_data contains the structured JSON with word-level timestamps for interactive display
+              // transcript_data should contain the actual transcript JSON (with text/words/utterances), not the full media_transcripts row
+              // This is what InteractiveTranscript component expects
+              const normalizedCachedData = cached.transcript_json || {
+                text: cached.transcript_text || "",
+                utterances: cached.transcript_utterances || [],
+                words: []
+              };
+              console.log("Saving normalized cached transcript_data with keys:", Object.keys(normalizedCachedData || {}));
+
               const { error: updateError } = await supabase
                 .from("tracks")
                 .update({
                   transcript: cached.transcript_text || "",
-                  transcript_data: cached  // Include full cached data for InteractiveTranscript component
+                  transcript_data: normalizedCachedData  // Save the transcript JSON directly, not the media_transcripts wrapper
                 })
                 .eq("id", trackId);
 
@@ -4327,12 +4335,16 @@ async function handleTranscribe(req: Request): Promise<Response> {
           }
 
           // For non-story tracks (video, article), update the transcript field AND transcript_data
-          // transcript_data contains the structured JSON with word-level timestamps for interactive display
+          // transcript_data should contain the actual transcript JSON (with text/words/utterances), not the full media_transcripts row
+          // This is what InteractiveTranscript component expects
+          const normalizedTranscriptData = newTranscript?.transcript_json || transcript;
+          console.log("Saving transcript_data with keys:", Object.keys(normalizedTranscriptData || {}));
+
           const { error: updateError } = await supabase
             .from("tracks")
             .update({
               transcript: transcript.text || "",
-              transcript_data: newTranscript  // Include full transcript data for InteractiveTranscript component
+              transcript_data: normalizedTranscriptData  // Save the transcript JSON directly, not the media_transcripts wrapper
             })
             .eq("id", trackId);
 
