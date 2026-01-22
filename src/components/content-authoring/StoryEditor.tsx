@@ -1487,6 +1487,7 @@ export function StoryEditor({
   // View Mode
   if (!isEditMode && existingTrack) {
     return (
+      <>
       <div className="space-y-6">
         {/* Old Version Banner - Show when viewing a non-latest version */}
         {existingTrack.version_number && !existingTrack.is_latest_version && (
@@ -1828,6 +1829,22 @@ export function StoryEditor({
                 
                 {showInKnowledgeBase && (
                   <div className="pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mb-3"
+                      onClick={() => {
+                        setTagSelectorConfig({
+                          systemCategory: 'knowledge-base',
+                          restrictToParentName: 'KB Category'
+                        });
+                        setIsTagSelectorOpen(true);
+                      }}
+                    >
+                      <TagIcon className="h-4 w-4 mr-2" />
+                      Manage KB Tags
+                    </Button>
+
                     <div>
                       <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
                       <div className="flex flex-wrap gap-2">
@@ -1843,6 +1860,10 @@ export function StoryEditor({
                         )}
                       </div>
                     </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Select "KB Category" tags to organize this content in the Knowledge Base.
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -1940,6 +1961,49 @@ export function StoryEditor({
           </div>
         </div>
       </div>
+
+      {/* Tag Selector Dialog for View Mode */}
+      <TagSelectorDialog
+        isOpen={isTagSelectorOpen}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          loadKBTags();
+        }}
+        selectedTags={tags}
+        onTagsChange={async (newTags) => {
+          // In view mode, save directly to database
+          try {
+            const currentTrackId = existingTrack?.id || trackId;
+            if (!currentTrackId) return;
+
+            await crud.updateTrack({
+              id: currentTrackId,
+              tags: newTags
+            });
+            setTags(newTags);
+            toast.success('KB categories updated');
+            if (onUpdate) {
+              onUpdate();
+            }
+          } catch (error: any) {
+            console.error('Error updating tags:', error);
+            toast.error('Failed to update KB categories', {
+              description: error.message || 'Please try again'
+            });
+          }
+          loadKBTags();
+        }}
+        systemCategory={tagSelectorConfig.systemCategory}
+        restrictToParentName={tagSelectorConfig.restrictToParentName}
+        showAISuggest={tagSelectorConfig.systemCategory === 'content'}
+        contentContext={{
+          title: existingTrack?.title || '',
+          description: existingTrack?.description || '',
+          transcript: existingTrack?.transcript || '',
+          keyFacts: existingTrack?.learning_objectives || [],
+        }}
+      />
+      </>
     );
   }
 

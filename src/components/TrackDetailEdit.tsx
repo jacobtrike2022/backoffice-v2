@@ -2030,24 +2030,22 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 
                 {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
                   <div className="pt-2">
-                     {isEditMode && (
-                       <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full mb-3"
-                          onClick={() => {
-                            setTagSelectorConfig({
-                               systemCategory: 'knowledge-base',
-                               restrictToParentName: 'KB Category'
-                            });
-                            setIsTagSelectorOpen(true);
-                          }}
-                       >
-                         <Tag className="h-4 w-4 mr-2" />
-                         Manage KB Tags
-                       </Button>
-                     )}
-                     
+                     <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mb-3"
+                        onClick={() => {
+                          setTagSelectorConfig({
+                             systemCategory: 'knowledge-base',
+                             restrictToParentName: 'KB Category'
+                          });
+                          setIsTagSelectorOpen(true);
+                        }}
+                     >
+                       <Tag className="h-4 w-4 mr-2" />
+                       Manage KB Tags
+                     </Button>
+
                      {/* Selected KB Tags Display */}
                      <div>
                        <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
@@ -2065,12 +2063,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                          )}
                        </div>
                      </div>
-                     
-                     {isEditMode && (
-                       <p className="text-xs text-muted-foreground mt-2">
-                         Select "KB Category" tags to organize this content in the Knowledge Base.
-                       </p>
-                     )}
+
+                     <p className="text-xs text-muted-foreground mt-2">
+                       Select "KB Category" tags to organize this content in the Knowledge Base.
+                     </p>
                   </div>
                 )}
               </CardContent>

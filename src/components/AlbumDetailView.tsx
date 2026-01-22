@@ -396,9 +396,7 @@ export function AlbumDetailView({
                   </div>
                   
                   <img
-                    src={albumTrack.track?.thumbnail_url && albumTrack.track.thumbnail_url !== '/default-thumbnail.png'
-                      ? albumTrack.track.thumbnail_url
-                      : defaultThumbnail}
+                    src={albumTrack.track?.thumbnail_url || defaultThumbnail}
                     alt=""
                     className="w-12 h-12 rounded object-cover bg-muted"
                   />
@@ -478,9 +476,7 @@ export function AlbumDetailView({
                     className="h-4 w-4"
                   />
                   <img
-                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png'
-                      ? track.thumbnail_url
-                      : defaultThumbnail}
+                    src={track.thumbnail_url || defaultThumbnail}
                     alt=""
                     className="w-10 h-10 rounded object-cover bg-muted"
                   />

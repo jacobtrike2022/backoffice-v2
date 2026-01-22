@@ -1516,6 +1516,57 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           timeLimit={timeLimit}
           title={title}
         />
+
+        {/* Tag Selector Dialog (View Mode) */}
+        <TagSelectorDialog
+          isOpen={isTagSelectorOpen}
+          onClose={() => setIsTagSelectorOpen(false)}
+          selectedTags={tags}
+          onTagsChange={async (newTags) => {
+            // In view mode, save directly to database
+            try {
+              if (!currentTrackId) return;
+
+              await crud.updateTrack({
+                id: currentTrackId,
+                tags: newTags
+              });
+              setTags(newTags); // Update local state
+              toast.success('Tags updated');
+              if (onUpdate) {
+                onUpdate(); // Refresh track data
+              }
+            } catch (error: any) {
+              console.error('Error updating tags:', error);
+              toast.error('Failed to update tags', {
+                description: error.message || 'Please try again'
+              });
+            }
+          }}
+          systemCategory="content"
+          showAISuggest={true}
+          contentContext={{
+            title: existingTrack?.title || '',
+            description: existingTrack?.description || '',
+            transcript: (() => {
+              // For checkpoints, extract question text as transcript-like content
+              if (existingTrack?.transcript) {
+                try {
+                  const checkpointData = JSON.parse(existingTrack.transcript);
+                  if (checkpointData.questions) {
+                    return checkpointData.questions.map((q: any, idx: number) => `Question ${idx + 1}: ${q.question}`).join('\n\n');
+                  }
+                } catch (e) {
+                  return '';
+                }
+              }
+              return '';
+            })(),
+            keyFacts: [],
+            trackId: currentTrackId,
+            organizationId: existingTrack?.organization_id,
+          }}
+        />
       </div>
     );
   }

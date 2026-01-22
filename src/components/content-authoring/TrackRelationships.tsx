@@ -178,13 +178,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                   className={`flex items-start gap-3 p-3 rounded-lg border ${sourceTracks.length === 1 ? 'bg-accent/30' : 'bg-white dark:bg-accent/20'} hover:bg-accent/50 transition-all cursor-pointer`}
                   onClick={() => onNavigateToTrack && onNavigateToTrack(sourceRel.source_track!.id)}
                 >
-                  {sourceRel.source_track.thumbnail_url && (
-                    <img
-                      src={sourceRel.source_track.thumbnail_url}
-                      alt=""
-                      className={`${sourceTracks.length === 1 ? 'size-16' : 'size-12'} rounded object-cover shrink-0`}
-                    />
-                  )}
+                  <img
+                    src={sourceRel.source_track.thumbnail_url || '/default-thumbnail.png'}
+                    alt=""
+                    className={`${sourceTracks.length === 1 ? 'size-16' : 'size-12'} rounded object-cover shrink-0`}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -222,13 +220,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
-                {rel.derived_track?.thumbnail_url && (
-                  <img
-                    src={rel.derived_track.thumbnail_url}
-                    alt=""
-                    className="size-12 rounded object-cover shrink-0"
-                  />
-                )}
+                <img
+                  src={rel.derived_track?.thumbnail_url || '/default-thumbnail.png'}
+                  alt=""
+                  className="size-12 rounded object-cover shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -265,13 +261,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
-                {rel.derived_track?.thumbnail_url && (
-                  <img
-                    src={rel.derived_track.thumbnail_url}
-                    alt=""
-                    className="size-12 rounded object-cover shrink-0"
-                  />
-                )}
+                <img
+                  src={rel.derived_track?.thumbnail_url || '/default-thumbnail.png'}
+                  alt=""
+                  className="size-12 rounded object-cover shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -313,13 +307,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
               className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
               onClick={() => onNavigateToTrack && onNavigateToTrack(baseTrack.source_track!.id)}
             >
-              {baseTrack.source_track.thumbnail_url && (
-                <img
-                  src={baseTrack.source_track.thumbnail_url}
-                  alt=""
-                  className="size-16 rounded object-cover shrink-0"
-                />
-              )}
+              <img
+                src={baseTrack.source_track.thumbnail_url || '/default-thumbnail.png'}
+                alt=""
+                className="size-16 rounded object-cover shrink-0"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">

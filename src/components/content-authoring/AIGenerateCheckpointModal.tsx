@@ -267,10 +267,10 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-lg mx-4">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        {/* Header - fixed */}
+        <div className="flex items-center justify-between p-6 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
               <Zap className="w-5 h-5 text-white" />
@@ -289,8 +289,8 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
+        {/* Content - scrollable */}
+        <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* Track Selector */}
           <div>
             <Label htmlFor="track-select" className="text-sm font-medium mb-2 block">
@@ -536,8 +536,8 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
+        {/* Footer - fixed */}
+        <div className="flex items-center justify-end gap-3 p-6 border-t border-border flex-shrink-0">
           <Button
             variant="outline"
             onClick={onClose}
