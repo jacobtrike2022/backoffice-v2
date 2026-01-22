@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -136,6 +136,9 @@ export function StoryEditor({
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
   const [showInKnowledgeBase, setShowInKnowledgeBase] = useState(false);
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
   
   // Preview state
@@ -220,6 +223,21 @@ export function StoryEditor({
   useEffect(() => {
     loadKBTags();
   }, [loadKBTags]);
+
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
 
   // Load existing story
   useEffect(() => {
@@ -721,25 +739,37 @@ export function StoryEditor({
     setDraggedSlideId(null);
   };
 
-  const handleKBToggle = async (checked: boolean) => {
-    // If toggling ON, open modal immediately (before database update)
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
-    }
+  // Handler for opening content tags modal (not KB category picker)
+  const handleAddTag = () => {
+    setTagSelectorConfig({
+      systemCategory: 'content',
+      restrictToParentName: undefined
+    });
+    setIsTagSelectorOpen(true);
+  };
 
+  const handleKBToggle = async (checked: boolean) => {
     if (isEditMode) {
-      // In edit mode, update the local state
+      // In edit mode, open modal immediately and update local state
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
       setShowInKnowledgeBase(checked);
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         const currentTrackId = track?.id || trackId;
         if (!currentTrackId) return;
-        
+
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track?.tags || []);
         if (checked) {
@@ -747,25 +777,26 @@ export function StoryEditor({
         } else {
           currentTags.delete('system:show_in_knowledge_base');
         }
-        
+
         await crud.updateTrack({
           id: currentTrackId,
           show_in_knowledge_base: checked,
           tags: Array.from(currentTags)
         });
-        
+
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
-        
+
         // Update local state to reflect the change
         setShowInKnowledgeBase(checked);
         setTags(Array.from(currentTags));
-        
-        // Refresh the track data
+
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         if (onUpdate) {
           onUpdate();
         }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });
@@ -851,7 +882,9 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(),
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
+        // This respects when user explicitly removes the thumbnail
+        thumbnail_url: thumbnailUrl
       };
 
       if (currentTrackId) {
@@ -985,7 +1018,9 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(), // Use actual calculated duration
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
+        // This respects when user explicitly removes the thumbnail
+        thumbnail_url: thumbnailUrl
       };
 
       if (currentTrackId) {
@@ -2340,13 +2375,13 @@ export function StoryEditor({
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
-                {((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
+                {(showInKnowledgeBase || (existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
                     In Knowledge Base
                   </Badge>
                 )}
-                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
@@ -2354,10 +2389,19 @@ export function StoryEditor({
                     {tag}
                   </Badge>
                 ))}
-                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddTag}
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tags
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -2585,7 +2629,7 @@ export function StoryEditor({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsTagSelectorOpen(true)}
+                  onClick={handleAddTag}
                   className="w-full mt-2"
                 >
                   <Plus className="h-4 w-4 mr-2" />

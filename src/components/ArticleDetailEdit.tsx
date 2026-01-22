@@ -87,6 +87,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
   const [isFormDataLoaded, setIsFormDataLoaded] = useState(false); // Track if form data is ready
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -153,6 +156,21 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   useEffect(() => {
     loadKBTags();
   }, [loadKBTags]);
+
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
 
   const isSystemContent = track.is_system_content;
 
@@ -1080,21 +1098,23 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   };
 
   const handleKBToggle = async (checked: boolean) => {
-    // If toggling ON, open modal immediately (before database update)
-    // This ensures the modal opens before any re-renders from onUpdate()
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
-    }
-
     if (isEditMode) {
-      // In edit mode, update the form data
+      // In edit mode, open modal immediately and update form data
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
       setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track.tags || []);
@@ -1112,10 +1132,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
 
-        // Refresh the track data
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         onUpdate();
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });

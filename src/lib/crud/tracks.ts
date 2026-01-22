@@ -19,6 +19,7 @@ export interface CreateTrackInput {
   thumbnail_url?: string;
   duration_minutes?: number;
   transcript?: string;
+  transcript_data?: any; // Structured transcript with word-level timestamps from transcription API
   summary?: string;
   status?: 'draft' | 'published' | 'archived';
   learning_objectives?: string[];

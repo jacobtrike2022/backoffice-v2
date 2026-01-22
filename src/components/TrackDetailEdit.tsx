@@ -80,6 +80,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     systemCategory: any;
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -149,18 +152,33 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     loadKBTags();
   }, [loadKBTags]);
 
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
+
   // Auto-refresh transcript for video tracks that don't have one yet
   useEffect(() => {
     // Only poll if:
     // 1. It's a video track
     // 2. Has a content URL
-    // 3. Doesn't have a transcript yet
-    // 4. Not in edit mode (to avoid conflicts)
-    const shouldPoll = 
-      track.type === 'video' && 
-      (track.content_url || editFormData.content_url) && 
-      !track.transcript && 
-      !isEditMode;
+    // 3. Doesn't have a transcript yet (check editFormData in edit mode, track prop otherwise)
+    // Note: We poll in BOTH edit and view mode now - transcript should auto-display like key facts do
+    const hasTranscript = isEditMode ? editFormData.transcript : track.transcript;
+    const shouldPoll =
+      track.type === 'video' &&
+      (track.content_url || editFormData.content_url) &&
+      !hasTranscript;
 
     if (!shouldPoll) return;
 
@@ -187,6 +205,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // If transcript appeared, refresh the UI
         if (freshTrack.transcript) {
           console.log('[TrackDetailEdit] ✓ Transcript found! Refreshing UI...');
+          // Update editFormData if in edit mode so the transcript shows immediately
+          if (isEditMode) {
+            setEditFormData(prev => ({
+              ...prev,
+              transcript: freshTrack.transcript || '',
+              transcript_data: freshTrack.transcript_data || null,
+            }));
+          }
           await onUpdate();
           return; // Stop polling
         }
@@ -213,7 +239,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [track.id, track.type, track.content_url, track.transcript, editFormData.content_url, isEditMode, onUpdate]);
+  }, [track.id, track.type, track.content_url, track.transcript, editFormData.content_url, editFormData.transcript, isEditMode, onUpdate]);
 
   // Helper function to detect and extract YouTube video ID
   const getYouTubeVideoId = (url: string): string | null => {
@@ -531,7 +557,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       // Phase 4: Pre-publish guardrails
       const isPublishing = track.status === 'published' || (isNewContent && saveData.title);
-      if (saveData.tags.length === 0 && isPublishing) {
+      // Only offer AI tag suggestions if:
+      // 1. No tags exist
+      // 2. Publishing
+      // 3. For video/audio tracks: transcript must exist (AI needs transcript to analyze content)
+      const isMediaTrack = saveData.type === 'video' || saveData.type === 'audio';
+      const hasTranscriptForTagging = !isMediaTrack || (editFormData.transcript || track.transcript);
+
+      if (saveData.tags.length === 0 && isPublishing && hasTranscriptForTagging) {
         const confirmTagging = window.confirm(
           "✨ AI Recommendation:\nThis content doesn't have any training topic tags. " +
           "Proper tagging helps with reporting and search.\n\n" +
@@ -915,21 +948,23 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   };
 
   const handleKBToggle = async (checked: boolean) => {
-    // If toggling ON, open modal immediately (before database update)
-    // This ensures the modal opens before any re-renders from onUpdate()
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
-    }
-
     if (isEditMode) {
-      // In edit mode, update the form data
+      // In edit mode, open modal immediately and update form data
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
       setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track.tags || []);
@@ -947,10 +982,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
 
-        // Refresh the track data
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         onUpdate();
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });
@@ -1160,17 +1196,24 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       const data = await response.json();
       console.log('Transcription successful:', data);
-      
+
       // Auto-save the transcript directly to database (without requiring edit mode)
       await crud.updateTrack({
         id: track.id,
         transcript: data.transcript.text,
         transcript_data: data.transcript,
       });
-      
+
+      // Update editFormData so UI shows transcript immediately (works in both edit and view mode)
+      setEditFormData(prev => ({
+        ...prev,
+        transcript: data.transcript.text,
+        transcript_data: data.transcript,
+      }));
+
       toast.success('Transcript generated and saved!');
-      
-      // Trigger refetch to update UI
+
+      // Trigger refetch to sync track prop (transcript already shows via editFormData.transcript_data)
       await onUpdate();
     } catch (error: any) {
       console.error('Transcription error:', error);
@@ -1644,13 +1687,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {/* Transcript Section - Moved under video player */}
           {track.type !== 'article' && (
             <InteractiveTranscript
-              transcript={track.transcript_data}
+              transcript={editFormData.transcript_data || track.transcript_data}
               currentTime={currentTime}
               onSeek={handleSeek}
               canTranscribe={
-                !!track.content_url && 
-                !track.transcript_data && 
-                !isYouTubeUrl(track.content_url) && 
+                !!track.content_url &&
+                !(editFormData.transcript_data || track.transcript_data) &&
+                !isYouTubeUrl(track.content_url) &&
                 !isVimeoUrl(track.content_url)
               }
               onTranscribe={handleTranscribe}
