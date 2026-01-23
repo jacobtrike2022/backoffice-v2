@@ -43,6 +43,8 @@ export async function createAssignment(input: CreateAssignmentInput) {
       organization_id: orgId,
       user_id: input.user_id,
       playlist_id: input.playlist_id,
+      assigned_by: userProfile.id,
+      assigned_at: new Date().toISOString(),
       status: 'assigned',
       progress_percent: 0,
       due_date: input.due_date,
@@ -56,12 +58,19 @@ export async function createAssignment(input: CreateAssignmentInput) {
   try {
     await createNotification({
       user_id: input.user_id,
+      organization_id: orgId,
       type: 'assignment_new',
       title: 'New Assignment',
       message: `You have been assigned: ${input.title}`,
       link_type: 'assignment',
       link_id: assignment.id
     });
+
+    // Mark notification as sent on the assignment
+    await supabase
+      .from('assignments')
+      .update({ notification_sent: true })
+      .eq('id', assignment.id);
   } catch (error) {
     // Log error but don't fail the assignment creation
     console.error('Failed to create assignment notification:', error);
@@ -295,16 +304,88 @@ export async function getAssignmentsForUser(userId: string) {
 }
 
 /**
+ * Calculate waterfall due date based on stages and their unlock delays
+ * This ensures the due date accounts for progressive content unlocking
+ */
+function calculateWaterfallDueDate(
+  baseDueDays: number,
+  releaseSchedule: any,
+  releaseType: string
+): number {
+  // Start with the base due_days from trigger_rules
+  let totalDays = baseDueDays;
+
+  // If not progressive or no stages, just use base due_days
+  if (releaseType !== 'progressive' || !releaseSchedule?.stages?.length) {
+    return totalDays;
+  }
+
+  // Calculate minimum time needed to complete all stages
+  // based on unlock delays (waterfall calculation)
+  let stageDelaySum = 0;
+
+  for (const stage of releaseSchedule.stages) {
+    const unlockType = stage.unlockType || 'immediate';
+    const unlockDays = stage.unlockDays || 0;
+
+    switch (unlockType) {
+      case 'days-after-trigger':
+        // This stage unlocks X days after assignment
+        // The user needs time AFTER this to complete it
+        stageDelaySum = Math.max(stageDelaySum, unlockDays);
+        break;
+
+      case 'days-after-stage':
+        // This adds to the cumulative delay
+        // (must wait for previous stage + these days)
+        stageDelaySum += unlockDays;
+        break;
+
+      case 'stage-complete':
+        // No additional time delay, but implies sequential completion
+        // Add a small buffer for expected completion time per stage
+        break;
+
+      case 'immediate':
+        // No delay
+        break;
+
+      default:
+        // For other types (calendar-date, assignment-complete),
+        // we can't predict timing, so don't add delay
+        break;
+    }
+  }
+
+  // Ensure due date is at least stageDelaySum + buffer for final stage completion
+  // The due_days should be the MINIMUM of:
+  // 1. What the admin set (baseDueDays)
+  // 2. BUT must be at least enough time for all stages to unlock + some completion buffer
+  const minimumDaysNeeded = stageDelaySum + 7; // 7 days buffer after last stage unlocks
+
+  // If admin set a shorter deadline than physically possible, warn but respect it
+  // (they may have reasons, like manager overrides or self-paced learners)
+  if (baseDueDays < minimumDaysNeeded) {
+    console.warn(
+      `⚠️ Due date (${baseDueDays} days) is shorter than stage unlock schedule (${stageDelaySum} days + 7 day buffer). ` +
+      `Users may not have enough time to complete all stages.`
+    );
+  }
+
+  return totalDays;
+}
+
+/**
  * Run auto-playlist trigger manually
  */
 export async function runPlaylistTrigger(playlistId: string) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  // Get playlist with trigger rules
+  // Get playlist with trigger rules AND release schedule
   const { data: playlist } = await supabase
     .from('playlists')
-    .select('*, trigger_rules')
+    .select('*, trigger_rules, release_schedule, release_type')
     .eq('id', playlistId)
     .single();
 
@@ -329,6 +410,20 @@ export async function runPlaylistTrigger(playlistId: string) {
 
   console.log(`🎯 Trigger: ${matchingUsers.length} users match criteria, ${newUsers.length} new assignments needed`);
 
+  // Calculate waterfall due date considering stages and their unlock delays
+  const baseDueDays = playlist.trigger_rules.due_days || 30;
+  const effectiveDueDays = calculateWaterfallDueDate(
+    baseDueDays,
+    playlist.release_schedule,
+    playlist.release_type
+  );
+
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + effectiveDueDays);
+  const dueDateStr = dueDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+  console.log(`📅 Due date calculation: base=${baseDueDays} days, effective=${effectiveDueDays} days, date=${dueDateStr}`);
+
   // Create assignments for new users only
   const assignments = [];
   for (const userId of newUsers) {
@@ -337,6 +432,7 @@ export async function runPlaylistTrigger(playlistId: string) {
         title: playlist.title,
         playlist_id: playlistId,
         user_id: userId,
+        due_date: dueDateStr,
       });
       assignments.push(assignment);
     } catch (err) {

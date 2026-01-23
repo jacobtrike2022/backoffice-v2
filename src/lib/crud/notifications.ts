@@ -6,6 +6,7 @@ import { supabase } from '../supabase';
 
 export interface CreateNotificationInput {
   user_id: string;
+  organization_id?: string;  // Will be looked up from user if not provided
   type: 'assignment' | 'due-date' | 'completion' | 'certification-expiry' |
         'certification-expired' | 'certification-issued' | 'approval-required' |
         'form-submitted' | 'content-updated' | 'overdue' | 'assignment_new';
@@ -19,9 +20,25 @@ export interface CreateNotificationInput {
  * Create a notification for a user
  */
 export async function createNotification(input: CreateNotificationInput) {
+  // Get organization_id from user if not provided
+  let organizationId = input.organization_id;
+  if (!organizationId) {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', input.user_id)
+      .single();
+    organizationId = userData?.organization_id;
+  }
+
+  if (!organizationId) {
+    throw new Error('Could not determine organization_id for notification');
+  }
+
   const { data, error } = await supabase
     .from('notifications')
     .insert({
+      organization_id: organizationId,
       user_id: input.user_id,
       type: input.type,
       title: input.title,

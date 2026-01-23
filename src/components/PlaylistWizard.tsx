@@ -742,7 +742,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       // Build trigger rules for auto-assignment
       let triggerRules = null;
       if (assignmentType === 'auto') {
-        triggerRules = {};
+        triggerRules = {
+          // Store due_days for calculating assignment due dates
+          due_days: completionDeadlineDays,
+        };
         triggerConditions.forEach(condition => {
           if (condition.value) {
             if (condition.field === 'role') {
