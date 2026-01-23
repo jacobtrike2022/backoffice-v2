@@ -82,8 +82,8 @@ const WIZARD_STEPS = [
   { id: 'review', label: 'Review & Publish', icon: CheckCircle2 }
 ];
 
-// Mock data for dropdowns
-const ROLES = ['Store Manager', 'Sales Associate', 'Assistant Manager', 'Department Lead', 'Cashier', 'Stock Clerk'];
+// Fallback data for dropdowns (used if database fetch fails)
+const FALLBACK_ROLES = ['Store Manager', 'Sales Associate', 'Assistant Manager', 'Department Lead', 'Cashier', 'Stock Clerk'];
 const DEPARTMENTS = ['Front End', 'Grocery', 'Deli', 'Bakery', 'Meat', 'Produce', 'Management'];
 const LOCATIONS = ['Store #001 - Downtown', 'Store #002 - Westside', 'Store #003 - Northgate', 'Store #004 - Southpoint'];
 const EMPLOYMENT_TYPES = ['Full-Time', 'Part-Time', 'Seasonal', 'Temporary'];
@@ -202,6 +202,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [keepOrphanedAssignments, setKeepOrphanedAssignments] = useState(true);
   const [loadingImpact, setLoadingImpact] = useState(false);
 
+  // Dynamically loaded roles from database
+  const [availableRoles, setAvailableRoles] = useState<string[]>(FALLBACK_ROLES);
+  const [rolesLoading, setRolesLoading] = useState(true);
+
   const isStepComplete = (stepIndex: number) => {
     switch (stepIndex) {
       case 0: // Trigger
@@ -244,11 +248,41 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [tracks, setTracks] = useState<any[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
 
+  // Fetch roles from database - run FIRST before other data loads
+  useEffect(() => {
+    const fetchRoles = async () => {
+      if (!user?.organization_id) return;
+
+      setRolesLoading(true);
+      try {
+        const { data: roles, error } = await supabase
+          .from('roles')
+          .select('id, name')
+          .eq('organization_id', user.organization_id)
+          .order('name');
+
+        if (!error && roles && roles.length > 0) {
+          // Use role names for display and matching
+          setAvailableRoles(roles.map(r => r.name));
+          console.log('🎭 Loaded', roles.length, 'roles from database');
+        } else {
+          console.log('⚠️ No roles found, using fallback roles');
+        }
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, [user?.organization_id]);
+
   // Fetch real employees from database
   useEffect(() => {
     const fetchEmployees = async () => {
       if (!user?.organization_id) return;
-      
+
       setLoadingEmployees(true);
       try {
         const data = await crud.getUsers({ status: 'active' });
@@ -892,7 +926,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
   const getFieldOptions = (field: string) => {
     switch (field) {
-      case 'role': return ROLES;
+      case 'role': return availableRoles;
       case 'department': return DEPARTMENTS;
       case 'location': return LOCATIONS;
       case 'employment-type': return EMPLOYMENT_TYPES;
@@ -1124,7 +1158,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Roles</SelectItem>
-                        {ROLES.map(role => (
+                        {availableRoles.map(role => (
                           <SelectItem key={role} value={role}>{role}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1250,7 +1284,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <CardDescription>Define the conditions that trigger automatic assignment</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {triggerConditions.map((condition, index) => (
+                    {(rolesLoading || isLoadingPlaylist) ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading trigger conditions...</span>
+                      </div>
+                    ) : triggerConditions.map((condition, index) => (
                       <div key={index} className="flex items-center space-x-2">
                         <Select 
                           value={condition.field} 
@@ -1323,22 +1362,26 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       </div>
                     ))}
 
-                    <Button variant="outline" onClick={addTriggerCondition} className="w-full">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Condition
-                    </Button>
+                    {!(rolesLoading || isLoadingPlaylist) && (
+                      <>
+                        <Button variant="outline" onClick={addTriggerCondition} className="w-full">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Condition
+                        </Button>
 
-                    {triggerConditions.some(c => c.value !== '') && (
-                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">
-                          This playlist will auto-assign when:
-                        </p>
-                        <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1">
-                          {triggerConditions.filter(c => c.value !== '').map((c, i) => (
-                            <li key={i}>→ {c.field} {c.operator} "{c.value}"</li>
-                          ))}
-                        </ul>
-                      </div>
+                        {triggerConditions.some(c => c.value !== '') && (
+                          <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
+                            <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">
+                              This playlist will auto-assign when:
+                            </p>
+                            <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1">
+                              {triggerConditions.filter(c => c.value !== '').map((c, i) => (
+                                <li key={i}>→ {c.field} {c.operator} "{c.value}"</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
                     )}
                   </CardContent>
                 </Card>

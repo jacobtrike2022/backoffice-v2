@@ -533,6 +533,24 @@ async function getMatchingUsers(
   // Fallback to direct query if function doesn't exist yet
   console.warn('Database function not available, using fallback query');
 
+  // Check if role_ids are UUIDs or role names
+  const roleIds = triggerRules.role_ids || [];
+  const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  const hasRoleNames = roleIds.length > 0 && !isUUID(roleIds[0]);
+
+  // If we have role names instead of UUIDs, we need to look up the role IDs first
+  let resolvedRoleIds = roleIds;
+  if (hasRoleNames && roleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .eq('organization_id', orgId)
+      .in('name', roleIds);
+
+    resolvedRoleIds = roles?.map(r => r.id) || [];
+    console.log(`Resolved ${roleIds.length} role names to ${resolvedRoleIds.length} role IDs`);
+  }
+
   let query = supabase
     .from('users')
     .select('id')
@@ -540,8 +558,8 @@ async function getMatchingUsers(
     .eq('status', 'active');
 
   // Apply trigger rules
-  if (triggerRules.role_ids && triggerRules.role_ids.length > 0) {
-    query = query.in('role_id', triggerRules.role_ids);
+  if (resolvedRoleIds.length > 0) {
+    query = query.in('role_id', resolvedRoleIds);
   }
 
   if (triggerRules.hire_days) {
@@ -629,6 +647,22 @@ export async function getMatchingUsersPreview(
   }
 
   // Fallback: direct query with user details
+  // First, check if role_ids are UUIDs or role names and resolve if needed
+  const roleIds = triggerRules.role_ids || [];
+  const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+  const hasRoleNames = roleIds.length > 0 && !isUUID(roleIds[0]);
+
+  let resolvedRoleIds = roleIds;
+  if (hasRoleNames && roleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .eq('organization_id', orgId)
+      .in('name', roleIds);
+    resolvedRoleIds = roles?.map(r => r.id) || [];
+    console.log(`Preview: Resolved ${roleIds.length} role names to ${resolvedRoleIds.length} role IDs`);
+  }
+
   let query = supabase
     .from('users')
     .select(`
@@ -637,14 +671,14 @@ export async function getMatchingUsersPreview(
       last_name,
       email,
       hire_date,
-      role:roles(name),
+      role_id,
       store:stores(name)
     `)
     .eq('organization_id', orgId)
     .eq('status', 'active');
 
-  if (triggerRules.role_ids && triggerRules.role_ids.length > 0) {
-    query = query.in('role_id', triggerRules.role_ids);
+  if (resolvedRoleIds.length > 0) {
+    query = query.in('role_id', resolvedRoleIds);
   }
 
   if (triggerRules.store_ids && triggerRules.store_ids.length > 0) {
@@ -661,13 +695,24 @@ export async function getMatchingUsersPreview(
 
   if (error) throw error;
 
+  // Get role names for the users we found
+  const userRoleIds = [...new Set((data || []).map((u: any) => u.role_id).filter(Boolean))];
+  let roleNameMap: Record<string, string> = {};
+  if (userRoleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .in('id', userRoleIds);
+    roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
+  }
+
   const totalCount = data?.length || 0;
   const users: MatchingUser[] = (data || []).slice(0, limit).map((u: any) => ({
     user_id: u.id,
     first_name: u.first_name,
     last_name: u.last_name,
     email: u.email,
-    role_name: u.role?.name || null,
+    role_name: u.role_id ? roleNameMap[u.role_id] || null : null,
     store_name: u.store?.name || null,
     hire_date: u.hire_date
   }));
@@ -708,7 +753,7 @@ export async function getPlaylistAssignmentHistory(
         last_name,
         email,
         hire_date,
-        role:roles(name),
+        role_id,
         store:stores(name)
       )
     `)
@@ -718,13 +763,24 @@ export async function getPlaylistAssignmentHistory(
 
   if (error) throw error;
 
+  // Get unique role_ids to look up role names
+  const roleIds = [...new Set((data || []).map((a: any) => a.user?.role_id).filter(Boolean))];
+  let roleNameMap: Record<string, string> = {};
+  if (roleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .in('id', roleIds);
+    roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
+  }
+
   return (data || []).map((a: any) => ({
     assignment_id: a.id,
     user_id: a.user_id,
     first_name: a.user?.first_name || '',
     last_name: a.user?.last_name || '',
     email: a.user?.email || '',
-    role_name: a.user?.role?.name || null,
+    role_name: a.user?.role_id ? roleNameMap[a.user.role_id] || null : null,
     store_name: a.user?.store?.name || null,
     hire_date: a.user?.hire_date || null,
     assigned_at: a.assigned_at,
@@ -754,7 +810,7 @@ export async function getPlaylistAssignmentHistoryForExport(
         last_name,
         email,
         hire_date,
-        role:roles(name),
+        role_id,
         store:stores(name)
       )
     `)
@@ -763,13 +819,24 @@ export async function getPlaylistAssignmentHistoryForExport(
 
   if (error) throw error;
 
+  // Get unique role_ids to look up role names
+  const roleIds = [...new Set((data || []).map((a: any) => a.user?.role_id).filter(Boolean))];
+  let roleNameMap: Record<string, string> = {};
+  if (roleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .in('id', roleIds);
+    roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
+  }
+
   return (data || []).map((a: any) => ({
     assignment_id: a.id,
     user_id: a.user_id,
     first_name: a.user?.first_name || '',
     last_name: a.user?.last_name || '',
     email: a.user?.email || '',
-    role_name: a.user?.role?.name || null,
+    role_name: a.user?.role_id ? roleNameMap[a.user.role_id] || null : null,
     store_name: a.user?.store?.name || null,
     hire_date: a.user?.hire_date || null,
     assigned_at: a.assigned_at,
@@ -821,10 +888,21 @@ export async function compareTriggerRulesImpact(
       user_id,
       status,
       progress_percent,
-      user:users!assignments_user_id_fkey(first_name, last_name, email, role:roles(name))
+      user:users!assignments_user_id_fkey(first_name, last_name, email, role_id)
     `)
     .eq('playlist_id', playlistId)
     .in('status', ['assigned', 'in_progress']);
+
+  // Get role names for the users
+  const roleIds = [...new Set((currentAssignments || []).map((a: any) => a.user?.role_id).filter(Boolean))];
+  let roleNameMap: Record<string, string> = {};
+  if (roleIds.length > 0) {
+    const { data: roles } = await supabase
+      .from('roles')
+      .select('id, name')
+      .in('id', roleIds);
+    roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
+  }
 
   // Get users matching new rules
   const newMatchingUsers = await getMatchingUsers(newTriggerRules, orgId);
@@ -839,7 +917,7 @@ export async function compareTriggerRulesImpact(
       first_name: a.user?.first_name || '',
       last_name: a.user?.last_name || '',
       email: a.user?.email || '',
-      role_name: a.user?.role?.name || null,
+      role_name: a.user?.role_id ? roleNameMap[a.user.role_id] || null : null,
       current_status: a.status,
       progress_percent: a.progress_percent
     }));
