@@ -31,7 +31,11 @@ import {
   Play,
   Trash2,
   Search,
-  ArrowDown
+  ArrowDown,
+  Download,
+  AlertTriangle,
+  UserCheck,
+  UserMinus
 } from 'lucide-react';
 import {
   Select,
@@ -47,6 +51,15 @@ import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
 import { useCurrentUser } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
+import {
+  runPlaylistTrigger,
+  getMatchingUsersPreview,
+  getMatchingUsersForExport,
+  compareTriggerRulesImpact,
+  archiveOrphanedAssignments,
+  type MatchingUser,
+  type TriggerRulesImpact
+} from '../lib/crud/assignments';
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../lib/supabase';
 import { TagSelectorDialog } from './TagSelectorDialog';
@@ -175,6 +188,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [minFinalScore, setMinFinalScore] = useState(85);
   const [completionDeadlineDays, setCompletionDeadlineDays] = useState(30);
 
+  // Matching users preview state
+  const [matchingUsers, setMatchingUsers] = useState<MatchingUser[]>([]);
+  const [matchingUsersCount, setMatchingUsersCount] = useState(0);
+  const [matchingUsersLoading, setMatchingUsersLoading] = useState(false);
+
+  // Edit mode: trigger rules impact state
+  const [originalTriggerRules, setOriginalTriggerRules] = useState<any>(null);
+  const [triggerRulesImpact, setTriggerRulesImpact] = useState<{
+    orphaned: TriggerRulesImpact[];
+    newMatches: TriggerRulesImpact[];
+  } | null>(null);
+  const [keepOrphanedAssignments, setKeepOrphanedAssignments] = useState(true);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+
   const isStepComplete = (stepIndex: number) => {
     switch (stepIndex) {
       case 0: // Trigger
@@ -241,7 +268,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   useEffect(() => {
     const fetchContent = async () => {
       if (!user?.organization_id) return;
-      
+
       setLoadingContent(true);
       try {
         // Fetch albums (only published)
@@ -261,6 +288,138 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
     fetchContent();
   }, [user?.organization_id]);
+
+  // Build trigger rules from conditions (helper function)
+  const buildTriggerRules = useCallback(() => {
+    const rules: any = {};
+    triggerConditions.forEach(condition => {
+      if (condition.value) {
+        if (condition.field === 'role') {
+          rules.role_ids = rules.role_ids || [];
+          rules.role_ids.push(condition.value);
+        } else if (condition.field === 'hire-date') {
+          rules.hire_days = parseInt(condition.value) || 7;
+        } else if (condition.field === 'location') {
+          rules.store_ids = rules.store_ids || [];
+          rules.store_ids.push(condition.value);
+        } else if (condition.field === 'department') {
+          rules.department_ids = rules.department_ids || [];
+          rules.department_ids.push(condition.value);
+        }
+      }
+    });
+    return Object.keys(rules).length > 0 ? rules : null;
+  }, [triggerConditions]);
+
+  // Fetch matching users when trigger conditions change (for auto-assignment preview)
+  useEffect(() => {
+    const fetchMatchingUsers = async () => {
+      if (assignmentType !== 'auto') {
+        setMatchingUsers([]);
+        setMatchingUsersCount(0);
+        return;
+      }
+
+      const triggerRules = buildTriggerRules();
+      if (!triggerRules) {
+        setMatchingUsers([]);
+        setMatchingUsersCount(0);
+        return;
+      }
+
+      setMatchingUsersLoading(true);
+      try {
+        const result = await getMatchingUsersPreview(triggerRules, 20);
+        setMatchingUsers(result.users);
+        setMatchingUsersCount(result.totalCount);
+      } catch (error) {
+        console.error('Error fetching matching users:', error);
+        // Don't show toast for preview errors - just fail silently
+      } finally {
+        setMatchingUsersLoading(false);
+      }
+    };
+
+    // Debounce the fetch
+    const timeoutId = setTimeout(fetchMatchingUsers, 500);
+    return () => clearTimeout(timeoutId);
+  }, [assignmentType, triggerConditions, buildTriggerRules]);
+
+  // In edit mode, compare trigger rules impact when they change
+  useEffect(() => {
+    const checkTriggerRulesImpact = async () => {
+      if (mode !== 'edit' || !existingPlaylistId || assignmentType !== 'auto') {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      // Only check if we have original rules to compare against
+      if (!originalTriggerRules) return;
+
+      const newRules = buildTriggerRules();
+      if (!newRules) {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      // Check if rules actually changed
+      const rulesChanged = JSON.stringify(originalTriggerRules) !== JSON.stringify(newRules);
+      if (!rulesChanged) {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      setLoadingImpact(true);
+      try {
+        const impact = await compareTriggerRulesImpact(existingPlaylistId, newRules);
+        setTriggerRulesImpact(impact);
+      } catch (error) {
+        console.error('Error comparing trigger rules impact:', error);
+      } finally {
+        setLoadingImpact(false);
+      }
+    };
+
+    const timeoutId = setTimeout(checkTriggerRulesImpact, 500);
+    return () => clearTimeout(timeoutId);
+  }, [mode, existingPlaylistId, assignmentType, triggerConditions, originalTriggerRules, buildTriggerRules]);
+
+  // CSV export function
+  const handleExportMatchingUsersCSV = async () => {
+    try {
+      const triggerRules = buildTriggerRules();
+      if (!triggerRules) return;
+
+      const users = await getMatchingUsersForExport(triggerRules);
+
+      // Build CSV content
+      const headers = ['Name', 'Email', 'Role', 'Location', 'Hire Date'];
+      const rows = users.map(u => [
+        `${u.first_name} ${u.last_name}`,
+        u.email,
+        u.role_name || '',
+        u.store_name || '',
+        u.hire_date || ''
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `matching-employees-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+
+      toast.success(`Exported ${users.length} employees to CSV`);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      toast.error('Failed to export CSV');
+    }
+  };
 
         // Load existing playlist data when in edit mode
   useEffect(() => {
@@ -299,6 +458,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         // Set trigger conditions for auto playlists
         let loadedTriggerConditions = [{ field: 'role', operator: 'equals', value: '' }];
         if (playlist.type === 'auto' && playlist.trigger_rules) {
+          // Save original trigger rules for impact comparison
+          setOriginalTriggerRules(playlist.trigger_rules);
+
           // Parse role_ids into trigger conditions
           if (playlist.trigger_rules.role_ids && playlist.trigger_rules.role_ids.length > 0) {
             loadedTriggerConditions = playlist.trigger_rules.role_ids.map((roleId: string) => ({
@@ -639,8 +801,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         await assignTags(playlist.id, 'playlist', []);
       }
 
-      // 2. Handle manual assignment for employees
+      // 2. Handle assignments based on type
       if (assignmentType === 'manual' && selectedEmployees.length > 0) {
+        // Manual assignment: assign to selected employees
         console.log(`📋 ${mode === 'edit' ? 'Updating' : 'Creating'} ${selectedEmployees.length} assignments...`);
 
         // Calculate due date based on completion deadline
@@ -674,12 +837,40 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         console.log('✅ All assignments created');
+      } else if (assignmentType === 'auto' && triggerRules) {
+        // Handle orphaned assignments in edit mode if user chose to archive them
+        if (mode === 'edit' && !keepOrphanedAssignments && triggerRulesImpact?.orphaned.length) {
+          console.log('🗄️ Archiving orphaned assignments...');
+          try {
+            const orphanedUserIds = triggerRulesImpact.orphaned.map(u => u.user_id);
+            const archivedCount = await archiveOrphanedAssignments(existingPlaylistId!, orphanedUserIds);
+            console.log(`✅ Archived ${archivedCount} orphaned assignments`);
+          } catch (archiveError) {
+            console.error('⚠️ Failed to archive orphaned assignments:', archiveError);
+          }
+        }
+
+        // Auto-assignment: run trigger to assign to all current matching users
+        console.log('🎯 Running auto-assignment trigger for current matching users...');
+        try {
+          const assignments = await runPlaylistTrigger(playlist.id);
+          console.log(`✅ Auto-assigned to ${assignments.length} matching users`);
+        } catch (triggerError) {
+          // Log but don't fail - playlist is still created, trigger can be run later
+          console.error('⚠️ Auto-assignment trigger failed:', triggerError);
+        }
+      }
+
+      // Build success message
+      let successDescription = '';
+      if (assignmentType === 'manual') {
+        successDescription = `Assigned to ${selectedEmployees.length} employees`;
+      } else if (assignmentType === 'auto') {
+        successDescription = 'Auto-assigned to matching employees. New hires matching criteria will be assigned automatically.';
       }
 
       toast.success(`Playlist "${playlistName}" ${mode === 'edit' ? 'updated' : 'published'} successfully!`, {
-        description: assignmentType === 'manual'
-          ? `Assigned to ${selectedEmployees.length} employees`
-          : 'Auto-assignment configured',
+        description: successDescription,
       });
 
       // Clear unsaved changes check before closing to allow navigation
@@ -1151,6 +1342,189 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Matching Employees Preview */}
+                {triggerConditions.some(c => c.value !== '') && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UserCheck className="h-5 w-5 text-green-600" />
+                          <CardTitle className="text-base">
+                            {mode === 'edit' && triggerRulesImpact ? 'New Employees to Assign' : 'Employees Matching Criteria'}
+                          </CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {matchingUsersLoading ? (
+                            <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                          ) : (
+                            <Badge variant="secondary">
+                              {mode === 'edit' && triggerRulesImpact
+                                ? triggerRulesImpact.newMatches.length
+                                : matchingUsersCount} employees
+                            </Badge>
+                          )}
+                          {matchingUsersCount > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleExportMatchingUsersCSV}
+                              className="h-8"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              Export CSV
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <CardDescription>
+                        {mode === 'edit' && triggerRulesImpact
+                          ? 'These employees will be newly assigned when you save'
+                          : 'Preview of employees who will be assigned this playlist'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {matchingUsersLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                        </div>
+                      ) : matchingUsersCount === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground">
+                          <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No employees match the current criteria</p>
+                        </div>
+                      ) : (
+                        <div className="border rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="text-left px-3 py-2 font-medium">Name</th>
+                                <th className="text-left px-3 py-2 font-medium">Role</th>
+                                <th className="text-left px-3 py-2 font-medium">Location</th>
+                                <th className="text-left px-3 py-2 font-medium">Hire Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {(mode === 'edit' && triggerRulesImpact
+                                ? triggerRulesImpact.newMatches.slice(0, 20)
+                                : matchingUsers
+                              ).map((user: any) => (
+                                <tr key={user.user_id} className="hover:bg-muted/50">
+                                  <td className="px-3 py-2">
+                                    {user.first_name} {user.last_name}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.role_name || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.store_name || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.hire_date ? new Date(user.hire_date).toLocaleDateString() : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {matchingUsersCount > 20 && (
+                            <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
+                              Showing 20 of {matchingUsersCount} employees • Download CSV for full list
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Orphaned Assignments Warning (Edit Mode Only) */}
+                {mode === 'edit' && triggerRulesImpact && triggerRulesImpact.orphaned.length > 0 && (
+                  <Card className="border-amber-200 dark:border-amber-900/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UserMinus className="h-5 w-5 text-amber-600" />
+                          <CardTitle className="text-base text-amber-900 dark:text-amber-100">
+                            Employees No Longer Matching
+                          </CardTitle>
+                        </div>
+                        <Badge variant="outline" className="border-amber-300 text-amber-700">
+                          {triggerRulesImpact.orphaned.length} employees
+                        </Badge>
+                      </div>
+                      <CardDescription>
+                        These employees have active assignments but no longer match the new criteria
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-amber-50 dark:bg-amber-900/20">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Name</th>
+                              <th className="text-left px-3 py-2 font-medium">Role</th>
+                              <th className="text-left px-3 py-2 font-medium">Status</th>
+                              <th className="text-left px-3 py-2 font-medium">Progress</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {triggerRulesImpact.orphaned.slice(0, 10).map((user) => (
+                              <tr key={user.user_id} className="hover:bg-muted/50">
+                                <td className="px-3 py-2">
+                                  {user.first_name} {user.last_name}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {user.role_name || '—'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {user.current_status}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {user.progress_percent || 0}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {triggerRulesImpact.orphaned.length > 10 && (
+                          <div className="px-3 py-2 bg-amber-50/50 dark:bg-amber-900/10 text-center text-sm text-muted-foreground border-t">
+                            +{triggerRulesImpact.orphaned.length - 10} more employees
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium">What should happen to these assignments?</p>
+                          <p className="text-xs text-muted-foreground">
+                            {keepOrphanedAssignments
+                              ? 'They will keep their active assignments and can complete them'
+                              : 'Their assignments will be archived/expired'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant={keepOrphanedAssignments ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setKeepOrphanedAssignments(true)}
+                          >
+                            Keep Active
+                          </Button>
+                          <Button
+                            variant={!keepOrphanedAssignments ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setKeepOrphanedAssignments(false)}
+                            className={!keepOrphanedAssignments ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                          >
+                            Archive
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <Card>
                   <CardHeader>

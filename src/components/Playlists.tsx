@@ -36,7 +36,9 @@ import {
   Settings as SettingsIcon,
   Target,
   LayoutGrid,
-  List
+  List,
+  Download,
+  History
 } from 'lucide-react';
 import {
   Select,
@@ -64,6 +66,11 @@ import { useCurrentUser } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import * as crud from '../lib/crud';
 import * as albumsCrud from '../lib/crud/albums';
+import {
+  getPlaylistAssignmentHistory,
+  getPlaylistAssignmentHistoryForExport,
+  type AssignmentHistoryEntry
+} from '../lib/crud/assignments';
 import type { Album } from '../lib/crud/albums';
 import { AlbumDetailView } from './AlbumDetailView';
 import { ArchivePlaylistModal } from './ArchivePlaylistModal';
@@ -108,6 +115,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   // Expanded albums state for view mode
   const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
   const [loadingPlaylistDetails, setLoadingPlaylistDetails] = useState(false);
+
+  // Assignment history state for auto playlists
+  const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([]);
+  const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
 
   const { user } = useCurrentUser();
 
@@ -180,6 +191,68 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       fetchAlbums();
     }
   }, [mainTab, albumStatusFilter]);
+
+  // Fetch assignment history when an auto playlist is selected
+  useEffect(() => {
+    const fetchAssignmentHistory = async () => {
+      if (!selectedPlaylist?.id || selectedPlaylist.type !== 'auto') {
+        setAssignmentHistory([]);
+        return;
+      }
+
+      setAssignmentHistoryLoading(true);
+      try {
+        const history = await getPlaylistAssignmentHistory(selectedPlaylist.id, 20);
+        setAssignmentHistory(history);
+      } catch (error) {
+        console.error('Error fetching assignment history:', error);
+      } finally {
+        setAssignmentHistoryLoading(false);
+      }
+    };
+
+    fetchAssignmentHistory();
+  }, [selectedPlaylist?.id, selectedPlaylist?.type]);
+
+  // Export assignment history to CSV
+  const handleExportAssignmentHistoryCSV = async () => {
+    if (!selectedPlaylist?.id) return;
+
+    try {
+      const history = await getPlaylistAssignmentHistoryForExport(selectedPlaylist.id);
+
+      // Build CSV content
+      const headers = ['Name', 'Email', 'Role', 'Location', 'Hire Date', 'Assigned Date', 'Progress %', 'Status', 'Completed Date'];
+      const rows = history.map(h => [
+        `${h.first_name} ${h.last_name}`,
+        h.email,
+        h.role_name || '',
+        h.store_name || '',
+        h.hire_date || '',
+        h.assigned_at ? new Date(h.assigned_at).toLocaleDateString() : '',
+        h.progress_percent?.toString() || '0',
+        h.status,
+        h.completed_at ? new Date(h.completed_at).toLocaleDateString() : ''
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${selectedPlaylist.title}-assignments-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+
+      toast.success(`Exported ${history.length} assignments to CSV`);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      toast.error('Failed to export CSV');
+    }
+  };
 
   // Set total duration when a playlist is selected (now comes from CRUD layer)
   useEffect(() => {
@@ -790,6 +863,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
           </TabsContent>
 
           <TabsContent value="triggers" className="space-y-6 mt-6">
+            {/* Trigger Rules Card */}
             <Card>
               <CardHeader>
                 <CardTitle>Assignment Logic</CardTitle>
@@ -821,13 +895,6 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         )}
                       </div>
                     </div>
-                    <Separator />
-                    <div>
-                      <p className="text-sm font-medium mb-2">Assignment Behavior</p>
-                      <p className="text-sm text-muted-foreground">
-                        New employees matching the role criteria will automatically receive this playlist upon account creation or role change.
-                      </p>
-                    </div>
                   </>
                 )}
 
@@ -835,6 +902,117 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
                     <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Manual Assignment</p>
                     <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">This playlist is assigned manually by administrators</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Assignment Activity Feed */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle className="text-base">Assignment Activity</CardTitle>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      {selectedPlaylist.active_learners || assignmentHistory.length} total
+                    </Badge>
+                    {assignmentHistory.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportAssignmentHistoryCSV}
+                        className="h-8"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Export CSV
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {assignmentHistoryLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                  </div>
+                ) : assignmentHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm font-medium">No assignments yet</p>
+                    <p className="text-xs mt-1">
+                      {selectedPlaylist.type === 'auto'
+                        ? 'Employees matching the trigger criteria will appear here when assigned'
+                        : 'Manually assigned employees will appear here'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Employee</th>
+                          <th className="text-left px-3 py-2 font-medium">Role</th>
+                          <th className="text-left px-3 py-2 font-medium">Location</th>
+                          <th className="text-left px-3 py-2 font-medium">Assigned</th>
+                          <th className="text-left px-3 py-2 font-medium">Progress</th>
+                          <th className="text-left px-3 py-2 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {assignmentHistory.map((entry) => (
+                          <tr key={entry.assignment_id} className="hover:bg-muted/50">
+                            <td className="px-3 py-2">
+                              <div>
+                                <p className="font-medium">{entry.first_name} {entry.last_name}</p>
+                                <p className="text-xs text-muted-foreground">{entry.email}</p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.role_name || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.store_name || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.assigned_at ? new Date(entry.assigned_at).toLocaleDateString() : '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <Progress value={entry.progress_percent || 0} className="h-2 w-16" />
+                                <span className="text-xs text-muted-foreground">{entry.progress_percent || 0}%</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge
+                                variant={
+                                  entry.status === 'completed' ? 'default' :
+                                  entry.status === 'in_progress' ? 'secondary' :
+                                  'outline'
+                                }
+                                className={
+                                  entry.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                                  entry.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
+                                  ''
+                                }
+                              >
+                                {entry.status === 'in_progress' ? 'In Progress' :
+                                 entry.status === 'completed' ? 'Completed' :
+                                 entry.status === 'assigned' ? 'Not Started' :
+                                 entry.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {assignmentHistory.length >= 20 && (
+                      <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
+                        Showing 20 most recent assignments • Download CSV for full history
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

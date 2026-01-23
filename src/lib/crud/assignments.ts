@@ -314,15 +314,34 @@ export async function runPlaylistTrigger(playlistId: string) {
   // Get matching users based on trigger rules
   const matchingUsers = await getMatchingUsers(playlist.trigger_rules, orgId);
 
-  // Create assignments for all matching users using the correct schema
+  // Get existing assignments for this playlist to prevent duplicates
+  const { data: existingAssignments } = await supabase
+    .from('assignments')
+    .select('user_id')
+    .eq('playlist_id', playlistId)
+    .in('status', ['assigned', 'in_progress', 'completed']);
+
+  const existingUserIds = new Set(existingAssignments?.map(a => a.user_id) || []);
+
+  // Filter out users who already have this assignment
+  const newUsers = matchingUsers.filter(userId => !existingUserIds.has(userId));
+
+  console.log(`🎯 Trigger: ${matchingUsers.length} users match criteria, ${newUsers.length} new assignments needed`);
+
+  // Create assignments for new users only
   const assignments = [];
-  for (const userId of matchingUsers) {
-    const assignment = await createAssignment({
-      title: playlist.title,
-      playlist_id: playlistId,
-      user_id: userId,
-    });
-    assignments.push(assignment);
+  for (const userId of newUsers) {
+    try {
+      const assignment = await createAssignment({
+        title: playlist.title,
+        playlist_id: playlistId,
+        user_id: userId,
+      });
+      assignments.push(assignment);
+    } catch (err) {
+      // Log individual failures but continue with other users
+      console.error(`Failed to create assignment for user ${userId}:`, err);
+    }
   }
 
   return assignments;
@@ -494,11 +513,26 @@ async function createProgressRecords(
 
 /**
  * Get users matching auto-playlist trigger rules
+ * Uses database function for consistent matching logic
  */
 async function getMatchingUsers(
   triggerRules: any,
   orgId: string
 ): Promise<string[]> {
+  // Try to use the database function first (more reliable, handles both UUID and name matching)
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('get_users_matching_trigger_rules', {
+      p_organization_id: orgId,
+      p_trigger_rules: triggerRules
+    });
+
+  if (!rpcError && rpcData) {
+    return rpcData.map((u: any) => u.user_id);
+  }
+
+  // Fallback to direct query if function doesn't exist yet
+  console.warn('Database function not available, using fallback query');
+
   let query = supabase
     .from('users')
     .select('id')
@@ -528,6 +562,336 @@ async function getMatchingUsers(
 
   if (error) throw error;
   return data?.map(u => u.id) || [];
+}
+
+// ============================================================================
+// PREVIEW & ACTIVITY FUNCTIONS (for UI)
+// ============================================================================
+
+export interface MatchingUser {
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_name: string | null;
+  store_name: string | null;
+  hire_date: string | null;
+}
+
+export interface AssignmentHistoryEntry {
+  assignment_id: string;
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_name: string | null;
+  store_name: string | null;
+  hire_date: string | null;
+  assigned_at: string;
+  progress_percent: number;
+  status: string;
+  completed_at: string | null;
+}
+
+export interface TriggerRulesImpact {
+  population: 'orphaned' | 'new_match';
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_name: string | null;
+  current_status: string | null;
+  progress_percent: number | null;
+}
+
+/**
+ * Get users that match trigger rules (for preview in wizard)
+ * Returns first 20 by default, with total count
+ */
+export async function getMatchingUsersPreview(
+  triggerRules: any,
+  limit: number = 20
+): Promise<{ users: MatchingUser[]; totalCount: number }> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Try database function first
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('get_users_matching_trigger_rules', {
+      p_organization_id: orgId,
+      p_trigger_rules: triggerRules
+    });
+
+  if (!rpcError && rpcData) {
+    const totalCount = rpcData.length;
+    const users = rpcData.slice(0, limit) as MatchingUser[];
+    return { users, totalCount };
+  }
+
+  // Fallback: direct query with user details
+  let query = supabase
+    .from('users')
+    .select(`
+      id,
+      first_name,
+      last_name,
+      email,
+      hire_date,
+      role:roles(name),
+      store:stores(name)
+    `)
+    .eq('organization_id', orgId)
+    .eq('status', 'active');
+
+  if (triggerRules.role_ids && triggerRules.role_ids.length > 0) {
+    query = query.in('role_id', triggerRules.role_ids);
+  }
+
+  if (triggerRules.store_ids && triggerRules.store_ids.length > 0) {
+    query = query.in('store_id', triggerRules.store_ids);
+  }
+
+  if (triggerRules.hire_days) {
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - triggerRules.hire_days);
+    query = query.gte('hire_date', daysAgo.toISOString().split('T')[0]);
+  }
+
+  const { data, error } = await query.order('last_name').order('first_name');
+
+  if (error) throw error;
+
+  const totalCount = data?.length || 0;
+  const users: MatchingUser[] = (data || []).slice(0, limit).map((u: any) => ({
+    user_id: u.id,
+    first_name: u.first_name,
+    last_name: u.last_name,
+    email: u.email,
+    role_name: u.role?.name || null,
+    store_name: u.store?.name || null,
+    hire_date: u.hire_date
+  }));
+
+  return { users, totalCount };
+}
+
+/**
+ * Get assignment history for a playlist (for activity feed)
+ */
+export async function getPlaylistAssignmentHistory(
+  playlistId: string,
+  limit: number = 20
+): Promise<AssignmentHistoryEntry[]> {
+  // Try database function first
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('get_playlist_assignment_history', {
+      p_playlist_id: playlistId,
+      p_limit: limit
+    });
+
+  if (!rpcError && rpcData) {
+    return rpcData as AssignmentHistoryEntry[];
+  }
+
+  // Fallback: direct query
+  const { data, error } = await supabase
+    .from('assignments')
+    .select(`
+      id,
+      user_id,
+      assigned_at,
+      progress_percent,
+      status,
+      completed_at,
+      user:users(
+        first_name,
+        last_name,
+        email,
+        hire_date,
+        role:roles(name),
+        store:stores(name)
+      )
+    `)
+    .eq('playlist_id', playlistId)
+    .order('assigned_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+
+  return (data || []).map((a: any) => ({
+    assignment_id: a.id,
+    user_id: a.user_id,
+    first_name: a.user?.first_name || '',
+    last_name: a.user?.last_name || '',
+    email: a.user?.email || '',
+    role_name: a.user?.role?.name || null,
+    store_name: a.user?.store?.name || null,
+    hire_date: a.user?.hire_date || null,
+    assigned_at: a.assigned_at,
+    progress_percent: a.progress_percent || 0,
+    status: a.status,
+    completed_at: a.completed_at
+  }));
+}
+
+/**
+ * Get ALL assignment history for CSV export (no limit)
+ */
+export async function getPlaylistAssignmentHistoryForExport(
+  playlistId: string
+): Promise<AssignmentHistoryEntry[]> {
+  const { data, error } = await supabase
+    .from('assignments')
+    .select(`
+      id,
+      user_id,
+      assigned_at,
+      progress_percent,
+      status,
+      completed_at,
+      user:users(
+        first_name,
+        last_name,
+        email,
+        hire_date,
+        role:roles(name),
+        store:stores(name)
+      )
+    `)
+    .eq('playlist_id', playlistId)
+    .order('assigned_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((a: any) => ({
+    assignment_id: a.id,
+    user_id: a.user_id,
+    first_name: a.user?.first_name || '',
+    last_name: a.user?.last_name || '',
+    email: a.user?.email || '',
+    role_name: a.user?.role?.name || null,
+    store_name: a.user?.store?.name || null,
+    hire_date: a.user?.hire_date || null,
+    assigned_at: a.assigned_at,
+    progress_percent: a.progress_percent || 0,
+    status: a.status,
+    completed_at: a.completed_at
+  }));
+}
+
+/**
+ * Get ALL matching users for CSV export (no limit)
+ */
+export async function getMatchingUsersForExport(
+  triggerRules: any
+): Promise<MatchingUser[]> {
+  const result = await getMatchingUsersPreview(triggerRules, 10000); // Large limit for export
+  return result.users;
+}
+
+/**
+ * Compare old vs new trigger rules to see impact of edit
+ * Returns orphaned assignments and new matches
+ */
+export async function compareTriggerRulesImpact(
+  playlistId: string,
+  newTriggerRules: any
+): Promise<{ orphaned: TriggerRulesImpact[]; newMatches: TriggerRulesImpact[] }> {
+  // Try database function first
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('compare_trigger_rules_impact', {
+      p_playlist_id: playlistId,
+      p_new_trigger_rules: newTriggerRules
+    });
+
+  if (!rpcError && rpcData) {
+    const orphaned = rpcData.filter((r: any) => r.population === 'orphaned');
+    const newMatches = rpcData.filter((r: any) => r.population === 'new_match');
+    return { orphaned, newMatches };
+  }
+
+  // Fallback: compute in JS
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get current active assignments
+  const { data: currentAssignments } = await supabase
+    .from('assignments')
+    .select(`
+      user_id,
+      status,
+      progress_percent,
+      user:users(first_name, last_name, email, role:roles(name))
+    `)
+    .eq('playlist_id', playlistId)
+    .in('status', ['assigned', 'in_progress']);
+
+  // Get users matching new rules
+  const newMatchingUsers = await getMatchingUsers(newTriggerRules, orgId);
+  const newMatchingSet = new Set(newMatchingUsers);
+
+  // Find orphaned (have assignment but don't match new rules)
+  const orphaned: TriggerRulesImpact[] = (currentAssignments || [])
+    .filter((a: any) => !newMatchingSet.has(a.user_id))
+    .map((a: any) => ({
+      population: 'orphaned' as const,
+      user_id: a.user_id,
+      first_name: a.user?.first_name || '',
+      last_name: a.user?.last_name || '',
+      email: a.user?.email || '',
+      role_name: a.user?.role?.name || null,
+      current_status: a.status,
+      progress_percent: a.progress_percent
+    }));
+
+  // Find new matches (match new rules but don't have assignment)
+  const existingUserIds = new Set((currentAssignments || []).map((a: any) => a.user_id));
+
+  // Also exclude users who already completed
+  const { data: completedAssignments } = await supabase
+    .from('assignments')
+    .select('user_id')
+    .eq('playlist_id', playlistId)
+    .eq('status', 'completed');
+
+  const completedUserIds = new Set((completedAssignments || []).map((a: any) => a.user_id));
+
+  const { users: allNewMatching } = await getMatchingUsersPreview(newTriggerRules, 1000);
+  const newMatches: TriggerRulesImpact[] = allNewMatching
+    .filter(u => !existingUserIds.has(u.user_id) && !completedUserIds.has(u.user_id))
+    .map(u => ({
+      population: 'new_match' as const,
+      user_id: u.user_id,
+      first_name: u.first_name,
+      last_name: u.last_name,
+      email: u.email,
+      role_name: u.role_name,
+      current_status: null,
+      progress_percent: null
+    }));
+
+  return { orphaned, newMatches };
+}
+
+/**
+ * Archive orphaned assignments when trigger rules change
+ */
+export async function archiveOrphanedAssignments(
+  playlistId: string,
+  userIds: string[]
+): Promise<number> {
+  if (userIds.length === 0) return 0;
+
+  const { data, error } = await supabase
+    .from('assignments')
+    .update({ status: 'expired' })
+    .eq('playlist_id', playlistId)
+    .in('user_id', userIds)
+    .in('status', ['assigned', 'in_progress'])
+    .select();
+
+  if (error) throw error;
+  return data?.length || 0;
 }
 
 /**
