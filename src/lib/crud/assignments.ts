@@ -690,7 +690,7 @@ export async function getMatchingUsersPreview(
       email,
       hire_date,
       role_id,
-      store:stores(name)
+      store_id
     `)
     .eq('organization_id', orgId)
     .eq('status', 'active');
@@ -729,6 +729,17 @@ export async function getMatchingUsersPreview(
     roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
   }
 
+  // Get store names for the users we found
+  const userStoreIds = [...new Set((data || []).map((u: any) => u.store_id).filter(Boolean))];
+  let storeNameMap: Record<string, string> = {};
+  if (userStoreIds.length > 0) {
+    const { data: stores } = await supabase
+      .from('stores')
+      .select('id, name')
+      .in('id', userStoreIds);
+    storeNameMap = Object.fromEntries((stores || []).map(s => [s.id, s.name]));
+  }
+
   const totalCount = data?.length || 0;
   const users: MatchingUser[] = (data || []).slice(0, limit).map((u: any) => ({
     user_id: u.id,
@@ -736,7 +747,7 @@ export async function getMatchingUsersPreview(
     last_name: u.last_name,
     email: u.email,
     role_name: u.role_id ? roleNameMap[u.role_id] || null : null,
-    store_name: u.store?.name || null,
+    store_name: u.store_id ? storeNameMap[u.store_id] || null : null,
     hire_date: u.hire_date
   }));
 
@@ -778,7 +789,7 @@ export async function getPlaylistAssignmentHistory(
         email,
         hire_date,
         role_id,
-        store:stores(name)
+        store_id
       )
     `)
     .eq('playlist_id', playlistId)
@@ -798,6 +809,17 @@ export async function getPlaylistAssignmentHistory(
     roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
   }
 
+  // Get unique store_ids to look up store names
+  const storeIds = [...new Set((data || []).map((a: any) => a.user?.store_id).filter(Boolean))];
+  let storeNameMap: Record<string, string> = {};
+  if (storeIds.length > 0) {
+    const { data: stores } = await supabase
+      .from('stores')
+      .select('id, name')
+      .in('id', storeIds);
+    storeNameMap = Object.fromEntries((stores || []).map(s => [s.id, s.name]));
+  }
+
   return (data || []).map((a: any) => ({
     assignment_id: a.id,
     user_id: a.user_id,
@@ -805,7 +827,7 @@ export async function getPlaylistAssignmentHistory(
     last_name: a.user?.last_name || '',
     email: a.user?.email || '',
     role_name: a.user?.role_id ? roleNameMap[a.user.role_id] || null : null,
-    store_name: a.user?.store?.name || null,
+    store_name: a.user?.store_id ? storeNameMap[a.user.store_id] || null : null,
     hire_date: a.user?.hire_date || null,
     assigned_at: a.assigned_at,
     progress_percent: a.progress_percent || 0,
@@ -835,7 +857,7 @@ export async function getPlaylistAssignmentHistoryForExport(
         email,
         hire_date,
         role_id,
-        store:stores(name)
+        store_id
       )
     `)
     .eq('playlist_id', playlistId)
@@ -854,6 +876,17 @@ export async function getPlaylistAssignmentHistoryForExport(
     roleNameMap = Object.fromEntries((roles || []).map(r => [r.id, r.name]));
   }
 
+  // Get unique store_ids to look up store names
+  const storeIds = [...new Set((data || []).map((a: any) => a.user?.store_id).filter(Boolean))];
+  let storeNameMap: Record<string, string> = {};
+  if (storeIds.length > 0) {
+    const { data: stores } = await supabase
+      .from('stores')
+      .select('id, name')
+      .in('id', storeIds);
+    storeNameMap = Object.fromEntries((stores || []).map(s => [s.id, s.name]));
+  }
+
   return (data || []).map((a: any) => ({
     assignment_id: a.id,
     user_id: a.user_id,
@@ -861,7 +894,7 @@ export async function getPlaylistAssignmentHistoryForExport(
     last_name: a.user?.last_name || '',
     email: a.user?.email || '',
     role_name: a.user?.role_id ? roleNameMap[a.user.role_id] || null : null,
-    store_name: a.user?.store?.name || null,
+    store_name: a.user?.store_id ? storeNameMap[a.user.store_id] || null : null,
     hire_date: a.user?.hire_date || null,
     assigned_at: a.assigned_at,
     progress_percent: a.progress_percent || 0,
