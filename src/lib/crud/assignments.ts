@@ -633,6 +633,8 @@ export async function getMatchingUsersPreview(
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  console.log('🔍 getMatchingUsersPreview called with:', { triggerRules, orgId });
+
   // Try database function first
   const { data: rpcData, error: rpcError } = await supabase
     .rpc('get_users_matching_trigger_rules', {
@@ -641,26 +643,42 @@ export async function getMatchingUsersPreview(
     });
 
   if (!rpcError && rpcData) {
+    console.log('✅ RPC function returned', rpcData.length, 'users');
     const totalCount = rpcData.length;
     const users = rpcData.slice(0, limit) as MatchingUser[];
     return { users, totalCount };
   }
 
+  console.log('⚠️ RPC failed or unavailable, using fallback. Error:', rpcError?.message);
+
   // Fallback: direct query with user details
   // First, check if role_ids are UUIDs or role names and resolve if needed
   const roleIds = triggerRules.role_ids || [];
+  console.log('📋 Role IDs from trigger rules:', roleIds);
+
   const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
   const hasRoleNames = roleIds.length > 0 && !isUUID(roleIds[0]);
+  console.log('📋 Are these role names (not UUIDs)?', hasRoleNames);
 
   let resolvedRoleIds = roleIds;
   if (hasRoleNames && roleIds.length > 0) {
-    const { data: roles } = await supabase
+    // Look up roles by name
+    const { data: roles, error: rolesError } = await supabase
       .from('roles')
       .select('id, name')
       .eq('organization_id', orgId)
       .in('name', roleIds);
-    resolvedRoleIds = roles?.map(r => r.id) || [];
-    console.log(`Preview: Resolved ${roleIds.length} role names to ${resolvedRoleIds.length} role IDs`);
+
+    console.log('🎭 Role lookup result:', { roles, rolesError });
+
+    if (roles && roles.length > 0) {
+      resolvedRoleIds = roles.map(r => r.id);
+      console.log(`✅ Resolved ${roleIds.length} role names to ${resolvedRoleIds.length} role IDs:`, resolvedRoleIds);
+    } else {
+      console.log('❌ No roles found matching names:', roleIds);
+      // If no role IDs resolved, return empty - no point querying users
+      return { users: [], totalCount: 0 };
+    }
   }
 
   let query = supabase
@@ -693,7 +711,12 @@ export async function getMatchingUsersPreview(
 
   const { data, error } = await query.order('last_name').order('first_name');
 
-  if (error) throw error;
+  console.log('👥 User query result:', { count: data?.length || 0, error: error?.message });
+
+  if (error) {
+    console.error('❌ User query error:', error);
+    throw error;
+  }
 
   // Get role names for the users we found
   const userRoleIds = [...new Set((data || []).map((u: any) => u.role_id).filter(Boolean))];
@@ -717,6 +740,7 @@ export async function getMatchingUsersPreview(
     hire_date: u.hire_date
   }));
 
+  console.log('✅ Returning', totalCount, 'matching users');
   return { users, totalCount };
 }
 

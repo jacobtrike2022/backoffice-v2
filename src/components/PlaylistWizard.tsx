@@ -355,6 +355,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       }
 
       const triggerRules = buildTriggerRules();
+      console.log('🎯 Built trigger rules:', triggerRules);
+      console.log('🎯 Current trigger conditions:', triggerConditions);
+
       if (!triggerRules) {
         setMatchingUsers([]);
         setMatchingUsersCount(0);
@@ -363,7 +366,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
       setMatchingUsersLoading(true);
       try {
+        console.log('📡 Calling getMatchingUsersPreview with:', triggerRules);
         const result = await getMatchingUsersPreview(triggerRules, 20);
+        console.log('📡 Result:', result);
         setMatchingUsers(result.users);
         setMatchingUsersCount(result.totalCount);
       } catch (error) {
