@@ -165,15 +165,16 @@ export async function sendMessage(input: SendMessageInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
     body: JSON.stringify({
@@ -202,15 +203,16 @@ export async function indexContent(input: IndexContentInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/embed`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
     body: JSON.stringify({
@@ -218,6 +220,7 @@ export async function indexContent(input: IndexContentInput) {
       contentId: input.contentId,
       text: input.text,
       metadata: input.metadata || {},
+      organizationId: orgId,
     }),
   });
 
@@ -236,20 +239,22 @@ export async function removeFromIndex(contentType: string, contentId: string) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/remove`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
     body: JSON.stringify({
       contentType,
       contentId,
+      organizationId: orgId,
     }),
   });
 
@@ -272,15 +277,16 @@ export async function searchContent(input: SearchContentInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/search`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
     body: JSON.stringify({
@@ -306,14 +312,15 @@ export async function getBrainStats(): Promise<BrainStats> {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/stats?organizationId=${orgId}`, {
     method: 'GET',
     headers: {
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
   });
@@ -336,15 +343,16 @@ export async function backfillBrainIndex(organizationId: string): Promise<{
   errors: string[];
   details: Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>;
 }> {
+  // Support demo mode: use anon key if no session
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const authToken = session?.access_token || supabaseAnonKey;
 
   const serverUrl = getServerUrl();
   const response = await fetch(`${serverUrl}/brain/backfill`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      'Authorization': `Bearer ${authToken}`,
       'apikey': supabaseAnonKey,
     },
     body: JSON.stringify({

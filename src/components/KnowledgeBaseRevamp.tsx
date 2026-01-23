@@ -799,28 +799,33 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
 
       // 2. Keyword/Tag matches
       if (results.length < 3) {
-        const { data: tagTracks } = await supabase
-          .from('tracks')
-          .select('id, title, type, description, tags')
-          .eq('organization_id', orgId)
-          .eq('status', 'published')
-          .eq('show_in_knowledge_base', true)
-          .contains('tags', [query.toLowerCase()])
-          .limit(3 - results.length);
+        try {
+          const { data: tagTracks } = await supabase
+            .from('tracks')
+            .select('id, title, type, description, tags')
+            .eq('organization_id', orgId)
+            .eq('status', 'published')
+            .eq('show_in_knowledge_base', true)
+            .contains('tags', [query.toLowerCase()])
+            .limit(3 - results.length);
 
-        if (tagTracks) {
-          tagTracks.forEach(t => {
-            if (!results.find(r => r.id === t.id)) {
-              results.push({
-                id: t.id,
-                title: t.title,
-                type: 'track',
-                trackType: t.type as any,
-                excerpt: t.description,
-                matchType: 'keyword'
-              });
-            }
-          });
+          if (tagTracks) {
+            tagTracks.forEach(t => {
+              if (!results.find(r => r.id === t.id)) {
+                results.push({
+                  id: t.id,
+                  title: t.title,
+                  type: 'track',
+                  trackType: t.type as any,
+                  excerpt: t.description,
+                  matchType: 'keyword'
+                });
+              }
+            });
+          }
+        } catch (tagError) {
+          // Silently fail tag search - semantic search will handle it
+          console.debug("Tag search failed (non-critical):", tagError);
         }
       }
 
