@@ -693,7 +693,7 @@ export async function getPlaylistAssignmentHistory(
     return rpcData as AssignmentHistoryEntry[];
   }
 
-  // Fallback: direct query
+  // Fallback: direct query - specify the foreign key to use
   const { data, error } = await supabase
     .from('assignments')
     .select(`
@@ -703,7 +703,7 @@ export async function getPlaylistAssignmentHistory(
       progress_percent,
       status,
       completed_at,
-      user:users(
+      user:users!assignments_user_id_fkey(
         first_name,
         last_name,
         email,
@@ -749,7 +749,7 @@ export async function getPlaylistAssignmentHistoryForExport(
       progress_percent,
       status,
       completed_at,
-      user:users(
+      user:users!assignments_user_id_fkey(
         first_name,
         last_name,
         email,
@@ -814,14 +814,14 @@ export async function compareTriggerRulesImpact(
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  // Get current active assignments
+  // Get current active assignments - specify the foreign key to use
   const { data: currentAssignments } = await supabase
     .from('assignments')
     .select(`
       user_id,
       status,
       progress_percent,
-      user:users(first_name, last_name, email, role:roles(name))
+      user:users!assignments_user_id_fkey(first_name, last_name, email, role:roles(name))
     `)
     .eq('playlist_id', playlistId)
     .in('status', ['assigned', 'in_progress']);
