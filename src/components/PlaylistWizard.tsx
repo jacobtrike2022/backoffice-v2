@@ -1026,8 +1026,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
   const getTotalContentInStage = (stage: any) => {
     const albumTracks = stage.albums.reduce((acc: number, albumId: string) => {
-      const album = AVAILABLE_ALBUMS.find(a => a.id === albumId);
-      return acc + (album?.trackCount || 0);
+      // Use real albums state instead of mock data
+      const album = albums.find(a => a.id === albumId);
+      // Use track_count if available, otherwise count album_tracks array
+      const trackCount = album?.track_count ?? album?.album_tracks?.length ?? 0;
+      return acc + trackCount;
     }, 0);
     return albumTracks + stage.tracks.length;
   };

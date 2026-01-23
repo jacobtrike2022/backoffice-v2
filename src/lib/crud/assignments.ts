@@ -56,10 +56,11 @@ export async function createAssignment(input: CreateAssignmentInput) {
   try {
     await createNotification({
       user_id: input.user_id,
-      type: 'assignment',
+      type: 'assignment_new',
       title: 'New Assignment',
       message: `You have been assigned: ${input.title}`,
-      link_url: `/assignments/${assignment.id}`
+      link_type: 'assignment',
+      link_id: assignment.id
     });
   } catch (error) {
     // Log error but don't fail the assignment creation
