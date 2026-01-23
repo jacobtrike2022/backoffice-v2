@@ -380,30 +380,32 @@ export async function getPlaylistById(playlistId: string) {
   const albumIds = (playlistAlbumsRaw || []).map((pa: any) => pa.album_id).filter(Boolean);
   let albumsMap: Record<string, any> = {};
 
-  if (albumIds.length > 0) {
-    console.log('🔍 Fetching albums with IDs:', albumIds);
-    // Fetch albums one by one to avoid .in() issues with Supabase
-    const albumsData: any[] = [];
-    for (const albumId of albumIds) {
-      const { data: albumResults, error: albumError } = await supabase
+  // Get playlist_tracks junction records (run in parallel with album fetching)
+  const [playlistTracksResult, ...albumResults] = await Promise.all([
+    supabase
+      .from('playlist_tracks')
+      .select('id, track_id, display_order, release_stage')
+      .eq('playlist_id', playlistId)
+      .order('display_order'),
+    // Fetch all albums in parallel
+    ...albumIds.map(albumId =>
+      supabase
         .from('albums')
         .select('*')
         .eq('id', albumId)
-        .limit(1);
+        .limit(1)
+    )
+  ]);
 
-      if (albumResults && albumResults.length > 0 && !albumError) {
-        albumsData.push(albumResults[0]);
-      } else if (albumError) {
-        console.error('❌ Album fetch error for ID', albumId, ':', albumError);
-      }
-    }
+  const playlistTracksRaw = playlistTracksResult.data;
 
-    console.log('🔍 Albums query result:', { albumsData, count: albumsData.length });
-
-    (albumsData || []).forEach((album: any) => {
+  // Process album results
+  albumResults.forEach((result: any) => {
+    if (result.data && result.data.length > 0) {
+      const album = result.data[0];
       albumsMap[album.id] = album;
-    });
-  }
+    }
+  });
 
   // Combine junction data with album data
   const playlistAlbums = (playlistAlbumsRaw || []).map((pa: any) => ({
@@ -411,32 +413,27 @@ export async function getPlaylistById(playlistId: string) {
     album: albumsMap[pa.album_id] || null,
   }));
 
-  console.log('🔍 getPlaylistById playlistAlbums:', playlistAlbums);
-
-  // Get playlist_tracks junction records
-  const { data: playlistTracksRaw } = await supabase
-    .from('playlist_tracks')
-    .select('id, track_id, display_order, release_stage')
-    .eq('playlist_id', playlistId)
-    .order('display_order');
-
-  // Get the actual track data separately
+  // Get the actual track data separately - fetch all in parallel
   const trackIds = (playlistTracksRaw || []).map((pt: any) => pt.track_id).filter(Boolean);
   let tracksMap: Record<string, any> = {};
 
   if (trackIds.length > 0) {
-    // Fetch tracks one by one to avoid .in() issues
-    for (const trackId of trackIds) {
-      const { data: trackResults, error: trackError } = await supabase
-        .from('tracks')
-        .select('*')
-        .eq('id', trackId)
-        .limit(1);
+    const trackResults = await Promise.all(
+      trackIds.map(trackId =>
+        supabase
+          .from('tracks')
+          .select('*')
+          .eq('id', trackId)
+          .limit(1)
+      )
+    );
 
-      if (trackResults && trackResults.length > 0 && !trackError) {
-        tracksMap[trackResults[0].id] = trackResults[0];
+    trackResults.forEach((result: any) => {
+      if (result.data && result.data.length > 0) {
+        const track = result.data[0];
+        tracksMap[track.id] = track;
       }
-    }
+    });
   }
 
   // Combine junction data with track data
@@ -457,40 +454,51 @@ export async function getPlaylistById(playlistId: string) {
   let totalAlbumTracksDuration = 0;
 
   if (albumIds.length > 0) {
-    // Get album_tracks junction records - fetch per album to avoid .in() issues
-    let albumTracksRaw: any[] = [];
-    for (const albumId of albumIds) {
-      const { data: albumTracks } = await supabase
-        .from('album_tracks')
-        .select('album_id, track_id, display_order')
-        .eq('album_id', albumId)
-        .order('display_order');
+    // Get album_tracks junction records - fetch all in parallel
+    const albumTracksResults = await Promise.all(
+      albumIds.map(albumId =>
+        supabase
+          .from('album_tracks')
+          .select('album_id, track_id, display_order')
+          .eq('album_id', albumId)
+          .order('display_order')
+      )
+    );
 
-      if (albumTracks) {
-        albumTracksRaw = [...albumTracksRaw, ...albumTracks];
+    const albumTracksRaw: any[] = [];
+    albumTracksResults.forEach((result: any) => {
+      if (result.data) {
+        albumTracksRaw.push(...result.data);
       }
-    }
+    });
 
     // Get the actual track data
-    const albumTrackIds = (albumTracksRaw || []).map((at: any) => at.track_id).filter(Boolean);
+    const albumTrackIds = albumTracksRaw.map((at: any) => at.track_id).filter(Boolean);
+    // Dedupe track IDs to avoid fetching same track multiple times
+    const uniqueAlbumTrackIds = [...new Set(albumTrackIds)];
 
-    if (albumTrackIds.length > 0) {
-      // Fetch tracks one by one to avoid .in() issues
+    if (uniqueAlbumTrackIds.length > 0) {
+      // Fetch all tracks in parallel
+      const albumTrackResults = await Promise.all(
+        uniqueAlbumTrackIds.map(trackId =>
+          supabase
+            .from('tracks')
+            .select('*')
+            .eq('id', trackId)
+            .limit(1)
+        )
+      );
+
       const tracksById: Record<string, any> = {};
-      for (const trackId of albumTrackIds) {
-        const { data: trackResults, error: trackError } = await supabase
-          .from('tracks')
-          .select('*')
-          .eq('id', trackId)
-          .limit(1);
-
-        if (trackResults && trackResults.length > 0 && !trackError) {
-          tracksById[trackResults[0].id] = trackResults[0];
+      albumTrackResults.forEach((result: any) => {
+        if (result.data && result.data.length > 0) {
+          const track = result.data[0];
+          tracksById[track.id] = track;
         }
-      }
+      });
 
       // Group tracks by album_id
-      (albumTracksRaw || []).forEach((at: any) => {
+      albumTracksRaw.forEach((at: any) => {
         const track = tracksById[at.track_id];
         if (track && track.status !== 'archived') {
           if (!albumTracksMap[at.album_id]) {

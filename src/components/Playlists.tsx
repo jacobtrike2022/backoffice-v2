@@ -477,7 +477,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   )}
                 </Badge>
                 <span>•</span>
-                <span>Created {new Date(selectedPlaylist.createdDate).toLocaleDateString()}</span>
+                <span>Created {selectedPlaylist.created_at ? new Date(selectedPlaylist.created_at).toLocaleDateString() : 'Unknown'}</span>
               </div>
             </div>
           </div>
@@ -710,7 +710,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <CardTitle>Assignment Rules</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_config && (
+                  {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_rules && (
                     <>
                       <div>
                         <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
@@ -795,21 +795,42 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <CardTitle>Assignment Logic</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_config && (
+                {selectedPlaylist.type === 'auto' && (
                   <>
                     <div>
                       <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
                       <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">This playlist automatically assigns when:</p>
-                        <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1 ml-4">
-                          <li>→ {selectedPlaylist.trigger || 'Trigger conditions configured'}</li>
-                        </ul>
+                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">This playlist automatically assigns when:</p>
+                        {selectedPlaylist.trigger_rules?.role_ids?.length > 0 ? (
+                          <div className="space-y-3">
+                            <p className="text-sm text-orange-800 dark:text-orange-200">
+                              <span className="font-medium">Role equals:</span>
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {selectedPlaylist.trigger_rules.role_ids.map((role: string, idx: number) => (
+                                <Badge key={idx} variant="secondary" className="px-3 py-1">
+                                  {role}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-orange-800 dark:text-orange-200">
+                            No trigger conditions configured
+                          </p>
+                        )}
                       </div>
                     </div>
                     <Separator />
+                    <div>
+                      <p className="text-sm font-medium mb-2">Assignment Behavior</p>
+                      <p className="text-sm text-muted-foreground">
+                        New employees matching the role criteria will automatically receive this playlist upon account creation or role change.
+                      </p>
+                    </div>
                   </>
                 )}
-                
+
                 {selectedPlaylist.type === 'manual' && (
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
                     <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Manual Assignment</p>

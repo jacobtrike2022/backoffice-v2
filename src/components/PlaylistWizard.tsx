@@ -297,11 +297,19 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         // Set trigger conditions for auto playlists
+        let loadedTriggerConditions = [{ field: 'role', operator: 'equals', value: '' }];
         if (playlist.type === 'auto' && playlist.trigger_rules) {
-          // TODO: Parse trigger_rules and populate triggerConditions
-          // For now, just set a default
-          setTriggerConditions([{ field: 'role', operator: 'equals', value: '' }]);
+          // Parse role_ids into trigger conditions
+          if (playlist.trigger_rules.role_ids && playlist.trigger_rules.role_ids.length > 0) {
+            loadedTriggerConditions = playlist.trigger_rules.role_ids.map((roleId: string) => ({
+              field: 'role',
+              operator: 'equals',
+              value: roleId
+            }));
+            console.log('🎯 Loaded trigger conditions:', loadedTriggerConditions);
+          }
         }
+        setTriggerConditions(loadedTriggerConditions);
 
         // Load assigned employees for manual playlists
         let loadedEmployeeIds: string[] = [];
@@ -319,30 +327,42 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           }
         }
 
-        // Load tracks and albums into stages
-        const loadedStages = [{
-          id: 's1',
-          name: 'Stage 1',
-          albums: [],
-          tracks: [],
-          unlockType: 'immediate',
-          unlockDays: 0,
-          unlockAfterStage: '',
-          unlockAssignment: '',
-          unlockAssignmentCompleter: 'learner',
-          allowManagerOverride: false,
-          allowAdminOverride: true,
-        }];
+        // Load stages from release_schedule if available
+        let loadedStages: any[] = [];
 
-        // Load track and album IDs (stages store IDs, not full objects)
-        if (playlist.track_ids && playlist.track_ids.length > 0) {
-          loadedStages[0].tracks = playlist.track_ids;
-          console.log('🎵 Loaded', playlist.track_ids.length, 'tracks');
-        }
-
-        if (playlist.album_ids && playlist.album_ids.length > 0) {
-          loadedStages[0].albums = playlist.album_ids;
-          console.log('💿 Loaded', playlist.album_ids.length, 'albums');
+        if (playlist.release_schedule?.stages && playlist.release_schedule.stages.length > 0) {
+          // Load stages from the saved release_schedule
+          loadedStages = playlist.release_schedule.stages.map((stage: any) => ({
+            id: stage.id || `s${Math.random().toString(36).substr(2, 9)}`,
+            name: stage.name || 'Stage',
+            albums: stage.albumIds || [],
+            tracks: stage.trackIds || [],
+            unlockType: stage.unlockDays > 0 ? 'days-after-stage' : 'immediate',
+            unlockDays: stage.unlockDays || 0,
+            unlockAfterStage: stage.unlockAfterStage || '',
+            unlockAssignment: '',
+            unlockAssignmentCompleter: 'learner',
+            allowManagerOverride: false,
+            allowAdminOverride: true,
+            notifyOnUnlock: stage.notifyOnUnlock || false,
+          }));
+          console.log('📊 Loaded', loadedStages.length, 'stages from release_schedule');
+        } else {
+          // Fallback: create a single stage with all content
+          loadedStages = [{
+            id: 's1',
+            name: 'Stage 1',
+            albums: playlist.album_ids || [],
+            tracks: playlist.standalone_track_ids || [],
+            unlockType: 'immediate',
+            unlockDays: 0,
+            unlockAfterStage: '',
+            unlockAssignment: '',
+            unlockAssignmentCompleter: 'learner',
+            allowManagerOverride: false,
+            allowAdminOverride: true,
+          }];
+          console.log('📊 Created fallback stage with', playlist.album_ids?.length || 0, 'albums,', playlist.standalone_track_ids?.length || 0, 'tracks');
         }
 
         setStages(loadedStages);
@@ -353,9 +373,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           playlistDescription: playlist.description || '',
           assignmentType: playlist.type || 'manual',
           playlistTags: loadedTags.map(t => t.name),
-          triggerConditions: playlist.type === 'auto' && playlist.trigger_rules
-            ? [{ field: 'role', operator: 'equals', value: '' }]
-            : [{ field: 'role', operator: 'equals', value: '' }],
+          triggerConditions: loadedTriggerConditions,
           selectedEmployees: loadedEmployeeIds,
           stages: loadedStages,
           startImmediately,
