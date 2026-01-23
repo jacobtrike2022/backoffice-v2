@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
+import { APP_CONFIG } from './lib/config';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
@@ -704,11 +705,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Show login if not authenticated */}
-      {!authLoading && !user && <Login />}
+      {/* Show login if not authenticated (skip in demo mode) */}
+      {!authLoading && !user && !APP_CONFIG.DEMO_MODE && <Login />}
 
-      {/* Normal authenticated dashboard view */}
-      {!authLoading && user && (() => {
+      {/* Normal authenticated dashboard view (or demo mode) */}
+      {!authLoading && (user || APP_CONFIG.DEMO_MODE) && (() => {
 
         return (
           <>
