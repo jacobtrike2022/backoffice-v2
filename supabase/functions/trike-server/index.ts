@@ -6074,7 +6074,7 @@ async function handleBrainChat(req: Request): Promise<Response> {
 RULES:
 1. Answer ONLY using the sources provided below - never use outside knowledge
 2. Add [1], [2], [3] after EVERY sentence that states a fact (matching the source number)
-3. If the answer isn't in the sources, say \"I couldn't find this in your training materials\"
+3. If the answer IS in the sources, provide it with citations. Only say "I couldn't find this in your training materials" if you've carefully reviewed ALL sources and the answer truly isn't there.
 
 EXAMPLE FORMAT:
 "Employees must check ID for anyone appearing under 40. [1] The ID should be checked for date of birth and photo. [1]"
