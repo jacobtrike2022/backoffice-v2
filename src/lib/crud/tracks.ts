@@ -40,6 +40,123 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
 // Default thumbnail URL (served from public folder)
 const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
 
+// ============================================================================
+// PUBLISH VALIDATION
+// ============================================================================
+
+/**
+ * Validation result for publish readiness
+ */
+export interface PublishValidationResult {
+  canPublish: boolean;
+  reason?: string;
+  missingContent?: 'transcript' | 'content_text' | 'slides';
+}
+
+/**
+ * Validate if a track is ready to be published.
+ *
+ * Rules:
+ * - Articles: Must have content_text (body content)
+ * - Videos: Must have transcript (transcription must be complete)
+ * - Stories: Must have transcript with slides data
+ * - Checkpoints: Always allowed (quiz questions don't need transcript)
+ *
+ * This prevents the race condition where content is indexed before
+ * transcription/content is complete, causing Company Brain to miss content.
+ */
+export async function validateTrackReadyForPublish(
+  trackId: string
+): Promise<PublishValidationResult> {
+  const { data: track, error } = await supabase
+    .from('tracks')
+    .select('id, type, transcript, content_text, status')
+    .eq('id', trackId)
+    .single();
+
+  if (error || !track) {
+    return { canPublish: false, reason: 'Track not found' };
+  }
+
+  return validateTrackContentForPublish(track);
+}
+
+/**
+ * Validate track content for publishing (synchronous version for when track data is already loaded)
+ */
+export function validateTrackContentForPublish(track: {
+  type?: string;
+  transcript?: string | null;
+  content_text?: string | null;
+}): PublishValidationResult {
+  const trackType = track.type || 'article';
+
+  switch (trackType) {
+    case 'article':
+      // Articles need body content in content_text
+      if (!track.content_text || track.content_text.trim().length < 20) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'content_text'
+        };
+      }
+      break;
+
+    case 'video':
+      // Videos need transcript (transcription must be complete)
+      if (!track.transcript || track.transcript.trim().length < 20) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'transcript'
+        };
+      }
+      break;
+
+    case 'story':
+      // Stories need slide data in transcript field
+      if (!track.transcript) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'slides'
+        };
+      }
+      // Validate it's actually JSON slide data
+      try {
+        const storyData = typeof track.transcript === 'string'
+          ? JSON.parse(track.transcript)
+          : track.transcript;
+        if (!storyData.slides || !Array.isArray(storyData.slides) || storyData.slides.length === 0) {
+          return {
+            canPublish: false,
+            reason: 'Content still processing',
+            missingContent: 'slides'
+          };
+        }
+      } catch {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'slides'
+        };
+      }
+      break;
+
+    case 'checkpoint':
+      // Checkpoints are always allowed - quiz questions don't need transcript
+      // (and they're not indexed to Brain anyway)
+      break;
+
+    default:
+      // Unknown type - allow by default
+      break;
+  }
+
+  return { canPublish: true };
+}
+
 /**
  * Enrich tracks with tags from the track_tags junction table
  * This is the source of truth for tags (replaces deprecated tracks.tags column)
@@ -328,6 +445,29 @@ async function automateStoryWorkflow(track: { id: string; title?: string; descri
       // Continue anyway - transcripts are cached in media_transcripts
     } else {
       console.log('[Story Workflow] ✓ Story updated with transcripts');
+
+      // Step 2b: Re-index to Brain if track is published
+      // This ensures the new slide transcripts are searchable in Company Brain
+      const { data: currentTrack } = await supabase
+        .from('tracks')
+        .select('status, organization_id')
+        .eq('id', track.id)
+        .single();
+
+      if (currentTrack?.status === 'published') {
+        console.log('[Story Workflow] Track is published, re-indexing to Brain...');
+        indexTrackToBrain({
+          id: track.id,
+          title: track.title,
+          description: track.description,
+          type: 'story',
+          status: 'published',
+          transcript: JSON.stringify(updatedStoryData),
+          organization_id: currentTrack.organization_id,
+        }).catch(err => {
+          console.error('[Story Workflow] Brain re-index failed:', err);
+        });
+      }
     }
 
     // Step 3: Generate key facts from combined transcripts
@@ -425,6 +565,28 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
       // Continue anyway - transcript is cached in media_transcripts
     } else {
       console.log('[Video Workflow] ✓ Transcript and transcript_data saved to track');
+
+      // Step 2b: Re-index to Brain if track is published
+      // This ensures the new transcript is searchable in Company Brain
+      const { data: currentTrack } = await supabase
+        .from('tracks')
+        .select('status, organization_id')
+        .eq('id', track.id)
+        .single();
+
+      if (currentTrack?.status === 'published') {
+        console.log('[Video Workflow] Track is published, re-indexing to Brain...');
+        indexTrackToBrain({
+          id: track.id,
+          title: track.title,
+          description: track.description,
+          type: 'video',
+          status: 'published',
+          organization_id: currentTrack.organization_id,
+        }, transcriptText).catch(err => {
+          console.error('[Video Workflow] Brain re-index failed:', err);
+        });
+      }
     }
 
     // Step 3: Generate key facts
@@ -641,6 +803,22 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   if (!existingTrack) {
     throw new Error('Track not found');
+  }
+
+  // PUBLISH VALIDATION: If trying to publish, validate content is ready
+  // This prevents the race condition where content is indexed before transcript/content is complete
+  const isPublishing = updateData.status === 'published' && existingTrack.status !== 'published';
+  if (isPublishing) {
+    // Merge existing track data with updates for validation
+    const trackToValidate = {
+      type: updateData.type || existingTrack.type,
+      transcript: updateData.transcript !== undefined ? updateData.transcript : existingTrack.transcript,
+      content_text: updateData.content_text !== undefined ? updateData.content_text : existingTrack.content_text,
+    };
+    const validation = validateTrackContentForPublish(trackToValidate);
+    if (!validation.canPublish) {
+      throw new Error(validation.reason || 'Track is not ready to publish');
+    }
   }
 
   // Auto-calculate duration if content changed and duration not explicitly provided

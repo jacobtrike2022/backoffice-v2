@@ -230,7 +230,8 @@ export function ContentAuthoring({
       loadDraftTracks();
     } catch (error: any) {
       console.error('Error publishing track:', error);
-      toast.error('Failed to publish track');
+      // Show specific error message (includes publish validation messages like "Video transcription must complete")
+      toast.error(error.message || 'Failed to publish track');
     }
   };
 

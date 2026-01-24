@@ -132,6 +132,48 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   const isSystemContent = track.is_system_content;
 
+  // Compute if track is ready to publish (real-time check based on current state)
+  // This enables the publish button as soon as content/transcript is ready
+  const canPublish = React.useMemo(() => {
+    if (track.status === 'published') return true; // Already published, can always unpublish
+
+    const trackType = isEditMode ? editFormData.type : track.type;
+
+    switch (trackType) {
+      case 'video':
+        // Videos need transcript - check both view mode state and track data
+        const hasTranscript = isEditMode
+          ? (editFormData.transcript && editFormData.transcript.trim().length > 20)
+          : (viewModeTranscript && viewModeTranscript.trim().length > 20) || (track.transcript && track.transcript.trim().length > 20);
+        return hasTranscript;
+
+      case 'article':
+        // Articles need content_text
+        const hasContent = isEditMode
+          ? (editFormData.content_text && editFormData.content_text.trim().length > 20)
+          : (track.content_text && track.content_text.trim().length > 20);
+        return hasContent;
+
+      case 'story':
+        // Stories need slide data in transcript
+        const transcriptData = isEditMode ? editFormData.transcript : track.transcript;
+        if (!transcriptData) return false;
+        try {
+          const storyData = typeof transcriptData === 'string' ? JSON.parse(transcriptData) : transcriptData;
+          return storyData.slides && Array.isArray(storyData.slides) && storyData.slides.length > 0;
+        } catch {
+          return false;
+        }
+
+      case 'checkpoint':
+        // Checkpoints are always ready
+        return true;
+
+      default:
+        return true;
+    }
+  }, [track.status, track.type, track.transcript, track.content_text, isEditMode, editFormData.type, editFormData.transcript, editFormData.content_text, viewModeTranscript]);
+
   // Reset facts cache when track changes
   useEffect(() => {
     if (track.id !== factsLoadedForTrackId) {
@@ -2014,30 +2056,51 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge 
-                    variant="outline"
-                    className={`cursor-pointer transition-colors ${
-                      track.status === 'published'
-                        ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
-                        : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
-                    }`}
-                    onClick={async () => {
-                      const newStatus = track.status === 'published' ? 'draft' : 'published';
-                      try {
-                        await crud.updateTrack({ id: track.id, status: newStatus });
-                        toast.success(`Track ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
-                        await onUpdate();
-                      } catch (error: any) {
-                        console.error('Error updating status:', error);
-                        toast.error('Failed to update status');
-                      }
-                    }}
-                  >
-                    {track.status === 'published' ? 'Published' : 'Draft'}
-                  </Badge>
+                  {/* Show popover with "Processing..." when trying to publish but not ready */}
+                  {track.status !== 'published' && !canPublish ? (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="cursor-not-allowed opacity-60 bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        >
+                          Draft
+                        </Badge>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-2 text-xs" side="left">
+                        Processing...
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={`cursor-pointer transition-colors ${
+                        track.status === 'published'
+                          ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
+                          : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
+                      }`}
+                      onClick={async () => {
+                        const newStatus = track.status === 'published' ? 'draft' : 'published';
+                        try {
+                          await crud.updateTrack({ id: track.id, status: newStatus });
+                          toast.success(`Track ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          await onUpdate();
+                        } catch (error: any) {
+                          console.error('Error updating status:', error);
+                          toast.error(error.message || 'Failed to update status');
+                        }
+                      }}
+                    >
+                      {track.status === 'published' ? 'Published' : 'Draft'}
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Click the status badge to {track.status === 'published' ? 'move to drafts' : 'publish'}
+                  {track.status === 'published'
+                    ? 'Click the status badge to move to drafts'
+                    : canPublish
+                      ? 'Click the status badge to publish'
+                      : 'Waiting for content to finish processing...'}
                 </p>
               </CardContent>
             </Card>
