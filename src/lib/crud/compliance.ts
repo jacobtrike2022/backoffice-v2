@@ -212,20 +212,20 @@ export async function getComplianceAuthorities(stateCode?: string): Promise<Comp
  * Create a compliance authority (Trike Super Admin only)
  */
 export async function createComplianceAuthority(input: {
-  state_code: string;
+  state_code?: string | null;
   name: string;
-  abbreviation?: string;
-  authority_type?: string;
-  website_url?: string;
-  contact_phone?: string;
-  contact_email?: string;
-  notes?: string;
+  abbreviation?: string | null;
+  authority_type?: string | null;
+  website_url?: string | null;
+  contact_phone?: string | null;
+  contact_email?: string | null;
+  notes?: string | null;
 }): Promise<ComplianceAuthority> {
   const { data, error } = await supabase
     .from('compliance_authorities')
     .insert({
       ...input,
-      state_code: input.state_code.toUpperCase()
+      state_code: input.state_code?.toUpperCase() || null
     })
     .select()
     .single();
