@@ -58,9 +58,14 @@ import {
 } from '../../lib/crud/compliance';
 
 const REQUIREMENT_STATUSES = [
-  { value: 'active', label: 'Active' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'archived', label: 'Archived' }
+  { value: 'recon_not_started', label: 'Recon Not Started' },
+  { value: 'recon_started', label: 'Recon Started' },
+  { value: 'recon_done', label: 'Recon Done' },
+  { value: 'scope_done', label: 'Scope Done' },
+  { value: 'production', label: 'Production' },
+  { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'done_no_approval_needed', label: 'Done (No Approval Needed)' },
+  { value: 'approved', label: 'Approved' }
 ];
 
 export function RequirementsManager() {
@@ -87,7 +92,7 @@ export function RequirementsManager() {
     law_code_reference: '',
     recertification_years: 2,
     days_to_complete: 30,
-    status: 'active',
+    status: 'recon_not_started',
     cert_details_url: '',
     notes: ''
   });
@@ -152,7 +157,7 @@ export function RequirementsManager() {
       law_code_reference: '',
       recertification_years: 2,
       days_to_complete: 30,
-      status: 'active',
+      status: 'recon_not_started',
       cert_details_url: '',
       notes: ''
     });
