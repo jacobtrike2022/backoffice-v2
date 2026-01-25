@@ -1164,18 +1164,13 @@ export async function getRequirementRoles(requirementId: string): Promise<Requir
     .from('role_compliance_requirements')
     .select(`
       *,
-      role:roles(id, name, description, is_frontline, is_manager)
+      role:roles!inner(id, name, description, is_frontline, is_manager, organization_id)
     `)
-    .eq('requirement_id', requirementId);
+    .eq('requirement_id', requirementId)
+    .eq('role.organization_id', orgId);
 
   if (error) throw error;
-
-  // Filter to only include roles from the user's org
-  const filteredData = (data || []).filter((rcr: any) =>
-    rcr.role?.organization_id === orgId || rcr.role?.organization_id === null
-  );
-
-  return filteredData;
+  return data || [];
 }
 
 /**
@@ -1189,30 +1184,53 @@ export async function setRequirementRoles(
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  // First, remove all existing role assignments for this requirement in this org
-  const { data: existingRoles } = await supabase
+  // Validate: ensure all roleIds belong to this org
+  if (roleIds.length > 0) {
+    const { data: validRoles, error: validationError } = await supabase
+      .from('roles')
+      .select('id')
+      .eq('organization_id', orgId)
+      .in('id', roleIds);
+
+    if (validationError) throw validationError;
+
+    const validIds = new Set((validRoles || []).map(r => r.id));
+    const invalidIds = roleIds.filter(id => !validIds.has(id));
+    if (invalidIds.length > 0) {
+      throw new Error(`Role IDs do not belong to this organization: ${invalidIds.join(', ')}`);
+    }
+  }
+
+  // Get existing role assignments for this requirement in this org
+  const { data: existingRoles, error: fetchError } = await supabase
     .from('role_compliance_requirements')
-    .select('role_id, role:roles(organization_id)')
-    .eq('requirement_id', requirementId);
+    .select('role_id, role:roles!inner(organization_id)')
+    .eq('requirement_id', requirementId)
+    .eq('role.organization_id', orgId);
 
-  // Filter to roles in this org and delete them
-  const rolesToDelete = (existingRoles || [])
-    .filter((r: any) => r.role?.organization_id === orgId)
-    .map((r: any) => r.role_id);
+  if (fetchError) throw fetchError;
 
-  if (rolesToDelete.length > 0) {
+  const existingRoleIds = new Set((existingRoles || []).map((r: any) => r.role_id));
+  const desiredRoleIds = new Set(roleIds);
+
+  // Determine deletes and inserts
+  const toDelete = [...existingRoleIds].filter(id => !desiredRoleIds.has(id));
+  const toInsert = roleIds.filter(id => !existingRoleIds.has(id));
+
+  // Delete removed roles
+  if (toDelete.length > 0) {
     const { error: deleteError } = await supabase
       .from('role_compliance_requirements')
       .delete()
       .eq('requirement_id', requirementId)
-      .in('role_id', rolesToDelete);
+      .in('role_id', toDelete);
 
     if (deleteError) throw deleteError;
   }
 
-  // Insert new role assignments
-  if (roleIds.length > 0) {
-    const records = roleIds.map((roleId, index) => ({
+  // Insert new roles
+  if (toInsert.length > 0) {
+    const records = toInsert.map((roleId, index) => ({
       role_id: roleId,
       requirement_id: requirementId,
       is_required: true,
@@ -1221,7 +1239,7 @@ export async function setRequirementRoles(
 
     const { error: insertError } = await supabase
       .from('role_compliance_requirements')
-      .insert(records);
+      .upsert(records, { onConflict: 'role_id,requirement_id' });
 
     if (insertError) throw insertError;
   }
@@ -1306,20 +1324,16 @@ export async function getRequirementsWithRoles(filters?: {
     .from('role_compliance_requirements')
     .select(`
       *,
-      role:roles(id, name, description, is_frontline, is_manager, organization_id)
+      role:roles!inner(id, name, description, is_frontline, is_manager, organization_id)
     `)
-    .in('requirement_id', requirementIds);
+    .in('requirement_id', requirementIds)
+    .eq('role.organization_id', orgId);
 
   if (rolesError) throw rolesError;
 
-  // Filter role assignments to this org
-  const orgRoleAssignments = (roleAssignments || []).filter((ra: any) =>
-    ra.role?.organization_id === orgId
-  );
-
   // Group role assignments by requirement
   const rolesByRequirement = new Map<string, RequirementRole[]>();
-  for (const ra of orgRoleAssignments) {
+  for (const ra of (roleAssignments || [])) {
     const reqId = ra.requirement_id;
     if (!rolesByRequirement.has(reqId)) {
       rolesByRequirement.set(reqId, []);

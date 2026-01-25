@@ -37,7 +37,7 @@ if (typeof window !== 'undefined') {
 import { Reports } from "./components/Reports";
 import { Analytics } from "./components/Analytics";
 import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
-import { ComplianceDashboard } from "./components/ComplianceDashboard";
+import { ComplianceDashboard } from "./components/compliance/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
 import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
 import { People } from "./components/People";
@@ -433,12 +433,7 @@ export default function App() {
       case "analytics":
         return <Analytics role={currentRole} />;
       case "compliance":
-        return (
-          <ComplianceDashboard
-            currentRole={currentRole}
-            onNavigate={requestNavigate}
-          />
-        );
+        return <ComplianceDashboard />;
       case "compliance-audit":
         return <ComplianceAudit role={currentRole} />;
       case "compliance-management":

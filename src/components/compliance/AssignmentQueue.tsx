@@ -61,6 +61,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Textarea } from '../ui/textarea';
 import { Skeleton } from '../ui/skeleton';
+import { toast } from 'sonner';
 import {
   type ComplianceAssignment,
   type ComplianceAssignmentStats,
@@ -72,6 +73,7 @@ import {
   suppressComplianceAssignment,
 } from '../../lib/crud/complianceAssignments';
 import { getPlaylistsForRequirement, type Album } from '../../lib/crud/albums';
+import { formatDate } from '../../lib/utils/dateFormat';
 
 // ============================================================================
 // TYPES
@@ -85,16 +87,6 @@ interface AssignmentQueueProps {
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return '—';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-}
 
 function formatTrigger(trigger: AssignmentTrigger): string {
   const labels: Record<AssignmentTrigger, string> = {
@@ -506,13 +498,35 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
 
   // Handlers
   const handleAssign = async (assignmentId: string, playlistId: string) => {
-    await assignCompliancePlaylist(assignmentId, playlistId);
-    await loadData(true);
+    try {
+      await assignCompliancePlaylist(assignmentId, playlistId);
+      toast.success('Playlist assigned successfully', {
+        description: 'The compliance playlist has been assigned to the employee.'
+      });
+      await loadData(true);
+    } catch (error) {
+      console.error('Failed to assign playlist:', error);
+      toast.error('Failed to assign playlist', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      });
+      throw error;
+    }
   };
 
   const handleSuppress = async (assignmentId: string, reason: string) => {
-    await suppressComplianceAssignment(assignmentId, reason);
-    await loadData(true);
+    try {
+      await suppressComplianceAssignment(assignmentId, reason);
+      toast.success('Assignment suppressed', {
+        description: 'The compliance assignment has been suppressed.'
+      });
+      await loadData(true);
+    } catch (error) {
+      console.error('Failed to suppress assignment:', error);
+      toast.error('Failed to suppress assignment', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      });
+      throw error;
+    }
   };
 
   const openAssignDialog = (assignment: ComplianceAssignment) => {

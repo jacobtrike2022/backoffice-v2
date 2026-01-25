@@ -676,10 +676,10 @@ export interface AlbumVersion {
   id: string;
   album_id: string;
   version: number;
-  snapshot: Record<string, any>;
+  track_ids: string[];
+  track_order: Record<string, number> | null;
   change_notes: string | null;
-  locked_at: string;
-  locked_by: string | null;
+  created_by: string | null;
   created_at: string;
 }
 
@@ -706,10 +706,17 @@ export async function lockPlaylist(
   requirementId: string,
   changeNotes?: string
 ): Promise<void> {
-  // First link to requirement
+  const userProfile = await getCurrentUserProfile();
+
+  // First link to requirement and set lock flags
   const { error: linkError } = await supabase
     .from('albums')
-    .update({ requirement_id: requirementId })
+    .update({
+      requirement_id: requirementId,
+      is_system_locked: true,
+      locked_at: new Date().toISOString(),
+      locked_by: userProfile?.id || null
+    })
     .eq('id', albumId);
 
   if (linkError) throw linkError;
@@ -720,7 +727,19 @@ export async function lockPlaylist(
     p_change_notes: changeNotes || 'Initial lock for compliance requirement'
   });
 
-  if (error) throw error;
+  if (error) {
+    // Rollback the lock flags if version snapshot fails
+    await supabase
+      .from('albums')
+      .update({
+        requirement_id: null,
+        is_system_locked: false,
+        locked_at: null,
+        locked_by: null
+      })
+      .eq('id', albumId);
+    throw error;
+  }
 }
 
 /**

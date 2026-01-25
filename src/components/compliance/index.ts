@@ -9,3 +9,4 @@ export { AssignmentQueue } from './AssignmentQueue';
 export { RequirementRulesModal } from './RequirementRulesModal';
 export { PlaylistLockingPanel } from './PlaylistLockingPanel';
 export { ComplianceDashboard } from './ComplianceDashboard';
+export { BulkCertImport } from './BulkCertImport';

@@ -450,7 +450,6 @@ export function RequirementRulesModal({
 
   // Selection state
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
-  const [selectedStates, setSelectedStates] = useState<string[]>([]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -479,14 +478,6 @@ export function RequirementRulesModal({
 
         // Set initial selections from existing data
         setSelectedRoleIds(existingData.map(r => r.role_id));
-
-        // Set state from requirement (it has a state_code field)
-        if (requirement.state_code) {
-          setSelectedStates([requirement.state_code]);
-        } else {
-          setSelectedStates([]);
-        }
-
         setHasChanges(false);
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -499,19 +490,14 @@ export function RequirementRulesModal({
     loadData();
   }, [open, requirement]);
 
-  // Track changes
+  // Track changes (roles only — state is read-only on the requirement)
   useEffect(() => {
     if (!loading) {
       const existingIds = existingRoles.map(r => r.role_id).sort();
       const currentIds = [...selectedRoleIds].sort();
-      const rolesChanged = JSON.stringify(existingIds) !== JSON.stringify(currentIds);
-
-      const originalState = requirement?.state_code ? [requirement.state_code] : [];
-      const statesChanged = JSON.stringify(originalState.sort()) !== JSON.stringify([...selectedStates].sort());
-
-      setHasChanges(rolesChanged || statesChanged);
+      setHasChanges(JSON.stringify(existingIds) !== JSON.stringify(currentIds));
     }
-  }, [selectedRoleIds, selectedStates, existingRoles, requirement, loading]);
+  }, [selectedRoleIds, existingRoles, loading]);
 
   // Handle save
   const handleSave = async () => {
@@ -542,7 +528,6 @@ export function RequirementRulesModal({
   // Summary text
   const getSummaryText = () => {
     const roleCount = selectedRoleIds.length;
-    const stateCount = selectedStates.length;
 
     if (roleCount === 0) {
       return 'No roles selected - this requirement will not trigger any assignments';
@@ -554,13 +539,9 @@ export function RequirementRulesModal({
         ? roles.find(r => r.id === selectedRoleIds[0])?.name || '1 role'
         : `${roleCount} roles`;
 
-    const stateText = stateCount === 0
-      ? 'no states'
-      : stateCount === US_STATES.length
-        ? 'all states'
-        : stateCount === 1
-          ? US_STATES.find(s => s.code === selectedStates[0])?.name || selectedStates[0]
-          : `${stateCount} states`;
+    const stateText = requirement?.state_code
+      ? US_STATES.find(s => s.code === requirement.state_code)?.name || requirement.state_code
+      : 'all states';
 
     return `People with ${roleText} in ${stateText} need ${requirement?.requirement_name}`;
   };
@@ -632,33 +613,34 @@ export function RequirementRulesModal({
 
             <Separator />
 
-            {/* States Selection */}
+            {/* State Context (read-only) */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
                 <Label className="text-base font-medium">In these states...</Label>
               </div>
 
-              {/* Show current requirement state as context */}
-              {requirement?.state_code && (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>
-                    This requirement is configured for <strong>{requirement.state_code}</strong>.
-                    To apply different rules per state, create separate requirements for each state.
-                  </AlertDescription>
-                </Alert>
+              {requirement?.state_code ? (
+                <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                  <Badge variant="secondary" className="text-sm">
+                    {requirement.state_code}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">
+                    — {US_STATES.find(s => s.code === requirement.state_code)?.name || requirement.state_code}
+                  </span>
+                </div>
+              ) : (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <span className="text-sm text-muted-foreground">All states (no state restriction)</span>
+                </div>
               )}
 
-              <MultiSelectStates
-                selectedCodes={selectedStates}
-                onChange={setSelectedStates}
-                orgStates={orgStates}
-              />
-              <p className="text-xs text-muted-foreground">
-                {selectedStates.length} of {US_STATES.length} states selected
-                {orgStates.length > 0 && ` • Your org has locations in ${orgStates.length} states`}
-              </p>
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  The state is set on the requirement itself. To apply this training in additional states, create a separate requirement for each state.
+                </AlertDescription>
+              </Alert>
             </div>
 
             <Separator />
@@ -677,7 +659,7 @@ export function RequirementRulesModal({
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-green-500" />
                     <span className="text-sm">
-                      Applies to employees in {selectedStates.length} state{selectedStates.length !== 1 ? 's' : ''}
+                      Applies to employees in {requirement?.state_code || 'all states'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">

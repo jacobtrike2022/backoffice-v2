@@ -19,6 +19,9 @@ dist
 *.swp
 *.swo
 
+# Credentials (never commit)
+.cursor/credentials/
+
 # Logs
 *.log
 npm-debug.log*

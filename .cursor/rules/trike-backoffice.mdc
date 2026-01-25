@@ -180,6 +180,20 @@ const apiValue = stateFilter === 'all' ? undefined : stateFilter;
 - GitHub repository updates trigger automatic Vercel deployments
 - Local development environment is fully operational and tested
 
+## Supabase Credentials
+
+**IMPORTANT FOR AI AGENTS**: Supabase service token is stored in `.cursor/credentials/SUPABASE_TOKEN.md`
+
+- **Project ID**: `kgzhlvxzdlexsrozbbxs`
+- **Project URL**: `https://kgzhlvxzdlexsrozbbxs.supabase.co`
+- **Token**: See `.cursor/credentials/SUPABASE_TOKEN.md` (read this file when you need database access)
+
+This token is used for:
+- Running SQL queries and migrations
+- Checking database schema
+- Verifying RLS policies
+- Database operations via Supabase API
+
 ## Deployment Commands
 
 ### Deploy Supabase Edge Functions

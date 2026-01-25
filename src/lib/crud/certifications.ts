@@ -5,6 +5,7 @@
 import { supabase, getCurrentUserOrgId } from '../supabase';
 import { createNotification } from './notifications';
 import { logActivity } from './activity';
+import { suppressAssignmentsForCertification } from './complianceAssignments';
 
 /**
  * Check and auto-issue certification when user completes required tracks
@@ -656,6 +657,58 @@ export async function getUserCertificationUploads(userId: string) {
 }
 
 /**
+ * Find a compliance requirement that matches a certificate type
+ * Matches by topic name (case-insensitive, partial match)
+ */
+async function findMatchingRequirement(
+  certificateType: string,
+  userState: string | null
+): Promise<{ id: string; requirement_name: string } | null> {
+  // Normalize the certificate type for matching
+  const normalizedType = certificateType.toLowerCase().trim();
+
+  // Build the query - prioritize state-specific requirements, then any state
+  let query = supabase
+    .from('compliance_requirements')
+    .select(`
+      id,
+      requirement_name,
+      state_code,
+      topic:compliance_topics!inner(name)
+    `)
+    .eq('status', 'active');
+
+  const { data: requirements, error } = await query;
+  if (error || !requirements) return null;
+
+  // Score each requirement based on match quality
+  type ScoredReq = { id: string; requirement_name: string; score: number };
+  const scored: ScoredReq[] = requirements.map(req => {
+    let score = 0;
+    const topicName = (req.topic as { name: string })?.name?.toLowerCase() || '';
+    const reqName = req.requirement_name?.toLowerCase() || '';
+
+    // Exact topic match (highest priority)
+    if (normalizedType === topicName) score += 100;
+    // Topic contains certificate type
+    else if (topicName.includes(normalizedType)) score += 50;
+    // Certificate type contains topic
+    else if (normalizedType.includes(topicName)) score += 40;
+    // Requirement name match
+    if (reqName.includes(normalizedType) || normalizedType.includes(reqName)) score += 20;
+
+    // State match bonus
+    if (userState && req.state_code === userState.toUpperCase()) score += 30;
+
+    return { id: req.id, requirement_name: req.requirement_name, score };
+  });
+
+  // Return the best match above threshold
+  const best = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score)[0];
+  return best ? { id: best.id, requirement_name: best.requirement_name } : null;
+}
+
+/**
  * Approve an external certification upload
  */
 export async function approveExternalCertification(
@@ -739,6 +792,43 @@ export async function approveExternalCertification(
 
   if (updateError) throw updateError;
 
+  // Try to find and link a matching compliance requirement, then suppress pending assignments
+  let suppressedCount = 0;
+  try {
+    // Get the user's state from their store
+    const { data: userData } = await supabase
+      .from('users')
+      .select('store:stores(state)')
+      .eq('id', upload.user_id)
+      .single();
+
+    const userState = (userData?.store as { state?: string })?.state || null;
+
+    // Find matching compliance requirement
+    const matchingRequirement = await findMatchingRequirement(upload.certificate_type, userState);
+
+    if (matchingRequirement) {
+      // Update user_certification with the requirement_id
+      await supabase
+        .from('user_certifications')
+        .update({ requirement_id: matchingRequirement.id })
+        .eq('id', userCert.id);
+
+      // Suppress any pending compliance assignments for this user + requirement
+      suppressedCount = await suppressAssignmentsForCertification(
+        upload.user_id,
+        matchingRequirement.id
+      );
+
+      if (suppressedCount > 0) {
+        console.log(`Suppressed ${suppressedCount} pending compliance assignment(s) for ${upload.certificate_type}`);
+      }
+    }
+  } catch (err) {
+    // Non-critical - log but don't fail the approval
+    console.error('Failed to suppress compliance assignments:', err);
+  }
+
   // Notify the user (non-critical)
   try {
     await createNotification({
@@ -759,13 +849,13 @@ export async function approveExternalCertification(
       action: 'approve_certification',
       entity_type: 'external_certification_upload',
       entity_id: uploadId,
-      description: `Approved ${upload.certificate_type} certification for user`
+      description: `Approved ${upload.certificate_type} certification for user${suppressedCount > 0 ? ` (suppressed ${suppressedCount} pending assignment${suppressedCount > 1 ? 's' : ''})` : ''}`
     });
   } catch (err) {
     console.error('Failed to log approval activity:', err);
   }
 
-  return { upload: updatedUpload, userCertification: userCert };
+  return { upload: updatedUpload, userCertification: userCert, suppressedAssignments: suppressedCount };
 }
 
 /**
@@ -850,4 +940,226 @@ export async function getPendingUploadsCount() {
   }
 
   return count || 0;
+}
+
+// ============================================================================
+// BULK CERTIFICATE IMPORT
+// ============================================================================
+
+export interface BulkImportRow {
+  employee_email: string;
+  certificate_type: string;
+  issue_date: string;
+  expiry_date?: string;
+  certificate_number?: string;
+}
+
+export interface BulkImportResult {
+  total: number;
+  successful: number;
+  failed: number;
+  suppressedAssignments: number;
+  errors: Array<{ row: number; email: string; error: string }>;
+  importId: string;
+}
+
+/**
+ * Process a bulk certificate import from parsed CSV data
+ */
+export async function processBulkCertImport(
+  rows: BulkImportRow[],
+  fileName: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<BulkImportResult> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('User not authenticated');
+
+  const result: BulkImportResult = {
+    total: rows.length,
+    successful: 0,
+    failed: 0,
+    suppressedAssignments: 0,
+    errors: [],
+    importId: ''
+  };
+
+  // Create the import record
+  const { data: importRecord, error: importError } = await supabase
+    .from('certification_imports')
+    .insert({
+      organization_id: orgId,
+      imported_by: user.id,
+      file_name: fileName,
+      total_rows: rows.length,
+      successful_rows: 0,
+      failed_rows: 0,
+      status: 'processing'
+    })
+    .select()
+    .single();
+
+  if (importError) throw importError;
+  result.importId = importRecord.id;
+
+  // Pre-fetch all users in org by email for faster lookup
+  const { data: orgUsers } = await supabase
+    .from('users')
+    .select('id, email, store:stores(state)')
+    .eq('organization_id', orgId);
+
+  const usersByEmail = new Map<string, { id: string; state: string | null }>();
+  (orgUsers || []).forEach(u => {
+    if (u.email) {
+      usersByEmail.set(u.email.toLowerCase(), {
+        id: u.id,
+        state: (u.store as { state?: string })?.state || null
+      });
+    }
+  });
+
+  // Process each row
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2; // +2 for 1-based index and header row
+
+    try {
+      // Find user by email
+      const userData = usersByEmail.get(row.employee_email.toLowerCase());
+      if (!userData) {
+        result.errors.push({ row: rowNum, email: row.employee_email, error: 'Employee not found' });
+        result.failed++;
+        continue;
+      }
+
+      // Parse dates
+      const issueDate = new Date(row.issue_date);
+      if (isNaN(issueDate.getTime())) {
+        result.errors.push({ row: rowNum, email: row.employee_email, error: 'Invalid issue date' });
+        result.failed++;
+        continue;
+      }
+
+      let expiryDate: Date | null = null;
+      if (row.expiry_date) {
+        expiryDate = new Date(row.expiry_date);
+        if (isNaN(expiryDate.getTime())) {
+          result.errors.push({ row: rowNum, email: row.employee_email, error: 'Invalid expiry date' });
+          result.failed++;
+          continue;
+        }
+      }
+
+      // Find or create certification type
+      let certificationId: string;
+      const { data: existingCert } = await supabase
+        .from('certifications')
+        .select('id')
+        .eq('organization_id', orgId)
+        .ilike('name', row.certificate_type)
+        .single();
+
+      if (existingCert) {
+        certificationId = existingCert.id;
+      } else {
+        const { data: newCert, error: createError } = await supabase
+          .from('certifications')
+          .insert({
+            organization_id: orgId,
+            name: row.certificate_type,
+            description: `Imported certification: ${row.certificate_type}`,
+            is_external: true,
+            validity_period_days: expiryDate
+              ? Math.ceil((expiryDate.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24))
+              : 365,
+            is_active: true
+          })
+          .select('id')
+          .single();
+
+        if (createError) {
+          result.errors.push({ row: rowNum, email: row.employee_email, error: `Failed to create cert type: ${createError.message}` });
+          result.failed++;
+          continue;
+        }
+        certificationId = newCert.id;
+      }
+
+      // Find matching compliance requirement
+      const matchingRequirement = await findMatchingRequirement(row.certificate_type, userData.state);
+
+      // Create user_certification
+      const { data: userCert, error: certError } = await supabase
+        .from('user_certifications')
+        .insert({
+          user_id: userData.id,
+          certification_id: certificationId,
+          issue_date: issueDate.toISOString(),
+          expiration_date: expiryDate?.toISOString() || null,
+          status: expiryDate && expiryDate < new Date() ? 'expired' : 'valid',
+          certificate_number: row.certificate_number || null,
+          source_type: 'legacy_import',
+          requirement_id: matchingRequirement?.id || null,
+          import_batch_id: importRecord.id
+        })
+        .select()
+        .single();
+
+      if (certError) {
+        result.errors.push({ row: rowNum, email: row.employee_email, error: `Failed to create cert: ${certError.message}` });
+        result.failed++;
+        continue;
+      }
+
+      // Suppress pending assignments if we have a matching requirement
+      if (matchingRequirement) {
+        try {
+          const suppressedCount = await suppressAssignmentsForCertification(userData.id, matchingRequirement.id);
+          result.suppressedAssignments += suppressedCount;
+        } catch {
+          // Non-critical, continue
+        }
+      }
+
+      result.successful++;
+    } catch (err) {
+      result.errors.push({ row: rowNum, email: row.employee_email, error: err instanceof Error ? err.message : 'Unknown error' });
+      result.failed++;
+    }
+
+    // Report progress
+    if (onProgress) {
+      onProgress(i + 1, rows.length);
+    }
+  }
+
+  // Update the import record with final stats
+  const errorLog = result.errors.length > 0 ? result.errors : null;
+  await supabase
+    .from('certification_imports')
+    .update({
+      successful_rows: result.successful,
+      failed_rows: result.failed,
+      error_log: errorLog,
+      status: 'completed',
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', importRecord.id);
+
+  // Log activity
+  try {
+    await logActivity({
+      user_id: user.id,
+      action: 'bulk_import_certifications',
+      entity_type: 'certification_import',
+      entity_id: importRecord.id,
+      description: `Bulk imported ${result.successful} certifications (${result.failed} failed)${result.suppressedAssignments > 0 ? `, suppressed ${result.suppressedAssignments} assignments` : ''}`
+    });
+  } catch {
+    // Non-critical
+  }
+
+  return result;
 }

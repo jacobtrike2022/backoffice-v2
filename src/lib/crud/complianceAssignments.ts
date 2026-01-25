@@ -50,7 +50,7 @@ export interface ComplianceAssignment {
   };
   playlist?: {
     id: string;
-    name: string;
+    title: string;
   };
 }
 
@@ -98,7 +98,7 @@ export async function getComplianceAssignmentQueue(
         id, requirement_name, course_name, state_code, days_to_complete,
         topic:compliance_topics(name, icon)
       ),
-      playlist:albums(id, name)
+      playlist:albums(id, title)
     `)
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false });
@@ -181,7 +181,7 @@ export async function getComplianceAssignment(id: string): Promise<ComplianceAss
         id, requirement_name, course_name, state_code, days_to_complete,
         topic:compliance_topics(name, icon)
       ),
-      playlist:albums(id, name)
+      playlist:albums(id, title)
     `)
     .eq('id', id)
     .single();
@@ -533,4 +533,346 @@ export async function suppressAssignmentsForCertification(
 
   if (error) throw error;
   return data?.length || 0;
+}
+
+// ============================================================================
+// DASHBOARD METRICS (Prompt 9)
+// ============================================================================
+
+export interface ComplianceCoverage {
+  totalEmployees: number;
+  fullyCompliant: number;
+  partiallyCompliant: number;
+  nonCompliant: number;
+  coverageRate: number;
+}
+
+export interface UpcomingExpiration {
+  id: string;
+  employeeName: string;
+  employeeEmail: string;
+  certificationType: string;
+  expirationDate: string;
+  daysUntilExpiry: number;
+}
+
+export interface AssignmentPipelineStats {
+  pending: number;
+  assigned: number;
+  completed: number;
+  averageCompletionDays: number | null;
+}
+
+/**
+ * Get compliance coverage metrics for the organization
+ */
+export async function getComplianceCoverage(): Promise<ComplianceCoverage> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get all active employees
+  const { data: employees, error: empError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('is_active', true);
+
+  if (empError) throw empError;
+  const totalEmployees = employees?.length || 0;
+
+  if (totalEmployees === 0) {
+    return {
+      totalEmployees: 0,
+      fullyCompliant: 0,
+      partiallyCompliant: 0,
+      nonCompliant: 0,
+      coverageRate: 0
+    };
+  }
+
+  // Get assignment stats per employee
+  const { data: assignments, error: assError } = await supabase
+    .from('compliance_assignment_queue')
+    .select('employee_id, status')
+    .eq('organization_id', orgId);
+
+  if (assError) throw assError;
+
+  // Group by employee
+  const employeeStats = new Map<string, { pending: number; completed: number }>();
+  for (const a of assignments || []) {
+    if (!employeeStats.has(a.employee_id)) {
+      employeeStats.set(a.employee_id, { pending: 0, completed: 0 });
+    }
+    const stats = employeeStats.get(a.employee_id)!;
+    if (a.status === 'completed' || a.status === 'suppressed') {
+      stats.completed++;
+    } else if (a.status === 'pending' || a.status === 'assigned') {
+      stats.pending++;
+    }
+  }
+
+  let fullyCompliant = 0;
+  let partiallyCompliant = 0;
+  let nonCompliant = 0;
+
+  for (const [_empId, stats] of employeeStats) {
+    if (stats.pending === 0 && stats.completed > 0) {
+      fullyCompliant++;
+    } else if (stats.completed > 0 && stats.pending > 0) {
+      partiallyCompliant++;
+    } else if (stats.pending > 0) {
+      nonCompliant++;
+    }
+  }
+
+  // Employees with no assignments are considered compliant (no requirements)
+  const employeesWithAssignments = employeeStats.size;
+  const employeesWithNoRequirements = totalEmployees - employeesWithAssignments;
+  fullyCompliant += employeesWithNoRequirements;
+
+  const coverageRate = totalEmployees > 0
+    ? Math.round((fullyCompliant / totalEmployees) * 100)
+    : 0;
+
+  return {
+    totalEmployees,
+    fullyCompliant,
+    partiallyCompliant,
+    nonCompliant,
+    coverageRate
+  };
+}
+
+/**
+ * Get upcoming certificate expirations in the next N days
+ */
+export async function getUpcomingExpirations(days: number = 90): Promise<UpcomingExpiration[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const today = new Date();
+  const futureDate = new Date(today.getTime() + days * 24 * 60 * 60 * 1000);
+
+  const { data, error } = await supabase
+    .from('user_certifications')
+    .select(`
+      id,
+      expiration_date,
+      user:users!inner(id, name, email, organization_id),
+      certification:certifications(name)
+    `)
+    .eq('user.organization_id', orgId)
+    .gte('expiration_date', today.toISOString())
+    .lte('expiration_date', futureDate.toISOString())
+    .in('status', ['valid', 'expiring-soon'])
+    .order('expiration_date', { ascending: true })
+    .limit(20);
+
+  if (error) throw error;
+
+  return (data || []).map(cert => {
+    const expDate = new Date(cert.expiration_date);
+    const daysUntil = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return {
+      id: cert.id,
+      employeeName: (cert.user as any)?.name || 'Unknown',
+      employeeEmail: (cert.user as any)?.email || '',
+      certificationType: (cert.certification as any)?.name || 'Unknown',
+      expirationDate: cert.expiration_date,
+      daysUntilExpiry: daysUntil
+    };
+  });
+}
+
+/**
+ * Get assignment pipeline stats with average completion time
+ */
+export async function getAssignmentPipelineStats(): Promise<AssignmentPipelineStats> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('compliance_assignment_queue')
+    .select('status, created_at, completed_at')
+    .eq('organization_id', orgId);
+
+  if (error) throw error;
+
+  const assignments = data || [];
+  const pending = assignments.filter(a => a.status === 'pending').length;
+  const assigned = assignments.filter(a => a.status === 'assigned').length;
+  const completed = assignments.filter(a => a.status === 'completed').length;
+
+  // Calculate average completion time for completed assignments
+  const completedWithTimes = assignments.filter(a =>
+    a.status === 'completed' && a.created_at && a.completed_at
+  );
+
+  let averageCompletionDays: number | null = null;
+  if (completedWithTimes.length > 0) {
+    const totalDays = completedWithTimes.reduce((sum, a) => {
+      const created = new Date(a.created_at);
+      const completed = new Date(a.completed_at);
+      const days = (completed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+      return sum + days;
+    }, 0);
+    averageCompletionDays = Math.round(totalDays / completedWithTimes.length);
+  }
+
+  return {
+    pending,
+    assigned,
+    completed,
+    averageCompletionDays
+  };
+}
+
+// ============================================================================
+// ADMIN ACTIONS (Prompt 10)
+// ============================================================================
+
+export interface ComplianceReportRow {
+  employeeName: string;
+  employeeEmail: string;
+  storeName: string;
+  requirementName: string;
+  status: AssignmentStatus;
+  dueDate: string | null;
+  completedDate: string | null;
+  certificationType: string | null;
+  certificateExpiry: string | null;
+}
+
+/**
+ * Export compliance report as array (for CSV generation)
+ */
+export async function exportComplianceReport(): Promise<ComplianceReportRow[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('compliance_assignment_queue')
+    .select(`
+      status,
+      due_date,
+      completed_at,
+      employee:users!inner(
+        name,
+        email,
+        store:stores(name)
+      ),
+      requirement:compliance_requirements(
+        requirement_name,
+        topic:compliance_topics(name)
+      )
+    `)
+    .eq('organization_id', orgId)
+    .order('employee.name', { ascending: true });
+
+  if (error) throw error;
+
+  return (data || []).map(row => ({
+    employeeName: (row.employee as any)?.name || 'Unknown',
+    employeeEmail: (row.employee as any)?.email || '',
+    storeName: (row.employee as any)?.store?.name || 'N/A',
+    requirementName: (row.requirement as any)?.requirement_name || 'Unknown',
+    status: row.status as AssignmentStatus,
+    dueDate: row.due_date,
+    completedDate: row.completed_at,
+    certificationType: (row.requirement as any)?.topic?.name || null,
+    certificateExpiry: null // Would need to join user_certifications for this
+  }));
+}
+
+/**
+ * Recalculate assignments for all employees in the organization
+ * This triggers the onboarding logic for each employee to ensure they have
+ * all required assignments based on their current role and location
+ */
+export async function recalculateAllAssignments(): Promise<{ processed: number; created: number }> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  // Get all active employees
+  const { data: employees, error: empError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('is_active', true);
+
+  if (empError) throw empError;
+
+  let processed = 0;
+  let created = 0;
+
+  for (const emp of employees || []) {
+    try {
+      const { data: count } = await supabase.rpc('create_onboarding_assignments', {
+        p_user_id: emp.id
+      });
+      created += count || 0;
+      processed++;
+    } catch (err) {
+      console.error(`Failed to recalculate for employee ${emp.id}:`, err);
+    }
+  }
+
+  return { processed, created };
+}
+
+/**
+ * Get employee compliance status summary
+ */
+export async function getEmployeeComplianceStatus(employeeId: string): Promise<{
+  required: number;
+  completed: number;
+  pending: number;
+  overdue: number;
+  assignments: Array<{
+    id: string;
+    requirementName: string;
+    topicName: string;
+    status: AssignmentStatus;
+    dueDate: string | null;
+  }>;
+}> {
+  const { data, error } = await supabase
+    .from('compliance_assignment_queue')
+    .select(`
+      id,
+      status,
+      due_date,
+      requirement:compliance_requirements(
+        requirement_name,
+        topic:compliance_topics(name)
+      )
+    `)
+    .eq('employee_id', employeeId);
+
+  if (error) throw error;
+
+  const today = new Date().toISOString().split('T')[0];
+  const assignments = data || [];
+
+  const required = assignments.length;
+  const completed = assignments.filter(a => a.status === 'completed' || a.status === 'suppressed').length;
+  const pending = assignments.filter(a => a.status === 'pending' || a.status === 'assigned').length;
+  const overdue = assignments.filter(a =>
+    a.due_date && a.due_date < today && ['pending', 'assigned'].includes(a.status)
+  ).length;
+
+  return {
+    required,
+    completed,
+    pending,
+    overdue,
+    assignments: assignments.map(a => ({
+      id: a.id,
+      requirementName: (a.requirement as any)?.requirement_name || 'Unknown',
+      topicName: (a.requirement as any)?.topic?.name || 'Unknown',
+      status: a.status as AssignmentStatus,
+      dueDate: a.due_date
+    }))
+  };
 }

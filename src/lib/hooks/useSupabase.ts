@@ -84,6 +84,7 @@ export function useForms(filters?: Parameters<typeof crud.getForms>[0]) {
   const [forms, setForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchForms() {
@@ -99,9 +100,13 @@ export function useForms(filters?: Parameters<typeof crud.getForms>[0]) {
     }
 
     fetchForms();
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), refetchTrigger]);
 
-  return { forms, loading, error, refetch: () => setLoading(true) };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { forms, loading, error, refetch };
 }
 
 /**
@@ -111,18 +116,19 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
   const [assignments, setAssignments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchActivePlaylists() {
       try {
         setLoading(true);
-        
+
         // Fetch active playlists with enriched data (same as Playlists component)
         const playlists = await crud.getPlaylists({ is_active: true });
-        
+
         console.log('[useAssignments] Raw playlists data:', playlists);
         console.log('[useAssignments] Total playlists:', playlists.length);
-        
+
         // Filter to only playlists with assignments and calculate durations
         const playlistsWithDurations = await Promise.all(
           playlists
@@ -130,7 +136,7 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
             .slice(0, 5) // Limit to 5 most recent
             .map(async (playlist: any) => {
               let totalDuration = 0;
-              
+
               // Calculate total duration from tracks (same as Playlists component)
               if (playlist.track_ids && playlist.track_ids.length > 0) {
                 try {
@@ -140,7 +146,7 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
                   console.error(`Error calculating duration for playlist ${playlist.id}:`, error);
                 }
               }
-              
+
               return {
                 id: playlist.id,
                 title: playlist.title,
@@ -165,9 +171,13 @@ export function useAssignments(filters?: Parameters<typeof crud.getAssignments>[
     }
 
     fetchActivePlaylists();
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), refetchTrigger]);
 
-  return { assignments, loading, error, refetch: () => setLoading(true) };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { assignments, loading, error, refetch };
 }
 
 /**
@@ -177,6 +187,7 @@ export function useUsers(filters?: Parameters<typeof crud.getUsers>[0]) {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchUsers() {
@@ -192,9 +203,13 @@ export function useUsers(filters?: Parameters<typeof crud.getUsers>[0]) {
     }
 
     fetchUsers();
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters), refetchTrigger]);
 
-  return { users, loading, error, refetch: () => setLoading(true) };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { users, loading, error, refetch };
 }
 
 /**
@@ -419,6 +434,7 @@ export function useRoles(organizationId?: string) {
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     async function fetchRoles() {
@@ -436,9 +452,13 @@ export function useRoles(organizationId?: string) {
     }
 
     fetchRoles();
-  }, [organizationId]);
+  }, [organizationId, refetchTrigger]);
 
-  return { roles, loading, error, refetch: () => setLoading(true) };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { roles, loading, error, refetch };
 }
 
 /**

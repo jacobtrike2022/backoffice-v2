@@ -76,6 +76,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
+import { toast } from 'sonner';
 import {
   getSystemLockedPlaylists,
   getPlaylistVersions,
@@ -90,40 +91,7 @@ import {
   getComplianceRequirements,
   type ComplianceRequirement
 } from '../../lib/crud/compliance';
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return '—';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-}
-
-function formatDateTime(dateString: string | null): string {
-  if (!dateString) return '—';
-  const date = new Date(dateString);
-  return date.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  });
-}
-
-function formatDuration(minutes: number | undefined): string {
-  if (!minutes) return '—';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-}
+import { formatDate, formatDateTime, formatDuration } from '../../lib/utils/dateFormat';
 
 // ============================================================================
 // VERSION HISTORY DIALOG
@@ -202,7 +170,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {formatDateTime(version.locked_at)}
+                            {formatDateTime(version.created_at)}
                           </p>
                         </div>
                       </div>
@@ -219,11 +187,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
                     <div className="mt-3 pl-13 flex items-center gap-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <ListMusic className="h-3 w-3" />
-                        {version.track_snapshot ? JSON.parse(version.track_snapshot).length : 0} tracks
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatDuration(version.total_duration_minutes)}
+                        {version.track_ids ? version.track_ids.length : 0} tracks
                       </span>
                     </div>
                   </CardContent>
@@ -539,13 +503,35 @@ export function PlaylistLockingPanel() {
 
   // Handlers
   const handleLock = async (albumId: string, requirementId: string, notes: string) => {
-    await lockPlaylist(albumId, requirementId, notes);
-    await loadData(true);
+    try {
+      await lockPlaylist(albumId, requirementId, notes);
+      toast.success('Playlist locked successfully', {
+        description: 'The playlist is now linked to the compliance requirement.'
+      });
+      await loadData(true);
+    } catch (error) {
+      console.error('Failed to lock playlist:', error);
+      toast.error('Failed to lock playlist', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      });
+      throw error;
+    }
   };
 
   const handleUnlock = async (albumId: string) => {
-    await unlockPlaylist(albumId);
-    await loadData(true);
+    try {
+      await unlockPlaylist(albumId);
+      toast.success('Playlist unlocked', {
+        description: 'The playlist has been unlinked from compliance tracking.'
+      });
+      await loadData(true);
+    } catch (error) {
+      console.error('Failed to unlock playlist:', error);
+      toast.error('Failed to unlock playlist', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      });
+      throw error;
+    }
   };
 
   // Loading skeleton
