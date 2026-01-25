@@ -46,16 +46,19 @@ import {
   ExternalLink
 } from 'lucide-react';
 import {
-  getComplianceRequirements,
+  getComplianceRequirementsWithTopics,
   getComplianceTopics,
   getComplianceAuthorities,
   createComplianceRequirement,
   updateComplianceRequirement,
   deleteComplianceRequirement,
+  setRequirementTopics,
+  getRequirementTopics,
   type ComplianceRequirement,
   type ComplianceTopic,
   type ComplianceAuthority
 } from '../../lib/crud/compliance';
+import { Checkbox } from '../ui/checkbox';
 
 const REQUIREMENT_STATUSES = [
   { value: 'recon_not_started', label: 'Recon Not Started' },
@@ -84,7 +87,7 @@ export function RequirementsManager() {
   const [showDialog, setShowDialog] = useState(false);
   const [editingRequirement, setEditingRequirement] = useState<ComplianceRequirement | null>(null);
   const [formData, setFormData] = useState({
-    topic_id: '',
+    topic_ids: [] as string[],  // Multiple topics
     authority_id: '',
     requirement_name: '',
     course_name: '',
@@ -111,7 +114,7 @@ export function RequirementsManager() {
     setError(null);
     try {
       const [reqData, topicData, authData] = await Promise.all([
-        getComplianceRequirements(),
+        getComplianceRequirementsWithTopics(),
         getComplianceTopics(),
         getComplianceAuthorities()
       ]);
@@ -132,7 +135,7 @@ export function RequirementsManager() {
       // Convert 'all' back to undefined for API - Radix UI Select requires non-empty string values
       if (topicFilter && topicFilter !== 'all') filters.topicId = topicFilter;
       if (statusFilter && statusFilter !== 'all') filters.status = statusFilter;
-      const data = await getComplianceRequirements(filters);
+      const data = await getComplianceRequirementsWithTopics(filters);
       setRequirements(data);
     } catch (err: any) {
       console.error('Error fetching requirements:', err);
@@ -149,7 +152,7 @@ export function RequirementsManager() {
   function openCreateDialog() {
     setEditingRequirement(null);
     setFormData({
-      topic_id: '',
+      topic_ids: [],
       authority_id: '',
       requirement_name: '',
       course_name: '',
@@ -166,8 +169,11 @@ export function RequirementsManager() {
 
   function openEditDialog(requirement: ComplianceRequirement) {
     setEditingRequirement(requirement);
+    // Get topic IDs from the topics array, fallback to legacy topic_id
+    const topicIds = requirement.topics?.map(t => t.id) ||
+      (requirement.topic_id ? [requirement.topic_id] : []);
     setFormData({
-      topic_id: requirement.topic_id || '',
+      topic_ids: topicIds,
       authority_id: requirement.authority_id || '',
       requirement_name: requirement.requirement_name,
       course_name: requirement.course_name || '',
@@ -175,7 +181,7 @@ export function RequirementsManager() {
       law_code_reference: requirement.law_code_reference || '',
       recertification_years: requirement.recertification_years || 2,
       days_to_complete: requirement.days_to_complete || 30,
-      status: requirement.status || 'active',
+      status: requirement.status || 'recon_not_started',
       cert_details_url: requirement.cert_details_url || '',
       notes: requirement.notes || ''
     });
@@ -191,8 +197,9 @@ export function RequirementsManager() {
     setSaving(true);
     setError(null);
     try {
+      // Use first topic as legacy topic_id for backwards compatibility
       const payload = {
-        topic_id: formData.topic_id || null,
+        topic_id: formData.topic_ids[0] || null,
         authority_id: formData.authority_id || null,
         requirement_name: formData.requirement_name.trim(),
         course_name: formData.course_name.trim() || null,
@@ -205,11 +212,18 @@ export function RequirementsManager() {
         notes: formData.notes.trim() || null
       };
 
+      let requirementId: string;
       if (editingRequirement) {
         await updateComplianceRequirement(editingRequirement.id, payload);
+        requirementId = editingRequirement.id;
       } else {
-        await createComplianceRequirement(payload);
+        const created = await createComplianceRequirement(payload);
+        requirementId = created.id;
       }
+
+      // Set multiple topics via junction table
+      await setRequirementTopics(requirementId, formData.topic_ids);
+
       setShowDialog(false);
       await fetchRequirements();
     } catch (err: any) {
@@ -273,9 +287,13 @@ export function RequirementsManager() {
     }
   };
 
-  const getTopicName = (topicId: string | null) => {
-    if (!topicId) return '-';
-    const topic = topics.find(t => t.id === topicId);
+  const getTopicNames = (requirement: ComplianceRequirement) => {
+    // Use topics array if available, otherwise fall back to legacy topic_id
+    if (requirement.topics && requirement.topics.length > 0) {
+      return requirement.topics.map(t => t.name).join(', ');
+    }
+    if (!requirement.topic_id) return '-';
+    const topic = topics.find(t => t.id === requirement.topic_id);
     return topic?.name || 'Unknown';
   };
 
@@ -412,7 +430,7 @@ export function RequirementsManager() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {getTopicName(requirement.topic_id)}
+                      {getTopicNames(requirement)}
                     </TableCell>
                     <TableCell>
                       {getAuthorityName(requirement.authority_id)}
@@ -529,26 +547,38 @@ export function RequirementsManager() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="topic_id">Topic</Label>
-                <Select
-                  value={formData.topic_id || 'none'}
-                  onValueChange={(value) => setFormData({ ...formData, topic_id: value === 'none' ? '' : value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select topic" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {topics.map((topic) => (
-                      <SelectItem key={topic.id} value={topic.id}>
-                        {topic.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-2">
+              <Label>Topics (select all that apply)</Label>
+              <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                {topics.map((topic) => (
+                  <div key={topic.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`topic-${topic.id}`}
+                      checked={formData.topic_ids.includes(topic.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setFormData({ ...formData, topic_ids: [...formData.topic_ids, topic.id] });
+                        } else {
+                          setFormData({ ...formData, topic_ids: formData.topic_ids.filter(id => id !== topic.id) });
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor={`topic-${topic.id}`}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                    >
+                      {topic.name}
+                    </label>
+                  </div>
+                ))}
               </div>
+              {formData.topic_ids.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {formData.topic_ids.length} topic{formData.topic_ids.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="authority_id">Authority</Label>
                 <Select

@@ -40,7 +40,7 @@ export interface ComplianceRequirement {
   state_code: string;
   jurisdiction_level: 'state' | 'county' | 'city';
   jurisdiction_name: string | null;
-  topic_id: string | null;
+  topic_id: string | null;  // Legacy single topic (kept for backwards compatibility)
   authority_id: string | null;
   ee_training_required: string;
   approval_required: string;
@@ -65,7 +65,8 @@ export interface ComplianceRequirement {
   created_at: string;
   updated_at: string;
   // Joined fields
-  topic?: ComplianceTopic;
+  topic?: ComplianceTopic;  // Legacy single topic
+  topics?: ComplianceTopic[];  // Multiple topics via junction table
   authority?: ComplianceAuthority;
 }
 
@@ -389,6 +390,101 @@ export async function deleteComplianceRequirement(id: string): Promise<void> {
     .eq('id', id);
 
   if (error) throw error;
+}
+
+// ============================================================================
+// REQUIREMENT TOPICS (MULTI-TOPIC SUPPORT)
+// ============================================================================
+
+/**
+ * Get topics for a requirement
+ */
+export async function getRequirementTopics(requirementId: string): Promise<ComplianceTopic[]> {
+  const { data, error } = await supabase
+    .from('requirement_topics')
+    .select('topic:compliance_topics(*)')
+    .eq('requirement_id', requirementId);
+
+  if (error) throw error;
+  return (data || []).map((row: any) => row.topic).filter(Boolean);
+}
+
+/**
+ * Set topics for a requirement (replaces existing)
+ */
+export async function setRequirementTopics(
+  requirementId: string,
+  topicIds: string[]
+): Promise<void> {
+  // Delete existing topic associations
+  const { error: deleteError } = await supabase
+    .from('requirement_topics')
+    .delete()
+    .eq('requirement_id', requirementId);
+
+  if (deleteError) throw deleteError;
+
+  // Insert new topic associations
+  if (topicIds.length > 0) {
+    const { error: insertError } = await supabase
+      .from('requirement_topics')
+      .insert(
+        topicIds.map(topicId => ({
+          requirement_id: requirementId,
+          topic_id: topicId
+        }))
+      );
+
+    if (insertError) throw insertError;
+  }
+
+  // Also update the legacy topic_id field with the first topic (for backwards compatibility)
+  const { error: updateError } = await supabase
+    .from('compliance_requirements')
+    .update({ topic_id: topicIds[0] || null })
+    .eq('id', requirementId);
+
+  if (updateError) throw updateError;
+}
+
+/**
+ * Get requirements with their topics (enriched)
+ */
+export async function getComplianceRequirementsWithTopics(
+  filters?: ComplianceRequirementFilters
+): Promise<ComplianceRequirement[]> {
+  const requirements = await getComplianceRequirements(filters);
+
+  // Fetch all requirement_topics in one query
+  const requirementIds = requirements.map(r => r.id);
+  if (requirementIds.length === 0) return requirements;
+
+  const { data: topicLinks, error } = await supabase
+    .from('requirement_topics')
+    .select('requirement_id, topic:compliance_topics(*)')
+    .in('requirement_id', requirementIds);
+
+  if (error) {
+    console.error('Error fetching requirement topics:', error);
+    return requirements; // Return without topics if fetch fails
+  }
+
+  // Group topics by requirement
+  const topicsByRequirement: Record<string, ComplianceTopic[]> = {};
+  for (const link of topicLinks || []) {
+    if (!topicsByRequirement[link.requirement_id]) {
+      topicsByRequirement[link.requirement_id] = [];
+    }
+    if (link.topic) {
+      topicsByRequirement[link.requirement_id].push(link.topic as ComplianceTopic);
+    }
+  }
+
+  // Enrich requirements with topics
+  return requirements.map(req => ({
+    ...req,
+    topics: topicsByRequirement[req.id] || []
+  }));
 }
 
 // ============================================================================
