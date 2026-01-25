@@ -109,11 +109,13 @@ const US_STATES = [
 ];
 
 const AUTHORITY_TYPES = [
-  { value: 'state', label: 'State Agency' },
-  { value: 'federal', label: 'Federal Agency' },
-  { value: 'local', label: 'Local Authority' },
-  { value: 'industry', label: 'Industry Body' },
-  { value: 'certification', label: 'Certification Provider' }
+  { value: 'alcohol_tobacco_commission', label: 'Alcohol/Tobacco Commission' },
+  { value: 'business_professional_regulation', label: 'Business & Professional Regulation' },
+  { value: 'dept_of_agriculture', label: 'Dept. of Agriculture' },
+  { value: 'dept_of_health', label: 'Dept. of Health' },
+  { value: 'dept_of_labor', label: 'Dept. of Labor' },
+  { value: 'environmental', label: 'Environmental Agency' },
+  { value: 'other', label: 'Other' }
 ];
 
 export function AuthoritiesManager() {
@@ -132,7 +134,7 @@ export function AuthoritiesManager() {
     state_code: '',
     name: '',
     abbreviation: '',
-    authority_type: 'state',
+    authority_type: 'other',
     website_url: '',
     contact_email: '',
     contact_phone: ''
@@ -169,7 +171,7 @@ export function AuthoritiesManager() {
       state_code: '',
       name: '',
       abbreviation: '',
-      authority_type: 'state',
+      authority_type: 'other',
       website_url: '',
       contact_email: '',
       contact_phone: ''
@@ -183,7 +185,7 @@ export function AuthoritiesManager() {
       state_code: authority.state_code || '',
       name: authority.name,
       abbreviation: authority.abbreviation || '',
-      authority_type: authority.authority_type || 'state',
+      authority_type: authority.authority_type || 'other',
       website_url: authority.website_url || '',
       contact_email: authority.contact_email || '',
       contact_phone: authority.contact_phone || ''
@@ -253,16 +255,19 @@ export function AuthoritiesManager() {
 
   const getTypeBadgeColor = (type: string) => {
     switch (type) {
-      case 'state':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'federal':
+      case 'alcohol_tobacco_commission':
         return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'local':
+      case 'business_professional_regulation':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'dept_of_agriculture':
         return 'bg-green-100 text-green-800 border-green-200';
-      case 'industry':
+      case 'dept_of_health':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'dept_of_labor':
         return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'certification':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'environmental':
+        return 'bg-teal-100 text-teal-800 border-teal-200';
+      case 'other':
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
@@ -372,7 +377,7 @@ export function AuthoritiesManager() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={getTypeBadgeColor(authority.authority_type || 'state')}>
+                      <Badge variant="outline" className={getTypeBadgeColor(authority.authority_type || 'other')}>
                         {authority.authority_type || 'state'}
                       </Badge>
                     </TableCell>
