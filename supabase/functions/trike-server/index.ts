@@ -4677,91 +4677,29 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
             role: "system",
             content: `You are an expert at extracting key facts from educational content for workplace training in the convenience store, gas station, QSR, and foodservice industry.
 
-Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions or knowledge checks. Think of these as the facts someone would write on notecards when studying for a test—whether that's a state certification, a company training module, or an operational procedures assessment.
+Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions or knowledge checks. Think of these as the facts someone would write on notecards when studying for a test.
+
+YOUR ONLY JOB IS TO EXTRACT. Do not worry about duplicates—that will be handled in a separate step.
 
 RULES:
 
 1. **Testable, not motivational** - Extract only factual, testable information. Skip phrases like "it's important to remember" or "understanding this is crucial."
 
-2. **Smart atomicity** - One testable concept per fact. However, keep tightly related items together when they test a SINGLE idea (e.g., "Three requirements for X" can stay together if all three are needed to understand the concept).
+2. **Smart atomicity** - One testable concept per fact. However, keep tightly related items together when they test a SINGLE idea.
 
-3. **Preserve conditional logic** - When content describes "if X then Y" relationships, capture both the condition and the outcome. Example: "If the fryer oil temperature exceeds 375°F, immediately turn off the unit and notify a manager."
+3. **Preserve conditional logic** - When content describes "if X then Y" relationships, capture both the condition and the outcome.
 
-4. **Extract specific numbers** - Measurements, temperatures, time limits, dollar amounts, percentages, and thresholds should be standalone facts when they're testable. Example: "Sanitizer solution concentration must be between 50-100 ppm for food contact surfaces."
+4. **Extract specific numbers** - Measurements, temperatures, time limits, dollar amounts, percentages, and thresholds should be standalone facts when testable.
 
-5. **Capture responsibility distinctions** - Training content often distinguishes WHO is responsible for what (employee vs. manager, business vs. individual, shift lead vs. crew). These distinctions are testable.
+5. **Capture responsibility distinctions** - WHO is responsible for what (employee vs. manager, business vs. individual).
 
 6. **Include regulation and policy names** - If a specific law, act, regulation, or company policy is mentioned by name, extract what it requires and its consequences.
 
-7. **Context-independent when possible** - Facts should make sense without requiring the reader to have seen the source material.
+7. **Context-independent** - Facts should make sense without requiring the reader to have seen the source material.
 
-8. **Tiered/range information** - For content with multiple levels, tiers, or ranges:
-    - Extract critical thresholds as standalone facts (legal limits, safety cutoffs, required minimums/maximums)
-    - Do NOT extract every tier individually unless each has distinct operational or legal implications
-    - Ask: "Would someone need to know this specific threshold to do their job correctly or pass a knowledge check?" If no, consolidate or skip.
+8. **Tiered/range information** - Extract critical thresholds (legal limits, safety cutoffs). Skip every tier unless each has distinct implications.
 
-9. **Relevance filter** - Prioritize facts that directly impact the worker's actions:
-    - Thresholds they must know (temperatures, times, quantities, ages, limits)
-    - Steps they must follow
-    - Consequences of doing it wrong
-    - Skip background context, history, or theory unless it's directly testable
-
-10. **Consolidate factor lists** - When content lists multiple factors, causes, or components (e.g., "factors that affect X include: A, B, C, D"), you may extract:
-    - The full list as a single fact IF the list itself is testable
-    - Individual items as separate facts ONLY if each has unique, testable detail worth isolating
-    - Do not extract both the list AND each individual item
-
----
-
-DEDUPLICATION PROCESS:
-
-Before generating your final output, you MUST complete these steps:
-
-STEP 1: EXTRACT
-Identify all candidate facts from the source content.
-
-STEP 2: CATEGORIZE
-Group candidate facts by concept category. Assign each fact a short internal category label based on what it's fundamentally about. Examples:
-- "Fryer oil temperature limits"
-- "ID verification requirements"
-- "Mop bucket procedure"
-- "Lottery ticket age restriction"
-- "Food holding time limits"
-- "Reporting harassment - steps"
-- "Over-serving penalties - fines"
-- "Over-serving penalties - jail time"
-
-STEP 3: DEDUPLICATE
-Review each category. If a category contains multiple candidate facts:
-- They are duplicates expressing the same core concept
-- Select ONLY the single most complete, specific, and testable version
-- Discard all other versions
-
-STEP 4: CHECK FOR SUMMARY/DETAIL OVERLAP
-Source content often presents information twice:
-- First as separate bullet points (detail)
-- Later as a combined summary sentence
-
-These are duplicates. You must choose ONE approach:
-- Keep the combined summary version, OR
-- Keep the separate detail versions
-- NEVER keep both
-
-STEP 5: OUTPUT
-Return only the final deduplicated facts. Do NOT include category labels in your output—they are for internal processing only.
-
----
-
-FINAL CHECK:
-
-Before outputting your JSON, scan your complete fact list and ask for EACH fact:
-- "Is there another fact in my list that covers the same penalty, threshold, requirement, or concept?"
-- "Is there another fact that a quiz writer would consider the same question?"
-- "Is this fact a summary of other facts already in my list?"
-
-If the answer to any question is YES, remove the duplicate and keep only the best version.
-
----
+9. **Relevance filter** - Prioritize facts that directly impact the worker's actions. Skip background context or theory.
 
 WHAT TO EXTRACT:
 - Specific numbers: temperatures, times, quantities, ages, limits, fines, penalties
@@ -4771,103 +4709,37 @@ WHAT TO EXTRACT:
 - Exceptions and edge cases
 - Named laws, regulations, policies and what they require
 - Safety thresholds and consequences of violations
-- Correct vs. incorrect methods when specified
 
 WHAT TO SKIP:
-- Motivational statements ("it's essential to understand...")
+- Motivational statements
 - Vague summaries without testable specifics
-- Repeated information (extract once, use best version)
-- Granular detail unlikely to appear on a knowledge check
-- Background context that doesn't affect how someone does their job
-
----
-
-EXAMPLES:
-
-BAD - Too vague:
-"Understanding proper food safety is crucial for every team member."
-
-BAD - Duplicate extraction (same concept, different wording):
-Fact 4: "Hot food must be held at 135°F or above."
-Fact 12: "The minimum holding temperature for hot food is 135°F."
-→ These are the same concept. Extract once.
-
-BAD - Summary duplicates detail:
-Fact 2: "Servers can face fines up to $4,000."
-Fact 3: "Servers can face jail time of up to one year."
-Fact 12: "Penalties for over-serving include fines up to $4,000 and jail time of up to one year."
-→ Fact 12 is just Facts 2+3 restated. Extract the combined version OR the separate versions, NOT both.
-
-BAD - Word-for-word duplicate:
-Fact 8: "After an over-serving incident, businesses can expect their insurance premiums to increase significantly."
-Fact 14: "After an over-serving incident, businesses can expect their insurance premiums to increase significantly."
-→ Identical facts. Extract once.
-
-BAD - Over-extraction:
-Extracting 8 separate facts for 8 different temperature ranges when only 2 are operationally critical.
-
-GOOD - Testable with specific number:
-"Hot TCS foods must be held at 135°F or above; cold TCS foods must be held at 41°F or below."
-
-GOOD - Conditional logic preserved:
-"If a customer cannot provide valid ID, refuse the sale regardless of their apparent age."
-
-GOOD - Combined penalties (instead of separate + summary):
-"Servers who over-serve intoxicated individuals can face fines up to $4,000 and/or jail time of up to one year."
-
-GOOD - Procedure with steps:
-"To properly sanitize a food contact surface: 1) Wash with soap and water, 2) Rinse with clean water, 3) Apply sanitizer solution at 50-100 ppm, 4) Air dry."
-
-GOOD - Consolidated list:
-"Acceptable forms of ID for alcohol sales include: state driver's license, state ID card, military ID, and passport."
-
----
+- Background context that doesn't affect job performance
 
 OUTPUT FORMAT - Two Types:
 
 **TYPE: "Fact"** - For declarative knowledge (what IS true)
-- "title": Short descriptive title (e.g., "Hot Food Holding Temperature")
-- "content": The complete, testable statement (e.g., "Hot TCS foods must be held at 135°F or above.")
+- "title": Short descriptive title
+- "content": The complete, testable statement
 - "steps": [] (empty array)
 
 **TYPE: "Procedure"** - For step-by-step processes (what to DO)
-- "title": Short descriptive title (e.g., "Sanitizing Food Contact Surfaces")
-- "content": A short header/label for the procedure - NOT a full sentence, NOT a repeat of the steps. Just a brief tee-up like "Steps for sanitizing:" or "To verify customer age:"
+- "title": Short descriptive title
+- "content": A short header/label (under 10 words) - NOT a full sentence, NOT a repeat of the steps
 - "steps": Array of actionable steps, each step is a complete instruction
 
-IMPORTANT FOR PROCEDURES:
-- The "content" field is displayed as a header ABOVE the steps list
-- Do NOT put instructional content in "content" - that goes in "steps"
-- Do NOT repeat step content in the "content" field
-- Keep "content" to under 10 words - it's just a label
-
-EXAMPLE FACT:
+Return a JSON array:
 {
-  "title": "Cold Food Holding Temperature",
-  "content": "Cold TCS foods must be held at 41°F or below to prevent bacterial growth.",
-  "type": "Fact",
-  "steps": []
-}
-
-EXAMPLE PROCEDURE:
-{
-  "title": "Sanitizing Food Contact Surfaces",
-  "content": "Steps for proper sanitization:",
-  "type": "Procedure",
-  "steps": [
-    "Wash the surface with soap and water",
-    "Rinse with clean water",
-    "Apply sanitizer solution at 50-100 ppm concentration",
-    "Allow to air dry - do not wipe"
+  "candidate_facts": [
+    {
+      "title": "Short descriptive title",
+      "content": "The actual fact or procedure description",
+      "type": "Fact" | "Procedure",
+      "steps": ["Step 1", "Step 2"] // Only for Procedure type
+    }
   ]
 }
 
-Return valid JSON only:
-{
-  "facts": [...]
-}
-
-ONLY return valid JSON. No explanations, no markdown, no category labels.`,
+ONLY return valid JSON. No explanations, no markdown.`,
           },
           {
             role: "user",
@@ -4892,22 +4764,143 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`,
       return jsonResponse({ error: "No content returned from AI" }, 500);
     }
 
-    // Parse the AI response
-    let parsedFacts;
+    // Parse the Pass 1 (extraction) response
+    let candidateFacts;
     try {
-      // Try to extract JSON from the response (in case there's extra text)
       const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        parsedFacts = JSON.parse(jsonMatch[0]);
+        candidateFacts = JSON.parse(jsonMatch[0]);
       } else {
-        parsedFacts = JSON.parse(aiContent);
+        candidateFacts = JSON.parse(aiContent);
       }
     } catch (parseError) {
-      console.error("Failed to parse AI response:", aiContent);
+      console.error("Failed to parse Pass 1 AI response:", aiContent);
       return jsonResponse({ error: "Failed to parse AI response" }, 500);
     }
 
-    const factsToInsert = parsedFacts.facts || [];
+    const candidateFactsList = candidateFacts.candidate_facts || candidateFacts.facts || [];
+    console.log(`[GenerateKeyFacts] Pass 1 extracted ${candidateFactsList.length} candidate facts`);
+
+    // PASS 2: Deduplication Agent
+    const deduplicationPrompt = `You are a deduplication specialist. You will receive a list of candidate facts extracted from training content. Your job is to remove duplicates and return a clean, final list.
+
+PROCESS:
+
+STEP 1: CATEGORIZE
+For each fact, assign a short concept category based on what it's fundamentally about. Examples:
+- "Minor sales - reporting requirement"
+- "Minor sales - penalties"
+- "Intoxicated persons - reporting timeline"
+- "Admin violations - reporting timeline"
+- "Fake ID - recommended action"
+
+STEP 2: GROUP
+Group all facts by their category.
+
+STEP 3: IDENTIFY DUPLICATES
+Within each category, facts are duplicates if:
+- They convey the same core information
+- A quiz writer would consider them the same question
+- One is a summary or restatement of the other
+- They differ only in wording, not meaning
+
+STEP 4: SELECT BEST VERSION
+For each category with multiple facts, keep ONLY ONE—the version that is:
+- Most complete
+- Most specific
+- Most testable
+
+Discard all other versions in that category.
+
+STEP 5: FINAL SCAN
+Before outputting, scan your list once more:
+- Is any concept represented more than once?
+- Is any fact a subset of another fact?
+- Would any two facts generate the same quiz question?
+
+If yes to any, remove the weaker duplicate.
+
+---
+
+EXAMPLES OF DUPLICATES TO MERGE:
+
+Example A - Same fact, different wording:
+- "Any sale of alcohol to a minor must be reported immediately to TABC."
+- "Any sale of alcohol to a minor must be reported immediately to the Texas Alcoholic Beverage Commission (TABC)."
+→ Keep one.
+
+Example B - Detail + Summary overlap:
+- "Sales to minors must be reported immediately."
+- "Sales to intoxicated persons must be reported immediately."
+- "Sales to minors, sales to intoxicated persons, and serious criminal violations must be reported immediately."
+→ Keep the combined version OR the individual versions, not both.
+
+Example C - Same concept, slight variation:
+- "Less severe incidents should be reported within 24 hours."
+- "Less severe incidents, such as minor altercations and non-criminal violations, should be reported within 24 hours to TABC."
+→ Keep the more specific version.
+
+Example D - Identical:
+- "Administrative violations must be reported within 10 business days."
+- "Administrative violations must be reported within 10 business days to TABC."
+→ Keep one.
+
+---
+
+OUTPUT FORMAT:
+Return a JSON array of deduplicated facts:
+{
+  "facts": [
+    {
+      "title": "Short descriptive title",
+      "content": "The actual fact or procedure description",
+      "type": "Fact" | "Procedure",
+      "steps": ["Step 1", "Step 2"] // Only for Procedure type
+    }
+  ]
+}
+
+ONLY return valid JSON. No explanations, no markdown, no category labels.`;
+
+    const deduplicationResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: deduplicationPrompt },
+          { role: "user", content: JSON.stringify({ candidate_facts: candidateFactsList }) },
+        ],
+        temperature: 0.2,
+        max_tokens: 4000,
+      }),
+    });
+
+    let factsToInsert = candidateFactsList;
+
+    if (!deduplicationResponse.ok) {
+      const errorText = await deduplicationResponse.text();
+      console.error("OpenAI Pass 2 error:", errorText);
+      console.log("[GenerateKeyFacts] Pass 2 failed, using candidate facts directly");
+    } else {
+      const deduplicationData = await deduplicationResponse.json();
+      const deduplicationContent = deduplicationData.choices?.[0]?.message?.content;
+
+      if (deduplicationContent) {
+        try {
+          const jsonMatch = deduplicationContent.match(/\{[\s\S]*\}/);
+          const parsedDedup = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(deduplicationContent);
+          factsToInsert = parsedDedup.facts || candidateFactsList;
+          console.log(`[GenerateKeyFacts] Pass 2 deduplicated to ${factsToInsert.length} facts (from ${candidateFactsList.length})`);
+        } catch (parseError) {
+          console.error("Failed to parse Pass 2 response, using candidate facts:", deduplicationContent);
+          factsToInsert = candidateFactsList;
+        }
+      }
+    }
     const insertedFactIds: string[] = [];
     const enrichedFacts: any[] = [];
 
@@ -4944,7 +4937,7 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`,
           content: fact.content,
           type: fact.type || "Fact",
           steps: fact.steps || [],
-          extracted_by: "ai-pass-1",
+          extracted_by: "ai-two-pass",
           extraction_confidence: 0.85,
           company_id: companyId,
           context: { specificity: "universal", tags: {} },
