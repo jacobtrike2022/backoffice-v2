@@ -171,6 +171,96 @@ function sanitizeForTTS(text: string, maxLength: number): string {
   return truncated;
 }
 
+/**
+ * Chunk text for TTS at sentence boundaries
+ * Ensures no chunk exceeds maxLength while maintaining natural speech breaks
+ */
+function chunkTextForTTS(text: string, maxLength: number): string[] {
+  if (!text || text.length <= maxLength) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Find the best break point within maxLength
+    const segment = remaining.substring(0, maxLength);
+
+    // Try to break at sentence boundary first
+    let breakPoint = -1;
+    const lastPeriod = segment.lastIndexOf('. ');
+    const lastQuestion = segment.lastIndexOf('? ');
+    const lastExclaim = segment.lastIndexOf('! ');
+    const lastNewline = segment.lastIndexOf('\n');
+
+    // Prefer sentence breaks in the latter half of the segment
+    const candidates = [lastPeriod, lastQuestion, lastExclaim, lastNewline].filter(p => p > maxLength * 0.5);
+    if (candidates.length > 0) {
+      breakPoint = Math.max(...candidates) + 1;
+    }
+
+    // Fall back to any sentence break
+    if (breakPoint === -1) {
+      const anyBreak = Math.max(lastPeriod, lastQuestion, lastExclaim, lastNewline);
+      if (anyBreak > maxLength * 0.3) {
+        breakPoint = anyBreak + 1;
+      }
+    }
+
+    // Fall back to word boundary
+    if (breakPoint === -1) {
+      const lastSpace = segment.lastIndexOf(' ');
+      if (lastSpace > maxLength * 0.5) {
+        breakPoint = lastSpace;
+      }
+    }
+
+    // Worst case: hard cut (shouldn't happen with reasonable maxLength)
+    if (breakPoint === -1) {
+      breakPoint = maxLength;
+    }
+
+    chunks.push(remaining.substring(0, breakPoint).trim());
+    remaining = remaining.substring(breakPoint).trim();
+  }
+
+  return chunks.filter(c => c.length > 0);
+}
+
+/**
+ * Concatenate multiple MP3 audio buffers into one
+ * Note: This is a simple concatenation that works for MP3 files
+ * because MP3 frames are self-contained
+ */
+function concatenateAudioBuffers(buffers: ArrayBuffer[]): ArrayBuffer {
+  if (buffers.length === 0) {
+    return new ArrayBuffer(0);
+  }
+  if (buffers.length === 1) {
+    return buffers[0];
+  }
+
+  // Calculate total length
+  const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+
+  // Create combined buffer
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const buffer of buffers) {
+    combined.set(new Uint8Array(buffer), offset);
+    offset += buffer.byteLength;
+  }
+
+  return combined.buffer;
+}
+
 // =============================================================================
 // STORAGE BUCKET HELPER
 // =============================================================================
@@ -13628,48 +13718,65 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
       return jsonResponse({ error: 'TTS service not configured' }, 503);
     }
 
-    console.log('🤖 Calling OpenAI TTS API...');
-    const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: sanitizeForTTS(textContent, 4096),
-        voice: voice,
-        response_format: 'mp3',
-      }),
+    // Sanitize content (remove emojis, etc.)
+    const sanitizedContent = sanitizeForTTS(textContent, Infinity); // Don't truncate yet
+
+    // Chunk the content if it's too long (OpenAI limit is 4096 chars)
+    const MAX_CHUNK_SIZE = 3500; // Leave buffer for safety
+    const chunks = chunkTextForTTS(sanitizedContent, MAX_CHUNK_SIZE);
+
+    console.log('🤖 Calling OpenAI TTS API...', {
+      totalLength: sanitizedContent.length,
+      chunks: chunks.length
     });
 
-    if (!ttsResponse.ok) {
-      const errorText = await ttsResponse.text();
-      console.error('OpenAI TTS error:', {
-        status: ttsResponse.status,
-        statusText: ttsResponse.statusText,
-        error: errorText,
-        inputLength: textContent.length,
-        voice: voice
+    // Generate audio for each chunk (in parallel for speed)
+    const audioBuffers: ArrayBuffer[] = [];
+    const chunkPromises = chunks.map(async (chunk, index) => {
+      console.log(`  Generating chunk ${index + 1}/${chunks.length} (${chunk.length} chars)...`);
+
+      const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'tts-1',
+          input: chunk,
+          voice: voice,
+          response_format: 'mp3',
+        }),
       });
 
-      // Parse error for more specific message
-      let errorMessage = 'TTS generation failed';
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage = errorJson.error?.message || errorMessage;
-      } catch {
-        // Not JSON, use raw text
-        if (errorText.length < 200) {
-          errorMessage = errorText;
-        }
+      if (!ttsResponse.ok) {
+        const errorText = await ttsResponse.text();
+        console.error(`OpenAI TTS error for chunk ${index + 1}:`, {
+          status: ttsResponse.status,
+          error: errorText,
+          chunkLength: chunk.length
+        });
+        throw new Error(`TTS generation failed for chunk ${index + 1}`);
       }
 
-      return jsonResponse({ error: errorMessage }, 500);
+      return { index, buffer: await ttsResponse.arrayBuffer() };
+    });
+
+    // Wait for all chunks and sort by index to maintain order
+    const results = await Promise.all(chunkPromises);
+    results.sort((a, b) => a.index - b.index);
+
+    for (const result of results) {
+      audioBuffers.push(result.buffer);
     }
 
-    const audioBuffer = await ttsResponse.arrayBuffer();
-    console.log('✅ Audio generated:', { size: audioBuffer.byteLength, voice });
+    // Concatenate all audio buffers
+    const audioBuffer = concatenateAudioBuffers(audioBuffers);
+    console.log('✅ Audio generated:', {
+      size: audioBuffer.byteLength,
+      voice,
+      chunks: chunks.length
+    });
 
     // Ensure TTS bucket exists
     const bucketName = 'tts-audio';
