@@ -487,8 +487,8 @@ export function RequirementsManager() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>
               {editingRequirement ? 'Edit Requirement' : 'Create Requirement'}
             </DialogTitle>
@@ -498,7 +498,7 @@ export function RequirementsManager() {
                 : 'Add a new compliance requirement'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <Label htmlFor="requirement_name">Requirement Name *</Label>
               <Input
@@ -650,7 +650,7 @@ export function RequirementsManager() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setShowDialog(false)}>
               Cancel
             </Button>
