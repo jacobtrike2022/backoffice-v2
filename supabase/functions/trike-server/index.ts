@@ -4743,8 +4743,32 @@ ONLY return valid JSON. No explanations or markdown.`,
     const insertedFactIds: string[] = [];
     const enrichedFacts: any[] = [];
 
-    // Insert each fact into the database
+    // Check for existing facts if trackId is provided (deduplication)
+    let existingFactTitles: Set<string> = new Set();
+    if (trackId) {
+      const { data: existingUsage } = await supabase
+        .from("fact_usage")
+        .select("fact_id, facts(title)")
+        .eq("track_id", trackId);
+
+      if (existingUsage && existingUsage.length > 0) {
+        existingFactTitles = new Set(
+          existingUsage
+            .map((u: any) => u.facts?.title?.toLowerCase().trim())
+            .filter(Boolean)
+        );
+        console.log(`[GenerateKeyFacts] Found ${existingFactTitles.size} existing facts for track ${trackId}`);
+      }
+    }
+
+    // Insert each fact into the database (skip duplicates)
     for (const fact of factsToInsert) {
+      // Skip if a fact with similar title already exists for this track
+      const normalizedTitle = fact.title?.toLowerCase().trim();
+      if (normalizedTitle && existingFactTitles.has(normalizedTitle)) {
+        console.log(`[GenerateKeyFacts] Skipping duplicate fact: "${fact.title}"`);
+        continue;
+      }
       const { data: insertedFact, error: insertError } = await supabase
         .from("facts")
         .insert({
@@ -12104,10 +12128,6 @@ async function extractKeyFactsWithLLM(
 ): Promise<any[]> {
   const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence.
 
-DEFINITION OF A KEY FACT:
-A Key Fact is a statement that remains TRUE regardless of who is performing the work.
-Key Facts are immutable truths about the regulatory environment—not guidance about how to behave.
-
 OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
 {
   "keyFacts": [
@@ -12126,39 +12146,15 @@ OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
   ]
 }
 
-EXTRACTION FILTER - Only extract facts that fall into these categories:
-- LEGAL_DEFINITION: Defines what something means in law (e.g., "Intoxication is defined as BAC of 0.08% or higher")
-- QUANTITATIVE_THRESHOLD: Specific numbers, limits, or ranges from regulation (e.g., "Maximum fine is $10,000")
-- OBSERVABLE_INDICATOR: Objective signs/symptoms defined in regulation (e.g., "Signs include slurred speech, bloodshot eyes")
-- LEGAL_CONSEQUENCE: Penalties, liabilities, or outcomes defined in law (e.g., "Serving minors is a Class A misdemeanor")
-
-WHAT IS NOT A KEY FACT (do NOT extract these):
-- OPERATIONAL_BEST_PRACTICE: Guidance on how to do something (e.g., "Monitor customers continuously")
-- PROCEDURAL_STEPS: Numbered action sequences (e.g., "Step 1: Check ID, Step 2: Verify age")
-- ROLE_DEPENDENT_ADVICE: Recommendations that vary by performer (e.g., "Have a plan for refusing service")
-- GENERAL_WISDOM: Non-specific guidance (e.g., "Document incidents thoroughly")
-
-ONE FACT = ONE IDEA RULE:
-- Each factText must contain exactly ONE atomic claim
-- If a source bundles multiple requirements, split them into separate facts
-- WRONG: "BAC limit is 0.08% and serving intoxicated persons is illegal" (two facts bundled)
-- RIGHT: Two separate facts, one for BAC threshold, one for the legal prohibition
-
-DEDUPLICATION:
-- Before adding a fact, check if you've already extracted the same semantic content
-- Different phrasings of the same underlying truth should produce ONE fact, not multiple
-- Choose the most precise, legally-grounded phrasing
-
 CRITICAL RULES:
 1. factText must be a single atomic sentence - one claim per fact
-2. Only extract facts matching the four allowed categories above (not operational guidance)
-3. mappedAction MUST relate to one of the allowedLearnerActions provided
-4. Each fact MUST be specific to ${stateName || stateCode}
-5. quote MUST be an exact substring from the evidence - no paraphrasing
-6. evidenceId MUST be copied EXACTLY as provided - do NOT abbreviate or modify UUIDs
-7. Extract ONLY facts relevant to the domain anchors and learner role
-8. Do NOT include generic facts that apply to all states
-9. REJECT any extraction that reads like instructions or advice`;
+2. mappedAction MUST relate to one of the allowedLearnerActions provided
+3. Each fact MUST be specific to ${stateName || stateCode}
+4. quote MUST be an exact substring from the evidence - no paraphrasing
+5. evidenceId MUST be copied EXACTLY as provided - do NOT abbreviate or modify UUIDs
+6. Extract ONLY facts relevant to the domain anchors and learner role
+7. Do NOT include generic facts that apply to all states
+8. Focus on actionable requirements for the learner role`;
 
   const evidenceSummary = evidenceBlocks.map((eb: any) => {
     // Handle both old format (evidenceId, snippets array) and new format (id, snippet string)
@@ -12196,17 +12192,10 @@ EVIDENCE BLOCKS:
 ${JSON.stringify(evidenceSummary, null, 2)}
 
 Extract atomic Key Facts. Each fact must:
-1. Be a single sentence with ONE specific claim (one fact = one idea)
-2. Fall into one of: LEGAL_DEFINITION, QUANTITATIVE_THRESHOLD, OBSERVABLE_INDICATOR, or LEGAL_CONSEQUENCE
-3. Be grounded with an exact quote from evidence
-4. Be specific to ${stateName || stateCode}
-5. State what IS TRUE about the law—not what someone SHOULD DO
-
-REJECT any extraction that:
-- Reads like instructions ("To avoid X, do Y...")
-- Contains multiple bundled requirements
-- Is operational guidance rather than regulatory fact
-- Duplicates a fact you've already extracted in different words
+1. Be a single sentence with one specific claim
+2. Be grounded with an exact quote from evidence
+3. Be specific to ${stateName || stateCode}
+4. Be actionable for ${scopeContract.primaryRole || 'the learner'}
 
 Output valid JSON with keyFacts array.`;
 
