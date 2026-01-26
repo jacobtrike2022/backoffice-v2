@@ -13590,8 +13590,27 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
 
     if (!ttsResponse.ok) {
       const errorText = await ttsResponse.text();
-      console.error('OpenAI TTS error:', errorText);
-      return jsonResponse({ error: 'TTS generation failed' }, 500);
+      console.error('OpenAI TTS error:', {
+        status: ttsResponse.status,
+        statusText: ttsResponse.statusText,
+        error: errorText,
+        inputLength: textContent.length,
+        voice: voice
+      });
+
+      // Parse error for more specific message
+      let errorMessage = 'TTS generation failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error?.message || errorMessage;
+      } catch {
+        // Not JSON, use raw text
+        if (errorText.length < 200) {
+          errorMessage = errorText;
+        }
+      }
+
+      return jsonResponse({ error: errorMessage }, 500);
     }
 
     const audioBuffer = await ttsResponse.arrayBuffer();
