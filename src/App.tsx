@@ -60,6 +60,7 @@ import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
+import { TrikeAdminDrawer } from "./components/trike-admin";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
 
@@ -739,6 +740,9 @@ export default function App() {
               }}
               onCancel={() => setPendingNavigationView(null)}
             />
+
+            {/* Trike Admin floating drawer - only visible to super admins */}
+            <TrikeAdminDrawer isVisible={currentRole === 'trike-super-admin'} />
 
             <Toaster />
           </>
