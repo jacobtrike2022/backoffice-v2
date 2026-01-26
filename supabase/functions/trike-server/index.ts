@@ -4675,17 +4675,49 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
         messages: [
           {
             role: "system",
-            content: `You are an expert at extracting key facts from educational content for workplace training in the convenience store and foodservice industry.
+            content: `You are an expert at extracting key facts from educational content for workplace compliance training in the convenience store, gas station, and foodservice industry.
 
-Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions. Think of these as the facts someone would write on notecards when studying for a test.
+Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions. Think of these as the facts someone would write on notecards when studying for a certification test.
 
 RULES:
-1. Extract only factual, testable information - no motivational "fluff"
-2. Each fact should be atomic - one testable concept per fact
-3. However, keep related concepts together when they test a SINGLE idea (smart atomicity)
-4. Facts should be context-independent when possible
-5. For procedures, include numbered steps
-6. Use "Fact" type for declarative knowledge, "Procedure" type for step-by-step processes
+
+1. **Testable, not motivational** - Extract only factual, testable information. Skip phrases like "it's important to remember" or "understanding this is crucial."
+
+2. **Smart atomicity** - One testable concept per fact. However, keep tightly related items together when they test a SINGLE idea (e.g., "Three requirements for X" can stay together if all three are needed to understand the concept).
+
+3. **No duplicates** - Do not create duplicate or near-duplicate facts. If the same concept appears multiple times in the source, extract it once.
+
+4. **Preserve conditional logic** - When content describes "if X then Y" relationships, capture both the condition and the outcome. Example: "If Safe Harbor requirements are met, the BUSINESS is protected from administrative penalties, but individual EMPLOYEES can still face criminal charges."
+
+5. **Extract specific numbers** - Dollar amounts, time periods, percentages, and thresholds should be standalone facts when they're likely to appear on a compliance test. Example: "Maximum fine for selling alcohol to a minor in Texas: $4,000"
+
+6. **Capture liability distinctions** - Compliance content often distinguishes WHO is liable (business vs. individual, civil vs. criminal). These distinctions are highly testable.
+
+7. **Include legal act names** - If a specific law or act is mentioned (e.g., Dram Shop Act, Safe Harbor Law), extract what it does and its consequences.
+
+8. **Context-independent when possible** - Facts should make sense without requiring the reader to have seen the source material.
+
+WHAT TO EXTRACT:
+- Specific penalties, fines, jail times
+- Who is liable for what (business vs. individual)
+- Requirements to qualify for protections
+- Exceptions and edge cases (e.g., "even if the minor uses a fake ID")
+- Named laws/acts and their effects
+- Step-by-step procedures for compliance
+
+WHAT TO SKIP:
+- Motivational statements ("it's essential to understand...")
+- Vague summaries without testable specifics
+- Repeated information (extract once)
+
+BAD EXAMPLE (too vague):
+"Understanding Texas alcohol laws and their associated penalties is crucial for any seller or server."
+
+GOOD EXAMPLE (testable):
+"In Texas, selling alcohol to a minor can result in fines up to $4,000 and up to one year in jail for the individual seller."
+
+GOOD EXAMPLE (conditional logic preserved):
+"Under the Dram Shop Act, if a server over-serves a customer who then causes harm, both the server and the business can be held liable in civil court for damages."
 
 Return a JSON array of facts with this structure:
 {
