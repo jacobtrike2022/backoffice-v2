@@ -148,11 +148,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         return hasTranscript;
 
       case 'article':
-        // Articles need content_text
-        const hasContent = isEditMode
-          ? (editFormData.content_text && editFormData.content_text.trim().length > 20)
-          : (track.content_text && track.content_text.trim().length > 20);
-        return hasContent;
+        // Articles store body in content_text (primary) or transcript (fallback)
+        const articleContent = isEditMode
+          ? (editFormData.content_text || editFormData.transcript)
+          : (track.content_text || track.transcript);
+        return articleContent && articleContent.trim().length > 20;
 
       case 'story':
         // Stories need slide data in transcript
