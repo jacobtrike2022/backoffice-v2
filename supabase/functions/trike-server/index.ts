@@ -4728,6 +4728,8 @@ Group candidate facts by concept category. Assign each fact a short internal cat
 - "Lottery ticket age restriction"
 - "Food holding time limits"
 - "Reporting harassment - steps"
+- "Over-serving penalties - fines"
+- "Over-serving penalties - jail time"
 
 STEP 3: DEDUPLICATE
 Review each category. If a category contains multiple candidate facts:
@@ -4735,8 +4737,29 @@ Review each category. If a category contains multiple candidate facts:
 - Select ONLY the single most complete, specific, and testable version
 - Discard all other versions
 
-STEP 4: OUTPUT
+STEP 4: CHECK FOR SUMMARY/DETAIL OVERLAP
+Source content often presents information twice:
+- First as separate bullet points (detail)
+- Later as a combined summary sentence
+
+These are duplicates. You must choose ONE approach:
+- Keep the combined summary version, OR
+- Keep the separate detail versions
+- NEVER keep both
+
+STEP 5: OUTPUT
 Return only the final deduplicated facts. Do NOT include category labels in your output—they are for internal processing only.
+
+---
+
+FINAL CHECK:
+
+Before outputting your JSON, scan your complete fact list and ask for EACH fact:
+- "Is there another fact in my list that covers the same penalty, threshold, requirement, or concept?"
+- "Is there another fact that a quiz writer would consider the same question?"
+- "Is this fact a summary of other facts already in my list?"
+
+If the answer to any question is YES, remove the duplicate and keep only the best version.
 
 ---
 
@@ -4764,10 +4787,21 @@ EXAMPLES:
 BAD - Too vague:
 "Understanding proper food safety is crucial for every team member."
 
-BAD - Duplicate extraction (same concept twice):
+BAD - Duplicate extraction (same concept, different wording):
 Fact 4: "Hot food must be held at 135°F or above."
 Fact 12: "The minimum holding temperature for hot food is 135°F."
 → These are the same concept. Extract once.
+
+BAD - Summary duplicates detail:
+Fact 2: "Servers can face fines up to $4,000."
+Fact 3: "Servers can face jail time of up to one year."
+Fact 12: "Penalties for over-serving include fines up to $4,000 and jail time of up to one year."
+→ Fact 12 is just Facts 2+3 restated. Extract the combined version OR the separate versions, NOT both.
+
+BAD - Word-for-word duplicate:
+Fact 8: "After an over-serving incident, businesses can expect their insurance premiums to increase significantly."
+Fact 14: "After an over-serving incident, businesses can expect their insurance premiums to increase significantly."
+→ Identical facts. Extract once.
 
 BAD - Over-extraction:
 Extracting 8 separate facts for 8 different temperature ranges when only 2 are operationally critical.
@@ -4777,6 +4811,9 @@ GOOD - Testable with specific number:
 
 GOOD - Conditional logic preserved:
 "If a customer cannot provide valid ID, refuse the sale regardless of their apparent age."
+
+GOOD - Combined penalties (instead of separate + summary):
+"Servers who over-serve intoxicated individuals can face fines up to $4,000 and/or jail time of up to one year."
 
 GOOD - Procedure with steps:
 "To properly sanitize a food contact surface: 1) Wash with soap and water, 2) Rinse with clean water, 3) Apply sanitizer solution at 50-100 ppm, 4) Air dry."
