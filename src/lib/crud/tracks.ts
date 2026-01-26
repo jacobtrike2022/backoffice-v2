@@ -93,8 +93,9 @@ export function validateTrackContentForPublish(track: {
 
   switch (trackType) {
     case 'article':
-      // Articles need body content in content_text
-      if (!track.content_text || track.content_text.trim().length < 20) {
+      // Articles store body in content_text (primary) or transcript (fallback)
+      const articleContent = track.content_text || track.transcript;
+      if (!articleContent || articleContent.trim().length < 20) {
         return {
           canPublish: false,
           reason: 'Content still processing',
