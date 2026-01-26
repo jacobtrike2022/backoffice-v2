@@ -4652,6 +4652,9 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
     const body = await req.json();
     const { title, content, description, transcript, trackType, trackId, companyId } = body;
 
+    console.log(`[GenerateKeyFacts] Starting two-pass extraction for track: ${trackId || 'unknown'}`);
+    console.log(`[GenerateKeyFacts] Input - title: ${title ? 'yes' : 'no'}, content: ${content ? content.length + ' chars' : 'no'}, description: ${description ? 'yes' : 'no'}, transcript: ${transcript ? 'yes' : 'no'}`);
+
     // Build the content to analyze
     let textToAnalyze = "";
     if (title) textToAnalyze += `Title: ${title}\n\n`;
@@ -4660,8 +4663,11 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
     if (transcript) textToAnalyze += `Transcript: ${transcript}\n\n`;
 
     if (!textToAnalyze.trim()) {
+      console.log("[GenerateKeyFacts] No content provided to analyze");
       return jsonResponse({ error: "No content provided to analyze" }, 400);
     }
+
+    console.log(`[GenerateKeyFacts] Total text to analyze: ${textToAnalyze.length} chars`);
 
     // Call OpenAI to extract key facts
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -4780,6 +4786,12 @@ ONLY return valid JSON. No explanations, no markdown.`,
 
     const candidateFactsList = candidateFacts.candidate_facts || candidateFacts.facts || [];
     console.log(`[GenerateKeyFacts] Pass 1 extracted ${candidateFactsList.length} candidate facts`);
+
+    // Early return if Pass 1 extracted no facts
+    if (candidateFactsList.length === 0) {
+      console.log("[GenerateKeyFacts] No candidate facts extracted from Pass 1, returning empty result");
+      return jsonResponse({ enriched: [], factIds: [] });
+    }
 
     // PASS 2: Deduplication Agent
     const deduplicationPrompt = `You are a deduplication specialist. You will receive a list of candidate facts extracted from training content. Your job is to remove duplicates and return a clean, final list.
@@ -4923,6 +4935,7 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`;
     }
 
     // Insert each fact into the database (skip duplicates)
+    console.log(`[GenerateKeyFacts] Inserting ${factsToInsert.length} facts into database...`);
     for (const fact of factsToInsert) {
       // Skip if a fact with similar title already exists for this track
       const normalizedTitle = fact.title?.toLowerCase().trim();
@@ -4952,6 +4965,7 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`;
 
       insertedFactIds.push(insertedFact.id);
       enrichedFacts.push(insertedFact);
+      console.log(`[GenerateKeyFacts] Inserted fact: "${fact.title}" (id: ${insertedFact.id})`);
 
       // Link to track if provided
       if (trackId) {
@@ -4963,10 +4977,13 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`;
 
         if (usageError) {
           console.error("Insert fact usage error:", usageError);
+        } else {
+          console.log(`[GenerateKeyFacts] Linked fact ${insertedFact.id} to track ${trackId}`);
         }
       }
     }
 
+    console.log(`[GenerateKeyFacts] COMPLETE: Inserted ${insertedFactIds.length} facts for track ${trackId || 'unknown'}`);
     return jsonResponse({
       enriched: enrichedFacts,
       factIds: insertedFactIds,
