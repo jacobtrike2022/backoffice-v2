@@ -4675,9 +4675,9 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
         messages: [
           {
             role: "system",
-            content: `You are an expert at extracting key facts from educational content for workplace compliance training in the convenience store, gas station, and foodservice industry.
+            content: `You are an expert at extracting key facts from educational content for workplace training in the convenience store, gas station, QSR, and foodservice industry.
 
-Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions. Think of these as the facts someone would write on notecards when studying for a certification test.
+Your job is to extract COLD, MEASURABLE, IMMUTABLE FACTS that would be suitable for quiz questions or knowledge checks. Think of these as the facts someone would write on notecards when studying for a test—whether that's a state certification, a company training module, or an operational procedures assessment.
 
 RULES:
 
@@ -4685,53 +4685,152 @@ RULES:
 
 2. **Smart atomicity** - One testable concept per fact. However, keep tightly related items together when they test a SINGLE idea (e.g., "Three requirements for X" can stay together if all three are needed to understand the concept).
 
-3. **No duplicates** - Do not create duplicate or near-duplicate facts. If the same concept appears multiple times in the source, extract it once.
+3. **Preserve conditional logic** - When content describes "if X then Y" relationships, capture both the condition and the outcome. Example: "If the fryer oil temperature exceeds 375°F, immediately turn off the unit and notify a manager."
 
-4. **Preserve conditional logic** - When content describes "if X then Y" relationships, capture both the condition and the outcome. Example: "If Safe Harbor requirements are met, the BUSINESS is protected from administrative penalties, but individual EMPLOYEES can still face criminal charges."
+4. **Extract specific numbers** - Measurements, temperatures, time limits, dollar amounts, percentages, and thresholds should be standalone facts when they're testable. Example: "Sanitizer solution concentration must be between 50-100 ppm for food contact surfaces."
 
-5. **Extract specific numbers** - Dollar amounts, time periods, percentages, and thresholds should be standalone facts when they're likely to appear on a compliance test. Example: "Maximum fine for selling alcohol to a minor in Texas: $4,000"
+5. **Capture responsibility distinctions** - Training content often distinguishes WHO is responsible for what (employee vs. manager, business vs. individual, shift lead vs. crew). These distinctions are testable.
 
-6. **Capture liability distinctions** - Compliance content often distinguishes WHO is liable (business vs. individual, civil vs. criminal). These distinctions are highly testable.
+6. **Include regulation and policy names** - If a specific law, act, regulation, or company policy is mentioned by name, extract what it requires and its consequences.
 
-7. **Include legal act names** - If a specific law or act is mentioned (e.g., Dram Shop Act, Safe Harbor Law), extract what it does and its consequences.
+7. **Context-independent when possible** - Facts should make sense without requiring the reader to have seen the source material.
 
-8. **Context-independent when possible** - Facts should make sense without requiring the reader to have seen the source material.
+8. **Tiered/range information** - For content with multiple levels, tiers, or ranges:
+    - Extract critical thresholds as standalone facts (legal limits, safety cutoffs, required minimums/maximums)
+    - Do NOT extract every tier individually unless each has distinct operational or legal implications
+    - Ask: "Would someone need to know this specific threshold to do their job correctly or pass a knowledge check?" If no, consolidate or skip.
+
+9. **Relevance filter** - Prioritize facts that directly impact the worker's actions:
+    - Thresholds they must know (temperatures, times, quantities, ages, limits)
+    - Steps they must follow
+    - Consequences of doing it wrong
+    - Skip background context, history, or theory unless it's directly testable
+
+10. **Consolidate factor lists** - When content lists multiple factors, causes, or components (e.g., "factors that affect X include: A, B, C, D"), you may extract:
+    - The full list as a single fact IF the list itself is testable
+    - Individual items as separate facts ONLY if each has unique, testable detail worth isolating
+    - Do not extract both the list AND each individual item
+
+---
+
+DEDUPLICATION PROCESS:
+
+Before generating your final output, you MUST complete these steps:
+
+STEP 1: EXTRACT
+Identify all candidate facts from the source content.
+
+STEP 2: CATEGORIZE
+Group candidate facts by concept category. Assign each fact a short internal category label based on what it's fundamentally about. Examples:
+- "Fryer oil temperature limits"
+- "ID verification requirements"
+- "Mop bucket procedure"
+- "Lottery ticket age restriction"
+- "Food holding time limits"
+- "Reporting harassment - steps"
+
+STEP 3: DEDUPLICATE
+Review each category. If a category contains multiple candidate facts:
+- They are duplicates expressing the same core concept
+- Select ONLY the single most complete, specific, and testable version
+- Discard all other versions
+
+STEP 4: OUTPUT
+Return only the final deduplicated facts. Do NOT include category labels in your output—they are for internal processing only.
+
+---
 
 WHAT TO EXTRACT:
-- Specific penalties, fines, jail times
-- Who is liable for what (business vs. individual)
-- Requirements to qualify for protections
-- Exceptions and edge cases (e.g., "even if the minor uses a fake ID")
-- Named laws/acts and their effects
-- Step-by-step procedures for compliance
+- Specific numbers: temperatures, times, quantities, ages, limits, fines, penalties
+- Required steps in procedures
+- Who is responsible for what
+- Requirements to meet a standard or qualify for something
+- Exceptions and edge cases
+- Named laws, regulations, policies and what they require
+- Safety thresholds and consequences of violations
+- Correct vs. incorrect methods when specified
 
 WHAT TO SKIP:
 - Motivational statements ("it's essential to understand...")
 - Vague summaries without testable specifics
-- Repeated information (extract once)
+- Repeated information (extract once, use best version)
+- Granular detail unlikely to appear on a knowledge check
+- Background context that doesn't affect how someone does their job
 
-BAD EXAMPLE (too vague):
-"Understanding Texas alcohol laws and their associated penalties is crucial for any seller or server."
+---
 
-GOOD EXAMPLE (testable):
-"In Texas, selling alcohol to a minor can result in fines up to $4,000 and up to one year in jail for the individual seller."
+EXAMPLES:
 
-GOOD EXAMPLE (conditional logic preserved):
-"Under the Dram Shop Act, if a server over-serves a customer who then causes harm, both the server and the business can be held liable in civil court for damages."
+BAD - Too vague:
+"Understanding proper food safety is crucial for every team member."
 
-Return a JSON array of facts with this structure:
+BAD - Duplicate extraction (same concept twice):
+Fact 4: "Hot food must be held at 135°F or above."
+Fact 12: "The minimum holding temperature for hot food is 135°F."
+→ These are the same concept. Extract once.
+
+BAD - Over-extraction:
+Extracting 8 separate facts for 8 different temperature ranges when only 2 are operationally critical.
+
+GOOD - Testable with specific number:
+"Hot TCS foods must be held at 135°F or above; cold TCS foods must be held at 41°F or below."
+
+GOOD - Conditional logic preserved:
+"If a customer cannot provide valid ID, refuse the sale regardless of their apparent age."
+
+GOOD - Procedure with steps:
+"To properly sanitize a food contact surface: 1) Wash with soap and water, 2) Rinse with clean water, 3) Apply sanitizer solution at 50-100 ppm, 4) Air dry."
+
+GOOD - Consolidated list:
+"Acceptable forms of ID for alcohol sales include: state driver's license, state ID card, military ID, and passport."
+
+---
+
+OUTPUT FORMAT - Two Types:
+
+**TYPE: "Fact"** - For declarative knowledge (what IS true)
+- "title": Short descriptive title (e.g., "Hot Food Holding Temperature")
+- "content": The complete, testable statement (e.g., "Hot TCS foods must be held at 135°F or above.")
+- "steps": [] (empty array)
+
+**TYPE: "Procedure"** - For step-by-step processes (what to DO)
+- "title": Short descriptive title (e.g., "Sanitizing Food Contact Surfaces")
+- "content": A short header/label for the procedure - NOT a full sentence, NOT a repeat of the steps. Just a brief tee-up like "Steps for sanitizing:" or "To verify customer age:"
+- "steps": Array of actionable steps, each step is a complete instruction
+
+IMPORTANT FOR PROCEDURES:
+- The "content" field is displayed as a header ABOVE the steps list
+- Do NOT put instructional content in "content" - that goes in "steps"
+- Do NOT repeat step content in the "content" field
+- Keep "content" to under 10 words - it's just a label
+
+EXAMPLE FACT:
 {
-  "facts": [
-    {
-      "title": "Short descriptive title",
-      "content": "The actual fact or procedure description",
-      "type": "Fact" | "Procedure",
-      "steps": ["Step 1", "Step 2"] // Only for Procedure type
-    }
+  "title": "Cold Food Holding Temperature",
+  "content": "Cold TCS foods must be held at 41°F or below to prevent bacterial growth.",
+  "type": "Fact",
+  "steps": []
+}
+
+EXAMPLE PROCEDURE:
+{
+  "title": "Sanitizing Food Contact Surfaces",
+  "content": "Steps for proper sanitization:",
+  "type": "Procedure",
+  "steps": [
+    "Wash the surface with soap and water",
+    "Rinse with clean water",
+    "Apply sanitizer solution at 50-100 ppm concentration",
+    "Allow to air dry - do not wipe"
   ]
 }
 
-ONLY return valid JSON. No explanations or markdown.`,
+Return valid JSON only:
+{
+  "facts": [...]
+}
+
+ONLY return valid JSON. No explanations, no markdown, no category labels.`,
           },
           {
             role: "user",
@@ -14324,6 +14423,15 @@ Return JSON only, no markdown:
   ]
 }`;
 
+    // Helper to format a fact, including steps for Procedures
+    const formatFact = (f: any, index: number): string => {
+      let factText = `${index}. ${f.title}: ${f.content}`;
+      if (f.type === 'Procedure' && f.steps && Array.isArray(f.steps) && f.steps.length > 0) {
+        factText += '\n   Steps: ' + f.steps.map((s: string, i: number) => `(${i + 1}) ${s}`).join(' ');
+      }
+      return factText;
+    };
+
     // Build facts list organized by track for multi-track
     let factsSection = '';
     if (isMultiTrack) {
@@ -14333,11 +14441,11 @@ Return JSON only, no markdown:
         const trackFacts = factsByTrack.get(trackId) || [];
         if (trackFacts.length > 0) {
           factsSection += `\n\nFrom "${track.title}":\n`;
-          factsSection += trackFacts.map((f: any) => `${factIndex++}. ${f.title}: ${f.content}`).join('\n');
+          factsSection += trackFacts.map((f: any) => formatFact(f, factIndex++)).join('\n');
         }
       }
     } else {
-      factsSection = allFacts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n');
+      factsSection = allFacts.map((f: any, i: number) => formatFact(f, i + 1)).join('\n');
     }
 
     const userPrompt = isMultiTrack
