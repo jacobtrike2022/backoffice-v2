@@ -14,8 +14,8 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { cn } from '../ui/utils';
-import { TrikeAdminView } from './TrikeAdminLayout';
 import { STAGE_CONFIG, PIPELINE_STAGES, type DealStage, type Deal } from './types';
+import type { TrikeAdminView } from './TrikeAdminPage';
 
 interface DealDashboardProps {
   onNavigate: (view: TrikeAdminView) => void;
@@ -364,7 +364,7 @@ function MetricCard({
           <div
             className={cn(
               'flex items-center text-xs font-medium',
-              isPositive ? 'text-green-600' : 'text-red-600'
+              isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
             )}
           >
             {isPositive ? (

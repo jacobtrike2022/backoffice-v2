@@ -275,7 +275,7 @@ export function DealPipelineBoard() {
             </div>
             <div>
               <span className="text-muted-foreground">Total Value:</span>{' '}
-              <span className="font-semibold text-green-600">
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(
                   mockDeals
                     .filter((d) => PIPELINE_STAGES.includes(d.stage!))

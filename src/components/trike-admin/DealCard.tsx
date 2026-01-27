@@ -84,13 +84,13 @@ export function DealCard({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onStageChange?.(deal, 'won')}
-                className="text-green-600"
+                className="text-emerald-600 dark:text-emerald-400"
               >
                 Mark as won
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onStageChange?.(deal, 'lost')}
-                className="text-red-600"
+                className="text-red-600 dark:text-red-400"
               >
                 Mark as lost
               </DropdownMenuItem>
@@ -106,7 +106,7 @@ export function DealCard({
         {/* Value and MRR */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <DollarSign className="h-3.5 w-3.5 text-green-600" />
+            <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="font-semibold text-sm">
               {formatCurrency(deal.value)}
             </span>
@@ -129,10 +129,10 @@ export function DealCard({
               className={cn(
                 'h-full rounded-full transition-all',
                 deal.probability! >= 75
-                  ? 'bg-green-500'
+                  ? 'bg-emerald-500'
                   : deal.probability! >= 50
                   ? 'bg-amber-500'
-                  : 'bg-slate-400'
+                  : 'bg-slate-400 dark:bg-slate-500'
               )}
               style={{ width: `${deal.probability || 0}%` }}
             />
@@ -147,7 +147,7 @@ export function DealCard({
               <span
                 className={cn(
                   daysUntilClose !== null && daysUntilClose < 7
-                    ? 'text-amber-600 font-medium'
+                    ? 'text-amber-600 dark:text-amber-400 font-medium'
                     : 'text-muted-foreground'
                 )}
               >

@@ -135,7 +135,7 @@ function PlaceholderView({
         <h2 className="text-xl font-semibold mb-2">{title}</h2>
         <p className="text-muted-foreground mb-6">{description}</p>
         <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+          <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
           Coming soon
         </div>
       </div>

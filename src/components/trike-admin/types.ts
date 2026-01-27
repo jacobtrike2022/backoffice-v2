@@ -150,52 +150,53 @@ export interface PipelineSummary {
   weighted_value: number | null;
 }
 
-// Stage configuration for UI
+// Stage configuration for UI - using Trike brand colors
+// Primary: #F64A05 (orange), Success: #10b981 (emerald), Warning: #f59e0b (amber), Danger: #ef4444 (red)
 export const STAGE_CONFIG: Record<
   DealStage,
   { label: string; color: string; bgColor: string; borderColor: string }
 > = {
   lead: {
     label: 'Lead',
-    color: 'text-slate-700',
-    bgColor: 'bg-slate-100',
-    borderColor: 'border-slate-300',
+    color: 'text-slate-600 dark:text-slate-300',
+    bgColor: 'bg-slate-100 dark:bg-slate-800',
+    borderColor: 'border-slate-300 dark:border-slate-600',
   },
   prospect: {
     label: 'Prospect',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-100',
-    borderColor: 'border-blue-300',
+    color: 'text-orange-600 dark:text-orange-400',
+    bgColor: 'bg-orange-50 dark:bg-orange-950',
+    borderColor: 'border-orange-300 dark:border-orange-700',
   },
   evaluating: {
     label: 'Evaluating',
-    color: 'text-purple-700',
-    bgColor: 'bg-purple-100',
-    borderColor: 'border-purple-300',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950',
+    borderColor: 'border-amber-300 dark:border-amber-700',
   },
   closing: {
     label: 'Closing',
-    color: 'text-amber-700',
-    bgColor: 'bg-amber-100',
-    borderColor: 'border-amber-300',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950',
+    borderColor: 'border-emerald-300 dark:border-emerald-700',
   },
   won: {
     label: 'Won',
-    color: 'text-green-700',
-    bgColor: 'bg-green-100',
-    borderColor: 'border-green-300',
+    color: 'text-emerald-700 dark:text-emerald-300',
+    bgColor: 'bg-emerald-100 dark:bg-emerald-900',
+    borderColor: 'border-emerald-400 dark:border-emerald-600',
   },
   lost: {
     label: 'Lost',
-    color: 'text-red-700',
-    bgColor: 'bg-red-100',
-    borderColor: 'border-red-300',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-50 dark:bg-red-950',
+    borderColor: 'border-red-300 dark:border-red-700',
   },
   frozen: {
     label: 'Frozen',
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-100',
-    borderColor: 'border-gray-300',
+    color: 'text-slate-500 dark:text-slate-400',
+    bgColor: 'bg-slate-50 dark:bg-slate-900',
+    borderColor: 'border-slate-200 dark:border-slate-700',
   },
 };
 
