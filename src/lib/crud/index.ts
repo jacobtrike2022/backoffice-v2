@@ -29,6 +29,9 @@ export * from './compliance';
 export * from './complianceAssignments';
 export * from './industries';
 
+// Programs
+export * from './programs';
+
 // Users
 export * from './users';
 

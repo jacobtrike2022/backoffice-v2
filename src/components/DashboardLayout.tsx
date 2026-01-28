@@ -180,6 +180,12 @@ const navigationGroups: NavigationGroup[] = [
         roles: ['trike-super-admin']
       },
       {
+        id: 'programs-management',
+        label: 'Programs & Industries',
+        icon: Building2,
+        roles: ['trike-super-admin']
+      },
+      {
         id: 'trike-admin',
         label: 'Sales Pipeline',
         icon: Briefcase,

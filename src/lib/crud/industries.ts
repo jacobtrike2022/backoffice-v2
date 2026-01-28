@@ -264,3 +264,172 @@ export async function getIndustriesForRequirement(requirementId: string): Promis
   if (error) throw error;
   return (data?.map(d => d.industry) as Industry[]) || [];
 }
+
+// ============================================================================
+// INDUSTRY → COMPLIANCE TOPICS (Direct Association)
+// ============================================================================
+
+export interface IndustryComplianceTopic {
+  industry_id: string;
+  topic_id: string;
+  is_typical: boolean;
+  priority: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  topic?: {
+    id: string;
+    name: string;
+    description: string | null;
+  };
+}
+
+/**
+ * Get compliance topics directly associated with an industry
+ * (For onboarding suggestions, before specific state requirements)
+ */
+export async function getIndustryComplianceTopics(industryId: string): Promise<IndustryComplianceTopic[]> {
+  const { data, error } = await supabase
+    .from('industry_compliance_topics')
+    .select(`
+      *,
+      topic:compliance_topics(id, name, description)
+    `)
+    .eq('industry_id', industryId)
+    .order('priority', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get all industries that have a specific compliance topic
+ */
+export async function getIndustriesForComplianceTopic(topicId: string): Promise<Industry[]> {
+  const { data, error } = await supabase
+    .from('industry_compliance_topics')
+    .select('industry:industries(*)')
+    .eq('topic_id', topicId);
+
+  if (error) throw error;
+  return (data?.map(d => d.industry) as Industry[]) || [];
+}
+
+/**
+ * Add a compliance topic to an industry
+ */
+export async function addIndustryComplianceTopic(input: {
+  industry_id: string;
+  topic_id: string;
+  is_typical?: boolean;
+  priority?: number;
+  notes?: string;
+}): Promise<IndustryComplianceTopic> {
+  const { data, error } = await supabase
+    .from('industry_compliance_topics')
+    .insert({
+      industry_id: input.industry_id,
+      topic_id: input.topic_id,
+      is_typical: input.is_typical ?? true,
+      priority: input.priority ?? 0,
+      notes: input.notes || null,
+    })
+    .select(`
+      *,
+      topic:compliance_topics(id, name, description)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update an industry compliance topic association
+ */
+export async function updateIndustryComplianceTopic(
+  industryId: string,
+  topicId: string,
+  input: Partial<{
+    is_typical: boolean;
+    priority: number;
+    notes: string | null;
+  }>
+): Promise<IndustryComplianceTopic> {
+  const { data, error } = await supabase
+    .from('industry_compliance_topics')
+    .update(input)
+    .eq('industry_id', industryId)
+    .eq('topic_id', topicId)
+    .select(`
+      *,
+      topic:compliance_topics(id, name, description)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Remove a compliance topic from an industry
+ */
+export async function removeIndustryComplianceTopic(industryId: string, topicId: string): Promise<void> {
+  const { error } = await supabase
+    .from('industry_compliance_topics')
+    .delete()
+    .eq('industry_id', industryId)
+    .eq('topic_id', topicId);
+
+  if (error) throw error;
+}
+
+/**
+ * Set all compliance topics for an industry (replaces existing)
+ */
+export async function setIndustryComplianceTopics(
+  industryId: string,
+  topicIds: string[]
+): Promise<void> {
+  // Delete all existing
+  const { error: deleteError } = await supabase
+    .from('industry_compliance_topics')
+    .delete()
+    .eq('industry_id', industryId);
+
+  if (deleteError) throw deleteError;
+
+  // Insert new ones if any
+  if (topicIds.length > 0) {
+    const { error: insertError } = await supabase
+      .from('industry_compliance_topics')
+      .insert(
+        topicIds.map((topicId, index) => ({
+          industry_id: industryId,
+          topic_id: topicId,
+          priority: index,
+        }))
+      );
+
+    if (insertError) throw insertError;
+  }
+}
+
+/**
+ * Get an industry with all its relationships (topics, programs, requirements)
+ */
+export async function getIndustryWithRelationships(industryId: string): Promise<{
+  industry: Industry;
+  complianceTopics: IndustryComplianceTopic[];
+  requirements: IndustryRequirement[];
+} | null> {
+  const industry = await getIndustry(industryId);
+  if (!industry) return null;
+
+  const [complianceTopics, requirements] = await Promise.all([
+    getIndustryComplianceTopics(industryId),
+    getIndustryRequirements(industryId),
+  ]);
+
+  return { industry, complianceTopics, requirements };
+}
