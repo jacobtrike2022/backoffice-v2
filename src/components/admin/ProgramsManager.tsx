@@ -48,7 +48,10 @@ import {
   Search,
   ExternalLink,
   AlertTriangle,
-  Filter
+  Filter,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from 'lucide-react';
 import {
   getPrograms,
@@ -70,6 +73,12 @@ export function ProgramsManager() {
   // Filter state
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Sort state
+  type SortColumn = 'name' | 'category' | 'vendor_name' | 'display_name' | 'is_active';
+  type SortDirection = 'asc' | 'desc';
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -131,8 +140,10 @@ export function ProgramsManager() {
 
   function openCreateDialog() {
     setEditingProgram(null);
+    // Use the currently filtered category if one is selected, otherwise default to first category
+    const defaultCategoryId = filterCategory !== 'all' ? filterCategory : (categories[0]?.id || '');
     setFormData({
-      category_id: categories[0]?.id || '',
+      category_id: defaultCategoryId,
       name: '',
       slug: '',
       display_name: '',
@@ -241,6 +252,59 @@ export function ProgramsManager() {
     }
   }
 
+  function handleSort(column: SortColumn) {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  }
+
+  function getSortIcon(column: SortColumn) {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 opacity-50" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp className="h-4 w-4 ml-1" />
+      : <ArrowDown className="h-4 w-4 ml-1" />;
+  }
+
+  // Sort programs
+  const sortedPrograms = [...programs].sort((a, b) => {
+    let aVal: string;
+    let bVal: string;
+
+    switch (sortColumn) {
+      case 'name':
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+        break;
+      case 'category':
+        aVal = (a.category?.name || '').toLowerCase();
+        bVal = (b.category?.name || '').toLowerCase();
+        break;
+      case 'vendor_name':
+        aVal = (a.vendor_name || '').toLowerCase();
+        bVal = (b.vendor_name || '').toLowerCase();
+        break;
+      case 'display_name':
+        aVal = (a.display_name || '').toLowerCase();
+        bVal = (b.display_name || '').toLowerCase();
+        break;
+      case 'is_active':
+        aVal = a.is_active ? '0' : '1'; // Active first
+        bVal = b.is_active ? '0' : '1';
+        break;
+      default:
+        aVal = '';
+        bVal = '';
+    }
+
+    const comparison = aVal.localeCompare(bVal);
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -313,23 +377,63 @@ export function ProgramsManager() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Program</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Display Name</TableHead>
-                <TableHead className="w-20">Status</TableHead>
+                <TableHead>
+                  <button
+                    onClick={() => handleSort('name')}
+                    className="flex items-center hover:text-foreground transition-colors"
+                  >
+                    Program
+                    {getSortIcon('name')}
+                  </button>
+                </TableHead>
+                <TableHead>
+                  <button
+                    onClick={() => handleSort('category')}
+                    className="flex items-center hover:text-foreground transition-colors"
+                  >
+                    Category
+                    {getSortIcon('category')}
+                  </button>
+                </TableHead>
+                <TableHead>
+                  <button
+                    onClick={() => handleSort('vendor_name')}
+                    className="flex items-center hover:text-foreground transition-colors"
+                  >
+                    Vendor
+                    {getSortIcon('vendor_name')}
+                  </button>
+                </TableHead>
+                <TableHead>
+                  <button
+                    onClick={() => handleSort('display_name')}
+                    className="flex items-center hover:text-foreground transition-colors"
+                  >
+                    Display Name
+                    {getSortIcon('display_name')}
+                  </button>
+                </TableHead>
+                <TableHead className="w-20">
+                  <button
+                    onClick={() => handleSort('is_active')}
+                    className="flex items-center hover:text-foreground transition-colors"
+                  >
+                    Status
+                    {getSortIcon('is_active')}
+                  </button>
+                </TableHead>
                 <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {programs.length === 0 ? (
+              {sortedPrograms.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     No programs found
                   </TableCell>
                 </TableRow>
               ) : (
-                programs.map((program) => (
+                sortedPrograms.map((program) => (
                   <TableRow key={program.id}>
                     <TableCell className="font-medium">
                       <div>

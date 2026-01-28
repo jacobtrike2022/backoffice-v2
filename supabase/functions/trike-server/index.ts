@@ -8516,6 +8516,47 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
+    // Save organization compliance topics
+    if (data.compliance_topic_ids && data.compliance_topic_ids.length > 0) {
+      const topicsToInsert = data.compliance_topic_ids.map((topicId: string, index: number) => ({
+        organization_id: org.id,
+        topic_id: topicId,
+        is_active: true,
+        priority: index,
+        added_during: 'onboarding',
+      }));
+
+      const { error: topicsError } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+
+      if (topicsError) {
+        console.error("[Onboarding] Failed to save compliance topics:", topicsError);
+      } else {
+        console.log(`[Onboarding] Saved ${topicsToInsert.length} compliance topics`);
+      }
+    }
+
+    // Save organization programs
+    if (data.program_ids && data.program_ids.length > 0) {
+      const programsToInsert = data.program_ids.map((programId: string) => ({
+        organization_id: org.id,
+        program_id: programId,
+        is_active: true,
+        added_during: 'onboarding',
+      }));
+
+      const { error: programsError } = await supabase
+        .from("organization_programs")
+        .insert(programsToInsert);
+
+      if (programsError) {
+        console.error("[Onboarding] Failed to save programs:", programsError);
+      } else {
+        console.log(`[Onboarding] Saved ${programsToInsert.length} programs`);
+      }
+    }
+
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
@@ -8572,23 +8613,65 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 }
 
 /**
- * Get industries and services for form dropdowns
+ * Get industries, compliance topics, programs, and services for form dropdowns
  */
 async function handleOnboardingOptions(req: Request): Promise<Response> {
   try {
-    // Get industries
+    // Get industries with their IDs for joining
     const { data: industries, error: industriesError } = await supabase
       .from("industries")
-      .select("slug, name, description, default_services, icon, sort_order")
+      .select("id, slug, name, description, code, sort_order")
       .eq("is_active", true)
       .order("sort_order");
 
     if (industriesError) throw industriesError;
 
-    // Get services
+    // Get all compliance topics
+    const { data: complianceTopics, error: topicsError } = await supabase
+      .from("compliance_topics")
+      .select("id, name, slug, description, sort_order")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (topicsError) throw topicsError;
+
+    // Get industry → compliance topic defaults
+    const { data: industryTopicDefaults, error: industryTopicsError } = await supabase
+      .from("industry_compliance_topics")
+      .select("industry_id, topic_id, priority")
+      .eq("is_typical", true);
+
+    if (industryTopicsError) throw industryTopicsError;
+
+    // Get program categories
+    const { data: programCategories, error: categoriesError } = await supabase
+      .from("program_categories")
+      .select("id, name, slug, description, sort_order")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (categoriesError) throw categoriesError;
+
+    // Get all programs with their categories
+    const { data: programs, error: programsError } = await supabase
+      .from("programs")
+      .select("id, category_id, name, slug, display_name, vendor_name, sort_order")
+      .eq("is_active", true)
+      .order("sort_order");
+
+    if (programsError) throw programsError;
+
+    // Get industry → program defaults
+    const { data: industryProgramDefaults, error: industryProgramsError } = await supabase
+      .from("industry_programs")
+      .select("industry_id, program_id, is_common, market_share_tier");
+
+    if (industryProgramsError) throw industryProgramsError;
+
+    // Get services (legacy, kept for backward compatibility)
     const { data: services, error: servicesError } = await supabase
       .from("service_definitions")
-      .select("slug, name, description, compliance_domains, requires_license, icon, sort_order")
+      .select("slug, name, description, compliance_domains, requires_license, sort_order")
       .eq("is_active", true)
       .order("sort_order");
 
@@ -8615,9 +8698,30 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       { code: "WI", name: "Wisconsin" }, { code: "WY", name: "Wyoming" }, { code: "DC", name: "District of Columbia" },
     ];
 
+    // Build industry defaults map for easy lookup
+    // { industryId: { topicIds: [...], programIds: [...] } }
+    const industryDefaults: Record<string, { topicIds: string[]; programIds: string[] }> = {};
+    for (const industry of industries || []) {
+      industryDefaults[industry.id] = { topicIds: [], programIds: [] };
+    }
+    for (const it of industryTopicDefaults || []) {
+      if (industryDefaults[it.industry_id]) {
+        industryDefaults[it.industry_id].topicIds.push(it.topic_id);
+      }
+    }
+    for (const ip of industryProgramDefaults || []) {
+      if (industryDefaults[ip.industry_id]) {
+        industryDefaults[ip.industry_id].programIds.push(ip.program_id);
+      }
+    }
+
     return jsonResponse({
       industries: industries || [],
-      services: services || [],
+      complianceTopics: complianceTopics || [],
+      programCategories: programCategories || [],
+      programs: programs || [],
+      industryDefaults,
+      services: services || [],  // Legacy, kept for backward compatibility
       states,
     });
   } catch (error: any) {
