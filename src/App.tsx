@@ -40,7 +40,7 @@ import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
 import { ComplianceDashboard } from "./components/compliance/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
 import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
-import { ProgramsManagement } from "./components/admin";
+import { ProgramsManagement, TrikeAdminFunctions } from "./components/admin";
 import { People } from "./components/People";
 import { Units } from "./components/Units";
 import { NewUnit } from "./components/NewUnit";
@@ -78,6 +78,7 @@ type AppView =
   | "compliance-audit"
   | "compliance-management"
   | "programs-management"
+  | "trike-admin-functions"
   | "content"
   | "assignments"
   | "assignment"
@@ -460,6 +461,18 @@ export default function App() {
         }
         return (
           <ProgramsManagement
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
+      case "trike-admin-functions":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <TrikeAdminFunctions
             currentRole={currentRole}
             onNavigate={requestNavigate}
           />

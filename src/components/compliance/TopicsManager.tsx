@@ -58,7 +58,6 @@ export function TopicsManager() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    icon: '',
     sort_order: 0
   });
   const [saving, setSaving] = useState(false);
@@ -90,7 +89,6 @@ export function TopicsManager() {
     setFormData({
       name: '',
       description: '',
-      icon: '',
       sort_order: topics.length
     });
     setShowDialog(true);
@@ -101,7 +99,6 @@ export function TopicsManager() {
     setFormData({
       name: topic.name,
       description: topic.description || '',
-      icon: topic.icon || '',
       sort_order: topic.sort_order || 0
     });
     setShowDialog(true);
@@ -120,14 +117,12 @@ export function TopicsManager() {
         await updateComplianceTopic(editingTopic.id, {
           name: formData.name.trim(),
           description: formData.description.trim() || null,
-          icon: formData.icon.trim() || null,
           sort_order: formData.sort_order
         });
       } else {
         await createComplianceTopic({
           name: formData.name.trim(),
           description: formData.description.trim() || null,
-          icon: formData.icon.trim() || null,
           sort_order: formData.sort_order
         });
       }
@@ -203,7 +198,6 @@ export function TopicsManager() {
                 <TableHead className="w-12"></TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Icon</TableHead>
                 <TableHead className="w-24">Order</TableHead>
                 <TableHead className="w-24">Actions</TableHead>
               </TableRow>
@@ -211,7 +205,7 @@ export function TopicsManager() {
             <TableBody>
               {topics.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     No compliance topics defined yet
                   </TableCell>
                 </TableRow>
@@ -225,7 +219,6 @@ export function TopicsManager() {
                     <TableCell className="text-muted-foreground max-w-xs truncate">
                       {topic.description || '-'}
                     </TableCell>
-                    <TableCell>{topic.icon || '-'}</TableCell>
                     <TableCell>{topic.sort_order}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -287,25 +280,15 @@ export function TopicsManager() {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="icon">Icon (Lucide name)</Label>
-                <Input
-                  id="icon"
-                  value={formData.icon}
-                  onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                  placeholder="e.g., Shield, FileCheck"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sort_order">Sort Order</Label>
-                <Input
-                  id="sort_order"
-                  type="number"
-                  value={formData.sort_order}
-                  onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="sort_order">Sort Order</Label>
+              <Input
+                id="sort_order"
+                type="number"
+                value={formData.sort_order}
+                onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
+                className="w-24"
+              />
             </div>
           </div>
           <DialogFooter>

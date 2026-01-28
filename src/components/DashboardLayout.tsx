@@ -174,15 +174,9 @@ const navigationGroups: NavigationGroup[] = [
         roles: ['admin', 'trike-super-admin']
       },
       {
-        id: 'compliance-management',
-        label: 'Compliance Management',
-        icon: ShieldCheck,
-        roles: ['trike-super-admin']
-      },
-      {
-        id: 'programs-management',
-        label: 'Programs & Industries',
-        icon: Building2,
+        id: 'trike-admin-functions',
+        label: 'Trike Admin Functions',
+        icon: Wrench,
         roles: ['trike-super-admin']
       },
       {
@@ -470,10 +464,8 @@ export function DashboardLayout({
                               onNavigate('organization');
                             } else if (item.id === 'settings') {
                               onNavigate('settings');
-                            } else if (item.id === 'compliance-management') {
-                              onNavigate('compliance-management');
-                            } else if (item.id === 'programs-management') {
-                              onNavigate('programs-management');
+                            } else if (item.id === 'trike-admin-functions') {
+                              onNavigate('trike-admin-functions');
                             } else if (item.id === 'trike-admin') {
                               onNavigate('trike-admin');
                             } else {

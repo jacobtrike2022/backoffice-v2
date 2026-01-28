@@ -129,9 +129,17 @@ type OnboardingStep =
 
 export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) => {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    // Show initial message immediately for better perceived performance
+    {
+      role: 'assistant',
+      content: "Hi there! I'm here to help you get set up with Trike. Let's start by pulling in your company info.",
+      timestamp: new Date(),
+    },
+  ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [collectedData, setCollectedData] = useState<CollectedData>({});
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -176,10 +184,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     scrollToBottom();
   }, [messages, currentStep]);
 
-  // Start session and fetch options on mount
+  // Start session and fetch options on mount (in parallel)
   useEffect(() => {
-    startSession();
-    fetchOptions();
+    const init = async () => {
+      setIsInitializing(true);
+      await Promise.all([startSession(), fetchOptions()]);
+      setIsInitializing(false);
+    };
+    init();
   }, []);
 
   const fetchOptions = async () => {
@@ -221,13 +233,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
       const data = await response.json();
       if (data.success) {
         setSessionToken(data.session_token);
-        setMessages([
-          {
-            role: 'assistant',
-            content: "Hi there! I'm here to help you get set up with Trike. Let's start by pulling in your company info.",
-            timestamp: new Date(),
-          },
-        ]);
+        // Message already shown on mount for instant UX
       } else {
         throw new Error(data.error || 'Failed to start session');
       }
@@ -724,14 +730,18 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  disabled={isLoading}
+                  disabled={isLoading || isInitializing}
                   className="flex-1"
                 />
                 <Button
                   onClick={handleWebsiteSubmit}
-                  disabled={!inputValue.trim() || isLoading}
+                  disabled={!inputValue.trim() || isLoading || isInitializing}
                 >
-                  <ArrowRight className="h-4 w-4" />
+                  {isInitializing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
