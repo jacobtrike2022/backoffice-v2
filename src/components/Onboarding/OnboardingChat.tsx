@@ -267,11 +267,11 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
         // Pre-populate form fields from scraped data
         if (data.industry) {
-          setSelectedIndustry(data.industry);
-          // Pre-select default services for the industry
+          // Find industry by slug and set its ID
           const industry = industries.find(i => i.slug === data.industry);
-          if (industry?.default_services) {
-            setSelectedServices(data.services || industry.default_services);
+          if (industry) {
+            // Use handleIndustrySelect to set industry and load defaults
+            handleIndustrySelect(industry.id);
           }
         }
         if (data.services) setSelectedServices(data.services);

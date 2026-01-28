@@ -8617,65 +8617,71 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
  */
 async function handleOnboardingOptions(req: Request): Promise<Response> {
   try {
-    // Get industries with their IDs for joining
-    // Note: industries table uses 'code' not 'slug', and has no is_active column
-    const { data: industries, error: industriesError } = await supabase
-      .from("industries")
-      .select("id, code, name, description, sort_order")
-      .order("sort_order");
+    // Run all queries in parallel for faster response
+    const [
+      industriesResult,
+      complianceTopicsResult,
+      industryTopicDefaultsResult,
+      programCategoriesResult,
+      programsResult,
+      industryProgramDefaultsResult,
+      servicesResult,
+    ] = await Promise.all([
+      // Get industries (uses 'code' not 'slug', no is_active column)
+      supabase
+        .from("industries")
+        .select("id, code, name, description, sort_order")
+        .order("sort_order"),
+      // Get compliance topics (no 'slug' or 'is_active' columns)
+      supabase
+        .from("compliance_topics")
+        .select("id, name, description, sort_order")
+        .order("sort_order"),
+      // Get industry → compliance topic defaults
+      supabase
+        .from("industry_compliance_topics")
+        .select("industry_id, topic_id, priority")
+        .eq("is_typical", true),
+      // Get program categories
+      supabase
+        .from("program_categories")
+        .select("id, name, slug, description, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get all programs
+      supabase
+        .from("programs")
+        .select("id, category_id, name, slug, display_name, vendor_name, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get industry → program defaults
+      supabase
+        .from("industry_programs")
+        .select("industry_id, program_id, is_common, market_share_tier"),
+      // Get services (legacy)
+      supabase
+        .from("service_definitions")
+        .select("slug, name, description, compliance_domains, requires_license, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
 
-    if (industriesError) throw industriesError;
+    // Check for errors
+    if (industriesResult.error) throw industriesResult.error;
+    if (complianceTopicsResult.error) throw complianceTopicsResult.error;
+    if (industryTopicDefaultsResult.error) throw industryTopicDefaultsResult.error;
+    if (programCategoriesResult.error) throw programCategoriesResult.error;
+    if (programsResult.error) throw programsResult.error;
+    if (industryProgramDefaultsResult.error) throw industryProgramDefaultsResult.error;
+    if (servicesResult.error) throw servicesResult.error;
 
-    // Get all compliance topics
-    // Note: compliance_topics table has no 'slug' or 'is_active' columns
-    const { data: complianceTopics, error: topicsError } = await supabase
-      .from("compliance_topics")
-      .select("id, name, description, sort_order")
-      .order("sort_order");
-
-    if (topicsError) throw topicsError;
-
-    // Get industry → compliance topic defaults
-    const { data: industryTopicDefaults, error: industryTopicsError } = await supabase
-      .from("industry_compliance_topics")
-      .select("industry_id, topic_id, priority")
-      .eq("is_typical", true);
-
-    if (industryTopicsError) throw industryTopicsError;
-
-    // Get program categories
-    const { data: programCategories, error: categoriesError } = await supabase
-      .from("program_categories")
-      .select("id, name, slug, description, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
-
-    if (categoriesError) throw categoriesError;
-
-    // Get all programs with their categories
-    const { data: programs, error: programsError } = await supabase
-      .from("programs")
-      .select("id, category_id, name, slug, display_name, vendor_name, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
-
-    if (programsError) throw programsError;
-
-    // Get industry → program defaults
-    const { data: industryProgramDefaults, error: industryProgramsError } = await supabase
-      .from("industry_programs")
-      .select("industry_id, program_id, is_common, market_share_tier");
-
-    if (industryProgramsError) throw industryProgramsError;
-
-    // Get services (legacy, kept for backward compatibility)
-    const { data: services, error: servicesError } = await supabase
-      .from("service_definitions")
-      .select("slug, name, description, compliance_domains, requires_license, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
-
-    if (servicesError) throw servicesError;
+    const industries = industriesResult.data;
+    const complianceTopics = complianceTopicsResult.data;
+    const industryTopicDefaults = industryTopicDefaultsResult.data;
+    const programCategories = programCategoriesResult.data;
+    const programs = programsResult.data;
+    const industryProgramDefaults = industryProgramDefaultsResult.data;
+    const services = servicesResult.data;
 
     // Get US states
     const states = [
