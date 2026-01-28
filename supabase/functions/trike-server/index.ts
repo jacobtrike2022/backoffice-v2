@@ -8618,19 +8618,19 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 async function handleOnboardingOptions(req: Request): Promise<Response> {
   try {
     // Get industries with their IDs for joining
+    // Note: industries table uses 'code' not 'slug', and has no is_active column
     const { data: industries, error: industriesError } = await supabase
       .from("industries")
-      .select("id, slug, name, description, code, sort_order")
-      .eq("is_active", true)
+      .select("id, code, name, description, sort_order")
       .order("sort_order");
 
     if (industriesError) throw industriesError;
 
     // Get all compliance topics
+    // Note: compliance_topics table has no 'slug' or 'is_active' columns
     const { data: complianceTopics, error: topicsError } = await supabase
       .from("compliance_topics")
-      .select("id, name, slug, description, sort_order")
-      .eq("is_active", true)
+      .select("id, name, description, sort_order")
       .order("sort_order");
 
     if (topicsError) throw topicsError;
@@ -8715,9 +8715,21 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       }
     }
 
+    // Map industry 'code' to 'slug' for frontend compatibility
+    const mappedIndustries = (industries || []).map(ind => ({
+      ...ind,
+      slug: ind.code,  // Frontend expects 'slug'
+    }));
+
+    // Map compliance topics to add 'slug' from 'name' for frontend compatibility
+    const mappedTopics = (complianceTopics || []).map(topic => ({
+      ...topic,
+      slug: topic.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+    }));
+
     return jsonResponse({
-      industries: industries || [],
-      complianceTopics: complianceTopics || [],
+      industries: mappedIndustries,
+      complianceTopics: mappedTopics,
       programCategories: programCategories || [],
       programs: programs || [],
       industryDefaults,
