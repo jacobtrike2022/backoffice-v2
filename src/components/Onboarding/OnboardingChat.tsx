@@ -196,11 +196,15 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const fetchOptions = async () => {
     try {
-      const response = await fetch(`${getServerUrl()}/onboarding/options`, {
+      // Add cache-busting timestamp to ensure fresh data
+      const response = await fetch(`${getServerUrl()}/onboarding/options?_t=${Date.now()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
         },
+        cache: 'no-store',
       });
 
       const data = await response.json();

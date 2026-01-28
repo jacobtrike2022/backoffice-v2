@@ -8733,7 +8733,8 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       slug: topic.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
     }));
 
-    return jsonResponse({
+    // Return with no-cache headers to ensure fresh data
+    return new Response(JSON.stringify({
       industries: mappedIndustries,
       complianceTopics: mappedTopics,
       programCategories: programCategories || [],
@@ -8741,6 +8742,14 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       industryDefaults,
       services: services || [],  // Legacy, kept for backward compatibility
       states,
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+      },
     });
   } catch (error: any) {
     console.error("[Onboarding] Options error:", error);

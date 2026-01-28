@@ -66,6 +66,11 @@ export function TopicsManager() {
   const [deletingTopic, setDeletingTopic] = useState<ComplianceTopic | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Drag and drop state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+
   useEffect(() => {
     fetchTopics();
   }, []);
@@ -152,6 +157,80 @@ export function TopicsManager() {
     }
   }
 
+  // Drag and drop handlers
+  function handleDragStart(e: React.DragEvent, index: number) {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Make the drag image slightly transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '1';
+    }
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex !== null && draggedIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }
+
+  function handleDragLeave() {
+    setDragOverIndex(null);
+  }
+
+  async function handleDrop(e: React.DragEvent, dropIndex: number) {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Reorder the topics array
+    const newTopics = [...topics];
+    const [draggedTopic] = newTopics.splice(draggedIndex, 1);
+    newTopics.splice(dropIndex, 0, draggedTopic);
+
+    // Update sort_order for all affected topics
+    const updatedTopics = newTopics.map((topic, index) => ({
+      ...topic,
+      sort_order: index
+    }));
+
+    // Optimistically update the UI
+    setTopics(updatedTopics);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+
+    // Save the new order to the database
+    setIsReordering(true);
+    setError(null);
+    try {
+      // Update each topic's sort_order
+      await Promise.all(
+        updatedTopics.map((topic, index) =>
+          updateComplianceTopic(topic.id, { sort_order: index })
+        )
+      );
+    } catch (err: any) {
+      console.error('Error reordering topics:', err);
+      setError(err.message || 'Failed to save new order');
+      // Revert on error
+      await fetchTopics();
+    } finally {
+      setIsReordering(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -182,7 +261,13 @@ export function TopicsManager() {
                 Compliance Topics
               </CardTitle>
               <CardDescription>
-                Define categories for grouping compliance requirements
+                Define categories for grouping compliance requirements. Drag rows to reorder.
+                {isReordering && (
+                  <span className="ml-2 inline-flex items-center text-primary">
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    Saving order...
+                  </span>
+                )}
               </CardDescription>
             </div>
             <Button onClick={openCreateDialog}>
@@ -210,10 +295,24 @@ export function TopicsManager() {
                   </TableCell>
                 </TableRow>
               ) : (
-                topics.map((topic) => (
-                  <TableRow key={topic.id}>
+                topics.map((topic, index) => (
+                  <TableRow
+                    key={topic.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, index)}
+                    className={`
+                      ${draggedIndex === index ? 'opacity-50' : ''}
+                      ${dragOverIndex === index ? 'border-t-2 border-primary' : ''}
+                      ${isReordering ? 'pointer-events-none' : ''}
+                      transition-colors
+                    `}
+                  >
                     <TableCell>
-                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                      <GripVertical className={`h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing ${isReordering ? 'opacity-50' : ''}`} />
                     </TableCell>
                     <TableCell className="font-medium">{topic.name}</TableCell>
                     <TableCell className="text-muted-foreground max-w-xs truncate">
@@ -226,6 +325,7 @@ export function TopicsManager() {
                           variant="ghost"
                           size="sm"
                           onClick={() => openEditDialog(topic)}
+                          disabled={isReordering}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -234,6 +334,7 @@ export function TopicsManager() {
                           size="sm"
                           onClick={() => setDeletingTopic(topic)}
                           className="text-red-600 hover:text-red-700"
+                          disabled={isReordering}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
