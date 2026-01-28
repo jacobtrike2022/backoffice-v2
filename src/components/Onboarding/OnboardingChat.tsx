@@ -188,8 +188,15 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   useEffect(() => {
     const init = async () => {
       setIsInitializing(true);
-      await Promise.all([startSession(), fetchOptions()]);
-      setIsInitializing(false);
+      try {
+        // Use allSettled so one failure doesn't block the other
+        await Promise.allSettled([startSession(), fetchOptions()]);
+      } catch (err) {
+        console.error('Error during initialization:', err);
+      } finally {
+        // Always set initializing to false so the UI is usable
+        setIsInitializing(false);
+      }
     };
     init();
   }, []);
@@ -197,6 +204,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const fetchOptions = async () => {
     try {
       // Add cache-busting timestamp to ensure fresh data
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch(`${getServerUrl()}/onboarding/options?_t=${Date.now()}`, {
         method: 'GET',
         headers: {
@@ -205,7 +216,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           'Pragma': 'no-cache',
         },
         cache: 'no-store',
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       if (data.industries) setIndustries(data.industries);
@@ -222,6 +236,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const startSession = async () => {
     try {
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch(`${getServerUrl()}/onboarding/start`, {
         method: 'POST',
         headers: {
@@ -232,7 +250,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           referrer: document.referrer,
           utm_params: Object.fromEntries(new URLSearchParams(window.location.search)),
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       if (data.success) {
@@ -242,7 +263,12 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         throw new Error(data.error || 'Failed to start session');
       }
     } catch (err: any) {
-      setError(err.message);
+      if (err.name === 'AbortError') {
+        console.error('Session start timed out');
+        setError('Connection timed out. Please refresh and try again.');
+      } else {
+        setError(err.message);
+      }
     }
   };
 

@@ -153,7 +153,26 @@ export async function deleteProgramCategory(id: string): Promise<void> {
     .delete()
     .eq('id', id);
 
-  if (error) throw new Error(`Failed to delete program category: ${error.message}`);
+  if (error) {
+    // Check for foreign key constraint violation
+    if (error.message.includes('foreign key constraint') || error.code === '23503') {
+      throw new Error('Cannot delete this category because it has programs assigned. Please move or delete those programs first.');
+    }
+    throw new Error(`Failed to delete program category: ${error.message}`);
+  }
+}
+
+/**
+ * Get the count of programs in a category
+ */
+export async function getCategoryProgramCount(categoryId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('programs')
+    .select('*', { count: 'exact', head: true })
+    .eq('category_id', categoryId);
+
+  if (error) throw new Error(`Failed to count programs: ${error.message}`);
+  return count || 0;
 }
 
 // ============================================================

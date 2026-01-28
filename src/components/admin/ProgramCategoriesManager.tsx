@@ -46,6 +46,7 @@ import {
   createProgramCategory,
   updateProgramCategory,
   deleteProgramCategory,
+  getCategoryProgramCount,
   generateSlug,
   type ProgramCategory
 } from '../../lib/crud/programs';
@@ -69,6 +70,8 @@ export function ProgramCategoriesManager() {
 
   // Delete confirmation
   const [deletingCategory, setDeletingCategory] = useState<ProgramCategory | null>(null);
+  const [deletingCategoryProgramCount, setDeletingCategoryProgramCount] = useState<number>(0);
+  const [checkingProgramCount, setCheckingProgramCount] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -162,17 +165,34 @@ export function ProgramCategoriesManager() {
     }
   }
 
+  async function openDeleteDialog(category: ProgramCategory) {
+    setDeletingCategory(category);
+    setCheckingProgramCount(true);
+    try {
+      const count = await getCategoryProgramCount(category.id);
+      setDeletingCategoryProgramCount(count);
+    } catch (err) {
+      console.error('Error checking program count:', err);
+      setDeletingCategoryProgramCount(0);
+    } finally {
+      setCheckingProgramCount(false);
+    }
+  }
+
   async function handleDelete() {
     if (!deletingCategory) return;
 
     setDeleting(true);
+    setError(null);
     try {
       await deleteProgramCategory(deletingCategory.id);
       setDeletingCategory(null);
+      setDeletingCategoryProgramCount(0);
       await fetchCategories();
     } catch (err: any) {
       console.error('Error deleting category:', err);
       setError(err.message || 'Failed to delete category. It may have programs assigned.');
+      setDeletingCategory(null);
     } finally {
       setDeleting(false);
     }
@@ -268,7 +288,7 @@ export function ProgramCategoriesManager() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setDeletingCategory(category)}
+                          onClick={() => openDeleteDialog(category)}
                           className="text-red-600 hover:text-red-700"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -371,31 +391,58 @@ export function ProgramCategoriesManager() {
       </Dialog>
 
       {/* Delete Confirmation */}
-      <AlertDialog open={!!deletingCategory} onOpenChange={() => setDeletingCategory(null)}>
+      <AlertDialog open={!!deletingCategory} onOpenChange={() => {
+        setDeletingCategory(null);
+        setDeletingCategoryProgramCount(0);
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Category</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{deletingCategory?.name}"? This action cannot be undone.
-              All programs in this category must be moved or deleted first.
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {checkingProgramCount ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking for associated programs...
+                  </div>
+                ) : deletingCategoryProgramCount > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="font-medium">
+                        This category has {deletingCategoryProgramCount} program{deletingCategoryProgramCount !== 1 ? 's' : ''} assigned.
+                      </span>
+                    </div>
+                    <p>
+                      You must move or delete all programs in "{deletingCategory?.name}" before you can delete this category.
+                    </p>
+                  </div>
+                ) : (
+                  <p>
+                    Are you sure you want to delete "{deletingCategory?.name}"? This action cannot be undone.
+                  </p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </AlertDialogAction>
+            {deletingCategoryProgramCount === 0 && !checkingProgramCount && (
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
