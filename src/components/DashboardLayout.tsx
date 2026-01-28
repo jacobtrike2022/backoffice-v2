@@ -472,6 +472,8 @@ export function DashboardLayout({
                               onNavigate('settings');
                             } else if (item.id === 'compliance-management') {
                               onNavigate('compliance-management');
+                            } else if (item.id === 'programs-management') {
+                              onNavigate('programs-management');
                             } else if (item.id === 'trike-admin') {
                               onNavigate('trike-admin');
                             } else {
