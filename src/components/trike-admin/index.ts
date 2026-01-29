@@ -6,6 +6,7 @@ export { TrikeAdminPage } from './TrikeAdminPage';
 export { DealDashboard } from './DealDashboard';
 export { DealPipelineBoard } from './DealPipelineBoard';
 export { DealCard } from './DealCard';
+export { ProspectJourneyPanel } from './ProspectJourneyPanel';
 
 // Types
 export * from './types';

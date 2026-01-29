@@ -168,6 +168,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const [selectedIndustryId, setSelectedIndustryId] = useState<string>('');
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
+  const [currentProgramCategoryIndex, setCurrentProgramCategoryIndex] = useState(0);  // Track which category we're showing
   const [selectedServices, setSelectedServices] = useState<string[]>([]);  // Legacy
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
   const [locationCount, setLocationCount] = useState<string>('');
@@ -208,14 +209,13 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
+      // Note: Cache-Control headers removed to avoid CORS preflight issues
+      // The timestamp parameter provides cache-busting instead
       const response = await fetch(`${getServerUrl()}/onboarding/options?_t=${Date.now()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
         },
-        cache: 'no-store',
         signal: controller.signal,
       });
 
@@ -303,11 +303,28 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
         // Pre-populate form fields from scraped data
         if (data.industry) {
-          // Find industry by slug and set its ID
-          const industry = industries.find(i => i.slug === data.industry);
+          // Find industry by slug/code - try multiple matching strategies
+          const industrySlug = data.industry.toLowerCase().trim();
+          let industry = industries.find(i => i.slug?.toLowerCase() === industrySlug);
+
+          // Fallback: try matching by code field
+          if (!industry) {
+            industry = industries.find(i => i.code?.toLowerCase() === industrySlug);
+          }
+
+          // Fallback: try partial name match (e.g., "convenience" matches "Convenience Stores")
+          if (!industry) {
+            industry = industries.find(i =>
+              i.name.toLowerCase().includes(industrySlug) ||
+              industrySlug.includes(i.name.toLowerCase().split(' ')[0])
+            );
+          }
+
           if (industry) {
             // Use handleIndustrySelect to set industry and load defaults
             handleIndustrySelect(industry.id);
+          } else {
+            console.warn(`[Onboarding] Could not match industry: ${data.industry}`);
           }
         }
         if (data.services) setSelectedServices(data.services);
@@ -318,7 +335,12 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         let responseMsg = `I found **${data.company_name}**!`;
 
         if (data.industry) {
-          const industryName = industries.find(i => i.slug === data.industry)?.name || data.industry;
+          const industrySlug = data.industry.toLowerCase().trim();
+          const matchedIndustry = industries.find(i =>
+            i.slug?.toLowerCase() === industrySlug ||
+            i.code?.toLowerCase() === industrySlug
+          );
+          const industryName = matchedIndustry?.name || data.industry;
           responseMsg += ` Looks like you're in the ${industryName} industry.`;
         }
 
@@ -448,18 +470,30 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         setCurrentStep('compliance_topics');
         break;
       case 'compliance_topics':
+        // Reset to first category when entering programs step
+        setCurrentProgramCategoryIndex(0);
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: "Now let's confirm what programs, vendors, and equipment you use.", timestamp: new Date() },
+          { role: 'assistant', content: "Now let's confirm what programs, vendors, and equipment you use. We'll go through each category one at a time.", timestamp: new Date() },
         ]);
         setCurrentStep('programs');
         break;
       case 'programs':
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: "Where do you operate?", timestamp: new Date() },
-        ]);
-        setCurrentStep('locations');
+        // Get categories that have programs
+        const categoriesWithPrograms = programCategories.filter(cat =>
+          programs.some(p => p.category_id === cat.id)
+        );
+        // If not on the last category, move to next category
+        if (currentProgramCategoryIndex < categoriesWithPrograms.length - 1) {
+          setCurrentProgramCategoryIndex(prev => prev + 1);
+        } else {
+          // On last category, move to locations step
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: "Where do you operate?", timestamp: new Date() },
+          ]);
+          setCurrentStep('locations');
+        }
         break;
       case 'locations':
         setMessages((prev) => [
@@ -487,9 +521,20 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         setCurrentStep('industry');
         break;
       case 'programs':
-        setCurrentStep('compliance_topics');
+        // If not on the first category, go back to previous category
+        if (currentProgramCategoryIndex > 0) {
+          setCurrentProgramCategoryIndex(prev => prev - 1);
+        } else {
+          // On first category, go back to compliance_topics
+          setCurrentStep('compliance_topics');
+        }
         break;
       case 'locations':
+        // Go back to last program category
+        const categoriesWithProgramsBack = programCategories.filter(cat =>
+          programs.some(p => p.category_id === cat.id)
+        );
+        setCurrentProgramCategoryIndex(categoriesWithProgramsBack.length - 1);
         setCurrentStep('programs');
         break;
       case 'company_size':
@@ -906,6 +951,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                     >
                       <Checkbox
                         checked={selectedTopicIds.includes(topic.id)}
+                        onClick={(e) => e.stopPropagation()}
                         onCheckedChange={() => handleTopicToggle(topic.id)}
                       />
                       <div className="flex-1">
@@ -938,85 +984,110 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           </Card>
         )}
 
-        {/* Programs Selection */}
-        {currentStep === 'programs' && (
-          <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Store className="h-5 w-5" />
-                Programs, Vendors & Equipment
-              </CardTitle>
-              <CardDescription>
-                Select the programs, vendors, and equipment your organization uses.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ScrollArea className="h-72">
-                <div className="space-y-4 pr-4">
-                  {programCategories.map((category) => {
-                    const categoryPrograms = programs.filter(p => p.category_id === category.id);
-                    if (categoryPrograms.length === 0) return null;
+        {/* Programs Selection - One category at a time */}
+        {currentStep === 'programs' && (() => {
+          // Get categories that have programs
+          const categoriesWithPrograms = programCategories.filter(cat =>
+            programs.some(p => p.category_id === cat.id)
+          );
+          const currentCategory = categoriesWithPrograms[currentProgramCategoryIndex];
+          const currentCategoryPrograms = currentCategory
+            ? programs.filter(p => p.category_id === currentCategory.id)
+            : [];
+          const isFirstCategory = currentProgramCategoryIndex === 0;
+          const isLastCategory = currentProgramCategoryIndex === categoriesWithPrograms.length - 1;
+          const selectedInCurrentCategory = currentCategoryPrograms.filter(p => selectedProgramIds.includes(p.id)).length;
 
-                    return (
-                      <div key={category.id} className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
-                            {category.name}
-                          </h4>
-                          <Badge variant="secondary" className="text-xs">
-                            {categoryPrograms.filter(p => selectedProgramIds.includes(p.id)).length} / {categoryPrograms.length}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {categoryPrograms.map((program) => (
-                            <div
-                              key={program.id}
-                              className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
-                                selectedProgramIds.includes(program.id)
-                                  ? 'border-primary bg-primary/5'
-                                  : 'border-border hover:border-primary/50'
-                              }`}
-                              onClick={() => handleProgramToggle(program.id)}
-                            >
-                              <Checkbox
-                                checked={selectedProgramIds.includes(program.id)}
-                                onCheckedChange={() => handleProgramToggle(program.id)}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <Label className="cursor-pointer text-sm truncate block">
-                                  {program.display_name || program.name}
-                                </Label>
-                                {program.vendor_name && (
-                                  <span className="text-xs text-muted-foreground">{program.vendor_name}</span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+          if (!currentCategory) return null;
+
+          return (
+            <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Store className="h-5 w-5" />
+                    {currentCategory.name}
+                  </CardTitle>
+                  <Badge variant="outline" className="text-xs">
+                    {currentProgramCategoryIndex + 1} of {categoriesWithPrograms.length}
+                  </Badge>
+                </div>
+                <CardDescription>
+                  {currentCategory.description || `Select the ${currentCategory.name.toLowerCase()} your organization uses.`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Progress dots */}
+                <div className="flex justify-center gap-1.5">
+                  {categoriesWithPrograms.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`h-1.5 rounded-full transition-all ${
+                        idx === currentProgramCategoryIndex
+                          ? 'w-6 bg-primary'
+                          : idx < currentProgramCategoryIndex
+                          ? 'w-1.5 bg-primary/50'
+                          : 'w-1.5 bg-muted'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <ScrollArea className="h-64">
+                  <div className="grid grid-cols-2 gap-2 pr-4">
+                    {currentCategoryPrograms.map((program) => (
+                      <div
+                        key={program.id}
+                        className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selectedProgramIds.includes(program.id)
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                        onClick={() => handleProgramToggle(program.id)}
+                      >
+                        <Checkbox
+                          checked={selectedProgramIds.includes(program.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => handleProgramToggle(program.id)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <Label className="cursor-pointer text-sm truncate block">
+                            {program.display_name || program.name}
+                          </Label>
+                          {program.vendor_name && (
+                            <span className="text-xs text-muted-foreground">{program.vendor_name}</span>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-              {selectedProgramIds.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {selectedProgramIds.length} program{selectedProgramIds.length !== 1 ? 's' : ''} selected
-                </p>
-              )}
+                    ))}
+                  </div>
+                </ScrollArea>
 
-              <div className="flex justify-between pt-2">
-                <Button variant="ghost" onClick={handleBackStep}>
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
-                </Button>
-                <Button onClick={handleNextStep} disabled={!canProceed()}>
-                  Continue
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {selectedInCurrentCategory} of {currentCategoryPrograms.length} selected
+                  </span>
+                  {selectedProgramIds.length > 0 && (
+                    <span className="text-primary font-medium">
+                      {selectedProgramIds.length} total selected
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <Button variant="ghost" onClick={handleBackStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    {isFirstCategory ? 'Back' : 'Previous'}
+                  </Button>
+                  <Button onClick={handleNextStep}>
+                    {isLastCategory ? 'Continue' : 'Next Category'}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Locations & States */}
         {currentStep === 'locations' && (
@@ -1077,6 +1148,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                       >
                         <Checkbox
                           checked={selectedStates.includes(state.code)}
+                          onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => handleStateToggle(state.code)}
                           className={selectedStates.includes(state.code) ? 'border-primary-foreground' : ''}
                         />

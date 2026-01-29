@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DealDashboard } from './DealDashboard';
 import { DealPipelineBoard } from './DealPipelineBoard';
+import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import {
   Home,
   TrendingUp,
@@ -9,6 +10,7 @@ import {
   BarChart3,
   Settings,
   Briefcase,
+  UserCircle,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../ui/utils';
@@ -19,7 +21,8 @@ export type TrikeAdminView =
   | 'organizations'
   | 'proposals'
   | 'analytics'
-  | 'settings';
+  | 'settings'
+  | 'prospect-portal';
 
 const tabs: Array<{
   id: TrikeAdminView;
@@ -28,6 +31,7 @@ const tabs: Array<{
 }> = [
   { id: 'dashboard', label: 'Overview', icon: Home },
   { id: 'pipeline', label: 'Pipeline', icon: TrendingUp },
+  { id: 'prospect-portal', label: 'Prospect Portal', icon: UserCircle },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'proposals', label: 'Proposals', icon: FileText },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -39,6 +43,7 @@ const tabs: Array<{
  */
 export function TrikeAdminPage() {
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
+  const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
 
   const renderContent = () => {
     switch (currentView) {
@@ -67,6 +72,8 @@ export function TrikeAdminPage() {
             description="Sales performance metrics and reporting."
           />
         );
+      case 'prospect-portal':
+        return <ProspectPortalTestView onOpenPanel={() => setIsJourneyPanelOpen(true)} />;
       case 'settings':
         return (
           <PlaceholderView
@@ -80,39 +87,49 @@ export function TrikeAdminPage() {
   };
 
   return (
-    <div className="flex flex-col h-full -m-8">
-      {/* Tab Navigation */}
-      <div className="border-b border-border bg-card px-6">
-        <div className="flex items-center gap-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = currentView === tab.id;
-            return (
-              <Button
-                key={tab.id}
-                variant="ghost"
-                size="sm"
-                onClick={() => setCurrentView(tab.id)}
-                className={cn(
-                  'gap-2 rounded-none border-b-2 -mb-px h-12',
-                  isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </Button>
-            );
-          })}
+    <>
+      <div className="flex flex-col h-full -m-8">
+        {/* Tab Navigation */}
+        <div className="border-b border-border bg-card px-6">
+          <div className="flex items-center gap-1">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = currentView === tab.id;
+              return (
+                <Button
+                  key={tab.id}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentView(tab.id)}
+                  className={cn(
+                    'gap-2 rounded-none border-b-2 -mb-px h-12',
+                    isActive
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden">
+          {renderContent()}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {renderContent()}
-      </div>
-    </div>
+      {/* Prospect Journey Panel - rendered outside the main layout flow */}
+      <ProspectJourneyPanel
+        isOpen={isJourneyPanelOpen}
+        onClose={() => setIsJourneyPanelOpen(false)}
+        currentStatus="prospect"
+        organizationName="Acme Convenience Stores"
+      />
+    </>
   );
 }
 
@@ -137,6 +154,110 @@ function PlaceholderView({
         <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
           Coming soon
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Test view for the Prospect Portal / Journey Panel
+ * This simulates what a prospect would see with the panel overlaid
+ */
+function ProspectPortalTestView({ onOpenPanel }: { onOpenPanel: () => void }) {
+  return (
+    <div className="flex-1 p-8 h-full overflow-auto">
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Prospect Portal Preview</h1>
+            <p className="text-muted-foreground mt-1">
+              Test the journey panel that floats above the dashboard
+            </p>
+          </div>
+          <Button
+            onClick={onOpenPanel}
+            className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white"
+          >
+            <UserCircle className="h-4 w-4 mr-2" />
+            Open Journey Panel
+          </Button>
+        </div>
+
+        {/* Simulated dashboard content */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Mock dashboard cards to show the panel floats above real content */}
+          <div className="bg-card border rounded-lg p-6">
+            <h3 className="font-semibold mb-2">Content Library</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Browse training videos and compliance content
+            </p>
+            <div className="h-24 bg-muted rounded flex items-center justify-center text-muted-foreground text-sm">
+              [Preview Content]
+            </div>
+          </div>
+
+          <div className="bg-card border rounded-lg p-6">
+            <h3 className="font-semibold mb-2">Compliance Dashboard</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Track compliance status across locations
+            </p>
+            <div className="h-24 bg-muted rounded flex items-center justify-center text-muted-foreground text-sm">
+              [Preview Charts]
+            </div>
+          </div>
+
+          <div className="bg-card border rounded-lg p-6">
+            <h3 className="font-semibold mb-2">Team Management</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Manage users and assignments
+            </p>
+            <div className="h-24 bg-muted rounded flex items-center justify-center text-muted-foreground text-sm">
+              [Preview Users]
+            </div>
+          </div>
+
+          <div className="bg-card border rounded-lg p-6 md:col-span-2">
+            <h3 className="font-semibold mb-2">Recent Activity</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              See what's happening across your organization
+            </p>
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-10 bg-muted rounded animate-pulse" />
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-card border rounded-lg p-6">
+            <h3 className="font-semibold mb-2">Quick Actions</h3>
+            <div className="space-y-2">
+              <Button variant="outline" className="w-full justify-start">
+                Assign Training
+              </Button>
+              <Button variant="outline" className="w-full justify-start">
+                Run Report
+              </Button>
+              <Button variant="outline" className="w-full justify-start">
+                Add Location
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Instructions */}
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <h3 className="font-semibold text-amber-600 dark:text-amber-400 mb-2">
+            Testing Notes
+          </h3>
+          <ul className="text-sm text-muted-foreground space-y-1">
+            <li>• Click "Open Journey Panel" to see the drawer slide in from the right</li>
+            <li>• The dashboard content remains visible and interactive behind the panel</li>
+            <li>• No overlay/backdrop blocks the dashboard (data-hide-overlay pattern)</li>
+            <li>• Panel can be closed via the X button or "Minimize" button</li>
+            <li>• This is what a prospect will see when logged into their demo account</li>
+          </ul>
         </div>
       </div>
     </div>
