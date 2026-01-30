@@ -35,8 +35,8 @@ export function ContentLibrarySidebar({
   activeAlbumFilter,
   className
 }: ContentLibrarySidebarProps) {
-  const [playlistsExpanded, setPlaylistsExpanded] = useState(false);
-  const [albumsExpanded, setAlbumsExpanded] = useState(false);
+  const [playlistsExpanded, setPlaylistsExpanded] = useState(true);
+  const [albumsExpanded, setAlbumsExpanded] = useState(true);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [allPlaylists, setAllPlaylists] = useState<Playlist[]>([]);
@@ -54,9 +54,10 @@ export function ContentLibrarySidebar({
       setLoading(true);
       setError(null);
 
-      // Fetch recent albums (4 by default)
-      const recentAlbums = await getRecentAlbums(4);
-      setAlbums(recentAlbums);
+      // Fetch all albums (expanded by default, sorted by updated_at)
+      const allAlbumsData = await getRecentAlbums(100);
+      setAlbums(allAlbumsData.slice(0, 4));
+      setAllAlbums(allAlbumsData);
 
       // Fetch all playlists and sort by updated_at
       const allPlaylistsData = await getPlaylists({});
@@ -86,19 +87,8 @@ export function ContentLibrarySidebar({
   };
 
   const handleExpandAlbums = async () => {
-    if (!albumsExpanded) {
-      // Fetch all albums
-      try {
-        const allAlbumsData = await getRecentAlbums(100);
-        setAllAlbums(allAlbumsData);
-        setAlbumsExpanded(true);
-      } catch (err: any) {
-        console.error('Failed to load all albums:', err);
-        setError(err.message || 'Failed to load albums');
-      }
-    } else {
-      setAlbumsExpanded(false);
-    }
+    // Already have all albums loaded, just toggle expansion
+    setAlbumsExpanded(!albumsExpanded);
   };
 
   const displayedPlaylists = playlistsExpanded ? allPlaylists : playlists.slice(0, 4);
