@@ -1072,6 +1072,18 @@ export async function deleteTrack(trackId: string) {
     await softDeleteTrack(trackId);
   } else {
     // Hard delete: truly remove from database
+    // First, delete associated fact_usage entries (since track_id is TEXT, not FK with CASCADE)
+    const { error: factUsageError } = await supabase
+      .from('fact_usage')
+      .delete()
+      .eq('track_id', trackId);
+    
+    // Log but don't fail if fact_usage cleanup fails (non-critical)
+    if (factUsageError) {
+      console.error('Failed to cleanup fact_usage entries:', factUsageError);
+    }
+    
+    // Then delete the track
     const { error } = await supabase
       .from('tracks')
       .delete()

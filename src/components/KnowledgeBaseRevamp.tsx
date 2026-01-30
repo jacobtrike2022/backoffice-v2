@@ -2775,29 +2775,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     {selectedTrack.title}
                   </h1>
                   
-                  <div className="flex items-center justify-between pb-4 border-b-0">
-                     <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                           <AvatarImage src={selectedTrack.created_by?.avatar_url} />
-                           <AvatarFallback>{(selectedTrack.created_by?.name || 'U').charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                           <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                              {selectedTrack.created_by?.name || 'Unknown Author'}
-                           </p>
-                           <p className="text-xs text-slate-500">
-                              Author
-                           </p>
-                        </div>
-                     </div>
-                     
+                  <div className="flex items-center justify-end pb-4 border-b-0">
                      <div className="flex items-center gap-4 text-slate-500 text-sm">
                         <div className="flex items-center gap-1" title="Views">
                            <Eye className="h-4 w-4" />
                            {selectedTrack.view_count || 0}
                         </div>
-                        <button 
-                          className="flex items-center gap-1 hover:text-[#F64A05] transition-colors" 
+                        <button
+                          className="flex items-center gap-1 hover:text-[#F64A05] transition-colors"
                           title="Like this article"
                           onClick={handleLike}
                         >

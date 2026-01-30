@@ -8199,6 +8199,22 @@ async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Prom
   const truncatedHtml = html.substring(0, 15000);
 
   try {
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries, error: industriesError } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    if (industriesError) {
+      console.error("[Onboarding] Failed to fetch industries for AI prompt:", industriesError);
+    }
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -8212,11 +8228,11 @@ async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Prom
             role: "system",
             content: `You analyze company websites to classify businesses. Return JSON only.
 
-Industries: convenience_retail, qsr (quick service restaurant), grocery, fuel_retail, hospitality
+Industries (use the code): ${industryList}
 Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
 
 Analyze the website content and determine:
-1. The company's industry
+1. The company's industry (use the industry CODE only, e.g., "cstore" not "Convenience Stores")
 2. What services they likely offer based on the website content
 3. A brief description of the company
 4. Operating states if mentioned`
@@ -8277,6 +8293,18 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
 
     console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
 
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -8294,7 +8322,7 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
 
 Based on the domain and what you know, please provide:
 1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
-2. What industry they're likely in (one of: convenience_retail, qsr, grocery, fuel_retail, hospitality)
+2. What industry they're likely in. Use the CODE only from this list: ${industryList}
 3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
 
 I already scraped this data but it might be wrong:
@@ -8305,7 +8333,7 @@ I already scraped this data but it might be wrong:
 Please correct any issues and return JSON only:
 {
   "company_name": "Clean Company Name",
-  "industry": "industry_slug",
+  "industry": "industry_code",
   "services": ["service1", "service2"],
   "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
 }`,
@@ -8386,6 +8414,18 @@ async function handleOnboardingChat(req: Request): Promise<Response> {
     const conversationHistory = session.conversation_history || [];
     const collectedData = session.collected_data || {};
 
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
     // Build system prompt
     const systemPrompt = `You are Trike's friendly onboarding assistant. You help companies set up their training platform.
 
@@ -8402,7 +8442,7 @@ Your goals:
 Be conversational but efficient. Ask one thing at a time.
 When you have enough info, tell them you're ready to create their demo account.
 
-Available industries: convenience_retail, qsr, grocery, fuel_retail, hospitality
+Available industries (use the CODE only): ${industryList}
 Available services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
 
 Respond with JSON: { "message": "your response", "action": null | "scrape_website" | "update_data" | "create_demo", "data": {} }`;
@@ -8520,6 +8560,133 @@ async function handleOnboardingUpdate(req: Request): Promise<Response> {
 }
 
 /**
+ * Validate and QA a logo URL
+ * Checks if the image is accessible, what format it is, and basic quality metrics
+ * Returns the validated URL or null if invalid
+ */
+async function validateLogoUrl(logoUrl: string | undefined): Promise<{
+  url: string | null;
+  format: string | null;
+  hasTransparency: boolean;
+  width: number | null;
+  height: number | null;
+  quality: 'good' | 'acceptable' | 'poor' | null;
+  issues: string[];
+}> {
+  const result = {
+    url: null as string | null,
+    format: null as string | null,
+    hasTransparency: false,
+    width: null as number | null,
+    height: null as number | null,
+    quality: null as 'good' | 'acceptable' | 'poor' | null,
+    issues: [] as string[],
+  };
+
+  if (!logoUrl || !logoUrl.startsWith('http')) {
+    result.issues.push('No valid logo URL provided');
+    return result;
+  }
+
+  try {
+    // Fetch the logo with a HEAD request first to check content-type
+    const headResponse = await fetch(logoUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+
+    if (!headResponse.ok) {
+      result.issues.push(`Logo URL returned status ${headResponse.status}`);
+      return result;
+    }
+
+    const contentType = headResponse.headers.get('content-type') || '';
+    const contentLength = parseInt(headResponse.headers.get('content-length') || '0', 10);
+
+    // Determine format from content-type
+    if (contentType.includes('image/png')) {
+      result.format = 'png';
+      result.hasTransparency = true; // PNG supports transparency
+    } else if (contentType.includes('image/svg')) {
+      result.format = 'svg';
+      result.hasTransparency = true; // SVG supports transparency
+    } else if (contentType.includes('image/webp')) {
+      result.format = 'webp';
+      result.hasTransparency = true; // WebP supports transparency
+    } else if (contentType.includes('image/jpeg') || contentType.includes('image/jpg')) {
+      result.format = 'jpeg';
+      result.hasTransparency = false;
+      result.issues.push('JPEG format - no transparency support');
+    } else if (contentType.includes('image/gif')) {
+      result.format = 'gif';
+      result.hasTransparency = true; // GIF supports transparency (limited)
+    } else if (contentType.includes('image/')) {
+      // Some other image type
+      result.format = contentType.replace('image/', '');
+    } else {
+      // Try to infer from URL extension
+      const urlLower = logoUrl.toLowerCase();
+      if (urlLower.includes('.png')) result.format = 'png';
+      else if (urlLower.includes('.svg')) result.format = 'svg';
+      else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) result.format = 'jpeg';
+      else if (urlLower.includes('.webp')) result.format = 'webp';
+      else if (urlLower.includes('.gif')) result.format = 'gif';
+      else {
+        result.issues.push(`Unknown content type: ${contentType}`);
+      }
+    }
+
+    // Check file size
+    if (contentLength > 0) {
+      if (contentLength < 1000) {
+        result.issues.push('Logo file is very small (< 1KB), may be placeholder');
+        result.quality = 'poor';
+      } else if (contentLength > 5000000) {
+        result.issues.push('Logo file is very large (> 5MB)');
+        result.quality = 'acceptable';
+      }
+    }
+
+    // For common problematic patterns
+    const urlLower = logoUrl.toLowerCase();
+    if (urlLower.includes('1x1') || urlLower.includes('pixel') || urlLower.includes('spacer')) {
+      result.issues.push('URL suggests this is a tracking pixel, not a logo');
+      result.quality = 'poor';
+      return result;
+    }
+
+    if (urlLower.includes('placeholder') || urlLower.includes('default')) {
+      result.issues.push('URL suggests this may be a placeholder image');
+      result.quality = 'acceptable';
+    }
+
+    // If we got this far, the logo is valid
+    result.url = logoUrl;
+
+    // Set quality if not already set
+    if (!result.quality) {
+      if (result.format === 'png' || result.format === 'svg' || result.format === 'webp') {
+        result.quality = 'good';
+      } else if (result.format === 'jpeg') {
+        result.quality = 'acceptable';
+      } else {
+        result.quality = 'acceptable';
+      }
+    }
+
+    console.log(`[Onboarding] Logo validated: ${result.format}, quality: ${result.quality}, issues: ${result.issues.length}`);
+    return result;
+
+  } catch (error: any) {
+    console.error('[Onboarding] Error validating logo:', error);
+    result.issues.push(`Failed to fetch logo: ${error.message}`);
+    return result;
+  }
+}
+
+/**
  * Complete onboarding and create demo organization
  */
 async function handleOnboardingComplete(req: Request): Promise<Response> {
@@ -8566,6 +8733,20 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
 
+    // Validate logo if provided
+    let validatedLogoUrl: string | null = null;
+    let logoValidation = null;
+    if (data.logo_url) {
+      console.log(`[Onboarding] Validating logo: ${data.logo_url}`);
+      logoValidation = await validateLogoUrl(data.logo_url);
+      if (logoValidation.url && logoValidation.quality !== 'poor') {
+        validatedLogoUrl = logoValidation.url;
+        console.log(`[Onboarding] Logo accepted: ${logoValidation.format}, quality: ${logoValidation.quality}`);
+      } else {
+        console.log(`[Onboarding] Logo rejected: ${logoValidation.issues.join(', ')}`);
+      }
+    }
+
     // Create organization
     const { data: org, error: orgError } = await supabase
       .from("organizations")
@@ -8573,6 +8754,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         name: data.company_name,
         subdomain: finalSubdomain,
         website: data.website,
+        logo_url: validatedLogoUrl,
         status: "demo",
         demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
         industry: data.industry,
@@ -8581,7 +8763,10 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         brand_primary_color: data.brand_colors?.primary,
         brand_secondary_color: data.brand_colors?.secondary,
         onboarding_source: "self_service",
-        scraped_data: data,
+        scraped_data: {
+          ...data,
+          logo_validation: logoValidation,
+        },
       })
       .select()
       .single();
@@ -8718,6 +8903,47 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
+    // Save organization compliance topics
+    if (data.compliance_topic_ids && data.compliance_topic_ids.length > 0) {
+      const topicsToInsert = data.compliance_topic_ids.map((topicId: string, index: number) => ({
+        organization_id: org.id,
+        topic_id: topicId,
+        is_active: true,
+        priority: index,
+        added_during: 'onboarding',
+      }));
+
+      const { error: topicsError } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+
+      if (topicsError) {
+        console.error("[Onboarding] Failed to save compliance topics:", topicsError);
+      } else {
+        console.log(`[Onboarding] Saved ${topicsToInsert.length} compliance topics`);
+      }
+    }
+
+    // Save organization programs
+    if (data.program_ids && data.program_ids.length > 0) {
+      const programsToInsert = data.program_ids.map((programId: string) => ({
+        organization_id: org.id,
+        program_id: programId,
+        is_active: true,
+        added_during: 'onboarding',
+      }));
+
+      const { error: programsError } = await supabase
+        .from("organization_programs")
+        .insert(programsToInsert);
+
+      if (programsError) {
+        console.error("[Onboarding] Failed to save programs:", programsError);
+      } else {
+        console.log(`[Onboarding] Saved ${programsToInsert.length} programs`);
+      }
+    }
+
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
@@ -8774,27 +9000,75 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 }
 
 /**
- * Get industries and services for form dropdowns
+ * Get industries, compliance topics, programs, and services for form dropdowns
  */
 async function handleOnboardingOptions(req: Request): Promise<Response> {
   try {
-    // Get industries
-    const { data: industries, error: industriesError } = await supabase
-      .from("industries")
-      .select("slug, name, description, default_services, icon, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
+    // Run all queries in parallel for faster response
+    const [
+      industriesResult,
+      complianceTopicsResult,
+      industryTopicDefaultsResult,
+      programCategoriesResult,
+      programsResult,
+      industryProgramDefaultsResult,
+      servicesResult,
+    ] = await Promise.all([
+      // Get industries (uses 'code' not 'slug', no is_active column)
+      supabase
+        .from("industries")
+        .select("id, code, name, description, sort_order")
+        .order("sort_order"),
+      // Get compliance topics (no 'slug' or 'is_active' columns)
+      supabase
+        .from("compliance_topics")
+        .select("id, name, description, sort_order")
+        .order("sort_order"),
+      // Get industry → compliance topic defaults
+      supabase
+        .from("industry_compliance_topics")
+        .select("industry_id, topic_id, priority")
+        .eq("is_typical", true),
+      // Get program categories
+      supabase
+        .from("program_categories")
+        .select("id, name, slug, description, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get all programs
+      supabase
+        .from("programs")
+        .select("id, category_id, name, slug, display_name, vendor_name, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get industry → program defaults
+      supabase
+        .from("industry_programs")
+        .select("industry_id, program_id, is_common, market_share_tier"),
+      // Get services (legacy)
+      supabase
+        .from("service_definitions")
+        .select("slug, name, description, compliance_domains, requires_license, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
 
-    if (industriesError) throw industriesError;
+    // Check for errors
+    if (industriesResult.error) throw industriesResult.error;
+    if (complianceTopicsResult.error) throw complianceTopicsResult.error;
+    if (industryTopicDefaultsResult.error) throw industryTopicDefaultsResult.error;
+    if (programCategoriesResult.error) throw programCategoriesResult.error;
+    if (programsResult.error) throw programsResult.error;
+    if (industryProgramDefaultsResult.error) throw industryProgramDefaultsResult.error;
+    if (servicesResult.error) throw servicesResult.error;
 
-    // Get services
-    const { data: services, error: servicesError } = await supabase
-      .from("service_definitions")
-      .select("slug, name, description, compliance_domains, requires_license, icon, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
-
-    if (servicesError) throw servicesError;
+    const industries = industriesResult.data;
+    const complianceTopics = complianceTopicsResult.data;
+    const industryTopicDefaults = industryTopicDefaultsResult.data;
+    const programCategories = programCategoriesResult.data;
+    const programs = programsResult.data;
+    const industryProgramDefaults = industryProgramDefaultsResult.data;
+    const services = servicesResult.data;
 
     // Get US states
     const states = [
@@ -8817,10 +9091,52 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       { code: "WI", name: "Wisconsin" }, { code: "WY", name: "Wyoming" }, { code: "DC", name: "District of Columbia" },
     ];
 
-    return jsonResponse({
-      industries: industries || [],
-      services: services || [],
+    // Build industry defaults map for easy lookup
+    // { industryId: { topicIds: [...], programIds: [...] } }
+    const industryDefaults: Record<string, { topicIds: string[]; programIds: string[] }> = {};
+    for (const industry of industries || []) {
+      industryDefaults[industry.id] = { topicIds: [], programIds: [] };
+    }
+    for (const it of industryTopicDefaults || []) {
+      if (industryDefaults[it.industry_id]) {
+        industryDefaults[it.industry_id].topicIds.push(it.topic_id);
+      }
+    }
+    for (const ip of industryProgramDefaults || []) {
+      if (industryDefaults[ip.industry_id]) {
+        industryDefaults[ip.industry_id].programIds.push(ip.program_id);
+      }
+    }
+
+    // Map industry 'code' to 'slug' for frontend compatibility
+    const mappedIndustries = (industries || []).map(ind => ({
+      ...ind,
+      slug: ind.code,  // Frontend expects 'slug'
+    }));
+
+    // Map compliance topics to add 'slug' from 'name' for frontend compatibility
+    const mappedTopics = (complianceTopics || []).map(topic => ({
+      ...topic,
+      slug: topic.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+    }));
+
+    // Return with no-cache headers to ensure fresh data
+    return new Response(JSON.stringify({
+      industries: mappedIndustries,
+      complianceTopics: mappedTopics,
+      programCategories: programCategories || [],
+      programs: programs || [],
+      industryDefaults,
+      services: services || [],  // Legacy, kept for backward compatibility
       states,
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+      },
     });
   } catch (error: any) {
     console.error("[Onboarding] Options error:", error);

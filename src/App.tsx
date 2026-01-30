@@ -40,6 +40,7 @@ import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
 import { ComplianceDashboard } from "./components/compliance/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
 import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
+import { ProgramsManagement, TrikeAdminFunctions } from "./components/admin";
 import { People } from "./components/People";
 import { Units } from "./components/Units";
 import { NewUnit } from "./components/NewUnit";
@@ -60,6 +61,7 @@ import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
+import { TrikeAdminPage } from "./components/trike-admin";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
 
@@ -75,6 +77,8 @@ type AppView =
   | "compliance"
   | "compliance-audit"
   | "compliance-management"
+  | "programs-management"
+  | "trike-admin-functions"
   | "content"
   | "assignments"
   | "assignment"
@@ -88,7 +92,8 @@ type AppView =
   | "ai-review"
   | "forms"
   | "knowledge-base"
-  | "settings";
+  | "settings"
+  | "trike-admin";
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
@@ -448,6 +453,30 @@ export default function App() {
             onNavigate={requestNavigate}
           />
         );
+      case "programs-management":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <ProgramsManagement
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
+      case "trike-admin-functions":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <TrikeAdminFunctions
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
       case "content":
         return (
           <ContentLibrary
@@ -643,6 +672,13 @@ export default function App() {
         );
       case "settings":
         return <Settings role={currentRole} />;
+      case "trike-admin":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return <TrikeAdminPage />;
       default:
         return (
           <Dashboard

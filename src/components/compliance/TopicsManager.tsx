@@ -58,7 +58,6 @@ export function TopicsManager() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    icon: '',
     sort_order: 0
   });
   const [saving, setSaving] = useState(false);
@@ -66,6 +65,11 @@ export function TopicsManager() {
   // Delete confirmation
   const [deletingTopic, setDeletingTopic] = useState<ComplianceTopic | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Drag and drop state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
 
   useEffect(() => {
     fetchTopics();
@@ -90,7 +94,6 @@ export function TopicsManager() {
     setFormData({
       name: '',
       description: '',
-      icon: '',
       sort_order: topics.length
     });
     setShowDialog(true);
@@ -101,7 +104,6 @@ export function TopicsManager() {
     setFormData({
       name: topic.name,
       description: topic.description || '',
-      icon: topic.icon || '',
       sort_order: topic.sort_order || 0
     });
     setShowDialog(true);
@@ -120,14 +122,12 @@ export function TopicsManager() {
         await updateComplianceTopic(editingTopic.id, {
           name: formData.name.trim(),
           description: formData.description.trim() || null,
-          icon: formData.icon.trim() || null,
           sort_order: formData.sort_order
         });
       } else {
         await createComplianceTopic({
           name: formData.name.trim(),
           description: formData.description.trim() || null,
-          icon: formData.icon.trim() || null,
           sort_order: formData.sort_order
         });
       }
@@ -154,6 +154,80 @@ export function TopicsManager() {
       setError(err.message || 'Failed to delete topic');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // Drag and drop handlers
+  function handleDragStart(e: React.DragEvent, index: number) {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Make the drag image slightly transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '1';
+    }
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedIndex !== null && draggedIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }
+
+  function handleDragLeave() {
+    setDragOverIndex(null);
+  }
+
+  async function handleDrop(e: React.DragEvent, dropIndex: number) {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Reorder the topics array
+    const newTopics = [...topics];
+    const [draggedTopic] = newTopics.splice(draggedIndex, 1);
+    newTopics.splice(dropIndex, 0, draggedTopic);
+
+    // Update sort_order for all affected topics
+    const updatedTopics = newTopics.map((topic, index) => ({
+      ...topic,
+      sort_order: index
+    }));
+
+    // Optimistically update the UI
+    setTopics(updatedTopics);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+
+    // Save the new order to the database
+    setIsReordering(true);
+    setError(null);
+    try {
+      // Update each topic's sort_order
+      await Promise.all(
+        updatedTopics.map((topic, index) =>
+          updateComplianceTopic(topic.id, { sort_order: index })
+        )
+      );
+    } catch (err: any) {
+      console.error('Error reordering topics:', err);
+      setError(err.message || 'Failed to save new order');
+      // Revert on error
+      await fetchTopics();
+    } finally {
+      setIsReordering(false);
     }
   }
 
@@ -187,7 +261,13 @@ export function TopicsManager() {
                 Compliance Topics
               </CardTitle>
               <CardDescription>
-                Define categories for grouping compliance requirements
+                Define categories for grouping compliance requirements. Drag rows to reorder.
+                {isReordering && (
+                  <span className="ml-2 inline-flex items-center text-primary">
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    Saving order...
+                  </span>
+                )}
               </CardDescription>
             </div>
             <Button onClick={openCreateDialog}>
@@ -203,7 +283,6 @@ export function TopicsManager() {
                 <TableHead className="w-12"></TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Icon</TableHead>
                 <TableHead className="w-24">Order</TableHead>
                 <TableHead className="w-24">Actions</TableHead>
               </TableRow>
@@ -211,21 +290,34 @@ export function TopicsManager() {
             <TableBody>
               {topics.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     No compliance topics defined yet
                   </TableCell>
                 </TableRow>
               ) : (
-                topics.map((topic) => (
-                  <TableRow key={topic.id}>
+                topics.map((topic, index) => (
+                  <TableRow
+                    key={topic.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, index)}
+                    className={`
+                      ${draggedIndex === index ? 'opacity-50' : ''}
+                      ${dragOverIndex === index ? 'border-t-2 border-primary' : ''}
+                      ${isReordering ? 'pointer-events-none' : ''}
+                      transition-colors
+                    `}
+                  >
                     <TableCell>
-                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                      <GripVertical className={`h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing ${isReordering ? 'opacity-50' : ''}`} />
                     </TableCell>
                     <TableCell className="font-medium">{topic.name}</TableCell>
                     <TableCell className="text-muted-foreground max-w-xs truncate">
                       {topic.description || '-'}
                     </TableCell>
-                    <TableCell>{topic.icon || '-'}</TableCell>
                     <TableCell>{topic.sort_order}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -233,6 +325,7 @@ export function TopicsManager() {
                           variant="ghost"
                           size="sm"
                           onClick={() => openEditDialog(topic)}
+                          disabled={isReordering}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -241,6 +334,7 @@ export function TopicsManager() {
                           size="sm"
                           onClick={() => setDeletingTopic(topic)}
                           className="text-red-600 hover:text-red-700"
+                          disabled={isReordering}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -287,25 +381,15 @@ export function TopicsManager() {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="icon">Icon (Lucide name)</Label>
-                <Input
-                  id="icon"
-                  value={formData.icon}
-                  onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                  placeholder="e.g., Shield, FileCheck"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sort_order">Sort Order</Label>
-                <Input
-                  id="sort_order"
-                  type="number"
-                  value={formData.sort_order}
-                  onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="sort_order">Sort Order</Label>
+              <Input
+                id="sort_order"
+                type="number"
+                value={formData.sort_order}
+                onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
+                className="w-24"
+              />
             </div>
           </div>
           <DialogFooter>

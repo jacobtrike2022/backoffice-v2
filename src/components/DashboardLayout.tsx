@@ -27,7 +27,8 @@ import {
   Bell,
   Wrench,
   Zap,
-  LogOut
+  LogOut,
+  Briefcase
 } from 'lucide-react';
 import trikeLogo from '../assets/trike-logo.png';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
@@ -173,11 +174,16 @@ const navigationGroups: NavigationGroup[] = [
         roles: ['admin', 'trike-super-admin']
       },
       {
-        id: 'compliance-management',
-        label: 'Compliance Management',
-        icon: ShieldCheck,
-        roles: ['trike-super-admin'],
-        isNew: true
+        id: 'trike-admin-functions',
+        label: 'Trike Admin Functions',
+        icon: Wrench,
+        roles: ['trike-super-admin']
+      },
+      {
+        id: 'trike-admin',
+        label: 'Sales Pipeline',
+        icon: Briefcase,
+        roles: ['trike-super-admin']
       }
     ]
   }
@@ -458,8 +464,10 @@ export function DashboardLayout({
                               onNavigate('organization');
                             } else if (item.id === 'settings') {
                               onNavigate('settings');
-                            } else if (item.id === 'compliance-management') {
-                              onNavigate('compliance-management');
+                            } else if (item.id === 'trike-admin-functions') {
+                              onNavigate('trike-admin-functions');
+                            } else if (item.id === 'trike-admin') {
+                              onNavigate('trike-admin');
                             } else {
                               onNavigate('dashboard');
                             }
