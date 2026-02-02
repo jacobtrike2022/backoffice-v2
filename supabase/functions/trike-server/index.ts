@@ -4950,7 +4950,7 @@ ONLY return valid JSON. No explanations, no markdown, no category labels.`;
           content: fact.content,
           type: fact.type || "Fact",
           steps: fact.steps || [],
-          extracted_by: "ai-two-pass",
+          extracted_by: "ai-pass-2",
           extraction_confidence: 0.85,
           company_id: companyId,
           context: { specificity: "universal", tags: {} },

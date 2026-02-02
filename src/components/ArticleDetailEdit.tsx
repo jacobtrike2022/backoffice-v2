@@ -882,9 +882,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Normalize facts to include 'fact' property (display expects this)
+        // API returns { title, content, type, steps } but display looks for 'fact'
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
+          fact: fact.content, // Add 'fact' alias for display compatibility
           _dbId: data.factIds?.[index], // Add the database UUID
         }));
         
@@ -947,9 +949,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Normalize facts to include 'fact' property (display expects this)
+        // API returns { title, content, type, steps } but display looks for 'fact'
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
+          fact: fact.content, // Add 'fact' alias for display compatibility
           _dbId: data.factIds?.[index], // Add the database UUID
         }));
         
