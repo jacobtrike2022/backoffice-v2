@@ -3,10 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
-import { 
-  Plus, 
-  Search, 
-  Grid3x3, 
+import {
+  Plus,
+  Search,
+  Grid3x3,
   List,
   MoreVertical,
   Eye,
@@ -16,7 +16,9 @@ import {
   FileText,
   Archive,
   Trash2,
-  Calendar
+  Calendar,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import {
   Select,
@@ -32,270 +34,295 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getForms, archiveForm, updateForm } from '@/lib/crud/forms';
+import { useNavigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
 
 interface Form {
   id: string;
   title: string;
-  type: 'OJT Checklist' | 'Inspection' | 'Audit' | 'Survey';
-  status: 'Published' | 'Draft' | 'Archived';
-  submissions: number;
-  assignments: number;
-  lastModified: string;
-  createdBy: string;
-  tags: string[];
+  description?: string;
+  type: 'ojt-checklist' | 'inspection' | 'audit' | 'survey' | 'other';
+  category?: string;
+  status: 'draft' | 'published' | 'archived';
+  requires_approval: boolean;
+  allow_anonymous: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: {
+    name: string;
+  };
 }
-
-const mockForms: Form[] = [
-  {
-    id: '1',
-    title: 'Days 1-5 OJT Checklist',
-    type: 'OJT Checklist',
-    status: 'Published',
-    submissions: 47,
-    assignments: 12,
-    lastModified: '2024-02-10',
-    createdBy: 'Sarah Johnson',
-    tags: ['Training', 'New Hire']
-  },
-  {
-    id: '2',
-    title: 'Store Daily Walk',
-    type: 'Inspection',
-    status: 'Published',
-    submissions: 234,
-    assignments: 8,
-    lastModified: '2024-02-15',
-    createdBy: 'Mike Chen',
-    tags: ['Daily', 'Recurring', 'Ops']
-  },
-  {
-    id: '3',
-    title: 'Store Inspection Checklist',
-    type: 'Inspection',
-    status: 'Published',
-    submissions: 89,
-    assignments: 15,
-    lastModified: '2024-02-12',
-    createdBy: 'Sarah Johnson',
-    tags: ['Quality', 'Compliance']
-  },
-  {
-    id: '4',
-    title: 'Safety Audit Form',
-    type: 'Audit',
-    status: 'Published',
-    submissions: 23,
-    assignments: 5,
-    lastModified: '2024-02-08',
-    createdBy: 'Mike Chen',
-    tags: ['Safety', 'Monthly']
-  },
-  {
-    id: '5',
-    title: 'License Audit Checklist',
-    type: 'Audit',
-    status: 'Draft',
-    submissions: 0,
-    assignments: 0,
-    lastModified: '2024-02-14',
-    createdBy: 'Sarah Johnson',
-    tags: ['Legal', 'Quarterly', 'Admin']
-  },
-  {
-    id: '6',
-    title: 'Night Shift Closing Procedures',
-    type: 'OJT Checklist',
-    status: 'Published',
-    submissions: 56,
-    assignments: 9,
-    lastModified: '2024-02-11',
-    createdBy: 'Alex Rodriguez',
-    tags: ['Closing', 'Night']
-  }
-];
 
 interface FormLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
   onFormSelect?: (formId: string) => void;
+  onEdit?: (formId: string) => void;
+  onCreateNew?: () => void;
 }
 
-export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibraryProps) {
+export function FormLibrary({ currentRole = 'admin', onFormSelect, onEdit, onCreateNew }: FormLibraryProps) {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [sortBy, setSortBy] = useState('modified');
+  const [page, setPage] = useState(0);
 
-  const filteredForms = mockForms.filter(form => {
-    const matchesSearch = searchQuery === '' || 
-      form.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      form.type.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = filterStatus === 'all' || form.status.toLowerCase() === filterStatus;
-    
-    return matchesSearch && matchesStatus;
-  }).sort((a, b) => {
-    if (sortBy === 'title') return a.title.localeCompare(b.title);
-    if (sortBy === 'created') return new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime();
-    if (sortBy === 'used') return b.submissions - a.submissions;
-    return new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime();
+  // Fetch forms from database
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['forms', filterStatus, searchQuery, sortBy, page],
+    queryFn: () => getForms({
+      status: filterStatus === 'all' ? undefined : filterStatus as 'draft' | 'published' | 'archived',
+      search: searchQuery || undefined,
+      limit: 20,
+      offset: page * 20
+    })
   });
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Published':
-        return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">Published</Badge>;
-      case 'Draft':
-        return <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0">Draft</Badge>;
-      case 'Archived':
-        return <Badge variant="outline">Archived</Badge>;
-      default:
-        return null;
+  const forms = data?.forms || [];
+  const totalForms = data?.total || 0;
+
+  // Archive form mutation
+  const archiveMutation = useMutation({
+    mutationFn: archiveForm,
+    onSuccess: () => {
+      toast({
+        title: 'Success',
+        description: 'Form archived successfully'
+      });
+      queryClient.invalidateQueries({ queryKey: ['forms'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
     }
+  });
+
+  // Helper functions for badges
+  const getTypeBadge = (type: string) => {
+    const typeColors: Record<string, string> = {
+      'ojt-checklist': 'bg-blue-100 text-blue-700 border-blue-300',
+      'inspection': 'bg-green-100 text-green-700 border-green-300',
+      'audit': 'bg-purple-100 text-purple-700 border-purple-300',
+      'survey': 'bg-orange-100 text-orange-700 border-orange-300',
+      'other': 'bg-gray-100 text-gray-700 border-gray-300',
+    };
+
+    const typeLabels: Record<string, string> = {
+      'ojt-checklist': 'OJT Checklist',
+      'inspection': 'Inspection',
+      'audit': 'Audit',
+      'survey': 'Survey',
+      'other': 'Other',
+    };
+
+    return (
+      <Badge className={`${typeColors[type] || typeColors['other']} border`}>
+        {typeLabels[type] || type}
+      </Badge>
+    );
   };
 
-  const getTypeBadge = (type: string) => {
-    const colors = {
-      'OJT Checklist': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      'Inspection': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      'Audit': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-      'Survey': 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'
+  const getStatusBadge = (status: string) => {
+    const statusColors: Record<string, string> = {
+      'published': 'bg-green-100 text-green-700 border-green-300',
+      'draft': 'bg-yellow-100 text-yellow-700 border-yellow-300',
+      'archived': 'bg-gray-100 text-gray-700 border-gray-300',
     };
-    return <Badge className={`${colors[type as keyof typeof colors]} border-0`}>{type}</Badge>;
+
+    return (
+      <Badge className={`${statusColors[status] || statusColors['draft']} border`}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </Badge>
+    );
   };
+
+  // Loading skeleton
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="h-8 w-48 bg-gray-200 animate-pulse rounded" />
+          <div className="h-10 w-32 bg-gray-200 animate-pulse rounded" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Card key={i} className="h-64">
+              <CardContent className="p-6">
+                <div className="space-y-4 animate-pulse">
+                  <div className="h-6 bg-gray-200 rounded w-3/4" />
+                  <div className="h-4 bg-gray-200 rounded w-1/2" />
+                  <div className="h-20 bg-gray-200 rounded" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="p-6">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-4">
+              <AlertCircle className="h-8 w-8 text-red-600" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-900">Error loading forms</h3>
+                <p className="text-sm text-red-700 mt-1">{error.message}</p>
+              </div>
+              <Button onClick={() => refetch()} variant="outline" className="border-red-300">
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Form Library</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage and organize all your forms in one place
-          </p>
-        </div>
-        <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
+        <h1 className="text-2xl font-bold">Form Library</h1>
+        <Button onClick={onCreateNew} className="bg-brand-gradient">
           <Plus className="h-4 w-4 mr-2" />
           New Form
         </Button>
       </div>
 
-      {/* Toolbar */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4">
-            {/* Search */}
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search forms..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Status Filter */}
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full lg:w-[160px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Forms</SelectItem>
-                <SelectItem value="published">Published</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Sort */}
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-full lg:w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="modified">Recently Modified</SelectItem>
-                <SelectItem value="created">Date Created</SelectItem>
-                <SelectItem value="title">Alphabetical</SelectItem>
-                <SelectItem value="used">Most Used</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* View Toggle */}
-            <div className="flex border rounded-lg">
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('grid')}
-                className={viewMode === 'grid' ? 'bg-brand-gradient' : ''}
-              >
-                <Grid3x3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('list')}
-                className={viewMode === 'list' ? 'bg-brand-gradient' : ''}
-              >
-                <List className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Results Count */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Showing {filteredForms.length} {filteredForms.length === 1 ? 'form' : 'forms'}
-        </p>
+      {/* Filters and Search */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search forms..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Forms</SelectItem>
+            <SelectItem value="published">Published</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="modified">Last Modified</SelectItem>
+            <SelectItem value="created">Date Created</SelectItem>
+            <SelectItem value="title">Title</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2">
+          <Button
+            variant={viewMode === 'grid' ? 'default' : 'outline'}
+            size="icon"
+            onClick={() => setViewMode('grid')}
+          >
+            <Grid3x3 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === 'list' ? 'default' : 'outline'}
+            size="icon"
+            onClick={() => setViewMode('list')}
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      {/* Forms Display */}
-      {viewMode === 'grid' ? (
+      {/* Forms Grid/List */}
+      {forms.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="font-semibold text-lg mb-2">No forms found</h3>
+            <p className="text-muted-foreground mb-4">
+              {searchQuery || filterStatus !== 'all'
+                ? 'Try adjusting your filters or search query'
+                : 'Get started by creating your first form'}
+            </p>
+            {!searchQuery && filterStatus === 'all' && (
+              <Button onClick={onCreateNew} className="bg-brand-gradient">
+                <Plus className="h-4 w-4 mr-2" />
+                Create First Form
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredForms.map((form) => (
-            <Card 
-              key={form.id} 
-              className="hover:shadow-lg transition-shadow cursor-pointer"
+          {forms.map((form) => (
+            <Card
+              key={form.id}
+              className="hover:shadow-lg transition-shadow cursor-pointer group"
               onClick={() => onFormSelect?.(form.id)}
             >
               <CardContent className="p-6">
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
-                    <FileText className="h-10 w-10 text-primary" />
+                    <FileText className="h-8 w-8 text-primary flex-shrink-0" />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit?.(form.id);
+                        }}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Form
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicate
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                           <Eye className="h-4 w-4 mr-2" />
                           Preview
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                           <Users className="h-4 w-4 mr-2" />
                           Assign to Units
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                           <FileText className="h-4 w-4 mr-2" />
                           View Submissions
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          archiveMutation.mutate(form.id);
+                        }}>
                           <Archive className="h-4 w-4 mr-2" />
                           Archive
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">
+                        <DropdownMenuItem className="text-red-600" onClick={(e) => e.stopPropagation()}>
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -311,33 +338,23 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibrary
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Submissions</p>
-                      <p className="font-semibold">{form.submissions}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Assignments</p>
-                      <p className="font-semibold">{form.assignments}</p>
-                    </div>
-                  </div>
+                  {form.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {form.description}
+                    </p>
+                  )}
 
                   <div className="pt-4 border-t text-xs text-muted-foreground">
-                    <div className="flex items-end justify-between">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <p>Modified {new Date(form.lastModified).toLocaleDateString()}</p>
-                        <p>by {form.createdBy}</p>
+                        <p>Modified {new Date(form.updated_at).toLocaleDateString()}</p>
+                        <p>by {form.created_by?.name || 'Unknown'}</p>
                       </div>
-                      <div className="flex flex-wrap gap-1 justify-end">
-                        {form.tags.map((tag, index) => (
-                          <Badge 
-                            key={index} 
-                            className="bg-brand-gradient text-white border-0 text-[10px] px-2 py-0 h-5"
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
+                      {form.category && (
+                        <Badge className="bg-brand-gradient text-white border-0 text-[10px] px-2 py-0 h-5">
+                          {form.category}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -347,9 +364,9 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibrary
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredForms.map((form) => (
-            <Card 
-              key={form.id} 
+          {forms.map((form) => (
+            <Card
+              key={form.id}
               className="hover:shadow-md transition-shadow cursor-pointer"
               onClick={() => onFormSelect?.(form.id)}
             >
@@ -364,13 +381,16 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibrary
                         {getStatusBadge(form.status)}
                       </div>
                       <div className="flex items-center space-x-6 text-sm text-muted-foreground">
-                        <span>{form.submissions} submissions</span>
-                        <span>{form.assignments} assignments</span>
                         <span className="flex items-center">
                           <Calendar className="h-3 w-3 mr-1" />
-                          Modified {new Date(form.lastModified).toLocaleDateString()}
+                          Modified {new Date(form.updated_at).toLocaleDateString()}
                         </span>
-                        <span>by {form.createdBy}</span>
+                        <span>by {form.created_by?.name || 'Unknown'}</span>
+                        {form.category && (
+                          <Badge className="bg-brand-gradient text-white border-0 text-xs">
+                            {form.category}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -381,36 +401,38 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibrary
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit?.(form.id);
+                      }}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit Form
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <Copy className="h-4 w-4 mr-2" />
                         Duplicate
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <Eye className="h-4 w-4 mr-2" />
                         Preview
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <Users className="h-4 w-4 mr-2" />
                         Assign to Units
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <FileText className="h-4 w-4 mr-2" />
                         View Submissions
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <FileText className="h-4 w-4 mr-2" />
-                        Export Submissions
-                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation();
+                        archiveMutation.mutate(form.id);
+                      }}>
                         <Archive className="h-4 w-4 mr-2" />
                         Archive
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-600">
+                      <DropdownMenuItem className="text-red-600" onClick={(e) => e.stopPropagation()}>
                         <Trash2 className="h-4 w-4 mr-2" />
                         Delete
                       </DropdownMenuItem>
@@ -420,6 +442,31 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect }: FormLibrary
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalForms > 20 && (
+        <div className="flex items-center justify-between pt-4">
+          <p className="text-sm text-muted-foreground">
+            Showing {page * 20 + 1}-{Math.min((page + 1) * 20, totalForms)} of {totalForms} forms
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => p + 1)}
+              disabled={(page + 1) * 20 >= totalForms}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>

@@ -15,6 +15,7 @@ interface FormsProps {
 export function Forms({ currentRole = 'admin' }: FormsProps) {
   const [activeTab, setActiveTab] = useState('analytics');
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const [editingFormId, setEditingFormId] = useState<string | null>(null);
 
   const handleFormSelect = (formId: string) => {
     setSelectedFormId(formId);
@@ -24,9 +25,15 @@ export function Forms({ currentRole = 'admin' }: FormsProps) {
     setSelectedFormId(null);
   };
 
-  const handleEditForm = () => {
+  const handleEditForm = (formId?: string) => {
+    setEditingFormId(formId || selectedFormId);
     setSelectedFormId(null);
     setActiveTab('builder');
+  };
+
+  const handleFormSaved = () => {
+    setEditingFormId(null);
+    setActiveTab('library');
   };
 
   // If a form is selected, show the detail view instead of the library
@@ -77,15 +84,24 @@ export function Forms({ currentRole = 'admin' }: FormsProps) {
         </TabsContent>
 
         <TabsContent value="builder" className="space-y-6">
-          <FormBuilder 
-            currentRole={currentRole} 
-            onSaveDraft={() => setActiveTab('library')}
+          <FormBuilder
+            formId={editingFormId || undefined}
+            currentRole={currentRole}
+            onSaveDraft={handleFormSaved}
             onNavigateToAssignments={() => setActiveTab('assignments')}
           />
         </TabsContent>
 
         <TabsContent value="library" className="space-y-6">
-          <FormLibrary currentRole={currentRole} onFormSelect={handleFormSelect} />
+          <FormLibrary
+            currentRole={currentRole}
+            onFormSelect={handleFormSelect}
+            onEdit={handleEditForm}
+            onCreateNew={() => {
+              setEditingFormId(null);
+              setActiveTab('builder');
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="assignments" className="space-y-6">

@@ -49,7 +49,7 @@ import {
 interface FormDetailProps {
   formId: string;
   onBack: () => void;
-  onEdit: () => void;
+  onEdit: (formId?: string) => void;
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
 }
 
@@ -247,9 +247,9 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
-          <Button 
+          <Button
             className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-            onClick={onEdit}
+            onClick={() => onEdit?.(formId)}
           >
             <Edit className="h-4 w-4 mr-2" />
             Edit Form

@@ -1,4 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
+import {
+  createForm,
+  updateForm,
+  publishForm,
+  getFormById,
+  addFormBlock,
+  updateFormBlock,
+  deleteFormBlock
+} from '@/lib/crud/forms';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -43,7 +55,8 @@ import {
   AlertCircle,
   Lock,
   Globe,
-  ChevronRight
+  ChevronRight,
+  Loader2
 } from 'lucide-react';
 import {
   Accordion,
@@ -122,12 +135,16 @@ const formBlocks: FormBlock[] = [
 ];
 
 interface FormBuilderProps {
+  formId?: string; // For editing existing forms
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
   onSaveDraft?: () => void;
   onNavigateToAssignments?: () => void;
 }
 
-export function FormBuilder({ currentRole = 'admin', onSaveDraft, onNavigateToAssignments }: FormBuilderProps) {
+export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavigateToAssignments }: FormBuilderProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [formTitle, setFormTitle] = useState('Untitled Form');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
@@ -149,6 +166,210 @@ export function FormBuilder({ currentRole = 'admin', onSaveDraft, onNavigateToAs
   const [allowAnonymous, setAllowAnonymous] = useState(false);
   const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [currentFormId, setCurrentFormId] = useState<string | null>(formId || null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+
+  // Load existing form if formId is provided
+  const { data: existingForm, isLoading: isLoadingForm } = useQuery({
+    queryKey: ['form', currentFormId],
+    queryFn: () => getFormById(currentFormId!),
+    enabled: !!currentFormId
+  });
+
+  // Populate form state when existing form loads
+  useEffect(() => {
+    if (existingForm) {
+      setFormTitle(existingForm.title || 'Untitled Form');
+      setFormDescription(existingForm.description || '');
+      setFormCategory(existingForm.category || '');
+      setRequiresApproval(existingForm.requires_approval || false);
+      setAllowAnonymous(existingForm.allow_anonymous || false);
+
+      // Map database type to UI type
+      const typeMap: Record<string, string> = {
+        'ojt-checklist': 'OJT Checklist',
+        'inspection': 'Inspection',
+        'audit': 'Audit',
+        'survey': 'Survey',
+        'other': 'Other'
+      };
+      setFormType(typeMap[existingForm.type] || 'OJT Checklist');
+
+      // Map database status to UI status
+      const statusMap: Record<string, 'Draft' | 'Published'> = {
+        'draft': 'Draft',
+        'published': 'Published'
+      };
+      setFormStatus(statusMap[existingForm.status] || 'Draft');
+
+      // Load form blocks if they exist
+      if (existingForm.form_blocks && existingForm.form_blocks.length > 0) {
+        const mappedBlocks = existingForm.form_blocks.map((block: any) => ({
+          id: block.id,
+          type: block.type,
+          label: block.label,
+          description: block.description,
+          placeholder: block.placeholder,
+          required: block.is_required,
+          options: block.options,
+          validation_rules: block.validation_rules
+        }));
+        setCanvasBlocks(mappedBlocks);
+      }
+    }
+  }, [existingForm]);
+
+  // Create form mutation
+  const createFormMutation = useMutation({
+    mutationFn: async () => {
+      const typeMap: Record<string, 'ojt-checklist' | 'inspection' | 'audit' | 'survey'> = {
+        'OJT Checklist': 'ojt-checklist',
+        'Inspection': 'inspection',
+        'Audit': 'audit',
+        'Survey': 'survey',
+        'Assessment': 'survey',
+        'Incident Report': 'other' as 'survey' // Will need to add 'other' to type union
+      };
+
+      return createForm({
+        title: formTitle,
+        description: formDescription,
+        type: typeMap[formType] || 'ojt-checklist',
+        category: formCategory || undefined,
+        requires_approval: requiresApproval,
+        allow_anonymous: allowAnonymous
+      });
+    },
+    onSuccess: (data) => {
+      setCurrentFormId(data.id);
+      setHasUnsavedChanges(false);
+      setLastSavedAt(new Date());
+      toast({
+        title: 'Form created',
+        description: 'Your form has been saved as a draft'
+      });
+      queryClient.invalidateQueries({ queryKey: ['forms'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error creating form',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Update form mutation
+  const updateFormMutation = useMutation({
+    mutationFn: async (updates: any) => {
+      if (!currentFormId) throw new Error('No form ID');
+
+      const typeMap: Record<string, 'ojt-checklist' | 'inspection' | 'audit' | 'survey'> = {
+        'OJT Checklist': 'ojt-checklist',
+        'Inspection': 'inspection',
+        'Audit': 'audit',
+        'Survey': 'survey',
+        'Assessment': 'survey',
+        'Incident Report': 'other' as 'survey'
+      };
+
+      return updateForm(currentFormId, {
+        title: formTitle,
+        description: formDescription,
+        type: typeMap[formType] || 'ojt-checklist',
+        category: formCategory || undefined,
+        requires_approval: requiresApproval,
+        allow_anonymous: allowAnonymous,
+        ...updates
+      });
+    },
+    onSuccess: () => {
+      setHasUnsavedChanges(false);
+      setLastSavedAt(new Date());
+      toast({
+        title: 'Form saved',
+        description: 'Your changes have been saved'
+      });
+      queryClient.invalidateQueries({ queryKey: ['forms'] });
+      queryClient.invalidateQueries({ queryKey: ['form', currentFormId] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error saving form',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Publish form mutation
+  const publishFormMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentFormId) throw new Error('No form ID - save the form first');
+      return publishForm(currentFormId);
+    },
+    onSuccess: () => {
+      setFormStatus('Published');
+      toast({
+        title: 'Form published',
+        description: 'Your form is now live and visible to assigned users'
+      });
+      queryClient.invalidateQueries({ queryKey: ['forms'] });
+      queryClient.invalidateQueries({ queryKey: ['form', currentFormId] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Error publishing form',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Auto-save effect (debounced)
+  useEffect(() => {
+    if (!hasUnsavedChanges || !currentFormId) return;
+
+    const timeout = setTimeout(() => {
+      updateFormMutation.mutate({});
+    }, 30000); // 30 seconds
+
+    return () => clearTimeout(timeout);
+  }, [hasUnsavedChanges, formTitle, formDescription, formType, formCategory, requiresApproval, allowAnonymous]);
+
+  // Mark as changed when form fields change
+  useEffect(() => {
+    if (currentFormId && existingForm) {
+      setHasUnsavedChanges(true);
+    }
+  }, [formTitle, formDescription, formType, formCategory, requiresApproval, allowAnonymous, canvasBlocks]);
+
+  // Save handlers
+  const handleSaveDraft = async () => {
+    if (currentFormId) {
+      await updateFormMutation.mutateAsync({ status: 'draft' });
+    } else {
+      await createFormMutation.mutateAsync();
+    }
+    onSaveDraft?.();
+  };
+
+  const handlePublish = async () => {
+    // If form doesn't exist yet, create it first
+    if (!currentFormId) {
+      const newForm = await createFormMutation.mutateAsync();
+      if (newForm) {
+        await publishFormMutation.mutateAsync();
+      }
+    } else {
+      // Save any pending changes first
+      if (hasUnsavedChanges) {
+        await updateFormMutation.mutateAsync({});
+      }
+      await publishFormMutation.mutateAsync();
+    }
+  };
 
   // Sample assignments and tags
   const sampleAssignments = [
@@ -367,15 +588,34 @@ export function FormBuilder({ currentRole = 'admin', onSaveDraft, onNavigateToAs
             className="text-xl font-semibold border-0 px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Enter form title..."
           />
+          {lastSavedAt && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {hasUnsavedChanges ? 'Unsaved changes • ' : 'Saved • '}
+              {lastSavedAt.toLocaleTimeString()}
+            </p>
+          )}
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" onClick={() => setShowPreviewModal(true)}>
             <Eye className="h-4 w-4 mr-2" />
             Preview
           </Button>
-          <Button variant="outline" onClick={onSaveDraft}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Draft
+          <Button
+            variant="outline"
+            onClick={handleSaveDraft}
+            disabled={createFormMutation.isPending || updateFormMutation.isPending}
+          >
+            {(createFormMutation.isPending || updateFormMutation.isPending) ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {lastSavedAt ? 'Save Changes' : 'Save Draft'}
+              </>
+            )}
           </Button>
           <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
             <Settings className="h-4 w-4 mr-2" />
@@ -441,11 +681,21 @@ export function FormBuilder({ currentRole = 'admin', onSaveDraft, onNavigateToAs
                 <Button
                   variant={formStatus === 'Published' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setFormStatus('Published')}
+                  onClick={handlePublish}
+                  disabled={publishFormMutation.isPending || !formTitle.trim()}
                   className={formStatus === 'Published' ? 'bg-green-500 hover:bg-green-600' : ''}
                 >
-                  <Globe className="h-4 w-4 mr-2" />
-                  Published
+                  {publishFormMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="h-4 w-4 mr-2" />
+                      {formStatus === 'Published' ? 'Published' : 'Publish'}
+                    </>
+                  )}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
