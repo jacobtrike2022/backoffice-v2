@@ -101,36 +101,150 @@ interface FormBlock {
 }
 
 const formBlocks: FormBlock[] = [
-  // Question Blocks
-  { id: 'text', type: 'Text Input', label: 'Text Input (single line)', icon: Type, category: 'question' },
-  { id: 'textarea', type: 'Text Area', label: 'Text Area (multiple lines)', icon: Type, category: 'question' },
-  { id: 'multiple-choice', type: 'Multiple Choice', label: 'Multiple Choice', icon: CheckSquare, category: 'question' },
-  { id: 'checkboxes', type: 'Checkboxes', label: 'Checkboxes', icon: CheckSquare, category: 'question' },
-  { id: 'dropdown', type: 'Dropdown', label: 'Dropdown', icon: ChevronDown, category: 'question' },
-  { id: 'number', type: 'Number Input', label: 'Number Input', icon: Hash, category: 'question' },
-  { id: 'date', type: 'Date Picker', label: 'Date Picker', icon: Calendar, category: 'question' },
-  { id: 'time', type: 'Time Picker', label: 'Time Picker', icon: Clock, category: 'question' },
-  { id: 'email', type: 'Email Input', label: 'Email Input', icon: Mail, category: 'question' },
-  { id: 'phone', type: 'Phone Input', label: 'Phone Input', icon: Phone, category: 'question' },
-  { id: 'file', type: 'File Upload', label: 'File Upload', icon: Upload, category: 'question' },
-  { id: 'signature', type: 'Signature', label: 'Signature', icon: PenTool, category: 'question' },
-  { id: 'rating', type: 'Rating Scale', label: 'Rating Scale', icon: Star, category: 'question' },
-  { id: 'ranking', type: 'Ranking', label: 'Ranking', icon: List, category: 'question' },
-  { id: 'matrix', type: 'Matrix/Grid', label: 'Matrix/Grid', icon: Grid3x3, category: 'question' },
-  { id: 'yes-no', type: 'Yes/No Toggle', label: 'Yes/No Toggle', icon: ToggleLeft, category: 'question' },
-  { id: 'picture-choice', type: 'Picture Choice', label: 'Picture Choice', icon: ImageIcon, category: 'question' },
-  
-  // Action Blocks
-  { id: 'calculator', type: 'Calculator', label: 'Calculator (for scores)', icon: Calculator, category: 'action' },
-  { id: 'hidden', type: 'Hidden Field', label: 'Hidden Field', icon: EyeOff, category: 'action' },
-  { id: 'email-notification', type: 'Email Notification', label: 'Email Notification', icon: Send, category: 'action' },
-  { id: 'conditional', type: 'Conditional Logic', label: 'Conditional Logic', icon: GitBranch, category: 'action' },
-  
-  // Content Blocks
-  { id: 'welcome', type: 'Welcome Message', label: 'Welcome Message', icon: MessageSquare, category: 'content' },
-  { id: 'closing', type: 'Closing Message', label: 'Closing Message', icon: MessageSquare, category: 'content' },
-  { id: 'divider', type: 'Section Divider', label: 'Section Divider', icon: Divide, category: 'content' },
-  { id: 'statement', type: 'Statement/Info', label: 'Statement/Info Text', icon: MessageSquare, category: 'content' }
+  // QUESTION BLOCKS - Basic Inputs
+  {
+    id: 'text',
+    type: 'Short Text',
+    label: 'Short Text - Names, titles, single words',
+    icon: Type,
+    category: 'question'
+  },
+  {
+    id: 'textarea',
+    type: 'Long Text',
+    label: 'Long Text - Comments, descriptions, feedback',
+    icon: MessageSquare,
+    category: 'question'
+  },
+  {
+    id: 'email',
+    type: 'Email',
+    label: 'Email - Auto-validates email format',
+    icon: Mail,
+    category: 'question'
+  },
+  {
+    id: 'phone',
+    type: 'Phone',
+    label: 'Phone - Contact numbers',
+    icon: Phone,
+    category: 'question'
+  },
+  {
+    id: 'number',
+    type: 'Number',
+    label: 'Number - Counts, quantities, scores',
+    icon: Hash,
+    category: 'question'
+  },
+
+  // QUESTION BLOCKS - Choice Based
+  {
+    id: 'multiple-choice',
+    type: 'Multiple Choice',
+    label: 'Multiple Choice - Pick ONE option (radio)',
+    icon: CheckSquare,
+    category: 'question'
+  },
+  {
+    id: 'checkboxes',
+    type: 'Checkboxes',
+    label: 'Checkboxes - Pick MULTIPLE options',
+    icon: CheckSquare,
+    category: 'question'
+  },
+  {
+    id: 'dropdown',
+    type: 'Dropdown',
+    label: 'Dropdown - Long list of options (searchable)',
+    icon: ChevronDown,
+    category: 'question'
+  },
+  {
+    id: 'yes-no',
+    type: 'Yes/No',
+    label: 'Yes/No - Binary choice (pass/fail checks)',
+    icon: ToggleLeft,
+    category: 'question'
+  },
+
+  // QUESTION BLOCKS - Date & Time
+  {
+    id: 'date',
+    type: 'Date',
+    label: 'Date - Calendar picker for dates',
+    icon: Calendar,
+    category: 'question'
+  },
+  {
+    id: 'time',
+    type: 'Time',
+    label: 'Time - Clock picker for times',
+    icon: Clock,
+    category: 'question'
+  },
+
+  // QUESTION BLOCKS - Advanced
+  {
+    id: 'rating',
+    type: 'Rating Scale',
+    label: 'Rating Scale - Star ratings, satisfaction levels',
+    icon: Star,
+    category: 'question'
+  },
+  {
+    id: 'file',
+    type: 'File Upload',
+    label: 'File Upload - Photos, documents, receipts',
+    icon: Upload,
+    category: 'question'
+  },
+  {
+    id: 'signature',
+    type: 'Signature',
+    label: 'Signature - Digital signatures, acknowledgments',
+    icon: PenTool,
+    category: 'question'
+  },
+  {
+    id: 'matrix',
+    type: 'Matrix Grid',
+    label: 'Matrix Grid - Rate multiple items on same scale',
+    icon: Grid3x3,
+    category: 'question'
+  },
+
+  // ACTION BLOCKS
+  {
+    id: 'calculator',
+    type: 'Calculator',
+    label: 'Calculator - Auto-calculate scores/totals',
+    icon: Calculator,
+    category: 'action'
+  },
+  {
+    id: 'conditional',
+    type: 'Conditional Logic',
+    label: 'Conditional Logic - Show/hide based on answers',
+    icon: GitBranch,
+    category: 'action'
+  },
+
+  // CONTENT BLOCKS
+  {
+    id: 'statement',
+    type: 'Info Text',
+    label: 'Info Text - Instructions, warnings, notes',
+    icon: MessageSquare,
+    category: 'content'
+  },
+  {
+    id: 'divider',
+    type: 'Section Break',
+    label: 'Section Break - Visual separator',
+    icon: Divide,
+    category: 'content'
+  }
 ];
 
 interface FormBuilderProps {
@@ -427,129 +541,309 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
   };
 
   const renderFormField = (block: any) => {
-    switch (block.id.split('-')[0]) {
+    const blockType = block.id.split('-')[0];
+
+    switch (blockType) {
+      // SHORT TEXT - For names, titles, single-line answers
       case 'text':
-        return <Input placeholder={`Enter ${block.label.toLowerCase()}...`} />;
-      
+        return (
+          <Input
+            placeholder={block.placeholder || "Type your answer here..."}
+            className="max-w-md"
+          />
+        );
+
+      // LONG TEXT - For comments, descriptions, detailed feedback
       case 'textarea':
-        return <Textarea placeholder={`Enter ${block.label.toLowerCase()}...`} rows={4} />;
-      
-      case 'multiple':
         return (
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-primary" />
-              <label className="text-sm">Option 1</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-              <label className="text-sm">Option 2</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-              <label className="text-sm">Option 3</label>
-            </div>
-          </div>
+          <Textarea
+            placeholder={block.placeholder || "Type your detailed answer here..."}
+            rows={4}
+            className="resize-y"
+          />
         );
-      
-      case 'checkboxes':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-primary bg-primary" />
-              <label className="text-sm">Option 1</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-muted-foreground" />
-              <label className="text-sm">Option 2</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-muted-foreground" />
-              <label className="text-sm">Option 3</label>
-            </div>
-          </div>
-        );
-      
-      case 'dropdown':
-        return (
-          <Select>
-            <SelectTrigger>
-              <SelectValue placeholder="Select an option..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">Option 1</SelectItem>
-              <SelectItem value="2">Option 2</SelectItem>
-              <SelectItem value="3">Option 3</SelectItem>
-            </SelectContent>
-          </Select>
-        );
-      
-      case 'number':
-        return <Input type="number" placeholder="Enter a number..." />;
-      
-      case 'date':
-        return <Input type="date" />;
-      
-      case 'time':
-        return <Input type="time" />;
-      
+
+      // EMAIL - Auto-validates email format
       case 'email':
-        return <Input type="email" placeholder="Enter email address..." />;
-      
+        return (
+          <Input
+            type="email"
+            placeholder={block.placeholder || "name@example.com"}
+            className="max-w-md"
+          />
+        );
+
+      // PHONE - Phone number input
       case 'phone':
-        return <Input type="tel" placeholder="Enter phone number..." />;
-      
-      case 'file':
         return (
-          <div className="border-2 border-dashed rounded-lg p-8 text-center">
-            <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
-          </div>
+          <Input
+            type="tel"
+            placeholder={block.placeholder || "(555) 123-4567"}
+            className="max-w-xs"
+          />
         );
-      
-      case 'signature':
+
+      // NUMBER - Numeric input with validation
+      case 'number':
         return (
-          <div className="border-2 border-dashed rounded-lg p-8 text-center">
-            <PenTool className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Click to sign</p>
-          </div>
+          <Input
+            type="number"
+            placeholder={block.placeholder || "0"}
+            className="max-w-xs"
+            min={block.validation_rules?.min}
+            max={block.validation_rules?.max}
+            step={block.validation_rules?.step || 1}
+          />
         );
-      
-      case 'rating':
+
+      // MULTIPLE CHOICE - Pick ONE option (radio buttons)
+      case 'multiple':
+        const multipleOptions = block.options?.choices || ['Option 1', 'Option 2', 'Option 3'];
         return (
-          <div className="flex items-center space-x-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Star key={star} className="h-8 w-8 text-primary fill-primary cursor-pointer" />
+          <div className="space-y-3">
+            {multipleOptions.map((option: string, index: number) => (
+              <div key={index} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors">
+                <div className="h-4 w-4 rounded-full border-2 border-primary flex items-center justify-center">
+                  {index === 0 && <div className="h-2 w-2 rounded-full bg-primary" />}
+                </div>
+                <label className="text-sm font-medium cursor-pointer flex-1">{option}</label>
+              </div>
             ))}
           </div>
         );
-      
-      case 'yes':
+
+      // CHECKBOXES - Pick MULTIPLE options
+      case 'checkboxes':
+        const checkboxOptions = block.options?.choices || ['Option 1', 'Option 2', 'Option 3'];
         return (
-          <div className="flex items-center space-x-4">
-            <Button variant="outline" className="flex-1">Yes</Button>
-            <Button variant="outline" className="flex-1">No</Button>
+          <div className="space-y-3">
+            {checkboxOptions.map((option: string, index: number) => (
+              <div key={index} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors">
+                <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${index === 0 ? 'border-primary bg-primary' : 'border-muted-foreground'}`}>
+                  {index === 0 && <CheckSquare className="h-3 w-3 text-white" />}
+                </div>
+                <label className="text-sm font-medium cursor-pointer flex-1">{option}</label>
+              </div>
+            ))}
           </div>
         );
-      
-      case 'welcome':
-      case 'closing':
-      case 'statement':
+
+      // DROPDOWN - For long lists of options
+      case 'dropdown':
+        const dropdownOptions = block.options?.choices || ['Option 1', 'Option 2', 'Option 3'];
         return (
-          <Card className="bg-muted/50">
+          <Select>
+            <SelectTrigger className="max-w-md">
+              <SelectValue placeholder={block.placeholder || "Choose an option..."} />
+            </SelectTrigger>
+            <SelectContent>
+              {dropdownOptions.map((option: string, index: number) => (
+                <SelectItem key={index} value={option.toLowerCase().replace(/\s+/g, '-')}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+
+      // YES/NO - Binary choice (pass/fail, compliance checks)
+      case 'yes':
+        return (
+          <div className="flex items-center space-x-4 max-w-sm">
+            <Button
+              variant="outline"
+              className="flex-1 h-12 text-base font-medium border-2 hover:border-green-500 hover:bg-green-50"
+            >
+              <CheckSquare className="h-5 w-5 mr-2" />
+              Yes
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 h-12 text-base font-medium border-2 hover:border-red-500 hover:bg-red-50"
+            >
+              <X className="h-5 w-5 mr-2" />
+              No
+            </Button>
+          </div>
+        );
+
+      // DATE - Calendar picker
+      case 'date':
+        return (
+          <div className="max-w-xs">
+            <Input type="date" className="cursor-pointer" />
+          </div>
+        );
+
+      // TIME - Clock picker
+      case 'time':
+        return (
+          <div className="max-w-xs">
+            <Input type="time" className="cursor-pointer" />
+          </div>
+        );
+
+      // RATING SCALE - Star ratings, satisfaction levels
+      case 'rating':
+        const maxRating = block.options?.maxRating || 5;
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center space-x-2">
+              {Array.from({ length: maxRating }).map((_, index) => (
+                <Star
+                  key={index}
+                  className={`h-8 w-8 cursor-pointer transition-colors ${
+                    index < 3 ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Click to rate ({maxRating === 5 ? '1 = Poor, 5 = Excellent' : `1-${maxRating}`})
+            </p>
+          </div>
+        );
+
+      // FILE UPLOAD - Photos, documents, receipts
+      case 'file':
+        return (
+          <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer max-w-md">
+            <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-sm font-medium mb-1">Click to upload or drag and drop</p>
+            <p className="text-xs text-muted-foreground">
+              {block.options?.acceptedTypes || 'PNG, JPG, PDF up to 10MB'}
+            </p>
+          </div>
+        );
+
+      // SIGNATURE - Digital signatures, acknowledgments
+      case 'signature':
+        return (
+          <div className="space-y-3">
+            <div className="border-2 border-dashed rounded-lg p-12 text-center hover:border-primary transition-colors cursor-pointer bg-white">
+              <PenTool className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm font-medium">Click to sign</p>
+              <p className="text-xs text-muted-foreground mt-1">Draw your signature with mouse or touch</p>
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Required for acknowledgment</span>
+              <Button variant="ghost" size="sm" className="h-7 text-xs">Clear</Button>
+            </div>
+          </div>
+        );
+
+      // MATRIX GRID - Rate multiple items on same scale
+      case 'matrix':
+        const matrixRows = block.options?.rows || ['Item 1', 'Item 2', 'Item 3'];
+        const matrixColumns = block.options?.columns || ['Poor', 'Fair', 'Good', 'Excellent'];
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <th className="border p-2 bg-muted text-left text-sm font-medium min-w-[150px]"></th>
+                  {matrixColumns.map((col: string, index: number) => (
+                    <th key={index} className="border p-2 bg-muted text-center text-sm font-medium min-w-[100px]">
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {matrixRows.map((row: string, rowIndex: number) => (
+                  <tr key={rowIndex}>
+                    <td className="border p-2 text-sm font-medium">{row}</td>
+                    {matrixColumns.map((_, colIndex: number) => (
+                      <td key={colIndex} className="border p-2 text-center">
+                        <div className="flex items-center justify-center">
+                          <div className={`h-4 w-4 rounded-full border-2 cursor-pointer transition-colors ${
+                            rowIndex === 0 && colIndex === 2 ? 'border-primary bg-primary' : 'border-muted-foreground hover:border-primary'
+                          }`} />
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+
+      // CALCULATOR - Auto-calculate scores/totals
+      case 'calculator':
+        return (
+          <Card className="bg-blue-50 border-blue-200">
             <CardContent className="p-4">
-              <p className="text-sm">
-                {block.description || 'This is a welcome message that will appear to users when they start the form.'}
-              </p>
+              <div className="flex items-center space-x-3">
+                <Calculator className="h-5 w-5 text-blue-600" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-900">Auto-calculated Field</p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    {block.options?.formula || 'Total Score = Sum of all ratings'}
+                  </p>
+                </div>
+                <div className="text-2xl font-bold text-blue-900">0</div>
+              </div>
             </CardContent>
           </Card>
         );
-      
+
+      // CONDITIONAL LOGIC - Show/hide based on answers
+      case 'conditional':
+        return (
+          <Card className="bg-purple-50 border-purple-200">
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <GitBranch className="h-5 w-5 text-purple-600" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-purple-900">Conditional Logic</p>
+                  <p className="text-xs text-purple-700 mt-1">
+                    {block.options?.condition || 'This section appears based on previous answers'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      // INFO TEXT - Instructions, warnings, notes
+      case 'statement':
+        return (
+          <Card className="bg-blue-50/50 border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm text-blue-900 leading-relaxed">
+                    {block.description || 'This is an informational message. Add instructions, warnings, or helpful notes here.'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      // SECTION BREAK - Visual separator
       case 'divider':
-        return <Separator className="my-4" />;
-      
+        return (
+          <div className="my-8">
+            <Separator />
+            {block.label && block.label !== 'Section Divider' && (
+              <p className="text-center text-sm font-medium text-muted-foreground mt-4">
+                {block.label}
+              </p>
+            )}
+          </div>
+        );
+
+      // DEFAULT FALLBACK
       default:
-        return <Input placeholder={`Enter ${block.label.toLowerCase()}...`} />;
+        return (
+          <Input
+            placeholder={block.placeholder || "Enter your answer..."}
+            className="max-w-md"
+          />
+        );
     }
   };
 
