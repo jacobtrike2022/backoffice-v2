@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   createForm,
@@ -143,7 +142,6 @@ interface FormBuilderProps {
 
 export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavigateToAssignments }: FormBuilderProps) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [formTitle, setFormTitle] = useState('Untitled Form');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
