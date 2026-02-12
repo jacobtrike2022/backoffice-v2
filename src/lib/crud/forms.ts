@@ -16,7 +16,7 @@ export interface CreateFormInput {
 }
 
 export interface FormBlockInput {
-  block_type: string;
+  type: string; // Schema uses 'type', not 'block_type'
   label: string;
   description?: string;
   placeholder?: string;
@@ -24,7 +24,6 @@ export interface FormBlockInput {
   validation_rules?: any;
   is_required?: boolean;
   display_order: number;
-  settings?: any;
 }
 
 /**
@@ -161,7 +160,7 @@ export async function getFormById(formId: string) {
     .from('forms')
     .select(`
       *,
-      created_by:users(name, email),
+      created_by:users!forms_created_by_id_fkey(name, email),
       form_blocks(*)
     `)
     .eq('id', formId)
@@ -178,12 +177,14 @@ export async function getFormById(formId: string) {
 }
 
 /**
- * Get all forms with filters
+ * Get all forms with filters and pagination
  */
 export async function getForms(filters: {
   type?: string;
   status?: string;
   search?: string;
+  limit?: number;
+  offset?: number;
 } = {}) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
@@ -192,8 +193,8 @@ export async function getForms(filters: {
     .from('forms')
     .select(`
       *,
-      created_by:users(name)
-    `)
+      created_by:users!forms_created_by_id_fkey(name)
+    `, { count: 'exact' })
     .eq('organization_id', orgId);
 
   if (filters.type) {
@@ -208,10 +209,15 @@ export async function getForms(filters: {
     query = query.ilike('title', `%${filters.search}%`);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+  // Add pagination
+  const limit = filters.limit || 20;
+  const offset = filters.offset || 0;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data;
+  return { forms: data, total: count || 0 };
 }
 
 /**
@@ -222,17 +228,27 @@ export async function submitFormResponse(
   responseData: any,
   submittedById?: string
 ) {
-  const userProfile = submittedById 
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const userProfile = submittedById
     ? await supabase.from('users').select('id').eq('id', submittedById).single()
     : await getCurrentUserProfile();
 
+  const userId = userProfile?.data?.id || userProfile?.id;
+
+  // Fixed column names to match schema:
+  // - user_id (not submitted_by_id)
+  // - answers (not response_data)
+  // - status: 'submitted' (not 'pending' - CHECK constraint doesn't allow 'pending')
   const { data: submission, error } = await supabase
     .from('form_submissions')
     .insert({
+      organization_id: orgId,
       form_id: formId,
-      submitted_by_id: userProfile?.data?.id || userProfile?.id,
-      response_data: responseData,
-      status: 'pending',
+      user_id: userId,
+      answers: responseData,
+      status: 'submitted',
       submitted_at: new Date().toISOString()
     })
     .select()
@@ -266,7 +282,7 @@ export async function submitFormResponse(
   // Log activity (non-critical - wrap in try-catch)
   try {
     await logActivity({
-      user_id: userProfile?.data?.id || userProfile?.id,
+      user_id: userId,
       action: 'form-submission',
       entity_type: 'form',
       entity_id: formId,
@@ -287,27 +303,28 @@ export async function approveFormSubmission(
   submissionId: string,
   approverId: string
 ) {
+  // Schema uses reviewed_by_id and reviewed_at (not approved_by_id/approved_at)
   const { data, error } = await supabase
     .from('form_submissions')
     .update({
       status: 'approved',
-      approved_by_id: approverId,
-      approved_at: new Date().toISOString()
+      reviewed_by_id: approverId,
+      reviewed_at: new Date().toISOString()
     })
     .eq('id', submissionId)
     .select(`
       *,
-      submitted_by:users!form_submissions_submitted_by_id_fkey(id, name),
+      submitted_by:users!form_submissions_user_id_fkey(id, name),
       form:forms(title)
     `)
     .single();
 
   if (error) throw error;
 
-  // Notify submitter
-  if (data.submitted_by_id) {
+  // Notify submitter (use user_id, not submitted_by_id)
+  if (data.user_id) {
     await createNotification({
-      user_id: data.submitted_by_id,
+      user_id: data.user_id,
       type: 'approval-required',
       title: 'Form Submission Approved',
       message: `Your submission for "${(data.form as any)?.title}" was approved`,
@@ -323,32 +340,35 @@ export async function approveFormSubmission(
  */
 export async function rejectFormSubmission(
   submissionId: string,
-  approverId: string
+  approverId: string,
+  rejectionReason?: string
 ) {
+  // Schema uses reviewed_by_id and reviewed_at (not approved_by_id/approved_at)
   const { data, error } = await supabase
     .from('form_submissions')
     .update({
       status: 'rejected',
-      approved_by_id: approverId,
-      approved_at: new Date().toISOString()
+      reviewed_by_id: approverId,
+      reviewed_at: new Date().toISOString(),
+      review_notes: rejectionReason
     })
     .eq('id', submissionId)
     .select(`
       *,
-      submitted_by:users!form_submissions_submitted_by_id_fkey(id, name),
+      submitted_by:users!form_submissions_user_id_fkey(id, name),
       form:forms(title)
     `)
     .single();
 
   if (error) throw error;
 
-  // Notify submitter
-  if (data.submitted_by_id) {
+  // Notify submitter (use user_id, not submitted_by_id)
+  if (data.user_id) {
     await createNotification({
-      user_id: data.submitted_by_id,
+      user_id: data.user_id,
       type: 'approval-required',
       title: 'Form Submission Rejected',
-      message: `Your submission for "${(data.form as any)?.title}" was rejected`,
+      message: `Your submission for "${(data.form as any)?.title}" was rejected${rejectionReason ? ': ' + rejectionReason : ''}`,
       link_url: `/forms/${data.form_id}/submissions/${submissionId}`
     });
   }
@@ -363,12 +383,13 @@ export async function getFormSubmissions(
   formId: string,
   filters: { status?: string } = {}
 ) {
+  // Fixed foreign key references to match actual schema
   let query = supabase
     .from('form_submissions')
     .select(`
       *,
-      submitted_by:users!form_submissions_submitted_by_id_fkey(name, email),
-      approved_by:users!form_submissions_approved_by_id_fkey(name, email)
+      submitted_by:users!form_submissions_user_id_fkey(name, email),
+      reviewed_by:users!form_submissions_reviewed_by_id_fkey(name, email)
     `)
     .eq('form_id', formId);
 
@@ -416,18 +437,24 @@ export async function assignForm(
     .eq('id', formId)
     .single();
 
-  // Create notifications for affected users
+  // Create notifications for affected users (use Promise.all to avoid N+1 query)
   const affectedUsers = await getAffectedUsersForFormAssignment(assignmentType, targetId);
-  
-  for (const userId of affectedUsers) {
-    await createNotification({
-      user_id: userId,
-      type: 'assignment',
-      title: 'New Form Assigned',
-      message: `You have been assigned form: "${form?.title}"`,
-      link_url: `/forms/${formId}`
-    });
-  }
+
+  // Execute all notifications in parallel instead of sequentially
+  await Promise.all(
+    affectedUsers.map(userId =>
+      createNotification({
+        user_id: userId,
+        type: 'assignment',
+        title: 'New Form Assigned',
+        message: `You have been assigned form: "${form?.title}"`,
+        link_url: `/forms/${formId}`
+      }).catch(error => {
+        // Log error but don't fail the assignment
+        console.error(`Failed to create notification for user ${userId}:`, error);
+      })
+    )
+  );
 
   return data;
 }

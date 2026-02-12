@@ -28,10 +28,13 @@ ON CONFLICT (name) DO NOTHING;
 ALTER TABLE roles
 ADD COLUMN IF NOT EXISTS standard_role_type_id UUID REFERENCES standard_role_types(id);
 
-CREATE INDEX idx_roles_standard_type ON roles(standard_role_type_id);
+CREATE INDEX IF NOT EXISTS idx_roles_standard_type ON roles(standard_role_type_id);
 
 -- RLS
 ALTER TABLE standard_role_types ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can view standard role types" ON standard_role_types;
+DROP POLICY IF EXISTS "Trike admins can manage standard role types" ON standard_role_types;
 
 CREATE POLICY "Anyone can view standard role types" ON standard_role_types FOR SELECT USING (true);
 

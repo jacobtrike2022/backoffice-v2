@@ -52,19 +52,23 @@ CREATE TABLE IF NOT EXISTS compliance_assignment_queue (
 );
 
 -- Partial unique constraint to prevent duplicate pending/assigned assignments
-CREATE UNIQUE INDEX idx_assignment_queue_unique_pending
+CREATE UNIQUE INDEX IF NOT EXISTS idx_assignment_queue_unique_pending
   ON compliance_assignment_queue(organization_id, employee_id, requirement_id)
   WHERE status IN ('pending', 'assigned');
 
-CREATE INDEX idx_assignment_queue_org ON compliance_assignment_queue(organization_id);
-CREATE INDEX idx_assignment_queue_employee ON compliance_assignment_queue(employee_id);
-CREATE INDEX idx_assignment_queue_requirement ON compliance_assignment_queue(requirement_id);
-CREATE INDEX idx_assignment_queue_status ON compliance_assignment_queue(status);
-CREATE INDEX idx_assignment_queue_pending ON compliance_assignment_queue(organization_id, status)
+CREATE INDEX IF NOT EXISTS idx_assignment_queue_org ON compliance_assignment_queue(organization_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_queue_employee ON compliance_assignment_queue(employee_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_queue_requirement ON compliance_assignment_queue(requirement_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_queue_status ON compliance_assignment_queue(status);
+CREATE INDEX IF NOT EXISTS idx_assignment_queue_pending ON compliance_assignment_queue(organization_id, status)
   WHERE status = 'pending';
 
 -- RLS
 ALTER TABLE compliance_assignment_queue ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view assignments in their org" ON compliance_assignment_queue;
+DROP POLICY IF EXISTS "Employees can view their own assignments" ON compliance_assignment_queue;
+DROP POLICY IF EXISTS "Admins can manage assignments in their org" ON compliance_assignment_queue;
 
 CREATE POLICY "Users can view assignments in their org" ON compliance_assignment_queue FOR SELECT
   USING (organization_id IN (

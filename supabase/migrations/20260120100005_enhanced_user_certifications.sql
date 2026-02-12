@@ -10,8 +10,8 @@ ADD COLUMN IF NOT EXISTS requirement_id UUID REFERENCES compliance_requirements(
 ADD COLUMN IF NOT EXISTS external_provider_id UUID,  -- Future: FK to external_providers
 ADD COLUMN IF NOT EXISTS import_batch_id UUID;       -- Future: FK to certification_imports
 
-CREATE INDEX idx_user_certs_source ON user_certifications(source_type);
-CREATE INDEX idx_user_certs_requirement ON user_certifications(requirement_id);
+CREATE INDEX IF NOT EXISTS idx_user_certs_source ON user_certifications(source_type);
+CREATE INDEX IF NOT EXISTS idx_user_certs_requirement ON user_certifications(requirement_id);
 
 -- Bulk import tracking
 CREATE TABLE IF NOT EXISTS certification_imports (
@@ -29,11 +29,14 @@ CREATE TABLE IF NOT EXISTS certification_imports (
   completed_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_cert_imports_org ON certification_imports(organization_id);
-CREATE INDEX idx_cert_imports_status ON certification_imports(status);
+CREATE INDEX IF NOT EXISTS idx_cert_imports_org ON certification_imports(organization_id);
+CREATE INDEX IF NOT EXISTS idx_cert_imports_status ON certification_imports(status);
 
 -- RLS
 ALTER TABLE certification_imports ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Admins can view imports in their org" ON certification_imports;
+DROP POLICY IF EXISTS "Admins can create imports in their org" ON certification_imports;
 
 CREATE POLICY "Admins can view imports in their org" ON certification_imports FOR SELECT
   USING (organization_id IN (

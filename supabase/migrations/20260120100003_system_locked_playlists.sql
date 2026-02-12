@@ -10,8 +10,8 @@ ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1,
 ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS locked_by UUID REFERENCES auth.users(id);
 
-CREATE INDEX idx_albums_requirement ON albums(requirement_id);
-CREATE INDEX idx_albums_locked ON albums(is_system_locked) WHERE is_system_locked = true;
+CREATE INDEX IF NOT EXISTS idx_albums_requirement ON albums(requirement_id);
+CREATE INDEX IF NOT EXISTS idx_albums_locked ON albums(is_system_locked) WHERE is_system_locked = true;
 
 -- Album version history
 CREATE TABLE IF NOT EXISTS album_versions (
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS album_versions (
   UNIQUE(album_id, version)
 );
 
-CREATE INDEX idx_album_versions_album ON album_versions(album_id);
+CREATE INDEX IF NOT EXISTS idx_album_versions_album ON album_versions(album_id);
 
 -- Add state approvals to tracks
 ALTER TABLE tracks
@@ -38,6 +38,9 @@ COMMENT ON COLUMN tracks.state_approvals IS 'JSONB map of state_code → approva
 
 -- RLS for album_versions
 ALTER TABLE album_versions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view album versions in their org" ON album_versions;
+DROP POLICY IF EXISTS "Admins can manage album versions in their org" ON album_versions;
 
 CREATE POLICY "Users can view album versions in their org" ON album_versions FOR SELECT
   USING (album_id IN (

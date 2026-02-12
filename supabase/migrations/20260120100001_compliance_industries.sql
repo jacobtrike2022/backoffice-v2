@@ -24,17 +24,24 @@ END $$;
 -- Update existing industries with codes if they don't have them
 UPDATE industries SET code = LOWER(REPLACE(name, ' ', '_')) WHERE code IS NULL;
 
--- Seed core industries (using ON CONFLICT on name since code might be null for existing rows)
-INSERT INTO industries (name, code, description, sort_order) VALUES
-  ('Convenience Stores', 'cstore', 'Gas stations, convenience stores, travel centers', 1),
-  ('Quick Service Restaurants', 'qsr', 'Fast food, fast casual dining', 2),
-  ('Full Service Restaurants', 'fsr', 'Casual dining, fine dining', 3),
-  ('Grocery', 'grocery', 'Supermarkets, grocery stores', 4),
-  ('Hospitality', 'hospitality', 'Hotels, resorts, casinos', 5),
-  ('Retail', 'retail', 'General retail, department stores', 6),
-  ('Healthcare', 'healthcare', 'Hospitals, clinics, long-term care', 7),
-  ('Manufacturing', 'manufacturing', 'Food processing, production facilities', 8)
-ON CONFLICT (code) DO UPDATE SET
+-- Backfill slug for legacy rows that predate NOT NULL slug enforcement
+UPDATE industries
+SET slug = COALESCE(NULLIF(code, ''), LOWER(REPLACE(name, ' ', '_')))
+WHERE slug IS NULL OR slug = '';
+
+-- Seed core industries with explicit slug to satisfy NOT NULL constraints
+INSERT INTO industries (slug, name, code, description, sort_order) VALUES
+  ('cstore', 'Convenience Stores', 'cstore', 'Gas stations, convenience stores, travel centers', 1),
+  ('qsr', 'Quick Service Restaurants', 'qsr', 'Fast food, fast casual dining', 2),
+  ('fsr', 'Full Service Restaurants', 'fsr', 'Casual dining, fine dining', 3),
+  ('grocery', 'Grocery', 'grocery', 'Supermarkets, grocery stores', 4),
+  ('hospitality', 'Hospitality', 'hospitality', 'Hotels, resorts, casinos', 5),
+  ('retail', 'Retail', 'retail', 'General retail, department stores', 6),
+  ('healthcare', 'Healthcare', 'healthcare', 'Hospitals, clinics, long-term care', 7),
+  ('manufacturing', 'Manufacturing', 'manufacturing', 'Food processing, production facilities', 8)
+ON CONFLICT (slug) DO UPDATE SET
+  name = EXCLUDED.name,
+  code = EXCLUDED.code,
   description = EXCLUDED.description,
   sort_order = EXCLUDED.sort_order;
 
