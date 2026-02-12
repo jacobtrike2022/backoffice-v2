@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import {
   createForm,
   updateForm,
@@ -142,7 +142,6 @@ interface FormBuilderProps {
 }
 
 export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavigateToAssignments }: FormBuilderProps) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [formTitle, setFormTitle] = useState('Untitled Form');
@@ -245,18 +244,11 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
       setCurrentFormId(data.id);
       setHasUnsavedChanges(false);
       setLastSavedAt(new Date());
-      toast({
-        title: 'Form created',
-        description: 'Your form has been saved as a draft'
-      });
+      toast.success('Form created and saved as draft');
       queryClient.invalidateQueries({ queryKey: ['forms'] });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error creating form',
-        description: error.message,
-        variant: 'destructive'
-      });
+      toast.error(`Error creating form: ${error.message}`);
     }
   });
 
@@ -287,19 +279,12 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
     onSuccess: () => {
       setHasUnsavedChanges(false);
       setLastSavedAt(new Date());
-      toast({
-        title: 'Form saved',
-        description: 'Your changes have been saved'
-      });
+      toast.success('Form saved successfully');
       queryClient.invalidateQueries({ queryKey: ['forms'] });
       queryClient.invalidateQueries({ queryKey: ['form', currentFormId] });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error saving form',
-        description: error.message,
-        variant: 'destructive'
-      });
+      toast.error(`Error saving form: ${error.message}`);
     }
   });
 
@@ -311,19 +296,12 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
     },
     onSuccess: () => {
       setFormStatus('Published');
-      toast({
-        title: 'Form published',
-        description: 'Your form is now live and visible to assigned users'
-      });
+      toast.success('Form published successfully - now live for assigned users');
       queryClient.invalidateQueries({ queryKey: ['forms'] });
       queryClient.invalidateQueries({ queryKey: ['form', currentFormId] });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error publishing form',
-        description: error.message,
-        variant: 'destructive'
-      });
+      toast.error(`Error publishing form: ${error.message}`);
     }
   });
 
@@ -343,7 +321,7 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
     if (currentFormId && existingForm) {
       setHasUnsavedChanges(true);
     }
-  }, [formTitle, formDescription, formType, formCategory, requiresApproval, allowAnonymous, canvasBlocks]);
+  }, [currentFormId, existingForm, formTitle, formDescription, formType, formCategory, requiresApproval, allowAnonymous, canvasBlocks]);
 
   // Save handlers
   const handleSaveDraft = async () => {

@@ -37,7 +37,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getForms, archiveForm, updateForm } from '@/lib/crud/forms';
 import { useNavigate } from 'react-router-dom';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 interface Form {
   id: string;
@@ -64,7 +64,6 @@ interface FormLibraryProps {
 
 export function FormLibrary({ currentRole = 'admin', onFormSelect, onEdit, onCreateNew }: FormLibraryProps) {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -91,18 +90,11 @@ export function FormLibrary({ currentRole = 'admin', onFormSelect, onEdit, onCre
   const archiveMutation = useMutation({
     mutationFn: archiveForm,
     onSuccess: () => {
-      toast({
-        title: 'Success',
-        description: 'Form archived successfully'
-      });
+      toast.success('Form archived successfully');
       queryClient.invalidateQueries({ queryKey: ['forms'] });
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive'
-      });
+      toast.error(`Error archiving form: ${error.message}`);
     }
   });
 

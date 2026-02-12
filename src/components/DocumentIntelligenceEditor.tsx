@@ -387,19 +387,24 @@ export function DocumentIntelligenceEditor({
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
       const serverUrl = getServerUrl();
 
       // Chunk the document with built-in classification
       setProcessingStep('Chunking & classifying...');
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+      };
+
+      // Add auth header if we have a session
+      if (session) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const chunkResponse = await fetch(`${serverUrl}/chunk-source`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
+        headers,
         body: JSON.stringify({
           source_file_id: file.id,
           classify_content: true,
@@ -438,22 +443,37 @@ export function DocumentIntelligenceEditor({
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
 
-      const serverUrl = getServerUrl();
-      const response = await fetch(`${serverUrl}/chunks/${sourceFileId}`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
-      });
+      // Handle both authenticated and demo mode
+      let rawChunks: SourceChunk[] = [];
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch chunks');
+      if (session) {
+        // Authenticated mode: fetch from edge function
+        const serverUrl = getServerUrl();
+        const response = await fetch(`${serverUrl}/chunks/${sourceFileId}`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': supabaseAnonKey,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch chunks');
+        }
+
+        const data = await response.json();
+        rawChunks = data.chunks || [];
+      } else {
+        // Demo mode: fetch directly from database
+        const { data, error } = await supabase
+          .from('source_chunks')
+          .select('*')
+          .eq('source_file_id', sourceFileId)
+          .order('chunk_index', { ascending: true });
+
+        if (error) throw error;
+        rawChunks = data || [];
       }
-
-      const data = await response.json();
-      const rawChunks: SourceChunk[] = data.chunks || [];
 
       // Fetch extracted entities for JD chunks
       const { data: entityData } = await supabase
@@ -552,20 +572,24 @@ export function DocumentIntelligenceEditor({
     setProcessing(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
       const serverUrl = getServerUrl();
+
+      // Build headers (with or without auth)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+      };
+
+      if (session) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
 
       // Step 1: Extract text (if not already done)
       if (!sourceFile.extracted_text) {
         setProcessingStep('Extracting text...');
         const extractResponse = await fetch(`${serverUrl}/extract-source`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': supabaseAnonKey,
-          },
+          headers,
           body: JSON.stringify({ source_file_id: sourceFile.id }),
         });
 
@@ -583,11 +607,7 @@ export function DocumentIntelligenceEditor({
       setProcessingStep('Chunking & classifying...');
       const chunkResponse = await fetch(`${serverUrl}/chunk-source`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
+        headers,
         body: JSON.stringify({
           source_file_id: sourceFile.id,
           classify_content: true, // Enable AI classification during chunking
