@@ -397,9 +397,12 @@ export function DocumentIntelligenceEditor({
         'apikey': supabaseAnonKey,
       };
 
-      // Add auth header if we have a session
+      // Add auth header - use session token if available, otherwise use anon key
       if (session) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        // Demo mode: use anon key as bearer token
+        headers['Authorization'] = `Bearer ${supabaseAnonKey}`;
       }
 
       const chunkResponse = await fetch(`${serverUrl}/chunk-source`, {
@@ -574,7 +577,7 @@ export function DocumentIntelligenceEditor({
       const { data: { session } } = await supabase.auth.getSession();
       const serverUrl = getServerUrl();
 
-      // Build headers (with or without auth)
+      // Build headers - use session token if available, otherwise use anon key
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'apikey': supabaseAnonKey,
@@ -582,6 +585,9 @@ export function DocumentIntelligenceEditor({
 
       if (session) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        // Demo mode: use anon key as bearer token
+        headers['Authorization'] = `Bearer ${supabaseAnonKey}`;
       }
 
       // Step 1: Extract text (if not already done)

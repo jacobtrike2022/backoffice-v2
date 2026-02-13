@@ -34,10 +34,44 @@ export async function uploadFile(
   try {
     // Get fresh auth token
     const { data: { session } } = await supabase.auth.getSession();
+
+    // In demo mode, use the standard Supabase client upload (with anon key)
     if (!session?.access_token) {
-      return { success: false, error: 'Not authenticated' };
+      // Demo mode: use Supabase client upload
+      const fileContentType = contentType || file.type || 'application/octet-stream';
+
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .upload(path, file, {
+          contentType: fileContentType,
+          upsert: false
+        });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // Create signed URL
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, 315360000); // 10 years
+
+      if (signedUrlError) {
+        return { success: false, error: `Failed to create signed URL: ${signedUrlError.message}` };
+      }
+
+      if (onProgress) {
+        onProgress(100); // Set to complete
+      }
+
+      return {
+        success: true,
+        path,
+        signedUrl: signedUrlData.signedUrl
+      };
     }
 
+    // Authenticated mode: use XHR for progress tracking
     // Build upload URL
     const uploadUrl = `https://${projectId}.supabase.co/storage/v1/object/${bucket}/${path}`;
     const fileContentType = contentType || file.type || 'application/octet-stream';
