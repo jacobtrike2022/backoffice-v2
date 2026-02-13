@@ -1463,23 +1463,74 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
                             <AccordionTrigger className="text-sm">Validation Rules</AccordionTrigger>
                             <AccordionContent className="space-y-4">
                               <div className="space-y-2">
-                                <Label className="text-sm">Validation Type</Label>
-                                <Select>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select validation" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">None</SelectItem>
-                                    <SelectItem value="email">Email</SelectItem>
-                                    <SelectItem value="phone">Phone</SelectItem>
-                                    <SelectItem value="number">Number</SelectItem>
-                                    <SelectItem value="custom">Custom Regex</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <Label className="text-sm">Minimum Length</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="0"
+                                  className="text-sm"
+                                  value={getSelectedBlockData()?.validation_rules?.minLength || ''}
+                                  onChange={(e) => {
+                                    if (selectedBlock) {
+                                      const currentRules = getSelectedBlockData()?.validation_rules || {};
+                                      updateBlockProperty(selectedBlock, 'validation_rules', {
+                                        ...currentRules,
+                                        minLength: parseInt(e.target.value) || undefined
+                                      });
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-sm">Maximum Length</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="100"
+                                  className="text-sm"
+                                  value={getSelectedBlockData()?.validation_rules?.maxLength || ''}
+                                  onChange={(e) => {
+                                    if (selectedBlock) {
+                                      const currentRules = getSelectedBlockData()?.validation_rules || {};
+                                      updateBlockProperty(selectedBlock, 'validation_rules', {
+                                        ...currentRules,
+                                        maxLength: parseInt(e.target.value) || undefined
+                                      });
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-sm">Custom Pattern (Regex)</Label>
+                                <Input
+                                  placeholder="^[A-Z]{2}\d{4}$"
+                                  className="text-sm font-mono"
+                                  value={getSelectedBlockData()?.validation_rules?.pattern || ''}
+                                  onChange={(e) => {
+                                    if (selectedBlock) {
+                                      const currentRules = getSelectedBlockData()?.validation_rules || {};
+                                      updateBlockProperty(selectedBlock, 'validation_rules', {
+                                        ...currentRules,
+                                        pattern: e.target.value || undefined
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
                               <div className="space-y-2">
                                 <Label className="text-sm">Error Message</Label>
-                                <Input placeholder="Custom error message..." className="text-sm" />
+                                <Input
+                                  placeholder="This field is invalid"
+                                  className="text-sm"
+                                  value={getSelectedBlockData()?.validation_rules?.errorMessage || ''}
+                                  onChange={(e) => {
+                                    if (selectedBlock) {
+                                      const currentRules = getSelectedBlockData()?.validation_rules || {};
+                                      updateBlockProperty(selectedBlock, 'validation_rules', {
+                                        ...currentRules,
+                                        errorMessage: e.target.value || undefined
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
                             </AccordionContent>
                           </AccordionItem>
@@ -1488,12 +1539,53 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
                             <AccordionTrigger className="text-sm">Conditional Logic</AccordionTrigger>
                             <AccordionContent className="space-y-4">
                               <div className="flex items-center justify-between">
-                                <Label className="text-sm">Show/Hide based on answer</Label>
-                                <Switch />
+                                <Label className="text-sm">Enable conditional display</Label>
+                                <Switch
+                                  checked={getSelectedBlockData()?.conditionalLogic?.enabled || false}
+                                  onCheckedChange={(checked) => {
+                                    if (selectedBlock) {
+                                      const currentLogic = getSelectedBlockData()?.conditionalLogic || {};
+                                      updateBlockProperty(selectedBlock, 'conditionalLogic', {
+                                        ...currentLogic,
+                                        enabled: checked
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
-                              <p className="text-xs text-muted-foreground">
-                                Configure visibility rules based on previous answers
-                              </p>
+                              {getSelectedBlockData()?.conditionalLogic?.enabled && (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Show this field when:</Label>
+                                    <Select
+                                      value={getSelectedBlockData()?.conditionalLogic?.condition || 'none'}
+                                      onValueChange={(value) => {
+                                        if (selectedBlock) {
+                                          const currentLogic = getSelectedBlockData()?.conditionalLogic || {};
+                                          updateBlockProperty(selectedBlock, 'conditionalLogic', {
+                                            ...currentLogic,
+                                            condition: value
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger className="text-sm">
+                                        <SelectValue placeholder="Select condition" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="none">Select a condition</SelectItem>
+                                        <SelectItem value="previous-yes">Previous answer is "Yes"</SelectItem>
+                                        <SelectItem value="previous-no">Previous answer is "No"</SelectItem>
+                                        <SelectItem value="score-above">Total score above threshold</SelectItem>
+                                        <SelectItem value="score-below">Total score below threshold</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    💡 This field will only appear when the condition is met
+                                  </p>
+                                </>
+                              )}
                             </AccordionContent>
                           </AccordionItem>
 
@@ -1501,13 +1593,64 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
                             <AccordionTrigger className="text-sm">Scoring Options</AccordionTrigger>
                             <AccordionContent className="space-y-4">
                               <div className="flex items-center justify-between">
-                                <Label className="text-sm">Include in score</Label>
-                                <Switch />
+                                <Label className="text-sm">Include in score calculation</Label>
+                                <Switch
+                                  checked={getSelectedBlockData()?.scoring?.enabled || false}
+                                  onCheckedChange={(checked) => {
+                                    if (selectedBlock) {
+                                      const currentScoring = getSelectedBlockData()?.scoring || {};
+                                      updateBlockProperty(selectedBlock, 'scoring', {
+                                        ...currentScoring,
+                                        enabled: checked
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm">Point Value</Label>
-                                <Input type="number" placeholder="0" className="text-sm" />
-                              </div>
+                              {getSelectedBlockData()?.scoring?.enabled && (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Points for "Yes" or correct answer</Label>
+                                    <Input
+                                      type="number"
+                                      placeholder="1"
+                                      className="text-sm"
+                                      value={getSelectedBlockData()?.scoring?.points || ''}
+                                      onChange={(e) => {
+                                        if (selectedBlock) {
+                                          const currentScoring = getSelectedBlockData()?.scoring || {};
+                                          updateBlockProperty(selectedBlock, 'scoring', {
+                                            ...currentScoring,
+                                            points: parseInt(e.target.value) || 0
+                                          });
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label className="text-sm">Weight (multiplier)</Label>
+                                    <Input
+                                      type="number"
+                                      placeholder="1"
+                                      step="0.1"
+                                      className="text-sm"
+                                      value={getSelectedBlockData()?.scoring?.weight || ''}
+                                      onChange={(e) => {
+                                        if (selectedBlock) {
+                                          const currentScoring = getSelectedBlockData()?.scoring || {};
+                                          updateBlockProperty(selectedBlock, 'scoring', {
+                                            ...currentScoring,
+                                            weight: parseFloat(e.target.value) || 1
+                                          });
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    💡 Final score = Points × Weight
+                                  </p>
+                                </>
+                              )}
                             </AccordionContent>
                           </AccordionItem>
 
@@ -1515,12 +1658,58 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
                             <AccordionTrigger className="text-sm">Advanced Options</AccordionTrigger>
                             <AccordionContent className="space-y-4">
                               <div className="flex items-center justify-between">
-                                <Label className="text-sm">Exportable</Label>
-                                <Switch defaultChecked />
+                                <div>
+                                  <Label className="text-sm">Include in exports</Label>
+                                  <p className="text-xs text-muted-foreground">Export to CSV/Excel</p>
+                                </div>
+                                <Switch
+                                  checked={getSelectedBlockData()?.advanced?.exportable !== false}
+                                  onCheckedChange={(checked) => {
+                                    if (selectedBlock) {
+                                      const currentAdvanced = getSelectedBlockData()?.advanced || {};
+                                      updateBlockProperty(selectedBlock, 'advanced', {
+                                        ...currentAdvanced,
+                                        exportable: checked
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
                               <div className="flex items-center justify-between">
-                                <Label className="text-sm">Include in analytics</Label>
-                                <Switch defaultChecked />
+                                <div>
+                                  <Label className="text-sm">Include in analytics</Label>
+                                  <p className="text-xs text-muted-foreground">Track in reports</p>
+                                </div>
+                                <Switch
+                                  checked={getSelectedBlockData()?.advanced?.analytics !== false}
+                                  onCheckedChange={(checked) => {
+                                    if (selectedBlock) {
+                                      const currentAdvanced = getSelectedBlockData()?.advanced || {};
+                                      updateBlockProperty(selectedBlock, 'advanced', {
+                                        ...currentAdvanced,
+                                        analytics: checked
+                                      });
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <Label className="text-sm">Allow "N/A" option</Label>
+                                  <p className="text-xs text-muted-foreground">Skip if not applicable</p>
+                                </div>
+                                <Switch
+                                  checked={getSelectedBlockData()?.advanced?.allowNA || false}
+                                  onCheckedChange={(checked) => {
+                                    if (selectedBlock) {
+                                      const currentAdvanced = getSelectedBlockData()?.advanced || {};
+                                      updateBlockProperty(selectedBlock, 'advanced', {
+                                        ...currentAdvanced,
+                                        allowNA: checked
+                                      });
+                                    }
+                                  }}
+                                />
                               </div>
                             </AccordionContent>
                           </AccordionItem>
