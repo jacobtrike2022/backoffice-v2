@@ -8,7 +8,8 @@ import {
   getFormById,
   addFormBlock,
   updateFormBlock,
-  deleteFormBlock
+  deleteFormBlock,
+  reorderFormBlocks
 } from '@/lib/crud/forms';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -247,6 +248,46 @@ const formBlocks: FormBlock[] = [
   }
 ];
 
+// Map builder block type (palette id) to DB form_blocks.type
+const BUILDERTYPE_TO_DB: Record<string, string> = {
+  'text': 'text',
+  'textarea': 'textarea',
+  'email': 'text',
+  'phone': 'text',
+  'number': 'number',
+  'multiple-choice': 'radio',
+  'checkboxes': 'checkbox',
+  'dropdown': 'select',
+  'yes-no': 'checkbox',
+  'date': 'date',
+  'time': 'time',
+  'rating': 'rating',
+  'file': 'file',
+  'signature': 'file',
+  'matrix': 'section',
+  'statement': 'section',
+  'divider': 'section',
+  'calculator': 'section',
+  'conditional': 'section'
+};
+
+// Map DB type back to builder type for loading
+const DB_TO_BUILDERTYPE: Record<string, string> = {
+  'text': 'text',
+  'textarea': 'textarea',
+  'number': 'number',
+  'radio': 'multiple-choice',
+  'checkbox': 'checkboxes',
+  'select': 'dropdown',
+  'multiselect': 'checkboxes',
+  'date': 'date',
+  'time': 'time',
+  'rating': 'rating',
+  'file': 'file',
+  'section': 'statement',
+  'html': 'statement'
+};
+
 interface FormBuilderProps {
   formId?: string; // For editing existing forms
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
@@ -314,22 +355,70 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
       };
       setFormStatus(statusMap[existingForm.status] || 'Draft');
 
-      // Load form blocks if they exist
+      // Load form blocks if they exist (id format: builderType-dbBlockId for updates)
       if (existingForm.form_blocks && existingForm.form_blocks.length > 0) {
-        const mappedBlocks = existingForm.form_blocks.map((block: any) => ({
-          id: block.id,
-          type: block.type,
-          label: block.label,
-          description: block.description,
-          placeholder: block.placeholder,
-          required: block.is_required,
-          options: block.options,
-          validation_rules: block.validation_rules
-        }));
+        const mappedBlocks = existingForm.form_blocks.map((block: any) => {
+          const builderType = DB_TO_BUILDERTYPE[block.type] || 'text';
+          return {
+            id: `${builderType}-${block.id}`,
+            dbBlockId: block.id,
+            type: block.type,
+            label: block.label,
+            description: block.description,
+            placeholder: block.placeholder,
+            required: block.is_required,
+            options: block.options,
+            validation_rules: block.validation_rules
+          };
+        });
         setCanvasBlocks(mappedBlocks);
       }
     }
   }, [existingForm]);
+
+  // Persist blocks to database
+  const persistBlocks = async (formId: string, blocks: any[], existingBlocks: any[] = []) => {
+    const existingById = new Map((existingBlocks || []).map((b: any) => [b.id, b]));
+    const blockIdsInOrder: string[] = [];
+
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const builderType = block.id.split('-')[0];
+      const dbType = BUILDERTYPE_TO_DB[builderType] || 'text';
+      const options = builderType === 'yes-no'
+        ? ['Yes', 'No']
+        : (Array.isArray(block.options) ? block.options : block.options?.choices || []);
+
+      const blockData = {
+        type: dbType,
+        label: block.label || block.type || 'Untitled',
+        description: block.description,
+        placeholder: block.placeholder,
+        options: options.length > 0 ? options : undefined,
+        validation_rules: block.validation_rules,
+        is_required: block.required || false,
+        display_order: i
+      };
+
+      if (block.dbBlockId && existingById.has(block.dbBlockId)) {
+        await updateFormBlock(block.dbBlockId, blockData);
+        blockIdsInOrder.push(block.dbBlockId);
+      } else {
+        const added = await addFormBlock(formId, blockData);
+        blockIdsInOrder.push(added.id);
+      }
+    }
+
+    for (const existing of existingBlocks || []) {
+      if (!blockIdsInOrder.includes(existing.id)) {
+        await deleteFormBlock(existing.id);
+      }
+    }
+
+    if (blockIdsInOrder.length > 0) {
+      await reorderFormBlocks(formId, blockIdsInOrder.map((id, i) => ({ id, display_order: i })));
+    }
+  };
 
   // Create form mutation
   const createFormMutation = useMutation({
@@ -340,10 +429,10 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
         'Audit': 'audit',
         'Survey': 'survey',
         'Assessment': 'survey',
-        'Incident Report': 'other' as 'survey' // Will need to add 'other' to type union
+        'Incident Report': 'other' as 'survey'
       };
 
-      return createForm({
+      const form = await createForm({
         title: formTitle,
         description: formDescription,
         type: typeMap[formType] || 'ojt-checklist',
@@ -351,6 +440,11 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
         requires_approval: requiresApproval,
         allow_anonymous: allowAnonymous
       });
+
+      if (canvasBlocks.length > 0) {
+        await persistBlocks(form.id, canvasBlocks, []);
+      }
+      return form;
     },
     onSuccess: (data) => {
       setCurrentFormId(data.id);
@@ -378,7 +472,7 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
         'Incident Report': 'other' as 'survey'
       };
 
-      return updateForm(currentFormId, {
+      const result = await updateForm(currentFormId, {
         title: formTitle,
         description: formDescription,
         type: typeMap[formType] || 'ojt-checklist',
@@ -387,6 +481,11 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
         allow_anonymous: allowAnonymous,
         ...updates
       });
+
+      if (canvasBlocks.length > 0 || (existingForm?.form_blocks?.length ?? 0) > 0) {
+        await persistBlocks(currentFormId, canvasBlocks, existingForm?.form_blocks || []);
+      }
+      return result;
     },
     onSuccess: () => {
       setHasUnsavedChanges(false);

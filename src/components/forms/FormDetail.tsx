@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Separator } from '../ui/separator';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
   ArrowLeft,
@@ -19,32 +18,20 @@ import {
   AlertCircle,
   Download,
   Share2,
-  MoreVertical
+  Loader2
 } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
   LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
+  ResponsiveContainer
 } from 'recharts';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { Switch } from '../ui/switch';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
+import { useQuery } from '@tanstack/react-query';
+import { getFormById, getFormSubmissions, getFormAssignments } from '@/lib/crud/forms';
+import { FormRenderer } from './shared/FormRenderer';
 
 interface FormDetailProps {
   formId: string;
@@ -53,197 +40,124 @@ interface FormDetailProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
 }
 
-// Mock data for submissions
-const mockSubmissions = [
-  {
-    id: '1',
-    submittedBy: 'John Smith',
-    unit: 'Store A - Downtown',
-    date: '2024-02-18',
-    time: '09:30 AM',
-    status: 'Approved',
-    score: 95
-  },
-  {
-    id: '2',
-    submittedBy: 'Emma Davis',
-    unit: 'Store B - Westside',
-    date: '2024-02-18',
-    time: '08:15 AM',
-    status: 'Pending',
-    score: 87
-  },
-  {
-    id: '3',
-    submittedBy: 'Michael Chen',
-    unit: 'Store C - Northgate',
-    date: '2024-02-17',
-    time: '02:45 PM',
-    status: 'Approved',
-    score: 92
-  },
-  {
-    id: '4',
-    submittedBy: 'Sarah Wilson',
-    unit: 'Store A - Downtown',
-    date: '2024-02-17',
-    time: '11:20 AM',
-    status: 'Needs Review',
-    score: 78
-  },
-  {
-    id: '5',
-    submittedBy: 'Alex Rodriguez',
-    unit: 'Store D - Southpark',
-    date: '2024-02-16',
-    time: '03:30 PM',
-    status: 'Approved',
-    score: 98
-  }
-];
-
-// Mock activity data
-const mockActivity = [
-  {
-    id: '1',
-    type: 'submission',
-    user: 'John Smith',
-    action: 'submitted a form',
-    time: '2 hours ago'
-  },
-  {
-    id: '2',
-    type: 'assignment',
-    user: 'Sarah Johnson',
-    action: 'assigned form to New Hires',
-    time: '5 hours ago'
-  },
-  {
-    id: '3',
-    type: 'edit',
-    user: 'Mike Chen',
-    action: 'updated form settings',
-    time: '1 day ago'
-  },
-  {
-    id: '4',
-    type: 'submission',
-    user: 'Emma Davis',
-    action: 'submitted a form',
-    time: '1 day ago'
-  },
-  {
-    id: '5',
-    type: 'approval',
-    user: 'Sarah Johnson',
-    action: 'approved submission',
-    time: '2 days ago'
-  }
-];
-
-// Chart data
-const submissionTrendData = [
-  { date: 'Feb 12', submissions: 12 },
-  { date: 'Feb 13', submissions: 15 },
-  { date: 'Feb 14', submissions: 8 },
-  { date: 'Feb 15', submissions: 18 },
-  { date: 'Feb 16', submissions: 14 },
-  { date: 'Feb 17', submissions: 20 },
-  { date: 'Feb 18', submissions: 16 }
-];
-
-const completionRateData = [
-  { name: 'Completed', value: 87, color: '#10b981' },
-  { name: 'Pending', value: 8, color: '#f59e0b' },
-  { name: 'Incomplete', value: 5, color: '#ef4444' }
-];
-
-const scoreDistributionData = [
-  { range: '0-50', count: 2 },
-  { range: '51-70', count: 8 },
-  { range: '71-85', count: 15 },
-  { range: '86-95', count: 32 },
-  { range: '96-100', count: 27 }
-];
-
 export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: FormDetailProps) {
-  const [selectedView, setSelectedView] = useState<'overview' | 'submissions'>('overview');
+  const { data: form, isLoading: formLoading, error: formError } = useQuery({
+    queryKey: ['form', formId],
+    queryFn: () => getFormById(formId),
+  });
 
-  // Mock form data based on formId
-  const formData = {
-    id: formId,
-    title: 'Store Daily Walk',
-    type: 'Inspection',
-    status: 'Published',
-    createdDate: '2024-01-15',
-    updatedDate: '2024-02-15',
-    createdBy: 'Mike Chen',
-    updatedBy: 'Sarah Johnson',
-    totalSubmissions: 234,
-    activeAssignments: 8,
-    tags: ['Daily', 'Recurring', 'Ops'],
-    description: 'Daily inspection form for store managers to ensure operational standards are met.'
-  };
+  const { data: submissions } = useQuery({
+    queryKey: ['formSubmissions', formId],
+    queryFn: () => getFormSubmissions(formId),
+    enabled: !!formId,
+  });
+
+  const { data: assignmentsData } = useQuery({
+    queryKey: ['formAssignments', formId],
+    queryFn: () => getFormAssignments({ formId }),
+    enabled: !!formId,
+  });
+
+  const assignments = assignmentsData?.assignments || [];
+  const activeAssignments = assignments.filter((a: any) => a.status === 'active').length;
+  const approvedCount = (submissions || []).filter((s: any) => s.status === 'approved').length;
+  const totalSubmissions = (submissions || []).length;
+  const completionRate = totalSubmissions > 0
+    ? Math.round((approvedCount / totalSubmissions) * 100)
+    : 0;
+
+  const submissionTrendData = useMemo(() => {
+    if (!submissions?.length) return [];
+    const byDate: Record<string, number> = {};
+    submissions.forEach((s: any) => {
+      const d = new Date(s.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      byDate[d] = (byDate[d] || 0) + 1;
+    });
+    return Object.entries(byDate)
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .slice(-7)
+      .map(([date, submissions]) => ({ date, submissions }));
+  }, [submissions]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'Approved':
+      case 'approved':
         return (
           <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
             <CheckCircle2 className="h-3 w-3 mr-1" />
-            {status}
+            Approved
           </Badge>
         );
-      case 'Pending':
+      case 'rejected':
+        return (
+          <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0">
+            <XCircle className="h-3 w-3 mr-1" />
+            Rejected
+          </Badge>
+        );
+      case 'submitted':
         return (
           <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0">
             <Clock className="h-3 w-3 mr-1" />
-            {status}
-          </Badge>
-        );
-      case 'Needs Review':
-        return (
-          <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-0">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            {status}
+            Pending
           </Badge>
         );
       default:
-        return null;
+        return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'submission':
-        return <FileText className="h-4 w-4" />;
-      case 'assignment':
-        return <Users className="h-4 w-4" />;
-      case 'edit':
-        return <Edit className="h-4 w-4" />;
-      case 'approval':
-        return <CheckCircle2 className="h-4 w-4" />;
-      default:
-        return <Activity className="h-4 w-4" />;
-    }
-  };
+  const formBlocks = form?.form_blocks
+    ? [...(form.form_blocks as any[])].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    : [];
+
+  if (formLoading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (formError || !form) {
+    return (
+      <div className="space-y-6">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Library
+        </Button>
+        <Card className="border-red-200">
+          <CardContent className="p-6 flex items-center gap-4">
+            <AlertCircle className="h-8 w-8 text-red-600" />
+            <div>
+              <p className="font-semibold">Form not found</p>
+              <p className="text-sm text-muted-foreground">
+                {(formError as Error)?.message || 'The form may have been deleted.'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const createdBy = (form.created_by as any)?.name || 
+    `${(form.created_by as any)?.first_name || ''} ${(form.created_by as any)?.last_name || ''}`.trim() ||
+    'Unknown';
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-start justify-between">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Library
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Library
+        </Button>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" disabled>
             <Share2 className="h-4 w-4 mr-2" />
             Share
           </Button>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" disabled>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
@@ -257,25 +171,31 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
         </div>
       </div>
 
-      {/* Form Title and Status */}
       <div>
         <div className="flex items-center space-x-3 mb-2">
-          <h1 className="text-foreground">{formData.title}</h1>
-          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
-            {formData.status}
+          <h1 className="text-foreground">{form.title}</h1>
+          <Badge
+            className={
+              form.status === 'published'
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0'
+                : form.status === 'draft'
+                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0'
+                  : 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300 border-0'
+            }
+          >
+            {form.status}
           </Badge>
         </div>
-        <p className="text-muted-foreground">{formData.description}</p>
+        <p className="text-muted-foreground">{form.description || 'No description'}</p>
       </div>
 
-      {/* Metadata Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Submissions</p>
-                <p className="text-3xl font-bold mt-2">{formData.totalSubmissions}</p>
+                <p className="text-3xl font-bold mt-2">{totalSubmissions}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                 <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400" />
@@ -283,13 +203,12 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Active Assignments</p>
-                <p className="text-3xl font-bold mt-2">{formData.activeAssignments}</p>
+                <p className="text-3xl font-bold mt-2">{activeAssignments}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <Users className="h-6 w-6 text-green-600 dark:text-green-400" />
@@ -297,13 +216,12 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Completion Rate</p>
-                <p className="text-3xl font-bold mt-2">87%</p>
+                <p className="text-sm text-muted-foreground">Approval Rate</p>
+                <p className="text-3xl font-bold mt-2">{completionRate}%</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                 <TrendingUp className="h-6 w-6 text-purple-600 dark:text-purple-400" />
@@ -311,13 +229,12 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg Score</p>
-                <p className="text-3xl font-bold mt-2">91.5</p>
+                <p className="text-sm text-muted-foreground">Approved</p>
+                <p className="text-3xl font-bold mt-2">{approvedCount}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
                 <Activity className="h-6 w-6 text-orange-600 dark:text-orange-400" />
@@ -327,7 +244,6 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
         </Card>
       </div>
 
-      {/* Form Metadata */}
       <Card>
         <CardHeader>
           <CardTitle>Form Information</CardTitle>
@@ -338,47 +254,32 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
               <p className="text-sm text-muted-foreground mb-1">Created</p>
               <div className="flex items-center space-x-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">{new Date(formData.createdDate).toLocaleDateString()}</span>
+                <span className="text-sm">{new Date(form.created_at).toLocaleDateString()}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">by {formData.createdBy}</p>
+              <p className="text-xs text-muted-foreground mt-1">by {createdBy}</p>
             </div>
-
             <div>
               <p className="text-sm text-muted-foreground mb-1">Last Updated</p>
               <div className="flex items-center space-x-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">{new Date(formData.updatedDate).toLocaleDateString()}</span>
+                <span className="text-sm">{new Date(form.updated_at).toLocaleDateString()}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">by {formData.updatedBy}</p>
             </div>
-
             <div>
               <p className="text-sm text-muted-foreground mb-1">Form Type</p>
               <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
-                {formData.type}
+                {form.type || '—'}
               </Badge>
             </div>
-
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Tags</p>
-              <div className="flex flex-wrap gap-1">
-                {formData.tags.map((tag, index) => (
-                  <Badge 
-                    key={index}
-                    className="bg-brand-gradient text-white border-0 text-xs"
-                  >
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
+              <p className="text-sm text-muted-foreground mb-1">Category</p>
+              <span className="text-sm">{form.category || '—'}</span>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Form Preview */}
         <div className="lg:col-span-1">
           <Card className="h-full">
             <CardHeader>
@@ -388,68 +289,28 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-lg p-4 bg-muted/30 space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm">Store Cleanliness</Label>
-                  <div className="flex items-center space-x-2">
-                    <div className="h-4 w-4 rounded-full border-2 border-primary bg-primary" />
-                    <span className="text-sm">Excellent</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-                    <span className="text-sm">Good</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-                    <span className="text-sm">Needs Improvement</span>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2">
-                  <Label className="text-sm">
-                    Safety Equipment Check
-                    <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <div className="h-4 w-4 rounded border-2 border-primary bg-primary" />
-                      <span className="text-sm">Fire extinguishers present</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <div className="h-4 w-4 rounded border-2 border-primary bg-primary" />
-                      <span className="text-sm">First aid kit stocked</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <div className="h-4 w-4 rounded border-2 border-muted-foreground" />
-                      <span className="text-sm">Emergency exits clear</span>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2">
-                  <Label className="text-sm">Additional Notes</Label>
-                  <Textarea placeholder="Enter any additional observations..." rows={3} className="text-sm" />
-                </div>
-
-                <div className="pt-4">
-                  <Button className="w-full bg-brand-gradient text-white shadow-brand hover:opacity-90" size="sm">
-                    Submit Form
-                  </Button>
-                </div>
+              <div className="border rounded-lg p-4 bg-muted/30">
+                <FormRenderer
+                  blocks={formBlocks.map((b: any) => ({
+                    id: b.id,
+                    type: b.type,
+                    label: b.label,
+                    description: b.description,
+                    placeholder: b.placeholder,
+                    is_required: b.is_required,
+                    options: b.options,
+                    validation_rules: b.validation_rules,
+                  }))}
+                  answers={{}}
+                  readOnly
+                />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Right Column - Charts and Data */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Submission Trend */}
+          {submissionTrendData.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Submission Trend</CardTitle>
@@ -458,20 +319,13 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={submissionTrendData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fontSize: 12, fill: '#9ca3af' }}
-                      stroke="#9ca3af"
-                    />
-                    <YAxis 
-                      tick={{ fontSize: 12, fill: '#9ca3af' }}
-                      stroke="#9ca3af"
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
+                    <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#9ca3af' }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 12, fill: '#9ca3af' }} stroke="#9ca3af" />
+                    <Tooltip
+                      contentStyle={{
                         backgroundColor: 'hsl(var(--background))',
                         border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px'
+                        borderRadius: '6px',
                       }}
                     />
                     <Line 
@@ -485,156 +339,51 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+          )}
 
-            {/* Completion Rate */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Completion Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={completionRateData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {completionRateData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--background))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px'
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex justify-center space-x-4 mt-4">
-                  {completionRateData.map((item, index) => (
-                    <div key={index} className="flex items-center space-x-2">
-                      <div 
-                        className="h-3 w-3 rounded-full" 
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {item.name} ({item.value}%)
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Score Distribution */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Score Distribution</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={scoreDistributionData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
-                  <XAxis 
-                    dataKey="range" 
-                    tick={{ fontSize: 12, fill: '#9ca3af' }}
-                    stroke="#9ca3af"
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 12, fill: '#9ca3af' }}
-                    stroke="#9ca3af"
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px'
-                    }}
-                  />
-                  <Bar dataKey="count" fill="#F74A05" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Recent Submissions */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Recent Submissions</CardTitle>
-                <Button variant="outline" size="sm">
-                  View All
-                </Button>
-              </div>
+              <CardTitle className="text-base">Recent Submissions</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {mockSubmissions.map((submission) => (
-                  <div 
+                {(submissions || []).slice(0, 5).map((submission: any) => (
+                  <div
                     key={submission.id}
-                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
+                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center space-x-3">
                       <Avatar className="h-8 w-8">
                         <AvatarFallback className="text-xs bg-brand-gradient text-white">
-                          {submission.submittedBy.split(' ').map(n => n[0]).join('')}
+                          {submission.submitted_by
+                            ? `${(submission.submitted_by as any).first_name?.[0] || ''}${(submission.submitted_by as any).last_name?.[0] || ''}`.toUpperCase()
+                            : '?'}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="text-sm font-medium">{submission.submittedBy}</p>
-                        <p className="text-xs text-muted-foreground">{submission.unit}</p>
+                        <p className="text-sm font-medium">
+                          {submission.submitted_by
+                            ? `${(submission.submitted_by as any).first_name} ${(submission.submitted_by as any).last_name}`
+                            : '—'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {submission.submitted_at
+                            ? new Date(submission.submitted_at).toLocaleString()
+                            : '—'}
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground">{submission.date}</p>
-                        <p className="text-xs text-muted-foreground">{submission.time}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-semibold">{submission.score}</p>
-                        <p className="text-xs text-muted-foreground">score</p>
-                      </div>
-                      {getStatusBadge(submission.status)}
-                    </div>
+                    {getStatusBadge(submission.status)}
                   </div>
                 ))}
+                {(!submissions || submissions.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-8">No submissions yet</p>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
-
-      {/* Activity Feed */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity Feed</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {mockActivity.map((activity) => (
-              <div key={activity.id} className="flex items-start space-x-3">
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                  {getActivityIcon(activity.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm">
-                    <span className="font-medium">{activity.user}</span>{' '}
-                    <span className="text-muted-foreground">{activity.action}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">{activity.time}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
