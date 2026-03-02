@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { DealDashboard } from './DealDashboard';
 import { DealPipelineBoard } from './DealPipelineBoard';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
+import { DemoProvisioningModal } from './DemoProvisioningModal';
 import {
   Home,
   TrendingUp,
@@ -44,11 +45,23 @@ const tabs: Array<{
 export function TrikeAdminPage() {
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
   const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
+  const [isProvisioningModalOpen, setIsProvisioningModalOpen] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [selectedOrgName, setSelectedOrgName] = useState<string | null>(null);
 
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
-        return <DealDashboard onNavigate={setCurrentView} />;
+        return (
+          <DealDashboard
+            onNavigate={setCurrentView}
+            onProvisionDemo={(orgId, orgName) => {
+              setSelectedOrgId(orgId);
+              setSelectedOrgName(orgName);
+              setIsProvisioningModalOpen(true);
+            }}
+          />
+        );
       case 'pipeline':
         return <DealPipelineBoard />;
       case 'organizations':
@@ -129,6 +142,19 @@ export function TrikeAdminPage() {
         currentStatus="prospect"
         organizationName="Acme Convenience Stores"
       />
+
+      {selectedOrgId && selectedOrgName && (
+        <DemoProvisioningModal
+          isOpen={isProvisioningModalOpen}
+          onClose={() => {
+            setIsProvisioningModalOpen(false);
+            setSelectedOrgId(null);
+            setSelectedOrgName(null);
+          }}
+          organizationId={selectedOrgId}
+          organizationName={selectedOrgName}
+        />
+      )}
     </>
   );
 }

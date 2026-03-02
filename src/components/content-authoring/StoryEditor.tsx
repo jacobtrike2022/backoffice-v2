@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   Save,
   Upload,
+  Shield,
   Image as ImageIcon,
   Video as VideoIcon,
   X,
@@ -113,6 +114,7 @@ export function StoryEditor({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [existingTrack, setExistingTrack] = useState<any>(null);
+  const [isSystemContentLocal, setIsSystemContentLocal] = useState(false);
   
   // Compression state
   const [isCompressing, setIsCompressing] = useState(false);
@@ -489,6 +491,7 @@ export function StoryEditor({
     }
     setTags(tagNames);
     setThumbnailUrl(trackData.thumbnail_url || '');
+    setIsSystemContentLocal(trackData.is_system_content || false);
     setNotes(trackData.content_text || '');
     setShowInKnowledgeBase(tagNames.includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
@@ -559,6 +562,7 @@ export function StoryEditor({
       description !== initialState.description ||
       !arraysEqual(tags, initialState.tags) ||
       thumbnailUrl !== initialState.thumbnailUrl ||
+      isSystemContentLocal !== initialState.isSystemContent ||
       notes !== initialState.notes ||
       JSON.stringify(slides) !== JSON.stringify(initialState.slides) ||
       JSON.stringify(objectives) !== JSON.stringify(initialState.objectives)
@@ -936,7 +940,8 @@ export function StoryEditor({
         tags: Array.from(currentTags),
         // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
         // This respects when user explicitly removes the thumbnail
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -1072,7 +1077,8 @@ export function StoryEditor({
         tags: Array.from(currentTags),
         // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
         // This respects when user explicitly removes the thumbnail
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -1866,6 +1872,43 @@ export function StoryEditor({
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Super Admin Settings */}
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-orange-500" />
+                    Super Admin Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="system-content-view" className="text-sm font-medium">System Template</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Mark as Trike Library content
+                      </p>
+                    </div>
+                    <Switch
+                      id="system-content-view"
+                      checked={isEditMode ? isSystemContentLocal : (existingTrack?.is_system_content || isSystemContentLocal)}
+                      onCheckedChange={(checked) => {
+                        if (isEditMode) {
+                          setIsSystemContentLocal(checked);
+                        } else if (currentTrackId) {
+                          crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                            .then(() => {
+                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              if (onUpdate) onUpdate();
+                            });
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Publishing Status */}
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
@@ -2576,6 +2619,42 @@ export function StoryEditor({
 
         {/* Live Preview Sidebar */}
         <div className="xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:overflow-y-auto space-y-6">
+          {/* Super Admin Settings */}
+          {isSuperAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-orange-500" />
+                  Super Admin Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="system-content-edit" className="text-sm font-medium">System Template</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark as Trike Library content
+                    </p>
+                  </div>
+                  <Switch
+                    id="system-content-edit"
+                    checked={isSystemContentLocal}
+                    onCheckedChange={(checked) => {
+                      setIsSystemContentLocal(checked);
+                      if (!isEditMode && currentTrackId) {
+                        crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                          .then(() => {
+                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            if (onUpdate) onUpdate();
+                          });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Publishing Status - Always show for new content */}
           {(!isSystemContent || isSuperAdmin) && (
             <Card>
