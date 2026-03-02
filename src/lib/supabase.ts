@@ -75,6 +75,38 @@ export const supabaseAnonKey = publicAnonKey;
  * 3. Use JWT claims to embed org_id in auth token
  */
 export async function getCurrentUserOrgId(): Promise<string | null> {
+  // Get authenticated user first
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Check for demo organization override in URL
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+
+    if (demoOrgId) {
+      // SECURITY: In production, we'd verify the user has permission to access this org
+      // or that the org is in 'prospect' status.
+      // For the prototype, we allow the override if:
+      // 1. The user is not logged in (Prospect viewing a demo)
+      // 2. The user is a Super Admin (Admin testing the demo)
+
+      if (!user) {
+        return demoOrgId;
+      }
+
+      // If logged in, we check if they are an admin
+      const profile = await getCurrentUserProfile();
+      const isSuperAdmin = profile?.role?.name === 'Trike Super Admin';
+
+      if (isSuperAdmin) {
+        return demoOrgId;
+      }
+
+      // If they are a regular user, ignore the demo_org_id override for security
+      console.warn('Unauthorized demo_org_id override attempt ignored for non-admin user');
+    }
+  }
+
   // Check if multi-tenancy is enabled
   if (!APP_CONFIG.ENABLE_MULTI_TENANCY) {
     // SINGLE-TENANT MODE: All users belong to the same organization
@@ -82,8 +114,6 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
   }
   
   // MULTI-TENANT MODE: Get organization from authenticated user
-  const { data: { user } } = await supabase.auth.getUser();
-  
   if (!user) {
     // No authenticated user
     if (APP_CONFIG.DEMO_MODE) {

@@ -1157,14 +1157,25 @@ export async function getTracks(filters: {
   tags?: string[];
   ids?: string[]; // Filter by specific IDs
   includeAllVersions?: boolean; // Set to true to include old versions
+  organizationId?: string; // Optional: specific org ID (defaults to current user's org)
+  isSystemContent?: boolean; // Optional: filter for system content
 } = {}) {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
+  // Use provided organizationId or fall back to current user's org
+  const orgId = filters.organizationId || await getCurrentUserOrgId();
+  if (!orgId && !filters.isSystemContent) throw new Error('User not authenticated and no organization context provided');
 
   let query = supabase
     .from('tracks')
-    .select('*')
-    .eq('organization_id', orgId);
+    .select('*');
+
+  // Apply filters
+  if (filters.isSystemContent !== undefined) {
+    query = query.eq('is_system_content', filters.isSystemContent);
+  }
+
+  if (orgId) {
+    query = query.eq('organization_id', orgId);
+  }
 
   if (filters.ids && filters.ids.length > 0) {
     query = query.in('id', filters.ids);
@@ -1284,8 +1295,15 @@ export async function getTracks(filters: {
       // Retry query without the problematic filter
       const simpleQuery = supabase
         .from('tracks')
-        .select('*')
-        .eq('organization_id', orgId);
+        .select('*');
+
+      if (orgId) {
+        simpleQuery.eq('organization_id', orgId);
+      }
+
+      if (filters.isSystemContent !== undefined) {
+        simpleQuery.eq('is_system_content', filters.isSystemContent);
+      }
 
       if (filters.ids && filters.ids.length > 0) {
         simpleQuery.in('id', filters.ids);
@@ -1333,7 +1351,39 @@ export async function getTracks(filters: {
   }
 
   // Enrich tracks with tags from junction table (source of truth)
-  return enrichTracksWithJunctionTags(data || []);
+  const enrichedTracks = await enrichTracksWithJunctionTags(data || []);
+
+  // Post-fetch geographic filtering for system content
+  // This ensures demo prospects only see relevant regulatory training for their states
+  if (filters.isSystemContent && orgId) {
+    try {
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('operating_states')
+        .eq('id', orgId)
+        .single();
+
+      const states = orgData?.operating_states || [];
+      if (states && states.length > 0) {
+        const stateTagPrefix = 'state:';
+        const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s.toUpperCase()}`);
+
+        return enrichedTracks.filter(track => {
+          const trackTags = track.tags || [];
+          const hasStateTags = trackTags.some((tag: string) => tag.startsWith(stateTagPrefix));
+
+          // If track has no state tags, it's national content (allowed for everyone)
+          // If it has state tags, at least one must match the organization's operating states
+          return !hasStateTags || trackTags.some((tag: string) => allowedStateTags.includes(tag));
+        });
+      }
+    } catch (err) {
+      console.warn('Geographic filtering failed (non-critical):', err);
+      // Fallback: return all enriched tracks if org fetch fails
+    }
+  }
+
+  return enrichedTracks;
 }
 
 /**

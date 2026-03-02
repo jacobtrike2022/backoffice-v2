@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Save,
   Eye,
+  Shield,
   Upload,
   Image as ImageIcon,
   X,
@@ -94,6 +95,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState('');
+  const [isSystemContentLocal, setIsSystemContentLocal] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([
     {
       id: '1',
@@ -156,6 +158,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
       setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
+      setIsSystemContentLocal(track.is_system_content || false);
 
       // Parse checkpoint data from transcript field
       let parsedQuestions: any[] = questions;
@@ -244,6 +247,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
       setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
+      setIsSystemContentLocal(track.is_system_content || false);
 
       // Parse checkpoint data from transcript field (we'll store JSON there)
       let parsedQuestions: any[] = questions;
@@ -278,6 +282,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         description: track.description || '',
         tags: tagNames,
         thumbnailUrl: track.thumbnail_url || '',
+        isSystemContent: track.is_system_content || false,
         questions: parsedQuestions,
         passingScore: parsedPassingScore,
         timeLimit: parsedTimeLimit,
@@ -339,6 +344,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       description !== initialState.description ||
       !arraysEqual(tags, initialState.tags) ||
       thumbnailUrl !== initialState.thumbnailUrl ||
+      isSystemContentLocal !== initialState.isSystemContent ||
       passingScore !== initialState.passingScore ||
       timeLimit !== initialState.timeLimit ||
       JSON.stringify(questions) !== JSON.stringify(initialState.questions)
@@ -696,7 +702,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         transcript: JSON.stringify(checkpointData),
         duration_minutes: calculatedDuration,
         tags,
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -804,7 +811,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         transcript: JSON.stringify(checkpointData),
         duration_minutes: calculatedDuration,
         tags,
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -994,6 +1002,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         duration_minutes: calculatedDuration,
         tags,
         thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal,
         status: 'published' as const
       };
 
@@ -1360,6 +1369,43 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Super Admin Settings */}
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-orange-500" />
+                    Super Admin Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Mark as Trike Library content
+                      </p>
+                    </div>
+                    <Switch
+                      id="system-content"
+                      checked={isEditMode ? isSystemContentLocal : existingTrack?.is_system_content}
+                      onCheckedChange={(checked) => {
+                        if (isEditMode) {
+                          setIsSystemContentLocal(checked);
+                        } else if (currentTrackId) {
+                          crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                            .then(() => {
+                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              if (onUpdate) onUpdate();
+                            });
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Publishing Status */}
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
