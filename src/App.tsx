@@ -93,7 +93,7 @@ type AppView =
   | "forms"
   | "knowledge-base"
   | "settings"
-  | "trike-admin";
+  | "trike-admin"
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();

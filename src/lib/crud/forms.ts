@@ -160,7 +160,7 @@ export async function getFormById(formId: string) {
     .from('forms')
     .select(`
       *,
-      created_by:users!forms_created_by_id_fkey(first_name, last_name, email),
+      created_by:users!forms_created_by_fkey(first_name, last_name, email),
       form_blocks(*)
     `)
     .eq('id', formId)
@@ -193,7 +193,7 @@ export async function getForms(filters: {
     .from('forms')
     .select(`
       *,
-      created_by:users!forms_created_by_id_fkey(first_name, last_name)
+      created_by:users!forms_created_by_fkey(first_name, last_name)
     `, { count: 'exact' })
     .eq('organization_id', orgId);
 
@@ -314,7 +314,7 @@ export async function approveFormSubmission(
     .eq('id', submissionId)
     .select(`
       *,
-      submitted_by:users!form_submissions_user_id_fkey(id, name),
+      submitted_by:users!form_submissions_user_id_fkey(id, first_name, last_name),
       form:forms(title)
     `)
     .single();
@@ -355,7 +355,7 @@ export async function rejectFormSubmission(
     .eq('id', submissionId)
     .select(`
       *,
-      submitted_by:users!form_submissions_user_id_fkey(id, name),
+      submitted_by:users!form_submissions_user_id_fkey(id, first_name, last_name),
       form:forms(title)
     `)
     .single();
@@ -427,7 +427,7 @@ export async function getFormSubmissions(
     .select(`
       *,
       submitted_by:users!form_submissions_user_id_fkey(first_name, last_name, email),
-      reviewed_by:users!form_submissions_reviewed_by_id_fkey(first_name, last_name, email)
+      reviewed_by:users!form_submissions_reviewed_by_fkey(first_name, last_name, email)
     `)
     .eq('form_id', formId);
 

@@ -303,19 +303,20 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.dismiss(toastId);
-        return;
-      }
-
       const serverUrl = getServerUrl();
+
+      // Demo mode: use session token if available, otherwise anon key
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+      };
+      headers['Authorization'] = session
+        ? `Bearer ${session.access_token}`
+        : `Bearer ${supabaseAnonKey}`;
+
       const response = await fetch(`${serverUrl}/extract-source`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
+        headers,
         body: JSON.stringify({ source_file_id: fileId }),
       });
 
@@ -340,18 +341,20 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
     setExtracting(file.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
-
       const serverUrl = getServerUrl();
+
+      // Demo mode: use session token if available, otherwise anon key
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+      };
+      headers['Authorization'] = session
+        ? `Bearer ${session.access_token}`
+        : `Bearer ${supabaseAnonKey}`;
+
       const response = await fetch(`${serverUrl}/extract-source`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseAnonKey,
-        },
+        headers,
         body: JSON.stringify({ source_file_id: file.id }),
       });
 

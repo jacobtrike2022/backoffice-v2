@@ -2631,13 +2631,20 @@ async function handleChunkSource(req: Request): Promise<Response> {
     console.log('[chunk-source] Found source file:', sourceFile.file_name);
     console.log('[chunk-source] Text length:', sourceFile.extracted_text.length, 'characters');
 
-    // Delete existing chunks if re-chunking
-    if (sourceFile.is_chunked) {
-      console.log('[chunk-source] Deleting existing chunks...');
-      await supabase
-        .from("source_chunks")
-        .delete()
-        .eq("source_file_id", source_file_id);
+    // Always delete existing chunks before inserting (handles re-chunking and orphaned chunks from partial runs)
+    console.log('[chunk-source] Deleting existing chunks...');
+    const { error: deleteError } = await supabase
+      .from("source_chunks")
+      .delete()
+      .eq("source_file_id", source_file_id);
+
+    if (deleteError) {
+      console.error('[chunk-source] Failed to delete existing chunks:', deleteError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to clear existing chunks: ${deleteError.message}`,
+        code: "DELETE_FAILED"
+      }, 500);
     }
 
     // Use smart chunking pipeline (context-aware classification + intelligent merging)

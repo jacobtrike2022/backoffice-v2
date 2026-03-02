@@ -359,6 +359,7 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
       if (existingForm.form_blocks && existingForm.form_blocks.length > 0) {
         const mappedBlocks = existingForm.form_blocks.map((block: any) => {
           const builderType = DB_TO_BUILDERTYPE[block.type] || 'text';
+          const paletteBlock = formBlocks.find(fb => fb.id === builderType);
           return {
             id: `${builderType}-${block.id}`,
             dbBlockId: block.id,
@@ -368,7 +369,9 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
             placeholder: block.placeholder,
             required: block.is_required,
             options: block.options,
-            validation_rules: block.validation_rules
+            validation_rules: block.validation_rules,
+            icon: paletteBlock?.icon ?? FileText,
+            category: paletteBlock?.category ?? 'question'
           };
         });
         setCanvasBlocks(mappedBlocks);
@@ -1407,7 +1410,10 @@ export function FormBuilder({ formId, currentRole = 'admin', onSaveDraft, onNavi
                               <GripVertical className="h-5 w-5 text-muted-foreground mt-1 cursor-grab" />
                               <div className="flex-1">
                                 <div className="flex items-center space-x-2 mb-2">
-                                  <block.icon className="h-4 w-4 text-primary" />
+                                  {(() => {
+                                    const IconComponent = block.icon ?? FileText;
+                                    return <IconComponent className="h-4 w-4 text-primary" />;
+                                  })()}
                                   <span className="font-semibold text-sm">{block.label}</span>
                                   {block.required && (
                                     <Badge variant="outline" className="text-xs">Required</Badge>

@@ -450,24 +450,22 @@ export function DocumentIntelligenceEditor({
       // Handle both authenticated and demo mode
       let rawChunks: SourceChunk[] = [];
 
-      if (session) {
-        // Authenticated mode: fetch from edge function
-        const serverUrl = getServerUrl();
-        const response = await fetch(`${serverUrl}/chunks/${sourceFileId}`, {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': supabaseAnonKey,
-          },
-        });
+      const headers: Record<string, string> = {
+        'apikey': supabaseAnonKey,
+      };
+      headers['Authorization'] = session
+        ? `Bearer ${session.access_token}`
+        : `Bearer ${supabaseAnonKey}`;
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch chunks');
-        }
+      // Try edge function first
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/chunks/${sourceFileId}`, { headers });
 
+      if (response.ok) {
         const data = await response.json();
         rawChunks = data.chunks || [];
       } else {
-        // Demo mode: fetch directly from database
+        // Fallback: fetch directly from database (handles 500, auth issues, etc.)
         const { data, error } = await supabase
           .from('source_chunks')
           .select('*')
@@ -1416,13 +1414,16 @@ export function DocumentIntelligenceEditor({
                 </h1>
               )}
               <p className="text-sm text-muted-foreground">
-                {sourceFile.is_chunked
+                {sourceFile.is_chunked && chunks.length > 0
                   ? `${chunks.length} chunks identified`
-                  : 'Not processed yet'}
+                  : sourceFile.is_chunked && chunks.length === 0
+                    ? '0 chunks (re-process to restore)'
+                    : 'Not processed yet'}
               </p>
             </div>
           </div>
-          {!sourceFile.is_chunked && (
+          {/* Show Process Document when: not chunked, or chunked but no chunks loaded (stale/corrupt state) */}
+          {(!sourceFile.is_chunked || chunks.length === 0) && (
             <Button
               onClick={processDocument}
               disabled={processing}
@@ -1491,12 +1492,12 @@ export function DocumentIntelligenceEditor({
         )}
 
         {/* Chunks list - Notion-style */}
-        {chunks.length === 0 && sourceFile.is_chunked === false ? (
+        {chunks.length === 0 ? (
           <div className="text-center py-16">
             <Layers className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
             <h2 className="text-xl font-semibold mb-2">Ready to process</h2>
             <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-              Click "Process Document" to extract text, identify sections, and classify content types.
+              Click "Process Document" above to extract text, identify sections, and classify content types.
             </p>
           </div>
         ) : (
