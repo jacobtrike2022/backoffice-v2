@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Calendar, DollarSign, MoreHorizontal, User } from 'lucide-react';
+import { Building2, Calendar, DollarSign, Map, MoreHorizontal, User } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
@@ -18,6 +18,9 @@ interface DealCardProps {
   onSelect?: (deal: Partial<Deal>) => void;
   onEdit?: (deal: Partial<Deal>) => void;
   onStageChange?: (deal: Partial<Deal>, newStage: string) => void;
+  onAddNote?: (deal: Partial<Deal>) => void;
+  onLogActivity?: (deal: Partial<Deal>) => void;
+  onViewJourney?: (deal: Partial<Deal>) => void;
 }
 
 export function DealCard({
@@ -25,6 +28,9 @@ export function DealCard({
   onSelect,
   onEdit,
   onStageChange,
+  onAddNote,
+  onLogActivity,
+  onViewJourney,
 }: DealCardProps) {
   const config = STAGE_CONFIG[deal.stage!];
 
@@ -79,8 +85,12 @@ export function DealCard({
               <DropdownMenuItem onClick={() => onEdit?.(deal)}>
                 Edit deal
               </DropdownMenuItem>
-              <DropdownMenuItem>Add note</DropdownMenuItem>
-              <DropdownMenuItem>Log activity</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onAddNote?.(deal)}>Add note</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onLogActivity?.(deal)}>Log activity</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onViewJourney?.(deal)}>
+                <Map className="h-4 w-4 mr-2" />
+                View journey
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onStageChange?.(deal, 'won')}

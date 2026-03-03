@@ -1,20 +1,69 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, MoreHorizontal, SlidersHorizontal, Loader2 } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Plus, Search, Filter, MoreHorizontal, SlidersHorizontal, Loader2, X, ArrowUpDown } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
+import { Label } from '../ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import { cn } from '../ui/utils';
 import { DealCard } from './DealCard';
+import { DealFormModal } from './DealFormModal';
+import { DealActivityPanel } from './DealActivityPanel';
 import {
   type Deal,
   type DealStage,
+  type DealType,
+  type OrganizationStatus,
   PIPELINE_STAGES,
   STAGE_CONFIG,
 } from './types';
 import { getDealsByStage, updateDealStage } from '../../lib/crud/deals';
 
-export function DealPipelineBoard() {
+type SortOption = 'value_desc' | 'value_asc' | 'close_date' | 'last_activity' | 'name_asc';
+
+interface FilterState {
+  dealType: DealType | 'all';
+  owner: string; // owner id or 'all'
+  minValue: string;
+  maxValue: string;
+}
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'value_desc', label: 'Value: High → Low' },
+  { value: 'value_asc', label: 'Value: Low → High' },
+  { value: 'close_date', label: 'Close date (soonest)' },
+  { value: 'last_activity', label: 'Last activity (recent)' },
+  { value: 'name_asc', label: 'Name: A → Z' },
+];
+
+const DEAL_TYPE_OPTIONS: { value: DealType | 'all'; label: string }[] = [
+  { value: 'all', label: 'All Types' },
+  { value: 'new', label: 'New Business' },
+  { value: 'upsell', label: 'Upsell' },
+  { value: 'renewal', label: 'Renewal' },
+  { value: 'expansion', label: 'Expansion' },
+];
+
+const DEFAULT_FILTERS: FilterState = {
+  dealType: 'all',
+  owner: 'all',
+  minValue: '',
+  maxValue: '',
+};
+
+interface DealPipelineBoardProps {
+  onViewJourney?: (orgId: string, orgName: string, orgStatus: OrganizationStatus) => void;
+}
+
+export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
   const [loading, setLoading] = useState(true);
   const [dealsByStage, setDealsByStage] = useState<Record<DealStage, Deal[]>>({
     lead: [],
@@ -26,7 +75,14 @@ export function DealPipelineBoard() {
     frozen: [],
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDeal, setSelectedDeal] = useState<Partial<Deal> | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingDeal, setEditingDeal] = useState<Partial<Deal> | null>(null);
+  const [defaultStageForNew, setDefaultStageForNew] = useState<DealStage | undefined>(undefined);
+  const [isActivityPanelOpen, setIsActivityPanelOpen] = useState(false);
+  const [activityDeal, setActivityDeal] = useState<Partial<Deal> | null>(null);
+  const [activityMode, setActivityMode] = useState<'note' | 'activity'>('note');
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [sortBy, setSortBy] = useState<SortOption>('value_desc');
 
   useEffect(() => {
     loadDeals();
@@ -54,13 +110,67 @@ export function DealPipelineBoard() {
     }
   }
 
-  // Filter deals based on search
+  // Collect unique owners from all deals for the filter dropdown
+  const uniqueOwners = useMemo(() => {
+    const owners = new Map<string, { id: string; name: string }>();
+    Object.values(dealsByStage).flat().forEach((deal) => {
+      if (deal.owner_id && deal.owner) {
+        const name = deal.owner.first_name
+          ? `${deal.owner.first_name} ${deal.owner.last_name || ''}`.trim()
+          : deal.owner.display_name;
+        owners.set(deal.owner_id, { id: deal.owner_id, name });
+      }
+    });
+    return Array.from(owners.values());
+  }, [dealsByStage]);
+
+  const hasActiveFilters = filters.dealType !== 'all' || filters.owner !== 'all'
+    || filters.minValue !== '' || filters.maxValue !== '';
+
+  // Sort function for deals within a stage
+  function sortDeals(deals: Deal[]): Deal[] {
+    return [...deals].sort((a, b) => {
+      switch (sortBy) {
+        case 'value_desc':
+          return (b.value || 0) - (a.value || 0);
+        case 'value_asc':
+          return (a.value || 0) - (b.value || 0);
+        case 'close_date':
+          if (!a.expected_close_date && !b.expected_close_date) return 0;
+          if (!a.expected_close_date) return 1;
+          if (!b.expected_close_date) return -1;
+          return new Date(a.expected_close_date).getTime() - new Date(b.expected_close_date).getTime();
+        case 'last_activity':
+          return new Date(b.last_activity_at || b.created_at).getTime() -
+            new Date(a.last_activity_at || a.created_at).getTime();
+        case 'name_asc':
+          return (a.name || '').localeCompare(b.name || '');
+        default:
+          return 0;
+      }
+    });
+  }
+
+  // Filter and sort deals
   const filteredDealsByStage = PIPELINE_STAGES.reduce((acc, stage) => {
-    acc[stage] = (dealsByStage[stage] || []).filter(
-      (d) =>
-        d.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.organization?.name?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    let deals = (dealsByStage[stage] || []).filter((d) => {
+      // Text search
+      const q = searchQuery.toLowerCase();
+      if (q && !(d.name?.toLowerCase().includes(q) || d.organization?.name?.toLowerCase().includes(q))) {
+        return false;
+      }
+      // Deal type filter
+      if (filters.dealType !== 'all' && d.deal_type !== filters.dealType) return false;
+      // Owner filter
+      if (filters.owner !== 'all' && d.owner_id !== filters.owner) return false;
+      // Value range filter
+      const minVal = filters.minValue ? parseFloat(filters.minValue) : null;
+      const maxVal = filters.maxValue ? parseFloat(filters.maxValue) : null;
+      if (minVal !== null && (d.value || 0) < minVal) return false;
+      if (maxVal !== null && (d.value || 0) > maxVal) return false;
+      return true;
+    });
+    acc[stage] = sortDeals(deals);
     return acc;
   }, {} as Record<DealStage, Deal[]>);
 
@@ -86,15 +196,130 @@ export function DealPipelineBoard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="h-4 w-4 mr-2" />
-              Filter
-            </Button>
-            <Button variant="outline" size="sm">
-              <SlidersHorizontal className="h-4 w-4 mr-2" />
-              Sort
-            </Button>
-            <Button size="sm">
+            {/* Filter Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn(hasActiveFilters && 'border-primary text-primary')}>
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filter
+                  {hasActiveFilters && (
+                    <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
+                      on
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">Filters</h4>
+                    {hasActiveFilters && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setFilters(DEFAULT_FILTERS)}
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs">Deal Type</Label>
+                    <Select
+                      value={filters.dealType}
+                      onValueChange={(v) => setFilters({ ...filters, dealType: v as DealType | 'all' })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DEAL_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs">Owner</Label>
+                    <Select
+                      value={filters.owner}
+                      onValueChange={(v) => setFilters({ ...filters, owner: v })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Owners</SelectItem>
+                        {uniqueOwners.map((o) => (
+                          <SelectItem key={o.id} value={o.id}>
+                            {o.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs">Value Range</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.minValue}
+                        onChange={(e) => setFilters({ ...filters, minValue: e.target.value })}
+                        className="h-8 text-xs"
+                      />
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.maxValue}
+                        onChange={(e) => setFilters({ ...filters, maxValue: e.target.value })}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Sort Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  {SORT_OPTIONS.find((s) => s.value === sortBy)?.label || 'Sort'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-1">
+                {SORT_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.value}
+                    variant={sortBy === opt.value ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="w-full justify-start text-xs h-8"
+                    onClick={() => setSortBy(opt.value)}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditingDeal(null);
+                setDefaultStageForNew(undefined);
+                setIsFormOpen(true);
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               New Deal
             </Button>
@@ -159,9 +384,36 @@ export function DealPipelineBoard() {
                       <DealCard
                         key={deal.id}
                         deal={deal}
-                        onSelect={setSelectedDeal}
-                        onEdit={(d) => console.log('Edit deal:', d)}
+                        onSelect={(d) => {
+                          setEditingDeal(d);
+                          setDefaultStageForNew(undefined);
+                          setIsFormOpen(true);
+                        }}
+                        onEdit={(d) => {
+                          setEditingDeal(d);
+                          setDefaultStageForNew(undefined);
+                          setIsFormOpen(true);
+                        }}
                         onStageChange={handleStageChange}
+                        onAddNote={(d) => {
+                          setActivityDeal(d);
+                          setActivityMode('note');
+                          setIsActivityPanelOpen(true);
+                        }}
+                        onLogActivity={(d) => {
+                          setActivityDeal(d);
+                          setActivityMode('activity');
+                          setIsActivityPanelOpen(true);
+                        }}
+                        onViewJourney={(d) => {
+                          if (d.organization_id && onViewJourney) {
+                            onViewJourney(
+                              d.organization_id,
+                              d.organization?.name || d.name || 'Unknown',
+                              d.organization?.status
+                            );
+                          }
+                        }}
                       />
                     ))}
 
@@ -185,6 +437,11 @@ export function DealPipelineBoard() {
                     variant="ghost"
                     size="sm"
                     className="w-full justify-start text-muted-foreground"
+                    onClick={() => {
+                      setEditingDeal(null);
+                      setDefaultStageForNew(stage);
+                      setIsFormOpen(true);
+                    }}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add deal
@@ -233,6 +490,21 @@ export function DealPipelineBoard() {
           </div>
         </div>
       </div>
+
+      <DealFormModal
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        onSuccess={loadDeals}
+        deal={editingDeal}
+        defaultStage={defaultStageForNew}
+      />
+
+      <DealActivityPanel
+        isOpen={isActivityPanelOpen}
+        onClose={() => setIsActivityPanelOpen(false)}
+        deal={activityDeal}
+        initialMode={activityMode}
+      />
     </div>
   );
 }

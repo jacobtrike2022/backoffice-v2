@@ -969,6 +969,11 @@ Deno.serve(async (req: Request) => {
       return await handlePlaybookPublish(req);
     }
 
+    // Provision a demo environment for a prospect organization
+    if (method === "POST" && path === "/demo/provision") {
+      return await handleDemoProvision(req);
+    }
+
     // =========================================================================
     // 404 - Route not found
     // =========================================================================
@@ -1069,7 +1074,8 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/confirm-track",
         "POST /playbook/generate-draft",
         "POST /playbook/approve-track",
-        "POST /playbook/publish"
+        "POST /playbook/publish",
+        "POST /demo/provision"
       ]
     }, 404);
 
@@ -16983,5 +16989,178 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ success: false, error: error.message || "Publish failed" }, 500);
+  }
+}
+
+// =============================================================================
+// DEMO PROVISIONING
+// =============================================================================
+
+/**
+ * Provision a demo environment for an existing prospect organization.
+ * Clones template content (compliance topics, sample tracks) into the org's namespace.
+ */
+async function handleDemoProvision(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id, demo_days = 14 } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    console.log(`[DemoProvision] Starting provisioning for org: ${organization_id}`);
+
+    // Step 1: Verify org exists
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Step 2: Update org status and set demo expiry
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + demo_days);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "prospect",
+        demo_expires_at: expiryDate.toISOString(),
+        onboarding_source: "sales_demo",
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[DemoProvision] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    console.log(`[DemoProvision] Org status updated, demo expires: ${expiryDate.toISOString()}`);
+
+    // Step 3: Clone template compliance topics into the org
+    // Get all global compliance topics (not org-specific)
+    let topicsCloned = 0;
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      // Check which topics are already assigned to avoid duplicates
+      const { data: existingTopics } = await supabase
+        .from("organization_compliance_topics")
+        .select("topic_id")
+        .eq("organization_id", organization_id);
+
+      const existingTopicIds = new Set((existingTopics || []).map((t: any) => t.topic_id));
+      const newTopics = globalTopics.filter((t: any) => !existingTopicIds.has(t.id));
+
+      if (newTopics.length > 0) {
+        const topicsToInsert = newTopics.map((topic: any, index: number) => ({
+          organization_id,
+          topic_id: topic.id,
+          is_active: true,
+          priority: index,
+          added_during: "sales_demo",
+        }));
+
+        const { error: topicsError } = await supabase
+          .from("organization_compliance_topics")
+          .insert(topicsToInsert);
+
+        if (topicsError) {
+          console.error("[DemoProvision] Failed to clone compliance topics:", topicsError);
+        } else {
+          topicsCloned = topicsToInsert.length;
+          console.log(`[DemoProvision] Cloned ${topicsCloned} compliance topics`);
+        }
+      }
+    }
+
+    // Step 4: Clone sample published tracks into the org
+    // Find published tracks from the Trike master org (if any) or any published tracks
+    let tracksCloned = 0;
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("id, title, description, content_type, content_url, thumbnail_url, duration_minutes, category, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    if (templateTracks && templateTracks.length > 0) {
+      // Check if org already has tracks to avoid duplicates
+      const { data: existingTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .limit(1);
+
+      if (!existingTracks || existingTracks.length === 0) {
+        const tracksToInsert = templateTracks.map((track: any) => ({
+          organization_id,
+          title: track.title,
+          description: track.description,
+          content_type: track.content_type,
+          content_url: track.content_url,
+          thumbnail_url: track.thumbnail_url,
+          duration_minutes: track.duration_minutes,
+          category: track.category,
+          tags: track.tags,
+          status: "published",
+          is_demo_content: true,
+        }));
+
+        const { error: tracksError } = await supabase
+          .from("tracks")
+          .insert(tracksToInsert);
+
+        if (tracksError) {
+          console.error("[DemoProvision] Failed to clone tracks:", tracksError);
+        } else {
+          tracksCloned = tracksToInsert.length;
+          console.log(`[DemoProvision] Cloned ${tracksCloned} sample tracks`);
+        }
+      }
+    }
+
+    // Step 5: Update the deal stage if one exists
+    const { data: deal } = await supabase
+      .from("deals")
+      .select("id, stage")
+      .eq("organization_id", organization_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (deal && deal.stage !== "demo" && deal.stage !== "won") {
+      await supabase
+        .from("deals")
+        .update({ stage: "demo", updated_at: new Date().toISOString() })
+        .eq("id", deal.id);
+      console.log(`[DemoProvision] Updated deal ${deal.id} to demo stage`);
+    }
+
+    console.log(`[DemoProvision] Complete! Org: ${org.name}`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        demo_expires_at: expiryDate.toISOString(),
+      },
+      provisioned: {
+        compliance_topics: topicsCloned,
+        sample_tracks: tracksCloned,
+        deal_updated: !!deal,
+      },
+    });
+  } catch (error: any) {
+    console.error("[DemoProvision] Error:", error);
+    return jsonResponse({ error: error.message || "Demo provisioning failed" }, 500);
   }
 }

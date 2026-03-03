@@ -4,11 +4,10 @@ import {
   DollarSign,
   Users,
   Calendar,
-  ArrowUpRight,
-  ArrowDownRight,
   ChevronRight,
   Building2,
   Clock,
+  Zap,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -95,7 +94,6 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
           <MetricCard
             title="Total Pipeline"
             value={formatCurrency(metrics.totalValue)}
-            change={12}
             icon={DollarSign}
             description="Active deal value"
             loading={loading}
@@ -103,7 +101,6 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
           <MetricCard
             title="Weighted Pipeline"
             value={formatCurrency(metrics.weightedValue)}
-            change={8}
             icon={TrendingUp}
             description="Probability-adjusted"
             loading={loading}
@@ -111,7 +108,6 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
           <MetricCard
             title="Active Deals"
             value={metrics.totalDeals.toString()}
-            change={3}
             icon={Building2}
             description="In pipeline"
             loading={loading}
@@ -119,7 +115,6 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
           <MetricCard
             title="Avg. Deal Size"
             value={formatCurrency(metrics.avgDealSize)}
-            change={-2}
             icon={Users}
             description="Per deal"
             loading={loading}
@@ -339,19 +334,16 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
 function MetricCard({
   title,
   value,
-  change,
   icon: Icon,
   description,
   loading = false,
 }: {
   title: string;
   value: string;
-  change: number;
   icon: React.ComponentType<{ className?: string }>;
   description: string;
   loading?: boolean;
 }) {
-  const isPositive = change >= 0;
   return (
     <Card className={cn(loading && 'animate-pulse opacity-70')}>
       <CardContent className="p-4">
@@ -359,19 +351,7 @@ function MetricCard({
           <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div
-            className={cn(
-              'flex items-center text-xs font-medium',
-              isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
-            )}
-          >
-            {isPositive ? (
-              <ArrowUpRight className="h-3 w-3" />
-            ) : (
-              <ArrowDownRight className="h-3 w-3" />
-            )}
-            {Math.abs(change)}%
-          </div>
+          <span className="text-xs text-muted-foreground">{title}</span>
         </div>
         <div className="mt-3">
           <div className="text-2xl font-bold">{value}</div>
@@ -395,17 +375,4 @@ function formatCurrency(value: number): string {
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function getDefaultProbability(stage: DealStage): number {
-  const probabilities: Record<DealStage, number> = {
-    lead: 10,
-    prospect: 25,
-    evaluating: 50,
-    closing: 75,
-    won: 100,
-    lost: 0,
-    frozen: 0,
-  };
-  return probabilities[stage];
 }

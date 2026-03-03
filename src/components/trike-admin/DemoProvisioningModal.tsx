@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,6 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { cn } from '../ui/utils';
 import {
   Rocket,
@@ -16,11 +15,10 @@ import {
   Loader2,
   Copy,
   ExternalLink,
-  Shield,
   Zap,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface DemoProvisioningModalProps {
   isOpen: boolean;
@@ -44,6 +42,11 @@ export function DemoProvisioningModal({
   const [status, setStatus] = useState<ProvisioningStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [demoUrl, setDemoUrl] = useState('');
+  const [provisioningSummary, setProvisioningSummary] = useState<{
+    compliance_topics: number;
+    sample_tracks: number;
+    deal_updated: boolean;
+  } | null>(null);
 
   const steps = [
     { id: 'preparing', label: 'Preparing demo environment' },
@@ -56,35 +59,32 @@ export function DemoProvisioningModal({
       setStatus('preparing');
       setProgress(10);
 
-      // Step 1: Update organization status and set demo expiry
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 14); // 14-day demo
-
-      const { error: orgError } = await supabase
-        .from('organizations')
-        .update({
-          status: 'prospect',
-          demo_expires_at: expiryDate.toISOString(),
-          onboarding_source: 'sales_demo',
-        })
-        .eq('id', organizationId);
-
-      if (orgError) throw orgError;
-
+      // Brief delay so the UI shows the "preparing" step visually
+      await new Promise(resolve => setTimeout(resolve, 500));
       setStatus('creating');
-      setProgress(40);
+      setProgress(30);
 
-      // Step 2: Trigger the provisioning edge function
-      // In a real environment, this would call a Supabase Edge Function to clone data
-      // For this prototype, we'll simulate the delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setProgress(70);
+      // Call the edge function to handle all provisioning server-side
+      const { data, error } = await supabase.functions.invoke('trike-server/demo/provision', {
+        body: { organization_id: organizationId, demo_days: 14 },
+      });
 
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setProgress(80);
       setStatus('configuring');
-      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Brief pause for visual feedback on the final step
+      await new Promise(resolve => setTimeout(resolve, 600));
       setProgress(100);
 
-      // Final Step: Generate the demo URL
+      // Store the provisioning results for display
+      if (data?.provisioned) {
+        setProvisioningSummary(data.provisioned);
+      }
+
+      // Generate the demo URL
       const url = `${window.location.origin}/?demo_org_id=${organizationId}`;
       setDemoUrl(url);
       setStatus('completed');
@@ -93,7 +93,7 @@ export function DemoProvisioningModal({
     } catch (error: any) {
       console.error('Provisioning failed:', error);
       setStatus('failed');
-      toast.error('Failed to provision demo: ' + error.message);
+      toast.error('Failed to provision demo: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -178,6 +178,23 @@ export function DemoProvisioningModal({
                   The demo instance for {organizationName} is now live.
                 </p>
               </div>
+
+              {provisioningSummary && (
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <div className="text-lg font-bold">{provisioningSummary.compliance_topics}</div>
+                    <div className="text-[10px] text-muted-foreground">Compliance Topics</div>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <div className="text-lg font-bold">{provisioningSummary.sample_tracks}</div>
+                    <div className="text-[10px] text-muted-foreground">Sample Tracks</div>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-2">
+                    <div className="text-lg font-bold">{provisioningSummary.deal_updated ? '✓' : '—'}</div>
+                    <div className="text-[10px] text-muted-foreground">Deal Updated</div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

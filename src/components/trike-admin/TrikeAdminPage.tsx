@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { DealDashboard } from './DealDashboard';
 import { DealPipelineBoard } from './DealPipelineBoard';
+import { OrganizationsList } from './OrganizationsList';
+import { ProposalsList } from './ProposalsList';
+import { PipelineAnalytics } from './PipelineAnalytics';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import { DemoProvisioningModal } from './DemoProvisioningModal';
 import {
@@ -15,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../ui/utils';
+import type { OrganizationStatus } from './types';
 
 export type TrikeAdminView =
   | 'dashboard'
@@ -49,6 +53,53 @@ export function TrikeAdminPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [selectedOrgName, setSelectedOrgName] = useState<string | null>(null);
 
+  // Journey panel state — tracks which org's journey to display
+  const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
+  const [journeyOrgName, setJourneyOrgName] = useState<string>('Demo Company');
+  const [journeyOrgStatus, setJourneyOrgStatus] = useState<OrganizationStatus>('prospect');
+
+  // Open journey panel for a specific org
+  const handleOpenJourney = useCallback(
+    (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => {
+      setJourneyOrgId(orgId);
+      setJourneyOrgName(orgName);
+      setJourneyOrgStatus(orgStatus || 'prospect');
+      setIsJourneyPanelOpen(true);
+    },
+    []
+  );
+
+  // Handle journey step clicks — navigate to the relevant section
+  const handleJourneyStepClick = useCallback(
+    (stepId: string) => {
+      switch (stepId) {
+        case 'explore':
+          // Navigate to content library (future: deep link)
+          break;
+        case 'roi':
+          // Navigate to ROI calculator (future)
+          break;
+        case 'invite':
+          // Navigate to user invite flow (future)
+          break;
+        case 'proposal':
+          setCurrentView('proposals');
+          break;
+        case 'sign':
+        case 'payment':
+          // These are closing-stage actions (future: dedicated flows)
+          break;
+        case 'configure':
+          setCurrentView('organizations');
+          break;
+        case 'launch':
+          // Go-live checklist (future)
+          break;
+      }
+    },
+    []
+  );
+
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
@@ -63,30 +114,30 @@ export function TrikeAdminPage() {
           />
         );
       case 'pipeline':
-        return <DealPipelineBoard />;
+        return <DealPipelineBoard onViewJourney={handleOpenJourney} />;
       case 'organizations':
         return (
-          <PlaceholderView
-            title="Organizations"
-            description="Manage all customer accounts, demos, and prospects."
+          <OrganizationsList
+            onViewJourney={handleOpenJourney}
+            onProvisionDemo={(orgId, orgName) => {
+              setSelectedOrgId(orgId);
+              setSelectedOrgName(orgName);
+              setIsProvisioningModalOpen(true);
+            }}
           />
         );
       case 'proposals':
-        return (
-          <PlaceholderView
-            title="Proposals"
-            description="Create, send, and track sales proposals."
-          />
-        );
+        return <ProposalsList />;
       case 'analytics':
+        return <PipelineAnalytics />;
+      case 'prospect-portal':
         return (
-          <PlaceholderView
-            title="Analytics"
-            description="Sales performance metrics and reporting."
+          <ProspectPortalTestView
+            onOpenPanel={() =>
+              handleOpenJourney('test-org', 'Acme Convenience Stores', 'prospect')
+            }
           />
         );
-      case 'prospect-portal':
-        return <ProspectPortalTestView onOpenPanel={() => setIsJourneyPanelOpen(true)} />;
       case 'settings':
         return (
           <PlaceholderView
@@ -139,8 +190,10 @@ export function TrikeAdminPage() {
       <ProspectJourneyPanel
         isOpen={isJourneyPanelOpen}
         onClose={() => setIsJourneyPanelOpen(false)}
-        currentStatus="prospect"
-        organizationName="Acme Convenience Stores"
+        currentStatus={journeyOrgStatus}
+        organizationName={journeyOrgName}
+        organizationId={journeyOrgId || undefined}
+        onStepClick={handleJourneyStepClick}
       />
 
       {selectedOrgId && selectedOrgName && (
