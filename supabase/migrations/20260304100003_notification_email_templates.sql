@@ -1,6 +1,10 @@
 -- Insert system email templates for each notification type
 -- These are defaults that orgs can customize
 
+-- Create partial unique index so system templates (org_id IS NULL) are unique by slug
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_templates_slug_system
+  ON email_templates (slug) WHERE organization_id IS NULL;
+
 INSERT INTO email_templates (slug, name, subject, body_html, template_type, is_active, available_variables)
 VALUES
   ('notification_deal_won', 'Deal Won Notification', 'Deal Won: {{notification_title}}',
