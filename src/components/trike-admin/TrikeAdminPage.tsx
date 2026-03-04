@@ -77,7 +77,14 @@ export function TrikeAdminPage() {
     (stepId: string) => {
       switch (stepId) {
         case 'explore':
-          // Navigate to content library (future: deep link)
+          // In the real prospect flow, the App-level navigateTo('content') is called
+          // and ContentLibrary detects ?preview=true from the URL.
+          // From admin test, we append the param so it's visible when prospects view content.
+          {
+            const url = new URL(window.location.href);
+            url.searchParams.set('preview', 'true');
+            window.history.replaceState({}, '', url.toString());
+          }
           break;
         case 'roi':
           // Navigate to ROI calculator (future)

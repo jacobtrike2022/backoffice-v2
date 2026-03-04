@@ -111,6 +111,7 @@ const calculateReadingTime = (htmlContent: string): number => {
 
 export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
+  const isPreviewMode = new URLSearchParams(window.location.search).get('preview') === 'true';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -1017,6 +1018,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     <div className="flex gap-6">
       {/* Main content area */}
       <div className="flex-1 space-y-6 min-w-0">
+        {/* Preview Mode Banner */}
+        {isPreviewMode && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200">
+            <Eye className="h-4 w-4 shrink-0" />
+            <span>You are previewing the Content Library. Editing is disabled in preview mode.</span>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
         <div>
@@ -1026,9 +1034,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          {onNavigate && (
-            <Button 
-              className="bg-brand-gradient" 
+          {onNavigate && !isPreviewMode && (
+            <Button
+              className="bg-brand-gradient"
               onClick={() => onNavigate('authoring')}
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -1298,10 +1306,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </Badge>
                     </div>
                   )}
-                  {/* Actions Menu (shows on hover) */}
+                  {/* Actions Menu (shows on hover) - hidden in preview mode */}
+                  {!isPreviewMode && (
                   <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Popover 
-                      open={openPopoverId === track.id} 
+                    <Popover
+                      open={openPopoverId === track.id}
                       onOpenChange={(open) => {
                         setOpenPopoverId(open ? track.id : null);
                       }}
@@ -1428,6 +1437,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </PopoverContent>
                     </Popover>
                   </div>
+                  )}
                   {/* Duration/Reading Time Badge */}
                   {(track.duration_minutes || (track.type === 'article' && track.transcript) || (track.type === 'checkpoint' && track.transcript)) && (
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
@@ -1601,7 +1611,8 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         {getTypeIcon(track.type)}
                         <span className="ml-1 capitalize">{track.type}</span>
                       </Badge>
-                      {/* Actions Menu for List View */}
+                      {/* Actions Menu for List View - hidden in preview mode */}
+                      {!isPreviewMode && (
                       <Popover
                         open={openPopoverId === `list-${track.id}`}
                         onOpenChange={(open) => {
@@ -1729,6 +1740,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           </div>
                         </PopoverContent>
                       </Popover>
+                      )}
                     </div>
                     {track.description && (
                       <p className="text-sm text-muted-foreground line-clamp-2">
