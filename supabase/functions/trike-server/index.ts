@@ -21,6 +21,52 @@ const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+// ── Rate Limiting ──────────────────────────────────────────
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  '/brain/': { limit: 30, windowMs: 60_000 },
+  '/email/send': { limit: 20, windowMs: 60_000 },
+  '/contracts/': { limit: 5, windowMs: 60_000 },
+  '/billing/': { limit: 10, windowMs: 60_000 },
+};
+
+function checkRateLimit(path: string, identityKey: string): { allowed: boolean; retryAfterMs?: number } {
+  // Find matching rate limit config
+  const configKey = Object.keys(RATE_LIMITS).find((prefix) => path.startsWith(prefix));
+  if (!configKey) return { allowed: true };
+
+  const config = RATE_LIMITS[configKey];
+  const key = `${identityKey}:${configKey}`;
+  const now = Date.now();
+
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(key, { count: 1, resetAt: now + config.windowMs });
+    return { allowed: true };
+  }
+
+  if (entry.count >= config.limit) {
+    return { allowed: false, retryAfterMs: entry.resetAt - now };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (now > entry.resetAt) rateLimitStore.delete(key);
+  }
+}, 300_000);
+
 console.log('[ENV] SUPABASE_URL:', SUPABASE_URL);
 console.log('[ENV] SUPABASE_SERVICE_ROLE_KEY set:', !!SUPABASE_SERVICE_ROLE_KEY);
 
@@ -368,9 +414,33 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // RATE LIMITING
+    // =========================================================================
+    // Use Authorization header token hash as identity key (orgId isn't
+    // extracted until individual handlers run)
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader) {
+      const rateLimitIdentity = authHeader.slice(-16); // last 16 chars of token
+      const rateCheck = checkRateLimit(path, rateLimitIdentity);
+      if (!rateCheck.allowed) {
+        return new Response(
+          JSON.stringify({ error: 'Too many requests. Please try again shortly.' }),
+          {
+            status: 429,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+              'Retry-After': String(Math.ceil((rateCheck.retryAfterMs || 60000) / 1000)),
+            },
+          }
+        );
+      }
+    }
+
+    // =========================================================================
     // ATTACHMENTS
     // =========================================================================
-    
+
     // Upload attachment
     if (method === "POST" && path === "/upload-attachment") {
       return await handleUploadAttachment(req);
