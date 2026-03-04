@@ -87,10 +87,11 @@ ON CONFLICT (id) DO NOTHING;
 -- These template tracks will be found and cloned into
 -- the target org with is_demo_content = true.
 
+-- Omit tags column: production uses track_tags junction table; tags column may not exist
 INSERT INTO tracks (
     id, organization_id, title, description, type,
     content_url, thumbnail_url, duration_minutes,
-    tags, status, published_at, created_at, updated_at
+    status, published_at, created_at, updated_at
 ) VALUES
 (
     'f0000000-0000-0000-0000-000000000001',
@@ -101,7 +102,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     15,
-    ARRAY['food-safety', 'compliance', 'onboarding'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -114,7 +114,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     12,
-    ARRAY['customer-service', 'soft-skills', 'onboarding'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -127,7 +126,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     18,
-    ARRAY['compliance', 'alcohol', 'tobacco', 'lottery'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -140,7 +138,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     20,
-    ARRAY['safety', 'osha', 'compliance'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -153,7 +150,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     10,
-    ARRAY['cash-handling', 'loss-prevention', 'operations'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -166,7 +162,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     14,
-    ARRAY['foodservice', 'food-safety', 'operations'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -179,7 +174,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     8,
-    ARRAY['operations', 'procedures', 'onboarding'],
     'published',
     NOW(), NOW(), NOW()
 ),
@@ -192,7 +186,6 @@ INSERT INTO tracks (
     NULL,
     NULL,
     16,
-    ARRAY['safety', 'robbery-prevention', 'compliance'],
     'published',
     NOW(), NOW(), NOW()
 )
