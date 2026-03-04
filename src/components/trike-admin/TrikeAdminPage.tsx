@@ -6,6 +6,8 @@ import { ProposalsList } from './ProposalsList';
 import { PipelineAnalytics } from './PipelineAnalytics';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import { DemoProvisioningModal } from './DemoProvisioningModal';
+import { ROICalculator } from './ROICalculator';
+import { GoLiveChecklist } from './GoLiveChecklist';
 import { PipelineNotificationsBell } from './PipelineNotifications';
 import {
   Home,
@@ -55,6 +57,8 @@ export function TrikeAdminPage() {
   const [isProvisioningModalOpen, setIsProvisioningModalOpen] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [selectedOrgName, setSelectedOrgName] = useState<string | null>(null);
+  const [isROIOpen, setIsROIOpen] = useState(false);
+  const [isGoLiveOpen, setIsGoLiveOpen] = useState(false);
 
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
@@ -87,7 +91,7 @@ export function TrikeAdminPage() {
           }
           break;
         case 'roi':
-          // Navigate to ROI calculator (future)
+          setIsROIOpen(true);
           break;
         case 'invite':
           // Navigate to user invite flow (future)
@@ -103,7 +107,7 @@ export function TrikeAdminPage() {
           setCurrentView('organizations');
           break;
         case 'launch':
-          // Go-live checklist (future)
+          setIsGoLiveOpen(true);
           break;
       }
     },
@@ -224,6 +228,21 @@ export function TrikeAdminPage() {
           }}
           organizationId={selectedOrgId}
           organizationName={selectedOrgName}
+        />
+      )}
+
+      {/* ROI Calculator Dialog */}
+      <ROICalculator
+        open={isROIOpen}
+        onOpenChange={setIsROIOpen}
+      />
+
+      {/* Go-Live Checklist Dialog */}
+      {journeyOrgId && (
+        <GoLiveChecklist
+          open={isGoLiveOpen}
+          onOpenChange={setIsGoLiveOpen}
+          organizationId={journeyOrgId}
         />
       )}
     </>
