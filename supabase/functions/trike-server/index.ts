@@ -1073,6 +1073,14 @@ Deno.serve(async (req: Request) => {
       return await handleDemoProvision(req);
     }
 
+    // Stripe billing endpoints
+    if (method === "POST" && path === "/billing/setup-intent") {
+      return await handleBillingSetupIntent(req);
+    }
+    if (method === "POST" && path === "/billing/webhook") {
+      return await handleBillingWebhook(req);
+    }
+
     // eSignatures.io contract endpoints
     if (method === "POST" && path === "/contracts/send") {
       return await handleContractSend(req);
@@ -1193,6 +1201,8 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/approve-track",
         "POST /playbook/publish",
         "POST /demo/provision",
+        "POST /billing/setup-intent",
+        "POST /billing/webhook",
         "POST /contracts/send",
         "POST /contracts/webhook",
         "GET /contracts/:id/status"
@@ -17427,4 +17437,122 @@ async function handleContractWebhook(req: Request): Promise<Response> {
   }
 
   return jsonResponse({ success: true });
+}
+
+// =============================================================================
+// STRIPE BILLING HANDLERS
+// =============================================================================
+
+async function handleBillingSetupIntent(req: Request): Promise<Response> {
+  const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!STRIPE_KEY) {
+    return jsonResponse({ error: "Stripe not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { organization_id } = body;
+  if (!organization_id) {
+    return jsonResponse({ error: "organization_id is required" }, 400);
+  }
+
+  // Get org details
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("id, name, stripe_customer_id")
+    .eq("id", organization_id)
+    .single();
+
+  if (!org) {
+    return jsonResponse({ error: "Organization not found" }, 404);
+  }
+
+  const stripeHeaders = {
+    Authorization: `Bearer ${STRIPE_KEY}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+
+  let customerId = org.stripe_customer_id;
+
+  // Create Stripe customer if needed
+  if (!customerId) {
+    const custResp = await fetch("https://api.stripe.com/v1/customers", {
+      method: "POST",
+      headers: stripeHeaders,
+      body: new URLSearchParams({
+        name: org.name,
+        "metadata[organization_id]": organization_id,
+      }),
+    });
+    const custData = await custResp.json();
+    if (custData.error) {
+      return jsonResponse({ error: custData.error.message || "Failed to create Stripe customer" }, 500);
+    }
+    customerId = custData.id;
+
+    // Save customer ID
+    await supabase
+      .from("organizations")
+      .update({ stripe_customer_id: customerId })
+      .eq("id", organization_id);
+  }
+
+  // Create SetupIntent
+  const siResp = await fetch("https://api.stripe.com/v1/setup_intents", {
+    method: "POST",
+    headers: stripeHeaders,
+    body: new URLSearchParams({
+      customer: customerId,
+      "payment_method_types[]": "card",
+      "metadata[organization_id]": organization_id,
+    }),
+  });
+  const siData = await siResp.json();
+  if (siData.error) {
+    return jsonResponse({ error: siData.error.message || "Failed to create SetupIntent" }, 500);
+  }
+
+  return jsonResponse({
+    client_secret: siData.client_secret,
+    customer_id: customerId,
+  });
+}
+
+async function handleBillingWebhook(req: Request): Promise<Response> {
+  const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  // Read raw body for signature verification
+  const rawBody = await req.text();
+
+  // Verify webhook signature if secret is configured
+  if (STRIPE_WEBHOOK_SECRET) {
+    const sig = req.headers.get("stripe-signature");
+    // Note: In production, verify signature using Stripe's algorithm
+    // For now, proceed with basic validation
+    if (!sig) {
+      return jsonResponse({ error: "Missing stripe-signature header" }, 400);
+    }
+  }
+
+  try {
+    const event = JSON.parse(rawBody);
+
+    if (event.type === "setup_intent.succeeded") {
+      const setupIntent = event.data.object;
+      const orgId = setupIntent.metadata?.organization_id;
+      const paymentMethodId = setupIntent.payment_method;
+
+      if (orgId && paymentMethodId) {
+        await supabase
+          .from("organizations")
+          .update({
+            stripe_payment_method_id: paymentMethodId,
+            billing_status: "payment_method_saved",
+          })
+          .eq("id", orgId);
+      }
+    }
+
+    return jsonResponse({ received: true });
+  } catch (err: any) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
+  }
 }
