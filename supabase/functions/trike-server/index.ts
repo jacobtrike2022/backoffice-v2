@@ -1073,6 +1073,24 @@ Deno.serve(async (req: Request) => {
       return await handleDemoProvision(req);
     }
 
+    // eSignatures.io contract endpoints
+    if (method === "POST" && path === "/contracts/send") {
+      return await handleContractSend(req);
+    }
+    if (method === "POST" && path === "/contracts/webhook") {
+      return await handleContractWebhook(req);
+    }
+    if (method === "GET" && path.startsWith("/contracts/") && path.endsWith("/status")) {
+      const contractId = path.split("/")[2];
+      const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+      if (!ESIG_TOKEN) {
+        return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+      }
+      const resp = await fetch(`https://esignatures.com/api/contracts/${contractId}?token=${ESIG_TOKEN}`);
+      const data = await resp.json();
+      return jsonResponse(data);
+    }
+
     // =========================================================================
     // 404 - Route not found
     // =========================================================================
@@ -1174,7 +1192,10 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/generate-draft",
         "POST /playbook/approve-track",
         "POST /playbook/publish",
-        "POST /demo/provision"
+        "POST /demo/provision",
+        "POST /contracts/send",
+        "POST /contracts/webhook",
+        "GET /contracts/:id/status"
       ]
     }, 404);
 
@@ -17263,4 +17284,147 @@ async function handleDemoProvision(req: Request): Promise<Response> {
     console.error("[DemoProvision] Error:", error);
     return jsonResponse({ error: error.message || "Demo provisioning failed" }, 500);
   }
+}
+
+// =============================================================================
+// eSignatures.io CONTRACT HANDLERS
+// =============================================================================
+
+/**
+ * Send a contract for e-signature via eSignatures.io
+ * POST /contracts/send
+ * Body: { deal_id, template_id, signer_name, signer_email, metadata? }
+ */
+async function handleContractSend(req: Request): Promise<Response> {
+  const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+  if (!ESIG_TOKEN) {
+    return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { deal_id, template_id, signer_name, signer_email, metadata } = body;
+
+  if (!deal_id || !template_id || !signer_name || !signer_email) {
+    return jsonResponse(
+      { error: "deal_id, template_id, signer_name, and signer_email are required" },
+      400
+    );
+  }
+
+  // Send contract via eSignatures.io API
+  const esigResponse = await fetch(
+    `https://esignatures.com/api/contracts?token=${ESIG_TOKEN}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id,
+        signers: [{ name: signer_name, email: signer_email }],
+        metadata: JSON.stringify({ deal_id, ...metadata }),
+        title: `Agreement for ${signer_name}`,
+      }),
+    }
+  );
+
+  if (!esigResponse.ok) {
+    const errText = await esigResponse.text();
+    return jsonResponse({ error: "Failed to send contract", details: errText }, 500);
+  }
+
+  const esigData = await esigResponse.json();
+  const contractId = esigData.data?.contract?.id;
+
+  // Update deal with contract info
+  await supabase
+    .from("deals")
+    .update({
+      contract_id: contractId,
+      contract_status: "sent",
+      contract_signer_email: signer_email,
+    })
+    .eq("id", deal_id);
+
+  // Log activity
+  await supabase.from("deal_activities").insert({
+    deal_id,
+    activity_type: "system",
+    description: `Contract sent to ${signer_email}`,
+    metadata: { contract_id: contractId },
+  });
+
+  return jsonResponse({ success: true, contract_id: contractId });
+}
+
+/**
+ * Handle webhook events from eSignatures.io
+ * POST /contracts/webhook
+ * Body: { status, contract: { id, signers, metadata } }
+ */
+async function handleContractWebhook(req: Request): Promise<Response> {
+  const body = await req.json();
+  const { status, contract } = body;
+
+  if (!contract?.id) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
+  }
+
+  const contractId = contract.id;
+  const signerEmail = contract.signers?.[0]?.email;
+  let metadata: any = {};
+  try {
+    metadata = JSON.parse(contract.metadata || "{}");
+  } catch {
+    // ignore parse errors
+  }
+
+  const dealId = metadata.deal_id;
+  if (!dealId) {
+    return jsonResponse({ error: "No deal_id in contract metadata" }, 400);
+  }
+
+  // Map eSignatures.io event to deal status
+  let contractStatus = "sent";
+  let activityDesc = "";
+
+  switch (status) {
+    case "signer-viewed-the-contract":
+      contractStatus = "viewed";
+      activityDesc = `Contract viewed by ${signerEmail}`;
+      break;
+    case "signer-signed":
+    case "contract-signed":
+      contractStatus = "signed";
+      activityDesc = `Contract signed by ${signerEmail}`;
+      break;
+    case "signer-declined":
+      contractStatus = "declined";
+      activityDesc = `Contract declined by ${signerEmail}`;
+      break;
+    case "contract-withdrawn":
+      contractStatus = "withdrawn";
+      activityDesc = "Contract withdrawn";
+      break;
+    default:
+      activityDesc = `Contract event: ${status}`;
+  }
+
+  // Update deal
+  const updateFields: Record<string, any> = { contract_status: contractStatus };
+  if (contractStatus === "signed") {
+    updateFields.contract_signed_at = new Date().toISOString();
+  }
+
+  await supabase.from("deals").update(updateFields).eq("id", dealId);
+
+  // Log activity
+  if (activityDesc) {
+    await supabase.from("deal_activities").insert({
+      deal_id: dealId,
+      activity_type: "system",
+      description: activityDesc,
+      metadata: { contract_id: contractId, event: status },
+    });
+  }
+
+  return jsonResponse({ success: true });
 }
