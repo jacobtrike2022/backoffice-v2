@@ -10,6 +10,7 @@ import { ROICalculator } from './ROICalculator';
 import { GoLiveChecklist } from './GoLiveChecklist';
 import { SendContractDialog } from './SendContractDialog';
 import { PaymentSetup } from './PaymentSetup';
+import { TeamInvite } from './TeamInvite';
 import { PipelineNotificationsBell } from './PipelineNotifications';
 import {
   Home,
@@ -63,6 +64,7 @@ export function TrikeAdminPage() {
   const [isGoLiveOpen, setIsGoLiveOpen] = useState(false);
   const [isContractDialogOpen, setIsContractDialogOpen] = useState(false);
   const [isPaymentSetupOpen, setIsPaymentSetupOpen] = useState(false);
+  const [isTeamInviteOpen, setIsTeamInviteOpen] = useState(false);
 
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
@@ -98,7 +100,7 @@ export function TrikeAdminPage() {
           setIsROIOpen(true);
           break;
         case 'invite':
-          // Navigate to user invite flow (future)
+          setIsTeamInviteOpen(true);
           break;
         case 'proposal':
           setCurrentView('proposals');
@@ -264,6 +266,15 @@ export function TrikeAdminPage() {
         <PaymentSetup
           open={isPaymentSetupOpen}
           onOpenChange={setIsPaymentSetupOpen}
+          organizationId={journeyOrgId}
+        />
+      )}
+
+      {/* Team Invite Dialog */}
+      {journeyOrgId && (
+        <TeamInvite
+          open={isTeamInviteOpen}
+          onOpenChange={setIsTeamInviteOpen}
           organizationId={journeyOrgId}
         />
       )}
