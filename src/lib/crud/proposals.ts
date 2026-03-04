@@ -36,7 +36,7 @@ export interface Proposal {
   // Joined relations
   deal?: { id: string; name: string; stage: string; value: number | null };
   organization?: { id: string; name: string };
-  creator?: { id: string; first_name: string; last_name: string; display_name: string };
+  creator?: { id: string; first_name: string; last_name: string };
 }
 
 export interface CreateProposalInput {
@@ -82,7 +82,7 @@ const PROPOSAL_SELECT = `
   *,
   deal:deals!deal_id(id, name, stage, value),
   organization:organizations!organization_id(id, name),
-  creator:users!created_by(id, first_name, last_name, display_name)
+  creator:users!created_by(id, first_name, last_name)
 `;
 
 // ============================================================================

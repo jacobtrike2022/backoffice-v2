@@ -17087,7 +17087,7 @@ async function handleDemoProvision(req: Request): Promise<Response> {
     let tracksCloned = 0;
     const { data: templateTracks } = await supabase
       .from("tracks")
-      .select("id, title, description, content_type, content_url, thumbnail_url, duration_minutes, category, tags, status")
+      .select("id, title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
       .eq("status", "published")
       .limit(10);
 
@@ -17104,11 +17104,10 @@ async function handleDemoProvision(req: Request): Promise<Response> {
           organization_id,
           title: track.title,
           description: track.description,
-          content_type: track.content_type,
+          type: track.type,
           content_url: track.content_url,
           thumbnail_url: track.thumbnail_url,
           duration_minutes: track.duration_minutes,
-          category: track.category,
           tags: track.tags,
           status: "published",
           is_demo_content: true,
@@ -17136,12 +17135,16 @@ async function handleDemoProvision(req: Request): Promise<Response> {
       .limit(1)
       .maybeSingle();
 
-    if (deal && deal.stage !== "demo" && deal.stage !== "won") {
-      await supabase
+    if (deal && !["evaluating", "closing", "won", "lost"].includes(deal.stage)) {
+      const { error: dealError } = await supabase
         .from("deals")
-        .update({ stage: "demo", updated_at: new Date().toISOString() })
+        .update({ stage: "evaluating", updated_at: new Date().toISOString() })
         .eq("id", deal.id);
-      console.log(`[DemoProvision] Updated deal ${deal.id} to demo stage`);
+      if (dealError) {
+        console.error(`[DemoProvision] Failed to update deal ${deal.id}:`, dealError);
+      } else {
+        console.log(`[DemoProvision] Updated deal ${deal.id} to evaluating stage`);
+      }
     }
 
     console.log(`[DemoProvision] Complete! Org: ${org.name}`);

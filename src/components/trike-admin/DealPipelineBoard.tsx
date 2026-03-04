@@ -1,5 +1,18 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Plus, Search, Filter, MoreHorizontal, SlidersHorizontal, Loader2, X, ArrowUpDown } from 'lucide-react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Plus, Search, Filter, MoreHorizontal, SlidersHorizontal, Loader2, X, ArrowUpDown, GripVertical, CheckSquare, Download, UserPlus, ArrowRight } from 'lucide-react';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  closestCenter,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -25,7 +38,65 @@ import {
   PIPELINE_STAGES,
   STAGE_CONFIG,
 } from './types';
-import { getDealsByStage, updateDealStage } from '../../lib/crud/deals';
+import { getDealsByStage, updateDealStage, bulkUpdateDealStage, bulkReassignOwner, getDealOwnerCandidates } from '../../lib/crud/deals';
+
+// ─── Droppable Stage Column wrapper ────────────────────────
+function DroppableStageColumn({
+  stage,
+  children,
+  isOver,
+}: {
+  stage: DealStage;
+  children: React.ReactNode;
+  isOver: boolean;
+}) {
+  const { setNodeRef } = useDroppable({ id: `stage-${stage}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex-1 transition-colors duration-200 rounded-b-lg',
+        isOver && 'bg-primary/5 ring-2 ring-primary/30 ring-inset'
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─── Draggable Deal Card wrapper ───────────────────────────
+function DraggableDealCard({
+  deal,
+  children,
+}: {
+  deal: Partial<Deal>;
+  children: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: deal.id!,
+    data: { deal },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      className={cn(
+        'relative group',
+        isDragging && 'opacity-30'
+      )}
+    >
+      {/* Drag handle - appears on hover */}
+      <div
+        {...listeners}
+        className="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab active:cursor-grabbing z-10"
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </div>
+      {children}
+    </div>
+  );
+}
 
 type SortOption = 'value_desc' | 'value_asc' | 'close_date' | 'last_activity' | 'name_asc';
 
@@ -83,6 +154,71 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
   const [activityMode, setActivityMode] = useState<'note' | 'activity'>('note');
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [sortBy, setSortBy] = useState<SortOption>('value_desc');
+  const [activeDragDeal, setActiveDragDeal] = useState<Partial<Deal> | null>(null);
+  const [overStage, setOverStage] = useState<DealStage | null>(null);
+  // Bulk operations
+  const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkStageTarget, setBulkStageTarget] = useState<DealStage | 'none'>('none');
+  const [bulkOwnerTarget, setBulkOwnerTarget] = useState<string>('none');
+  const [ownerCandidates, setOwnerCandidates] = useState<Array<{ id: string; first_name: string | null; last_name: string | null; email: string }>>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Configure pointer sensor with activation distance to avoid accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const deal = event.active.data.current?.deal as Partial<Deal> | undefined;
+    if (deal) setActiveDragDeal(deal);
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const overId = event.over?.id;
+    if (typeof overId === 'string' && overId.startsWith('stage-')) {
+      setOverStage(overId.replace('stage-', '') as DealStage);
+    } else {
+      setOverStage(null);
+    }
+  }, []);
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragDeal(null);
+    setOverStage(null);
+
+    if (!over) return;
+
+    const overId = String(over.id);
+    if (!overId.startsWith('stage-')) return;
+
+    const newStage = overId.replace('stage-', '') as DealStage;
+    const deal = active.data.current?.deal as Partial<Deal> | undefined;
+
+    if (!deal || deal.stage === newStage) return;
+
+    // Optimistic update: move the card immediately
+    setDealsByStage((prev) => {
+      const copy = { ...prev };
+      const oldStage = deal.stage as DealStage;
+      copy[oldStage] = copy[oldStage].filter((d) => d.id !== deal.id);
+      const movedDeal = { ...deal, stage: newStage } as Deal;
+      copy[newStage] = [...copy[newStage], movedDeal];
+      return copy;
+    });
+
+    // Persist to database
+    try {
+      await updateDealStage(deal.id!, newStage);
+      await loadDeals(); // Reload for accurate totals
+    } catch (error) {
+      console.error('Error updating deal stage:', error);
+      await loadDeals(); // Revert on failure
+    }
+  }, []);
 
   useEffect(() => {
     loadDeals();
@@ -110,14 +246,111 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
     }
   }
 
+  // ─── Bulk operation handlers ────────────────────────────────
+
+  function toggleDealSelection(dealId: string) {
+    setSelectedDealIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(dealId)) next.delete(dealId);
+      else next.add(dealId);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    const allIds = new Set<string>();
+    PIPELINE_STAGES.forEach((stage) => {
+      (filteredDealsByStage[stage] || []).forEach((d) => {
+        if (d.id) allIds.add(d.id);
+      });
+    });
+    setSelectedDealIds(allIds);
+  }
+
+  function clearSelection() {
+    setSelectedDealIds(new Set());
+    setBulkStageTarget('none');
+    setBulkOwnerTarget('none');
+  }
+
+  function exitBulkMode() {
+    setBulkMode(false);
+    clearSelection();
+  }
+
+  async function handleBulkStageChange() {
+    if (bulkStageTarget === 'none' || selectedDealIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await bulkUpdateDealStage(Array.from(selectedDealIds), bulkStageTarget);
+      clearSelection();
+      await loadDeals();
+    } catch (error) {
+      console.error('Bulk stage change failed:', error);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleBulkReassign() {
+    if (bulkOwnerTarget === 'none' || selectedDealIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await bulkReassignOwner(Array.from(selectedDealIds), bulkOwnerTarget);
+      clearSelection();
+      await loadDeals();
+    } catch (error) {
+      console.error('Bulk reassign failed:', error);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  function exportPipelineCSV() {
+    const allDeals = PIPELINE_STAGES.flatMap((stage) => filteredDealsByStage[stage] || []);
+    if (allDeals.length === 0) return;
+
+    const headers = ['Name', 'Organization', 'Stage', 'Value', 'MRR', 'Probability', 'Deal Type', 'Owner', 'Expected Close', 'Next Action', 'Created'];
+    const rows = allDeals.map((d) => [
+      d.name || '',
+      d.organization?.name || '',
+      STAGE_CONFIG[d.stage]?.label || d.stage,
+      d.value?.toString() || '0',
+      d.mrr?.toString() || '',
+      `${d.probability || 0}%`,
+      d.deal_type || '',
+      d.owner ? `${d.owner.first_name || ''} ${d.owner.last_name || ''}`.trim() || d.owner.email : '',
+      d.expected_close_date || '',
+      d.next_action || '',
+      d.created_at ? new Date(d.created_at).toLocaleDateString() : '',
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pipeline-export-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Load owner candidates when bulk mode is activated
+  useEffect(() => {
+    if (bulkMode && ownerCandidates.length === 0) {
+      getDealOwnerCandidates().then(setOwnerCandidates).catch(() => {});
+    }
+  }, [bulkMode]);
+
   // Collect unique owners from all deals for the filter dropdown
   const uniqueOwners = useMemo(() => {
     const owners = new Map<string, { id: string; name: string }>();
     Object.values(dealsByStage).flat().forEach((deal) => {
       if (deal.owner_id && deal.owner) {
-        const name = deal.owner.first_name
-          ? `${deal.owner.first_name} ${deal.owner.last_name || ''}`.trim()
-          : deal.owner.display_name;
+        const name = `${deal.owner.first_name || ''} ${deal.owner.last_name || ''}`.trim() || deal.owner.email;
         owners.set(deal.owner_id, { id: deal.owner_id, name });
       }
     });
@@ -312,6 +545,26 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
               </PopoverContent>
             </Popover>
 
+            {/* CSV Export */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportPipelineCSV}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+
+            {/* Bulk Mode Toggle */}
+            <Button
+              variant={bulkMode ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => bulkMode ? exitBulkMode() : setBulkMode(true)}
+            >
+              <CheckSquare className="h-4 w-4 mr-2" />
+              {bulkMode ? 'Exit Bulk' : 'Bulk Select'}
+            </Button>
+
             <Button
               size="sm"
               onClick={() => {
@@ -336,122 +589,223 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
             className="pl-9"
           />
         </div>
+
+        {/* Bulk Action Toolbar - visible when in bulk mode */}
+        {bulkMode && (
+          <div className="mt-3 flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckSquare className="h-4 w-4 text-primary" />
+              <span className="font-medium">{selectedDealIds.size} selected</span>
+            </div>
+
+            <div className="h-4 w-px bg-border" />
+
+            <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectAllVisible}>
+              Select all
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs h-7" onClick={clearSelection} disabled={selectedDealIds.size === 0}>
+              Clear
+            </Button>
+
+            <div className="h-4 w-px bg-border" />
+
+            {/* Bulk Stage Change */}
+            <div className="flex items-center gap-1.5">
+              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              <Select value={bulkStageTarget} onValueChange={(v) => setBulkStageTarget(v as DealStage | 'none')}>
+                <SelectTrigger className="h-7 text-xs w-32">
+                  <SelectValue placeholder="Move to..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Move to...</SelectItem>
+                  {PIPELINE_STAGES.map((s) => (
+                    <SelectItem key={s} value={s}>{STAGE_CONFIG[s].label}</SelectItem>
+                  ))}
+                  <SelectItem value="won">Won</SelectItem>
+                  <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="frozen">Frozen</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                disabled={bulkStageTarget === 'none' || selectedDealIds.size === 0 || bulkLoading}
+                onClick={handleBulkStageChange}
+              >
+                Move
+              </Button>
+            </div>
+
+            <div className="h-4 w-px bg-border" />
+
+            {/* Bulk Reassign */}
+            <div className="flex items-center gap-1.5">
+              <UserPlus className="h-3.5 w-3.5 text-muted-foreground" />
+              <Select value={bulkOwnerTarget} onValueChange={setBulkOwnerTarget}>
+                <SelectTrigger className="h-7 text-xs w-36">
+                  <SelectValue placeholder="Assign to..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Assign to...</SelectItem>
+                  {ownerCandidates.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {`${o.first_name || ''} ${o.last_name || ''}`.trim() || o.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                disabled={bulkOwnerTarget === 'none' || selectedDealIds.size === 0 || bulkLoading}
+                onClick={handleBulkReassign}
+              >
+                Assign
+              </Button>
+            </div>
+
+            {bulkLoading && <Loader2 className="h-4 w-4 animate-spin text-primary ml-2" />}
+          </div>
+        )}
       </div>
 
       {/* Kanban Board */}
-      <div className="flex-1 overflow-x-auto p-6">
-        <div className="flex gap-4 h-full min-w-max">
-          {PIPELINE_STAGES.map((stage) => {
-            const config = STAGE_CONFIG[stage];
-            const deals = filteredDealsByStage[stage];
-            const stageTotal = getStageTotal(stage);
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex-1 overflow-x-auto p-6">
+          <div className="flex gap-4 h-full min-w-max">
+            {PIPELINE_STAGES.map((stage) => {
+              const config = STAGE_CONFIG[stage];
+              const deals = filteredDealsByStage[stage];
+              const stageTotal = getStageTotal(stage);
 
-            return (
-              <div
-                key={stage}
-                className="w-80 flex flex-col bg-muted/30 rounded-lg"
-              >
-                {/* Stage Header */}
+              return (
                 <div
-                  className={cn(
-                    'p-3 rounded-t-lg border-b-2',
-                    config.bgColor,
-                    config.borderColor
-                  )}
+                  key={stage}
+                  className="w-80 flex flex-col bg-muted/30 rounded-lg"
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className={cn('font-semibold', config.color)}>
-                        {config.label}
-                      </span>
-                      <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                        {deals.length}
-                      </Badge>
+                  {/* Stage Header */}
+                  <div
+                    className={cn(
+                      'p-3 rounded-t-lg border-b-2',
+                      config.bgColor,
+                      config.borderColor
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('font-semibold', config.color)}>
+                          {config.label}
+                        </span>
+                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                          {deals.length}
+                        </Badge>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-7 w-7">
-                      <MoreHorizontal className="h-4 w-4" />
+                    <div className={cn('text-sm font-medium', config.color)}>
+                      {formatCurrency(stageTotal)}
+                    </div>
+                  </div>
+
+                  {/* Droppable deals area */}
+                  <DroppableStageColumn stage={stage} isOver={overStage === stage}>
+                    <ScrollArea className="flex-1">
+                      <div className="p-2 space-y-2 min-h-[80px]">
+                        {deals.map((deal) => (
+                          <DraggableDealCard key={deal.id} deal={deal}>
+                            <DealCard
+                              deal={deal}
+                              isSelected={!!deal.id && selectedDealIds.has(deal.id)}
+                              isBulkMode={bulkMode}
+                              onToggleSelect={toggleDealSelection}
+                              onSelect={(d) => {
+                                setEditingDeal(d);
+                                setDefaultStageForNew(undefined);
+                                setIsFormOpen(true);
+                              }}
+                              onEdit={(d) => {
+                                setEditingDeal(d);
+                                setDefaultStageForNew(undefined);
+                                setIsFormOpen(true);
+                              }}
+                              onStageChange={handleStageChange}
+                              onAddNote={(d) => {
+                                setActivityDeal(d);
+                                setActivityMode('note');
+                                setIsActivityPanelOpen(true);
+                              }}
+                              onLogActivity={(d) => {
+                                setActivityDeal(d);
+                                setActivityMode('activity');
+                                setIsActivityPanelOpen(true);
+                              }}
+                              onViewJourney={(d) => {
+                                if (d.organization_id && onViewJourney) {
+                                  onViewJourney(
+                                    d.organization_id,
+                                    d.organization?.name || d.name || 'Unknown',
+                                    d.organization?.status
+                                  );
+                                }
+                              }}
+                            />
+                          </DraggableDealCard>
+                        ))}
+
+                        {loading && deals.length === 0 && (
+                          <div className="flex items-center justify-center py-12">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        )}
+
+                        {!loading && deals.length === 0 && (
+                          <div className="p-4 text-center text-sm text-muted-foreground">
+                            No deals in this stage
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </DroppableStageColumn>
+
+                  {/* Add Deal Button */}
+                  <div className="p-2 border-t border-border">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-muted-foreground"
+                      onClick={() => {
+                        setEditingDeal(null);
+                        setDefaultStageForNew(stage);
+                        setIsFormOpen(true);
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add deal
                     </Button>
                   </div>
-                  <div className={cn('text-sm font-medium', config.color)}>
-                    {formatCurrency(stageTotal)}
-                  </div>
                 </div>
-
-                {/* Deals */}
-                <ScrollArea className="flex-1">
-                  <div className="p-2 space-y-2">
-                    {deals.map((deal) => (
-                      <DealCard
-                        key={deal.id}
-                        deal={deal}
-                        onSelect={(d) => {
-                          setEditingDeal(d);
-                          setDefaultStageForNew(undefined);
-                          setIsFormOpen(true);
-                        }}
-                        onEdit={(d) => {
-                          setEditingDeal(d);
-                          setDefaultStageForNew(undefined);
-                          setIsFormOpen(true);
-                        }}
-                        onStageChange={handleStageChange}
-                        onAddNote={(d) => {
-                          setActivityDeal(d);
-                          setActivityMode('note');
-                          setIsActivityPanelOpen(true);
-                        }}
-                        onLogActivity={(d) => {
-                          setActivityDeal(d);
-                          setActivityMode('activity');
-                          setIsActivityPanelOpen(true);
-                        }}
-                        onViewJourney={(d) => {
-                          if (d.organization_id && onViewJourney) {
-                            onViewJourney(
-                              d.organization_id,
-                              d.organization?.name || d.name || 'Unknown',
-                              d.organization?.status
-                            );
-                          }
-                        }}
-                      />
-                    ))}
-
-                    {loading && deals.length === 0 && (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-
-                    {!loading && deals.length === 0 && (
-                      <div className="p-4 text-center text-sm text-muted-foreground">
-                        No deals in this stage
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-
-                {/* Add Deal Button */}
-                <div className="p-2 border-t border-border">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start text-muted-foreground"
-                    onClick={() => {
-                      setEditingDeal(null);
-                      setDefaultStageForNew(stage);
-                      setIsFormOpen(true);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add deal
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+
+        {/* Drag Overlay - ghost card that follows cursor */}
+        <DragOverlay dropAnimation={null}>
+          {activeDragDeal ? (
+            <div className="w-80 opacity-90 rotate-2 shadow-xl">
+              <DealCard deal={activeDragDeal} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Summary Footer */}
       <div className="border-t border-border bg-card px-6 py-3">

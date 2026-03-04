@@ -6,6 +6,7 @@ import { ProposalsList } from './ProposalsList';
 import { PipelineAnalytics } from './PipelineAnalytics';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import { DemoProvisioningModal } from './DemoProvisioningModal';
+import { PipelineNotificationsBell } from './PipelineNotifications';
 import {
   Home,
   TrendingUp,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../ui/utils';
+import { useCurrentUser } from '../../lib/hooks/useSupabase';
 import type { OrganizationStatus } from './types';
 
 export type TrikeAdminView =
@@ -47,6 +49,7 @@ const tabs: Array<{
  * Accessible via sidebar navigation for trike-super-admin role only
  */
 export function TrikeAdminPage() {
+  const { user } = useCurrentUser();
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
   const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
   const [isProvisioningModalOpen, setIsProvisioningModalOpen] = useState(false);
@@ -155,28 +158,36 @@ export function TrikeAdminPage() {
       <div className="flex flex-col h-full -m-8">
         {/* Tab Navigation */}
         <div className="border-b border-border bg-card px-6">
-          <div className="flex items-center gap-1">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = currentView === tab.id;
-              return (
-                <Button
-                  key={tab.id}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentView(tab.id)}
-                  className={cn(
-                    'gap-2 rounded-none border-b-2 -mb-px h-12',
-                    isActive
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                </Button>
-              );
-            })}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = currentView === tab.id;
+                return (
+                  <Button
+                    key={tab.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentView(tab.id)}
+                    className={cn(
+                      'gap-2 rounded-none border-b-2 -mb-px h-12',
+                      isActive
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <PipelineNotificationsBell
+              userId={user?.id || null}
+              onNavigateToDeal={(dealId) => {
+                setCurrentView('pipeline');
+              }}
+            />
           </div>
         </div>
 

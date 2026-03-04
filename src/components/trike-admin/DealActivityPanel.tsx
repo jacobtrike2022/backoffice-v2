@@ -306,8 +306,7 @@ export function DealActivityPanel({
                     ACTIVITY_TYPE_CONFIG.system;
                   const Icon = config.icon;
                   const userName = activity.user
-                    ? activity.user.display_name ||
-                      `${activity.user.first_name || ''} ${activity.user.last_name || ''}`.trim()
+                    ? `${activity.user.first_name || ''} ${activity.user.last_name || ''}`.trim() || 'Unknown'
                     : null;
 
                   return (

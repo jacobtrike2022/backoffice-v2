@@ -50,6 +50,7 @@ import {
   type ProposalStatus,
 } from '../../lib/crud/proposals';
 import { toast } from 'sonner';
+import { ProposalFormModal } from './ProposalFormModal';
 
 // ============================================================================
 // STATUS CONFIG
@@ -132,6 +133,8 @@ export function ProposalsList() {
     totalValue: number;
     acceptanceRate: number;
   } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
 
   const loadProposals = async () => {
     try {
@@ -248,6 +251,13 @@ export function ProposalsList() {
             >
               <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
               Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => { setEditingProposal(null); setShowForm(true); }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Proposal
             </Button>
           </div>
         </div>
@@ -394,8 +404,7 @@ export function ProposalsList() {
                     const dealName = (proposal.deal as any)?.name || '-';
                     const orgName = (proposal.organization as any)?.name || '-';
                     const creatorName = (proposal.creator as any)
-                      ? `${(proposal.creator as any).first_name || ''} ${(proposal.creator as any).last_name || ''}`.trim() ||
-                        (proposal.creator as any).display_name
+                      ? `${(proposal.creator as any).first_name || ''} ${(proposal.creator as any).last_name || ''}`.trim() || null
                       : null;
 
                     return (
@@ -483,6 +492,14 @@ export function ProposalsList() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {/* Edit */}
+                              <DropdownMenuItem
+                                onClick={() => { setEditingProposal(proposal); setShowForm(true); }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                Edit Proposal
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {/* Status transitions based on current status */}
                               {proposal.status === 'draft' && (
                                 <DropdownMenuItem
@@ -548,6 +565,14 @@ export function ProposalsList() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Proposal Form Modal */}
+      <ProposalFormModal
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditingProposal(null); }}
+        onSuccess={loadProposals}
+        proposal={editingProposal}
+      />
     </div>
   );
 }

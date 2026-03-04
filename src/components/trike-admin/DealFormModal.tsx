@@ -51,7 +51,7 @@ interface OrgOption {
 
 interface OwnerOption {
   id: string;
-  display_name: string;
+  name: string;
   email: string;
 }
 
@@ -117,7 +117,7 @@ export function DealFormModal({
         setOwners(
           ownerCandidates.map((o: any) => ({
             id: o.id,
-            display_name: o.display_name || `${o.first_name || ''} ${o.last_name || ''}`.trim() || o.email,
+            name: `${o.first_name || ''} ${o.last_name || ''}`.trim() || o.email,
             email: o.email,
           }))
         );
@@ -402,7 +402,7 @@ export function DealFormModal({
                   <SelectItem value="none">Unassigned</SelectItem>
                   {owners.map((owner) => (
                     <SelectItem key={owner.id} value={owner.id}>
-                      {owner.display_name}
+                      {owner.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

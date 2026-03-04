@@ -82,10 +82,8 @@ export interface User {
   id: string;
   auth_user_id: string;
   email: string;
-  display_name: string;
   first_name: string | null;
   last_name: string | null;
-  avatar_url: string | null;
 }
 
 export interface DealActivity {
