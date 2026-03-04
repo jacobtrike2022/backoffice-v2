@@ -328,14 +328,43 @@ Deno.serve(async (req: Request) => {
     // HEALTH CHECK
     // =========================================================================
     if (method === "GET" && (path === "/health" || path === "")) {
-      return jsonResponse({ 
-        status: "ok", 
-        timestamp: new Date().toISOString(),
-        services: {
-          openai: !!OPENAI_API_KEY,
-          assemblyai: !!ASSEMBLYAI_API_KEY,
-        }
-      });
+      const checks: Record<string, string> = {};
+
+      // Check database connectivity
+      try {
+        const { error } = await supabase.from('roles').select('id').limit(1).single();
+        checks.database = error ? `error: ${error.message}` : 'ok';
+      } catch {
+        checks.database = 'unreachable';
+      }
+
+      // Check OpenAI API key presence
+      checks.openai = OPENAI_API_KEY ? 'configured' : 'missing';
+
+      // Check Resend API key presence
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      checks.resend = resendKey ? 'configured' : 'missing';
+
+      // Check eSignatures token presence
+      const esigToken = Deno.env.get("ESIGNATURES_API_TOKEN");
+      checks.esignatures = esigToken ? 'configured' : 'not_configured';
+
+      // Check Stripe key presence
+      const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+      checks.stripe = stripeKey ? 'configured' : 'not_configured';
+
+      const allHealthy = checks.database === 'ok' &&
+        checks.openai === 'configured' &&
+        checks.resend === 'configured';
+
+      return jsonResponse(
+        {
+          status: allHealthy ? 'healthy' : 'degraded',
+          checks,
+          timestamp: new Date().toISOString(),
+        },
+        allHealthy ? 200 : 503
+      );
     }
 
     // =========================================================================
