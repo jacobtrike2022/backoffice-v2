@@ -8986,7 +8986,7 @@ async function sendEmailViaResend(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: params.from || "Trike <noreply@notifications.trike.co>",
+        from: params.from || Deno.env.get("EMAIL_FROM_ADDRESS") || "Trike <noreply@notifications.trike.co>",
         to: params.to,
         subject: params.subject,
         html: params.html,
