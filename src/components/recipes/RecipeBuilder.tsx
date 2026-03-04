@@ -14,6 +14,7 @@ import {
   removeRecipeIngredient,
   calculateRecipeCost,
 } from '../../lib/crud/recipes';
+import { getCurrentUserProfile, getCurrentUserOrgId } from '../../lib/supabase';
 import { searchIngredients } from '../../lib/crud/recipes';
 import type {
   CreateRecipeInput,
@@ -29,9 +30,19 @@ export function RecipeBuilder() {
   const { recipeId } = useParams<{ recipeId?: string }>();
   const isEditMode = !!recipeId;
 
-  // Get organization ID and user ID from context/auth (placeholder)
-  const organizationId = 'demo-org-id'; // TODO: Get from auth context
-  const userId = 'demo-user-id'; // TODO: Get from auth context
+  // Auth context
+  const [organizationId, setOrganizationId] = useState<string>('');
+  const [userId, setUserId] = useState<string>('');
+
+  useEffect(() => {
+    async function loadAuth() {
+      const orgId = await getCurrentUserOrgId();
+      const profile = await getCurrentUserProfile();
+      if (orgId) setOrganizationId(orgId);
+      if (profile) setUserId(profile.id);
+    }
+    loadAuth();
+  }, []);
 
   // Form state
   const [name, setName] = useState('');

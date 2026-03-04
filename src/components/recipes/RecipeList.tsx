@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getRecipes, deleteRecipe } from '../../lib/crud/recipes';
+import { getCurrentUserOrgId } from '../../lib/supabase';
 import type { Recipe, RecipeFilters } from '../../types/recipes';
 
 export function RecipeList() {
@@ -24,12 +25,22 @@ export function RecipeList() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Get organization ID from context/auth (placeholder)
-  const organizationId = 'demo-org-id'; // TODO: Get from auth context
+  // Auth context
+  const [organizationId, setOrganizationId] = useState<string>('');
 
   useEffect(() => {
-    loadRecipes();
-  }, [searchQuery, categoryFilter, statusFilter, daypartFilter, page]);
+    async function loadAuth() {
+      const orgId = await getCurrentUserOrgId();
+      if (orgId) setOrganizationId(orgId);
+    }
+    loadAuth();
+  }, []);
+
+  useEffect(() => {
+    if (organizationId) {
+      loadRecipes();
+    }
+  }, [organizationId, searchQuery, categoryFilter, statusFilter, daypartFilter, page]);
 
   async function loadRecipes() {
     try {

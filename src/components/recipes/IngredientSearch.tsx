@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { searchIngredients } from '../../lib/crud/recipes';
+import { getCurrentUserOrgId } from '../../lib/supabase';
 import type { Ingredient } from '../../types/recipes';
 
 interface IngredientSearchProps {
@@ -19,8 +20,16 @@ export function IngredientSearch({ onSelect }: IngredientSearchProps) {
   const [loading, setLoading] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Get organization ID from context/auth (placeholder)
-  const organizationId = 'demo-org-id'; // TODO: Get from auth context
+  // Auth context
+  const [organizationId, setOrganizationId] = useState<string>('');
+
+  useEffect(() => {
+    async function loadAuth() {
+      const orgId = await getCurrentUserOrgId();
+      if (orgId) setOrganizationId(orgId);
+    }
+    loadAuth();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
