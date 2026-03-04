@@ -8,6 +8,7 @@ import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import { DemoProvisioningModal } from './DemoProvisioningModal';
 import { ROICalculator } from './ROICalculator';
 import { GoLiveChecklist } from './GoLiveChecklist';
+import { SendContractDialog } from './SendContractDialog';
 import { PipelineNotificationsBell } from './PipelineNotifications';
 import {
   Home,
@@ -59,6 +60,7 @@ export function TrikeAdminPage() {
   const [selectedOrgName, setSelectedOrgName] = useState<string | null>(null);
   const [isROIOpen, setIsROIOpen] = useState(false);
   const [isGoLiveOpen, setIsGoLiveOpen] = useState(false);
+  const [isContractDialogOpen, setIsContractDialogOpen] = useState(false);
 
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
@@ -100,8 +102,10 @@ export function TrikeAdminPage() {
           setCurrentView('proposals');
           break;
         case 'sign':
+          setIsContractDialogOpen(true);
+          break;
         case 'payment':
-          // These are closing-stage actions (future: dedicated flows)
+          // Payment setup flow (future: Stripe Elements)
           break;
         case 'configure':
           setCurrentView('organizations');
@@ -245,6 +249,13 @@ export function TrikeAdminPage() {
           organizationId={journeyOrgId}
         />
       )}
+
+      {/* Send Contract Dialog */}
+      <SendContractDialog
+        open={isContractDialogOpen}
+        onOpenChange={setIsContractDialogOpen}
+        organizationName={journeyOrgName}
+      />
     </>
   );
 }
