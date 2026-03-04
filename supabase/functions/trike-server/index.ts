@@ -6860,9 +6860,7 @@ async function handleBrainSearch(req: Request): Promise<Response> {
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
 
-    // Build query
-    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
-    // For now, this only searches the user's org content
+    // Build query — includes both org-specific and system template embeddings
     let dbQuery = supabase.rpc("match_brain_embeddings", {
       query_embedding: queryEmbedding,
       match_threshold: 0.6, // Lowered from 0.7 for better recall
