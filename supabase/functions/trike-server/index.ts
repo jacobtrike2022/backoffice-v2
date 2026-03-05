@@ -7736,7 +7736,10 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         .eq("session_token", session_token);
     }
 
-    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}`);
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}`);
+    if (!enrichedData.logo_url) {
+      console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
+    }
 
     return jsonResponse({
       success: true,
@@ -7771,8 +7774,15 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     const logoAltMatch = html.match(/<img[^>]*(?:class|id)=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']+)["']/i)
       || html.match(/<img[^>]*alt=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*logo[^"']*["']/i)
       || html.match(/<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]*alt=["']([^"']+)["']/i);
-    if (logoAltMatch && logoAltMatch[1].trim().length > 1 && logoAltMatch[1].trim().length < 50) {
-      data.company_name = logoAltMatch[1].trim();
+    if (logoAltMatch) {
+      // Clean the alt text: strip common suffixes like "Logo", "Icon", "Image"
+      let altName = logoAltMatch[1].trim()
+        .replace(/\s*[-–|]\s*(logo|icon|image|banner|brand|img)$/i, '')
+        .replace(/\s+(logo|icon|image|banner|brand|img)$/i, '')
+        .trim();
+      if (altName.length > 1 && altName.length < 50) {
+        data.company_name = altName;
+      }
     }
   }
 
@@ -8146,7 +8156,26 @@ function extractStoresFromHTML(html: string): any[] {
     }
   }
 
-  return stores.slice(0, 100); // Cap at 100 for performance
+  // Deduplicate stores - many sites render the same store multiple times
+  // (e.g. accordion expand/collapse, responsive views, summary + detail cards)
+  const seen = new Set<string>();
+  const uniqueStores = stores.filter((store) => {
+    // Build a dedup key from address+zip or name
+    const addrKey = [
+      (store.address || '').replace(/\s+/g, ' ').trim().toLowerCase(),
+      (store.zip || '').trim(),
+    ].join('|');
+    const nameKey = (store.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // Use address+zip as primary key, fall back to name
+    const key = addrKey !== '|' ? addrKey : nameKey;
+    if (!key || key === '|') return true; // Keep stores we can't dedup
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueStores.slice(0, 100); // Cap at 100 for performance
 }
 
 /**
@@ -8754,6 +8783,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Validate logo if provided
     let validatedLogoUrl: string | null = null;
     let logoValidation = null;
+    console.log(`[Onboarding] Session collected_data logo_url: ${data.logo_url || 'MISSING'}`);
     if (data.logo_url) {
       console.log(`[Onboarding] Validating logo: ${data.logo_url}`);
       logoValidation = await validateLogoUrl(data.logo_url);

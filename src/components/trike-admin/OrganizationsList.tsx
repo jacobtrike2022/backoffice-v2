@@ -11,8 +11,7 @@ import {
   AlertCircle,
   RefreshCw,
   Trash2,
-  Copy,
-  Link,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -125,7 +124,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           created_at,
           last_activity_at,
           next_action,
-          next_action_date
+          next_action_date,
+          stores(count)
         `)
         .order('created_at', { ascending: false });
 
@@ -311,8 +311,9 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                   <TableHead className="w-[250px]">Organization</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Industry</TableHead>
+                  <TableHead>Locations</TableHead>
                   <TableHead>Demo</TableHead>
-                  <TableHead>Demo URL</TableHead>
+                  <TableHead>Demo Link</TableHead>
                   <TableHead>Next Action</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
@@ -323,7 +324,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                     .fill(0)
                     .map((_, i) => (
                       <TableRow key={i}>
-                        <TableCell colSpan={7}>
+                        <TableCell colSpan={8}>
                           <div className="h-10 bg-muted animate-pulse rounded" />
                         </TableCell>
                       </TableRow>
@@ -331,7 +332,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                 ) : filteredOrgs.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="text-center py-12 text-muted-foreground"
                     >
                       <Building2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -387,6 +388,23 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                           {(org as { industries?: { name: string } | null }).industries?.name || org.industry || '-'}
                         </TableCell>
 
+                        {/* Locations & States */}
+                        <TableCell>
+                          {(() => {
+                            const storeCount = (org as any).stores?.[0]?.count || 0;
+                            const stateCount = org.operating_states?.length || 0;
+                            if (!storeCount && !stateCount) return <span className="text-muted-foreground text-sm">-</span>;
+                            return (
+                              <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                {storeCount > 0 && `${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
+                                {storeCount > 0 && stateCount > 0 && ' · '}
+                                {stateCount > 0 && `${stateCount} state${stateCount !== 1 ? 's' : ''}`}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell>
+
                         {/* Demo status */}
                         <TableCell>
                           {demoStatus ? (
@@ -398,22 +416,18 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                           )}
                         </TableCell>
 
-                        {/* Demo URL */}
+                        {/* Demo Link */}
                         <TableCell>
                           {org.demo_expires_at ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 gap-1.5 text-xs"
-                              onClick={() => {
-                                const url = `${window.location.origin}/?demo_org_id=${org.id}`;
-                                navigator.clipboard.writeText(url);
-                                toast.success('Demo URL copied');
-                              }}
+                            <a
+                              href={`${window.location.origin}/?demo_org_id=${org.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
                             >
-                              <Copy className="h-3 w-3" />
-                              Copy URL
-                            </Button>
+                              <ExternalLink className="h-3 w-3" />
+                              Open Demo
+                            </a>
                           ) : (
                             <span className="text-muted-foreground text-sm">-</span>
                           )}

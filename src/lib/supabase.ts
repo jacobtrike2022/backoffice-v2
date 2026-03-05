@@ -84,17 +84,22 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     const demoOrgId = params.get('demo_org_id');
 
     if (demoOrgId) {
-      // SECURITY: In production, we'd verify the user has permission to access this org
-      // or that the org is in 'prospect' status.
-      // For the prototype, we allow the override if:
-      // 1. The user is not logged in (Prospect viewing a demo)
-      // 2. The user is a Super Admin (Admin testing the demo)
+      // Allow override if:
+      // 1. User is not logged in (prospect viewing a demo)
+      // 2. User is a Super Admin (admin testing the demo)
+      // 3. User actually belongs to this demo org (logged in via magic link)
 
       if (!user) {
         return demoOrgId;
       }
 
-      // If logged in, we check if they are an admin
+      // Check if user belongs to the requested demo org
+      const userOrgFromMetadata = user.user_metadata?.organization_id;
+      if (userOrgFromMetadata === demoOrgId) {
+        return demoOrgId;
+      }
+
+      // Check if user is a Super Admin
       const profile = await getCurrentUserProfile();
       const isSuperAdmin = profile?.role?.name === 'Trike Super Admin';
 
@@ -102,40 +107,50 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
         return demoOrgId;
       }
 
-      // If they are a regular user, ignore the demo_org_id override for security
-      console.warn('Unauthorized demo_org_id override attempt ignored for non-admin user');
+      // Also check the users table for org membership
+      const { data: userRecord } = await supabase
+        .from('users')
+        .select('organization_id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (userRecord?.organization_id === demoOrgId) {
+        return demoOrgId;
+      }
+
+      // If they don't belong to this org, ignore the override for security
+      console.warn('Unauthorized demo_org_id override attempt ignored for non-member user');
     }
   }
 
-  // Check if multi-tenancy is enabled
+  // For authenticated users, always check their actual org first
+  // (even in single-tenant mode, demo users need their own org)
+  if (user) {
+    // Option 1: Get from user metadata (set during onboarding)
+    const orgIdFromMetadata = user.user_metadata?.organization_id;
+    if (orgIdFromMetadata) return orgIdFromMetadata;
+
+    // Option 2: Query users table for organization_id
+    const { data } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('auth_user_id', user.id)
+      .single();
+
+    if (data?.organization_id) return data.organization_id;
+  }
+
+  // Fallback: use default org
   if (!APP_CONFIG.ENABLE_MULTI_TENANCY) {
-    // SINGLE-TENANT MODE: All users belong to the same organization
     return APP_CONFIG.DEFAULT_ORG_ID;
   }
-  
-  // MULTI-TENANT MODE: Get organization from authenticated user
-  if (!user) {
-    // No authenticated user
-    if (APP_CONFIG.DEMO_MODE) {
-      // Demo mode: return default org
-      return APP_CONFIG.DEFAULT_ORG_ID;
-    }
-    // Production: require authentication
-    return null;
+
+  // MULTI-TENANT MODE with no authenticated user
+  if (APP_CONFIG.DEMO_MODE) {
+    return APP_CONFIG.DEFAULT_ORG_ID;
   }
 
-  // Option 1: Get from user metadata (set during signup)
-  const orgIdFromMetadata = user.user_metadata?.organization_id;
-  if (orgIdFromMetadata) return orgIdFromMetadata;
-
-  // Option 2: Query users table for organization_id
-  const { data } = await supabase
-    .from('users')
-    .select('organization_id')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  return data?.organization_id || null;
+  return null;
 }
 
 /**
