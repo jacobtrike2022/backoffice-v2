@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 interface DemoProvisioningModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onProvisioned?: () => void;
   organizationId: string;
   organizationName: string;
 }
@@ -36,6 +37,7 @@ type ProvisioningStatus = 'idle' | 'preparing' | 'creating' | 'configuring' | 'c
 export function DemoProvisioningModal({
   isOpen,
   onClose,
+  onProvisioned,
   organizationId,
   organizationName,
 }: DemoProvisioningModalProps) {
@@ -50,7 +52,7 @@ export function DemoProvisioningModal({
 
   const steps = [
     { id: 'preparing', label: 'Preparing demo environment' },
-    { id: 'creating', label: 'Cloning template content' },
+    { id: 'creating', label: 'Setting up demo content' },
     { id: 'configuring', label: 'Finalizing configuration' },
   ];
 
@@ -90,6 +92,7 @@ export function DemoProvisioningModal({
       setStatus('completed');
 
       toast.success('Demo environment provisioned successfully!');
+      onProvisioned?.();
     } catch (error: any) {
       console.error('Provisioning failed:', error);
       setStatus('failed');
@@ -104,7 +107,7 @@ export function DemoProvisioningModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Rocket className="h-5 w-5 text-primary" />

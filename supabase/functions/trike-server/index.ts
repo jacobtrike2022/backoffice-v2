@@ -7650,6 +7650,7 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     ];
 
     let stores: any[] = [];
+    let foundLocatorPage = false;
     for (const locatorPath of storeLocatorUrls) {
       try {
         const locatorUrl = new URL(locatorPath, url).toString();
@@ -7664,13 +7665,23 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
           const locatorHtml = await locatorResponse.text();
           stores = extractStoresFromHTML(locatorHtml);
 
-          // If no stores found directly, check for WPSL (WordPress Store Locator) AJAX endpoint
-          if (stores.length === 0 && locatorHtml.includes('wpsl')) {
-            console.log(`[Onboarding] Detected WPSL plugin, trying AJAX endpoint...`);
+          // Detect WordPress Store Locator or other dynamic store locator plugins
+          // Broader detection: check for various WPSL indicators, Google Maps API, or store locator plugins
+          const hasWPSL = /wpsl|wp-store-locator|store[-_]?locator|wpStoreLocator|wpslSettings/i.test(locatorHtml);
+          const hasGoogleMapsStoreLocator = /google\.maps|maps\.googleapis|initMap|storeLocator/i.test(locatorHtml);
+          const isWordPress = /wp-content|wp-includes|wordpress/i.test(locatorHtml) || /wp-content|wp-includes/i.test(html);
+
+          if (stores.length === 0 && (hasWPSL || (hasGoogleMapsStoreLocator && isWordPress))) {
+            console.log(`[Onboarding] Detected dynamic store locator (WPSL=${hasWPSL}, Maps+WP=${hasGoogleMapsStoreLocator && isWordPress}), trying AJAX endpoint...`);
             const wpslStores = await tryWPSLAjax(url);
             if (wpslStores.length > 0) {
               stores = wpslStores;
             }
+          }
+
+          // Track that we found a valid locations page (even if no stores parsed yet)
+          if (locatorHtml.length > 500) {
+            foundLocatorPage = true;
           }
 
           if (stores.length > 0) {
@@ -7680,6 +7691,19 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         }
       } catch (e) {
         // Continue to next URL
+      }
+    }
+
+    // If we found a locations page but couldn't extract stores, try WPSL AJAX as a general WordPress fallback
+    if (stores.length === 0 && foundLocatorPage) {
+      const isWordPressSite = /wp-content|wp-includes|wordpress/i.test(html);
+      if (isWordPressSite) {
+        console.log(`[Onboarding] WordPress site with locations page but no stores parsed, trying WPSL AJAX fallback...`);
+        const wpslStores = await tryWPSLAjax(url);
+        if (wpslStores.length > 0) {
+          stores = wpslStores;
+          console.log(`[Onboarding] WPSL fallback found ${stores.length} stores`);
+        }
       }
     }
 
@@ -7807,45 +7831,107 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     data.company_name = capitalizeWords(domainFallback);
   }
 
-  // Extract logo - expanded patterns
-  const logoPatterns = [
-    // Header logo images (most common)
-    /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
-    /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
-    /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
-    // Logo in alt text
-    /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
-    // SVG logos
-    /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    // Fallback to og:image
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-    /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
-    // Apple touch icon (usually a good square logo)
-    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
-    // Favicon as last resort
-    /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
-  ];
+  // Extract logo - smart selection with domain awareness
+  const siteDomain = new URL(url).hostname.replace("www.", "");
 
-  for (const pattern of logoPatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      let logoUrl = match[1];
-      // Skip data URIs, tiny images, and tracking pixels
-      if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) continue;
-      // Make relative URLs absolute
-      if (logoUrl.startsWith("//")) {
-        logoUrl = "https:" + logoUrl;
-      } else if (logoUrl.startsWith("/")) {
-        logoUrl = new URL(logoUrl, url).toString();
-      } else if (!logoUrl.startsWith("http")) {
-        logoUrl = new URL(logoUrl, url).toString();
+  // Helper: check if a URL belongs to the same domain as the site
+  const isSameDomain = (imgUrl: string): boolean => {
+    try {
+      if (imgUrl.startsWith("/") && !imgUrl.startsWith("//")) return true;
+      if (!imgUrl.startsWith("http") && !imgUrl.startsWith("//")) return true;
+      const imgDomain = new URL(imgUrl.startsWith("//") ? "https:" + imgUrl : imgUrl).hostname.replace("www.", "");
+      return imgDomain === siteDomain;
+    } catch { return true; }
+  };
+
+  // Helper: normalize a logo URL to absolute
+  const normalizeLogoUrl = (logoUrl: string): string | null => {
+    if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) return null;
+    if (logoUrl.startsWith("//")) return "https:" + logoUrl;
+    if (logoUrl.startsWith("/")) return new URL(logoUrl, url).toString();
+    if (!logoUrl.startsWith("http")) return new URL(logoUrl, url).toString();
+    return logoUrl;
+  };
+
+  // Strategy 1: Find logo inside a link to the site's own homepage (most reliable)
+  // Pattern: <a href="https://site.com/"> ... <img src="logo.png"> ... </a>
+  const homepageLinkLogoMatch = html.match(
+    /<a[^>]*href=["'](?:https?:\/\/(?:www\.)?)?(?:\/|[^"']*?(?:\/|\/index\.html?))["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/i
+  );
+  // Also try: header links that point to the domain root
+  const headerHomeLinkMatches = html.matchAll(
+    /<header[^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/gi
+  );
+  for (const match of headerHomeLinkMatches) {
+    const linkHref = match[1];
+    const imgSrc = match[2];
+    // Check if this link points to the homepage (/, /index, or the full domain URL)
+    const isHomepageLink = linkHref === "/" ||
+      linkHref === url ||
+      linkHref === `https://${siteDomain}/` ||
+      linkHref === `https://www.${siteDomain}/` ||
+      linkHref === `http://${siteDomain}/` ||
+      linkHref === `http://www.${siteDomain}/`;
+    if (isHomepageLink && isSameDomain(imgSrc)) {
+      const normalized = normalizeLogoUrl(imgSrc);
+      if (normalized) {
+        data.logo_url = normalized;
+        break;
       }
-      data.logo_url = logoUrl;
-      break;
+    }
+  }
+
+  // Strategy 2: Use pattern-based matching if homepage link strategy didn't work
+  if (!data.logo_url) {
+    const logoPatterns = [
+      // Logo class/id patterns (very reliable)
+      /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
+      /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+      // Logo in alt text
+      /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
+      // SVG logos
+      /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      // Header logo (fallback - first img in header, but prefer same-domain)
+      /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
+      // Fallback to og:image
+      /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+      // Apple touch icon (usually a good square logo)
+      /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+      // Favicon as last resort
+      /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
+    ];
+
+    for (const pattern of logoPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const logoUrl = match[1];
+        // Prefer same-domain images; skip external domain logos (e.g., rewards program logos)
+        if (!isSameDomain(logoUrl)) continue;
+        const normalized = normalizeLogoUrl(logoUrl);
+        if (normalized) {
+          data.logo_url = normalized;
+          break;
+        }
+      }
+    }
+
+    // If no same-domain logo found, retry without domain filter (some companies host logos on CDNs)
+    if (!data.logo_url) {
+      for (const pattern of logoPatterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          const normalized = normalizeLogoUrl(match[1]);
+          if (normalized) {
+            data.logo_url = normalized;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -8879,11 +8965,13 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
+      // Use request origin for dev/staging, fallback to production URL
+      const frontendOrigin = req.headers.get('origin') || 'https://app.trike.app';
       const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
         type: "magiclink",
         email: data.contact_email,
         options: {
-          redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/dashboard`,
+          redirectTo: `${frontendOrigin}/?demo_org_id=${org.id}`,
         },
       });
 

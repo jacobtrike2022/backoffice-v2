@@ -10,6 +10,9 @@ import {
   Calendar,
   AlertCircle,
   RefreshCw,
+  Trash2,
+  Copy,
+  Link,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -37,8 +40,19 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
+import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
 
 interface OrganizationsListProps {
@@ -86,6 +100,9 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteOrgId, setDeleteOrgId] = useState<string | null>(null);
+  const [deleteOrgName, setDeleteOrgName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadOrganizations = async () => {
     try {
@@ -100,15 +117,12 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           website,
           status,
           industry,
+          industries(name),
           services_offered,
           operating_states,
           demo_expires_at,
           onboarding_source,
           created_at,
-          deal_value,
-          deal_probability,
-          deal_owner_id,
-          deal_close_date,
           last_activity_at,
           next_action,
           next_action_date
@@ -145,9 +159,10 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
   const filteredOrgs = organizations.filter((org) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const industryDisplay = (org as { industries?: { name: string } | null }).industries?.name || org.industry || '';
     return (
       org.name.toLowerCase().includes(q) ||
-      (org.industry || '').toLowerCase().includes(q) ||
+      industryDisplay.toLowerCase().includes(q) ||
       (org.subdomain || '').toLowerCase().includes(q) ||
       (org.website || '').toLowerCase().includes(q)
     );
@@ -158,13 +173,6 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
     acc[org.status] = (acc[org.status] || 0) + 1;
     return acc;
   }, {});
-
-  const formatCurrency = (value: number | null | undefined): string => {
-    if (!value) return '-';
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
-    return `$${value.toFixed(0)}`;
-  };
 
   const getDemoStatus = (expiresAt: string | null): { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' } | null => {
     if (!expiresAt) return null;
@@ -185,6 +193,29 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const handleDeleteOrg = async () => {
+    if (!deleteOrgId) return;
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', deleteOrgId);
+
+      if (error) throw error;
+
+      toast.success(`"${deleteOrgName}" deleted`);
+      setDeleteOrgId(null);
+      setDeleteOrgName('');
+      loadOrganizations();
+    } catch (err: any) {
+      console.error('Delete failed:', err);
+      toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -280,10 +311,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                   <TableHead className="w-[250px]">Organization</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Industry</TableHead>
-                  <TableHead className="text-right">Deal Value</TableHead>
-                  <TableHead className="text-right">Probability</TableHead>
                   <TableHead>Demo</TableHead>
-                  <TableHead>Close Date</TableHead>
+                  <TableHead>Demo URL</TableHead>
                   <TableHead>Next Action</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
@@ -294,7 +323,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                     .fill(0)
                     .map((_, i) => (
                       <TableRow key={i}>
-                        <TableCell colSpan={9}>
+                        <TableCell colSpan={7}>
                           <div className="h-10 bg-muted animate-pulse rounded" />
                         </TableCell>
                       </TableRow>
@@ -302,7 +331,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                 ) : filteredOrgs.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={7}
                       className="text-center py-12 text-muted-foreground"
                     >
                       <Building2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -311,7 +340,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                   </TableRow>
                 ) : (
                   filteredOrgs.map((org) => {
-                    const statusConfig = STATUS_CONFIG[org.status];
+                    const statusConfig = STATUS_CONFIG[org.status] || { label: org.status || 'Unknown', color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-800' };
                     const demoStatus = getDemoStatus(org.demo_expires_at);
 
                     return (
@@ -355,32 +384,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
 
                         {/* Industry */}
                         <TableCell className="text-sm text-muted-foreground">
-                          {org.industry || '-'}
-                        </TableCell>
-
-                        {/* Deal value */}
-                        <TableCell className="text-right font-medium text-sm">
-                          {formatCurrency(org.deal_value)}
-                        </TableCell>
-
-                        {/* Probability */}
-                        <TableCell className="text-right">
-                          {org.deal_probability != null ? (
-                            <span
-                              className={cn(
-                                'text-sm font-medium',
-                                org.deal_probability >= 75
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : org.deal_probability >= 50
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-muted-foreground'
-                              )}
-                            >
-                              {org.deal_probability}%
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">-</span>
-                          )}
+                          {(org as { industries?: { name: string } | null }).industries?.name || org.industry || '-'}
                         </TableCell>
 
                         {/* Demo status */}
@@ -394,9 +398,25 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                           )}
                         </TableCell>
 
-                        {/* Close date */}
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(org.deal_close_date)}
+                        {/* Demo URL */}
+                        <TableCell>
+                          {org.demo_expires_at ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1.5 text-xs"
+                              onClick={() => {
+                                const url = `${window.location.origin}/?demo_org_id=${org.id}`;
+                                navigator.clipboard.writeText(url);
+                                toast.success('Demo URL copied');
+                              }}
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy URL
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
                         </TableCell>
 
                         {/* Next action */}
@@ -468,6 +488,17 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                                   </a>
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600"
+                                onClick={() => {
+                                  setDeleteOrgId(org.id);
+                                  setDeleteOrgName(org.name);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete organization
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -480,6 +511,29 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteOrgId} onOpenChange={(open) => { if (!open) { setDeleteOrgId(null); setDeleteOrgName(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteOrgName}</strong> and all associated data.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteOrg}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

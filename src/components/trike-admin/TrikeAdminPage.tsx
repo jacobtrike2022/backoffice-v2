@@ -65,6 +65,7 @@ export function TrikeAdminPage() {
   const [isContractDialogOpen, setIsContractDialogOpen] = useState(false);
   const [isPaymentSetupOpen, setIsPaymentSetupOpen] = useState(false);
   const [isTeamInviteOpen, setIsTeamInviteOpen] = useState(false);
+  const [orgListKey, setOrgListKey] = useState(0);
 
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
@@ -140,6 +141,7 @@ export function TrikeAdminPage() {
       case 'organizations':
         return (
           <OrganizationsList
+            key={orgListKey}
             onViewJourney={handleOpenJourney}
             onProvisionDemo={(orgId, orgName) => {
               setSelectedOrgId(orgId);
@@ -236,6 +238,7 @@ export function TrikeAdminPage() {
           }}
           organizationId={selectedOrgId}
           organizationName={selectedOrgName}
+          onProvisioned={() => setOrgListKey((k) => k + 1)}
         />
       )}
 

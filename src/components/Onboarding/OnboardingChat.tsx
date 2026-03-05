@@ -1430,7 +1430,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                       </a>
                     </Button>
                   ) : (
-                    <Button size="lg" onClick={() => window.location.href = '/'}>
+                    <Button size="lg" onClick={() => {
+                      const demoOrgId = createdAccount?.organization?.id;
+                      window.location.href = demoOrgId ? `/?demo_org_id=${demoOrgId}` : '/';
+                    }}>
                       <ArrowRight className="mr-2 h-4 w-4" />
                       Go to Login
                     </Button>
