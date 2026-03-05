@@ -8773,6 +8773,8 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         subdomain: finalSubdomain,
         website: data.website,
         logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
         status: "demo",
         demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
         industry: data.industry,
