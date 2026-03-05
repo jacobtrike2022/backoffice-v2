@@ -7775,6 +7775,17 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       enrichedData = { ...enrichedData, ...qaResult.fixes };
     }
 
+    // Post-QA logo fallback: if QA rejected the logo (or it was never found),
+    // retry with external services (Clearbit, Google Favicon)
+    if (!enrichedData.logo_url) {
+      console.log(`[Onboarding] No logo after QA validation, retrying external fallback...`);
+      const postQaLogo = await tryExternalLogoFallback(domain);
+      if (postQaLogo) {
+        enrichedData.logo_url = postQaLogo;
+        console.log(`[Onboarding] Post-QA external logo found: ${postQaLogo}`);
+      }
+    }
+
     // Update session if token provided
     if (session_token) {
       await supabase
@@ -8184,6 +8195,10 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
   // Helper: normalize a logo URL to absolute
   const normalizeLogoUrl = (logoUrl: string): string | null => {
     if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) return null;
+    // Resolve Shopify responsive image templates: {width}x → 300x
+    if (logoUrl.includes("{width}")) {
+      logoUrl = logoUrl.replace("{width}", "300");
+    }
     if (logoUrl.startsWith("//")) return "https:" + logoUrl;
     if (logoUrl.startsWith("/")) return new URL(logoUrl, url).toString();
     if (!logoUrl.startsWith("http")) return new URL(logoUrl, url).toString();
@@ -8483,10 +8498,26 @@ function extractStoresFromHTML(html: string): any[] {
     }
   }
 
+  // Filter out garbage stores whose fields contain HTML fragments
+  // (e.g. Shopify product availability modals, nav menus parsed as stores)
+  const cleanStores = stores.filter((store) => {
+    const fields = [store.name, store.address, store.city, store.state, store.zip, store.phone]
+      .filter(Boolean)
+      .join(" ");
+    // Reject if fields contain HTML tags, class/id attributes, or CSS selectors
+    if (/<[a-z][^>]*>/i.test(fields)) return false;
+    if (/\bclass\s*=\s*["']/i.test(fields)) return false;
+    if (/\bid\s*=\s*["']/i.test(fields)) return false;
+    if (/\bdata-[a-z]+=["']/i.test(fields)) return false;
+    // Reject if address is suspiciously short (< 5 chars) or missing entirely
+    if (!store.address && !store.city && !store.zip && !store.name) return false;
+    return true;
+  });
+
   // Deduplicate stores - many sites render the same store multiple times
   // (e.g. accordion expand/collapse, responsive views, summary + detail cards)
   const seen = new Set<string>();
-  const uniqueStores = stores.filter((store) => {
+  const uniqueStores = cleanStores.filter((store) => {
     // Build a dedup key from address+zip or name
     const addrKey = [
       (store.address || '').replace(/\s+/g, ' ').trim().toLowerCase(),
@@ -8627,8 +8658,9 @@ Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, ph
 Analyze the website content and determine:
 1. The company's industry (use the industry CODE only, e.g., "cstore" not "Convenience Stores")
 2. What services they likely offer based on the website content
-3. A brief description of the company
-4. Operating states if mentioned`
+3. A brief description of the company (1-2 sentences)
+4. Operating states as 2-letter state codes (e.g. "TX", "FL"). Look for state names in the text like "Texas" → "TX"
+5. Total number of store/location count if mentioned anywhere on the site (e.g. "25 stores" → 25)`
           },
           {
             role: "user",
@@ -8638,7 +8670,7 @@ Website: ${scrapedData.website}
 Website content (truncated):
 ${truncatedHtml}
 
-Return JSON with: { industry, services: [], description, operating_states: [] }`
+Return JSON with: { industry, services: [], description, operating_states: [], store_count: 0 }`
           }
         ],
         response_format: { type: "json_object" },
@@ -8661,7 +8693,7 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
       description: aiData.description || null,
       operating_states: aiData.operating_states || [],
       stores: stores,
-      store_count: stores.length,
+      store_count: stores.length > 0 ? stores.length : (aiData.store_count || 0),
     };
   } catch (error: any) {
     console.error("[Onboarding] AI enrichment failed:", error);
