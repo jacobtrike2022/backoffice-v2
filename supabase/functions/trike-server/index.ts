@@ -7636,6 +7636,16 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     // Extract data from HTML
     const scrapedData = await extractCompanyDataFromHTML(html, url, domainName);
 
+    // Phase 1: External logo fallback if HTML scraping didn't find one
+    if (!scrapedData.logo_url) {
+      console.log(`[Onboarding] No logo from HTML scrape, trying external services...`);
+      const externalLogo = await tryExternalLogoFallback(domain);
+      if (externalLogo) {
+        scrapedData.logo_url = externalLogo;
+        console.log(`[Onboarding] External logo found: ${externalLogo}`);
+      }
+    }
+
     // Try to find store locator page and scrape locations
     const storeLocatorUrls = [
       "/locations",
@@ -7651,6 +7661,7 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
 
     let stores: any[] = [];
     let foundLocatorPage = false;
+    let bestLocatorHtml = ""; // Capture best locations page HTML for AI analysis
     for (const locatorPath of storeLocatorUrls) {
       try {
         const locatorUrl = new URL(locatorPath, url).toString();
@@ -7682,6 +7693,10 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
           // Track that we found a valid locations page (even if no stores parsed yet)
           if (locatorHtml.length > 500) {
             foundLocatorPage = true;
+            // Keep the longest/best locations page HTML for downstream AI analysis
+            if (locatorHtml.length > bestLocatorHtml.length) {
+              bestLocatorHtml = locatorHtml;
+            }
           }
 
           if (stores.length > 0) {
@@ -7707,10 +7722,36 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       }
     }
 
-    // Use AI to enhance the scraped data
-    let enrichedData = await enrichWithAI(scrapedData, html, stores);
+    // Phase 5: AI-powered location extraction fallback
+    // If regex couldn't parse stores but we found a locations page, let AI try
+    if (stores.length === 0 && foundLocatorPage && bestLocatorHtml) {
+      console.log(`[Onboarding] Regex found 0 stores from locations page, trying AI extraction...`);
+      const aiStores = await extractStoresWithAI(bestLocatorHtml, domain);
+      if (aiStores && aiStores.length > 0) {
+        stores = aiStores;
+        console.log(`[Onboarding] AI extracted ${stores.length} stores`);
+      }
+    }
 
-    // If we still don't have a good logo or company name, try Claude Vision
+    // Phase 2: Derive operating states from scraped store addresses
+    const derivedStates = deriveOperatingStatesFromStores(stores);
+    if (derivedStates.length > 0) {
+      console.log(`[Onboarding] Derived ${derivedStates.length} states from store addresses: ${derivedStates.join(", ")}`);
+    }
+
+    // Use AI to enhance the scraped data (Phase 4: now with locations page HTML)
+    let enrichedData = await enrichWithAI(scrapedData, html, stores, bestLocatorHtml);
+
+    // Merge derived states with AI-detected states (deduped)
+    if (derivedStates.length > 0) {
+      const aiStates = (enrichedData.operating_states || []) as string[];
+      const mergedStates = Array.from(new Set([...derivedStates, ...aiStates.map((s: string) => s.toUpperCase())]))
+        .filter(s => US_STATE_CODES.has(s))
+        .sort();
+      enrichedData.operating_states = mergedStates;
+    }
+
+    // Phase 6: If we still don't have a good logo or company name, try Claude with actual HTML
     const needsVisionFallback = !enrichedData.logo_url ||
       !enrichedData.company_name ||
       enrichedData.company_name.length > 40 ||
@@ -7718,11 +7759,20 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       enrichedData.company_name.includes('|');
 
     if (needsVisionFallback) {
-      console.log(`[Onboarding] HTML scrape incomplete, trying Claude Vision fallback...`);
-      const visionData = await enrichWithClaudeVision(url, enrichedData);
+      console.log(`[Onboarding] HTML scrape incomplete, trying Claude fallback with actual HTML...`);
+      const visionData = await enrichWithClaudeVision(url, enrichedData, html, bestLocatorHtml);
       if (visionData) {
         enrichedData = { ...enrichedData, ...visionData };
       }
+    }
+
+    // Phase 3: Self-QA validation before saving
+    const qaResult = validateEnrichmentResults(enrichedData, stores);
+    if (qaResult.issues.length > 0) {
+      console.log(`[Onboarding] QA found ${qaResult.issues.length} issues: ${qaResult.issues.join("; ")}`);
+    }
+    if (qaResult.fixes) {
+      enrichedData = { ...enrichedData, ...qaResult.fixes };
     }
 
     // Update session if token provided
@@ -7736,7 +7786,7 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         .eq("session_token", session_token);
     }
 
-    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}`);
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}, stores: ${enrichedData.store_count || 0}, states: ${(enrichedData.operating_states || []).join(",") || 'NONE'}`);
     if (!enrichedData.logo_url) {
       console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
     }
@@ -7748,6 +7798,283 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
     return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+  }
+}
+
+// US state code constants (shared by state derivation and QA validation)
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+  "DC",
+]);
+
+/**
+ * Try external services for company logo when HTML scraping fails.
+ * Clearbit Logo API (free, no key) → Google Favicon (128px fallback)
+ */
+async function tryExternalLogoFallback(domain: string): Promise<string | null> {
+  // 1. Clearbit Logo API — high quality, transparent PNGs
+  const clearbitUrl = `https://logo.clearbit.com/${domain}`;
+  try {
+    const headRes = await fetch(clearbitUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const ct = headRes.headers.get("content-type") || "";
+      if (ct.includes("image/")) {
+        console.log(`[Onboarding] Clearbit logo found for ${domain}`);
+        return clearbitUrl;
+      }
+    }
+  } catch (_e) {
+    // Clearbit unavailable, try next
+  }
+
+  // 2. Google Favicon API — always returns something, 128px max
+  const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  try {
+    const headRes = await fetch(googleFaviconUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const cl = parseInt(headRes.headers.get("content-length") || "0", 10);
+      // Google returns a tiny default globe icon (~600 bytes) for unknown domains
+      // Real favicons are typically 2KB+
+      if (cl > 1000) {
+        console.log(`[Onboarding] Google Favicon found for ${domain} (${cl} bytes)`);
+        return googleFaviconUrl;
+      }
+    }
+  } catch (_e) {
+    // Google API unavailable
+  }
+
+  return null;
+}
+
+/**
+ * Derive operating states from scraped store data.
+ * Extracts unique 2-letter state codes from store address fields.
+ */
+function deriveOperatingStatesFromStores(stores: any[]): string[] {
+  const states = new Set<string>();
+
+  for (const store of stores) {
+    // Skip placeholder count objects
+    if (store._count || store._note) continue;
+
+    // Try state field directly
+    if (store.state) {
+      const code = store.state.trim().toUpperCase();
+      if (US_STATE_CODES.has(code)) {
+        states.add(code);
+      }
+    }
+
+    // Try to extract from address string (e.g. "123 Main St, City, TX 78701")
+    const addr = store.address || store.full_address || "";
+    if (addr) {
+      // Match ", ST " or ", ST\n" or ", STATE ZIP" patterns
+      const stateMatch = addr.match(/,\s*([A-Z]{2})\s+\d{5}/i)
+        || addr.match(/,\s*([A-Z]{2})\s*$/i)
+        || addr.match(/\b([A-Z]{2})\s+\d{5}\b/);
+      if (stateMatch) {
+        const code = stateMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+
+    // Try city_state combined field
+    if (store.city_state) {
+      const csMatch = store.city_state.match(/,\s*([A-Z]{2})\s*$/i)
+        || store.city_state.match(/\b([A-Z]{2})\s*$/i);
+      if (csMatch) {
+        const code = csMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+  }
+
+  return Array.from(states).sort();
+}
+
+/**
+ * Phase 3: Self-QA validation — catch common enrichment mistakes before saving.
+ * Returns { issues: string[], fixes: Record<string, any> | null }
+ */
+function validateEnrichmentResults(data: any, stores: any[]): { issues: string[]; fixes: any | null } {
+  const issues: string[] = [];
+  const fixes: any = {};
+
+  // 1. Store count sanity — align count with actual array length
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  const countPlaceholder = stores.find((s) => s._count);
+  if (realStores.length > 0 && data.store_count !== realStores.length) {
+    issues.push(`store_count mismatch: data says ${data.store_count}, actual array has ${realStores.length}`);
+    fixes.store_count = realStores.length;
+  } else if (realStores.length === 0 && countPlaceholder?._count) {
+    // We only have a count placeholder (e.g. "39 Locations" parsed from text)
+    if (data.store_count !== countPlaceholder._count) {
+      issues.push(`store_count placeholder: using parsed count ${countPlaceholder._count}`);
+      fixes.store_count = countPlaceholder._count;
+    }
+  }
+
+  // 2. Logo URL sanity — reject common false-positive patterns
+  if (data.logo_url) {
+    const logoLower = data.logo_url.toLowerCase();
+    const isBadLogo =
+      /spacer|pixel|blank|1x1|tracking|beacon|clear\.gif/i.test(logoLower) ||
+      /\.gif$/i.test(logoLower) && /spacer|blank|pixel|1x1/i.test(logoLower) ||
+      logoLower.includes("data:image/gif") ||
+      logoLower.includes("data:image/svg") && logoLower.length < 200;
+
+    if (isBadLogo) {
+      issues.push(`logo_url looks like a tracking pixel or spacer: ${data.logo_url.substring(0, 80)}`);
+      fixes.logo_url = null;
+    }
+  }
+
+  // 3. Company name cleanup — strip common suffixes
+  if (data.company_name) {
+    let cleaned = data.company_name
+      .replace(/\s*[|–-]\s*(Home|Homepage|Welcome|Official Site|Official Website)\s*$/i, "")
+      .replace(/\s*(Home|Homepage)\s*$/i, "")
+      .trim();
+
+    // Also strip leading "Welcome to " or "Home | "
+    cleaned = cleaned
+      .replace(/^(?:Welcome\s+to\s+|Home\s*[|–-]\s*)/i, "")
+      .trim();
+
+    if (cleaned !== data.company_name) {
+      issues.push(`company_name cleaned: "${data.company_name}" → "${cleaned}"`);
+      fixes.company_name = cleaned;
+    }
+  }
+
+  // 4. State code validation — filter out invalid codes
+  if (data.operating_states && Array.isArray(data.operating_states)) {
+    const validStates = data.operating_states.filter((s: string) =>
+      typeof s === "string" && US_STATE_CODES.has(s.toUpperCase())
+    );
+    if (validStates.length !== data.operating_states.length) {
+      const invalid = data.operating_states.filter((s: string) =>
+        typeof s !== "string" || !US_STATE_CODES.has(s.toUpperCase())
+      );
+      issues.push(`invalid state codes removed: ${invalid.join(", ")}`);
+      fixes.operating_states = validStates;
+    }
+  }
+
+  // 5. Ensure stores array is clean (no placeholder objects in the stored data)
+  if (data.stores && Array.isArray(data.stores)) {
+    const cleanStores = data.stores.filter((s: any) => !s._count && !s._note);
+    if (cleanStores.length !== data.stores.length) {
+      issues.push(`removed ${data.stores.length - cleanStores.length} placeholder store objects`);
+      fixes.stores = cleanStores;
+    }
+  }
+
+  return {
+    issues,
+    fixes: Object.keys(fixes).length > 0 ? fixes : null,
+  };
+}
+
+/**
+ * Phase 5: AI-powered location extraction when regex fails on JS-rendered pages.
+ * Uses GPT-4o-mini to parse store addresses from HTML that regex couldn't handle.
+ */
+async function extractStoresWithAI(locatorHtml: string, domain: string): Promise<any[]> {
+  if (!OPENAI_API_KEY) {
+    console.warn("[Onboarding] No OpenAI key, skipping AI store extraction");
+    return [];
+  }
+
+  // Pre-check: skip if HTML has no address/location indicators
+  const hasAddressIndicators = /\d{5}|address|location|store|branch/i.test(locatorHtml);
+  if (!hasAddressIndicators) {
+    console.log("[Onboarding] Locations page has no address indicators, skipping AI extraction");
+    return [];
+  }
+
+  try {
+    // Truncate to 20K chars for token limits
+    const truncatedHtml = locatorHtml.substring(0, 20000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You extract store/location addresses from HTML content. Return JSON only.
+
+Look for:
+- Individual store addresses with street, city, state, zip
+- Store names/numbers
+- Phone numbers
+
+If you can identify individual locations, return them. If you can only determine a total count, return that.
+
+Return JSON: { "stores": [...], "estimated_count": number }
+Each store: { "name": string|null, "address": string|null, "city": string|null, "state": string|null, "zip": string|null, "phone": string|null }`
+          },
+          {
+            role: "user",
+            content: `Extract store locations from this ${domain} locations page HTML:
+
+${truncatedHtml}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Onboarding] AI store extraction API error: ${response.status}`);
+      return [];
+    }
+
+    const aiResult = await response.json();
+    const aiData = JSON.parse(aiResult.choices[0].message.content);
+
+    if (aiData.stores && Array.isArray(aiData.stores) && aiData.stores.length > 0) {
+      // Filter out empty/invalid stores
+      const validStores = aiData.stores.filter((s: any) =>
+        s.address || s.city || s.name
+      );
+      console.log(`[Onboarding] AI extracted ${validStores.length} stores (raw: ${aiData.stores.length})`);
+      return validStores;
+    }
+
+    // If AI found a count but no individual stores, return a count placeholder
+    if (aiData.estimated_count && aiData.estimated_count > 0) {
+      console.log(`[Onboarding] AI estimated ${aiData.estimated_count} stores but couldn't parse details`);
+      return [{ _count: aiData.estimated_count, _note: "AI estimated count, details not parseable" }];
+    }
+
+    return [];
+  } catch (error: any) {
+    console.error("[Onboarding] AI store extraction failed:", error.message || error);
+    return [];
   }
 }
 
@@ -8234,16 +8561,35 @@ function parseStructuredStore(item: any): any {
 }
 
 /**
- * Use AI to enhance and classify scraped data
+ * Use AI to enhance and classify scraped data.
+ * Phase 4: Now accepts optional locatorHtml for multi-page analysis.
  */
-async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Promise<any> {
+async function enrichWithAI(scrapedData: any, html: string, stores: any[], locatorHtml?: string): Promise<any> {
   if (!OPENAI_API_KEY) {
     console.warn("[Onboarding] No OpenAI key, skipping AI enrichment");
     return { ...scrapedData, stores, services: [], industry: null };
   }
 
-  // Truncate HTML to avoid token limits
-  const truncatedHtml = html.substring(0, 15000);
+  // Phase 4: Reduce homepage slice to make room for locations page content
+  const homepageSlice = html.substring(0, locatorHtml ? 12000 : 15000);
+
+  // Build combined content: homepage + locations page + sample store data
+  let combinedContent = `Homepage content (truncated):\n${homepageSlice}`;
+
+  if (locatorHtml && locatorHtml.length > 100) {
+    combinedContent += `\n\n--- LOCATIONS PAGE (truncated) ---\n${locatorHtml.substring(0, 5000)}`;
+  }
+
+  // Include sample store data if available (first 5 stores for context)
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  if (realStores.length > 0) {
+    const sample = realStores.slice(0, 5).map((s) =>
+      [s.name, s.address, s.city, s.state, s.zip].filter(Boolean).join(", ")
+    );
+    combinedContent += `\n\n--- SAMPLE STORES (${realStores.length} total) ---\n${sample.join("\n")}`;
+  }
+
+  const truncatedHtml = combinedContent;
 
   try {
     // Fetch industries from database to use actual codes in the prompt
@@ -8324,21 +8670,17 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
 }
 
 /**
- * Use Claude Vision to extract company info from a screenshot of the website
- * This is used as a fallback when HTML parsing doesn't work well
+ * Phase 6: Use Claude to extract company info from actual HTML content.
+ * Enhanced fallback that sends real HTML instead of just a URL.
  */
-async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Promise<any | null> {
+async function enrichWithClaudeVision(websiteUrl: string, existingData: any, homepageHtml?: string, locatorHtml?: string): Promise<any | null> {
   if (!ANTHROPIC_API_KEY) {
-    console.warn("[Onboarding] No Anthropic API key, skipping Claude Vision fallback");
+    console.warn("[Onboarding] No Anthropic API key, skipping Claude fallback");
     return null;
   }
 
   try {
-    // Use a screenshot service or fetch the page and use vision
-    // For now, we'll use the URL directly with Claude's web capabilities
-    // In production, you might use a service like screenshotapi.net or similar
-
-    console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
+    console.log(`[Onboarding] Calling Claude fallback for: ${websiteUrl} (html: ${homepageHtml ? homepageHtml.length : 0} chars, locator: ${locatorHtml ? locatorHtml.length : 0} chars)`);
 
     // Fetch industries from database to use actual codes in the prompt
     const { data: industries } = await supabase
@@ -8351,6 +8693,43 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
       .filter(i => i.code)
       .map(i => `${i.code} (${i.name})`)
       .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
+    // Build content with actual HTML when available
+    let contentParts: string[] = [];
+
+    contentParts.push(`I need to extract company information from this website: ${websiteUrl}`);
+
+    // Include actual HTML for Claude to analyze
+    if (homepageHtml && homepageHtml.length > 200) {
+      contentParts.push(`\n--- HOMEPAGE HTML (truncated) ---\n${homepageHtml.substring(0, 10000)}`);
+    }
+
+    if (locatorHtml && locatorHtml.length > 200) {
+      contentParts.push(`\n--- LOCATIONS PAGE HTML (truncated) ---\n${locatorHtml.substring(0, 5000)}`);
+    }
+
+    contentParts.push(`
+Based on the HTML content above (or the domain if no HTML provided), please:
+1. Find the company's LOGO URL — look for <img> tags with "logo" in class, id, alt, or src. Return the full absolute URL.
+2. Determine the clean company name (just the brand name, no taglines or "Home |" prefixes)
+3. What industry they're in. Use the CODE only from this list: ${industryList}
+4. What services they offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
+
+I already scraped this data but it might be incomplete or wrong:
+- Company name: ${existingData.company_name || "unknown"}
+- Logo: ${existingData.logo_url || "MISSING"}
+- Industry: ${existingData.industry || "unknown"}
+- Services: ${JSON.stringify(existingData.services || [])}
+
+IMPORTANT: Look carefully in the HTML for logo image URLs. Check <img> tags, <link rel="icon">, og:image meta tags, and any image with "logo" in the path or attributes.
+
+Return JSON only:
+{
+  "company_name": "Clean Company Name",
+  "industry": "industry_code",
+  "services": ["service1", "service2"],
+  "logo_url": "absolute URL to the logo image, or null if not found"
+}`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -8365,25 +8744,7 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
         messages: [
           {
             role: "user",
-            content: `I need to extract company information from a website. The URL is: ${websiteUrl}
-
-Based on the domain and what you know, please provide:
-1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
-2. What industry they're likely in. Use the CODE only from this list: ${industryList}
-3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
-
-I already scraped this data but it might be wrong:
-- Company name: ${existingData.company_name || "unknown"}
-- Industry: ${existingData.industry || "unknown"}
-- Services: ${JSON.stringify(existingData.services || [])}
-
-Please correct any issues and return JSON only:
-{
-  "company_name": "Clean Company Name",
-  "industry": "industry_code",
-  "services": ["service1", "service2"],
-  "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
-}`,
+            content: contentParts.join("\n"),
           },
         ],
       }),
