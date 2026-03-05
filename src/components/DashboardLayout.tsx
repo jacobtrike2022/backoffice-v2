@@ -28,7 +28,9 @@ import {
   Wrench,
   Zap,
   LogOut,
-  Briefcase
+  Briefcase,
+  ArrowLeft,
+  Eye
 } from 'lucide-react';
 import trikeLogo from '../assets/trike-logo.png';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
@@ -201,12 +203,21 @@ export function DashboardLayout({
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
   const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
+  const [isDemoOrgView, setIsDemoOrgView] = useState(false);
+  const [demoOrgName, setDemoOrgName] = useState<string>('');
 
   // Update activeTab when currentView changes
   React.useEffect(() => {
     setActiveTab(currentView);
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Detect demo org viewing mode via URL param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+    setIsDemoOrgView(!!demoOrgId);
+  }, []);
 
   // Fetch organization name and logo
   useEffect(() => {
@@ -224,10 +235,15 @@ export function DashboardLayout({
         if (org) {
           if (org.name) {
             setOrganizationName(org.name);
+            // Track demo org name for the banner
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('demo_org_id')) {
+              setDemoOrgName(org.name);
+            }
           }
-          
+
           // Set logo based on current dark mode
-          const logoUrl = darkMode 
+          const logoUrl = darkMode
             ? (org.logo_dark_url || trikeLogo)
             : (org.logo_light_url || trikeLogo);
           setOrganizationLogo(logoUrl);
@@ -531,6 +547,28 @@ export function DashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-h-screen">
+        {/* Demo org viewing banner */}
+        {isDemoOrgView && (
+          <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Eye className="h-4 w-4" />
+              <span>Viewing demo: <strong>{demoOrgName || 'Demo Organization'}</strong></span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-white hover:bg-white/20 hover:text-white gap-1.5 h-7 text-xs font-semibold"
+              onClick={() => {
+                // Strip demo_org_id param and return to Trike admin
+                window.location.href = window.location.origin + '/';
+              }}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Exit Demo
+            </Button>
+          </div>
+        )}
+
         {/* Enhanced Top bar */}
         <header className="bg-card border-b border-border px-8 py-4 shadow-sm">
           <div className="flex items-center justify-between">

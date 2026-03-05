@@ -12,6 +12,10 @@ import {
   RefreshCw,
   Trash2,
   MapPin,
+  Pencil,
+  X,
+  Save,
+  Plus,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -49,6 +53,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'sonner';
@@ -102,6 +114,21 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
   const [deleteOrgId, setDeleteOrgId] = useState<string | null>(null);
   const [deleteOrgName, setDeleteOrgName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Edit sheet state
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    website: '',
+    subdomain: '',
+    status: 'lead' as OrganizationStatus,
+    industry: '',
+    operating_states: [] as string[],
+    next_action: '',
+    next_action_date: '',
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [newStateInput, setNewStateInput] = useState('');
 
   const loadOrganizations = async () => {
     try {
@@ -216,6 +243,78 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  // ── Edit org handlers ──
+  const openEditSheet = (org: Organization) => {
+    setEditingOrg(org);
+    setEditFormData({
+      name: org.name || '',
+      website: org.website || '',
+      subdomain: org.subdomain || '',
+      status: org.status || 'lead',
+      industry: org.industry || '',
+      operating_states: org.operating_states || [],
+      next_action: org.next_action || '',
+      next_action_date: org.next_action_date || '',
+    });
+    setNewStateInput('');
+  };
+
+  const handleSaveOrg = async () => {
+    if (!editingOrg) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({
+          name: editFormData.name,
+          website: editFormData.website || null,
+          subdomain: editFormData.subdomain || null,
+          status: editFormData.status,
+          industry: editFormData.industry || null,
+          operating_states: editFormData.operating_states,
+          next_action: editFormData.next_action || null,
+          next_action_date: editFormData.next_action_date || null,
+        })
+        .eq('id', editingOrg.id);
+
+      if (error) throw error;
+
+      toast.success(`"${editFormData.name}" updated`);
+      setEditingOrg(null);
+      loadOrganizations();
+    } catch (err: any) {
+      console.error('Save failed:', err);
+      toast.error('Failed to save: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const addOperatingState = () => {
+    const state = newStateInput.trim().toUpperCase();
+    if (!state) return;
+    if (state.length !== 2) {
+      toast.error('Use 2-letter state abbreviation (e.g. TX, FL)');
+      return;
+    }
+    if (editFormData.operating_states.includes(state)) {
+      toast.error(`${state} already added`);
+      return;
+    }
+    setEditFormData({
+      ...editFormData,
+      operating_states: [...editFormData.operating_states, state].sort(),
+    });
+    setNewStateInput('');
+  };
+
+  const removeOperatingState = (state: string) => {
+    setEditFormData({
+      ...editFormData,
+      operating_states: editFormData.operating_states.filter((s) => s !== state),
+    });
   };
 
   return (
@@ -502,6 +601,10 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                                   </a>
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem onClick={() => openEditSheet(org)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit organization
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-red-600 focus:text-red-600"
@@ -548,6 +651,171 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit organization sheet */}
+      <Sheet open={!!editingOrg} onOpenChange={(open) => { if (!open) setEditingOrg(null); }}>
+        <SheetContent className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit Organization</SheetTitle>
+          </SheetHeader>
+
+          <div className="space-y-4 mt-6">
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="org-name">Organization Name</Label>
+              <Input
+                id="org-name"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                placeholder="Organization name"
+              />
+            </div>
+
+            {/* Website */}
+            <div className="space-y-2">
+              <Label htmlFor="org-website">Website</Label>
+              <Input
+                id="org-website"
+                value={editFormData.website}
+                onChange={(e) => setEditFormData({ ...editFormData, website: e.target.value })}
+                placeholder="https://example.com"
+              />
+            </div>
+
+            {/* Subdomain */}
+            <div className="space-y-2">
+              <Label htmlFor="org-subdomain">Subdomain</Label>
+              <Input
+                id="org-subdomain"
+                value={editFormData.subdomain}
+                onChange={(e) => setEditFormData({ ...editFormData, subdomain: e.target.value })}
+                placeholder="company-name"
+              />
+            </div>
+
+            {/* Status */}
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editFormData.status}
+                onValueChange={(value) => setEditFormData({ ...editFormData, status: value as OrganizationStatus })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(STATUS_CONFIG) as [OrganizationStatus, { label: string }][]).map(
+                    ([key, config]) => (
+                      <SelectItem key={key} value={key}>
+                        {config.label}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Industry */}
+            <div className="space-y-2">
+              <Label htmlFor="org-industry">Industry</Label>
+              <Input
+                id="org-industry"
+                value={editFormData.industry}
+                onChange={(e) => setEditFormData({ ...editFormData, industry: e.target.value })}
+                placeholder="e.g. Convenience Store, Foodservice"
+              />
+            </div>
+
+            {/* Operating States */}
+            <div className="space-y-2">
+              <Label>Operating States</Label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {editFormData.operating_states.length === 0 && (
+                  <span className="text-sm text-muted-foreground italic">No states added</span>
+                )}
+                {editFormData.operating_states.map((state) => (
+                  <Badge key={state} variant="secondary" className="gap-1">
+                    {state}
+                    <button
+                      type="button"
+                      onClick={() => removeOperatingState(state)}
+                      className="ml-0.5 hover:text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={newStateInput}
+                  onChange={(e) => setNewStateInput(e.target.value)}
+                  placeholder="TX"
+                  maxLength={2}
+                  className="w-20"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addOperatingState();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addOperatingState}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Next Action */}
+            <div className="space-y-2">
+              <Label htmlFor="org-next-action">Next Action</Label>
+              <Textarea
+                id="org-next-action"
+                value={editFormData.next_action}
+                onChange={(e) => setEditFormData({ ...editFormData, next_action: e.target.value })}
+                placeholder="What's the next step?"
+                rows={2}
+              />
+            </div>
+
+            {/* Next Action Date */}
+            <div className="space-y-2">
+              <Label htmlFor="org-next-action-date">Next Action Date</Label>
+              <Input
+                id="org-next-action-date"
+                type="date"
+                value={editFormData.next_action_date}
+                onChange={(e) => setEditFormData({ ...editFormData, next_action_date: e.target.value })}
+              />
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                onClick={handleSaveOrg}
+                disabled={isSaving || !editFormData.name.trim()}
+                className="flex-1"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setEditingOrg(null)}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
