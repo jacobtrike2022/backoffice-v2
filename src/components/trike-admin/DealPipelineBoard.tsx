@@ -418,7 +418,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
       {/* Header */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between mb-4">
@@ -677,7 +677,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-6">
+        <div className="flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden p-6">
           <div className="flex gap-4 h-full min-h-0 min-w-max">
             {PIPELINE_STAGES.map((stage) => {
               const config = STAGE_CONFIG[stage];
