@@ -222,6 +222,17 @@
 
 html {
   font-size: var(--font-size);
+  overflow-x: hidden;
+}
+
+/* Prevent document-level horizontal scroll; contain overflow in main content */
+body {
+  overflow-x: hidden;
+}
+
+#root {
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 /* Custom scrollbar styling */

@@ -328,9 +328,9 @@ export function DashboardLayout({
   const filteredGroups = getFilteredGroups();
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Sidebar - Fixed position to extend full viewport height */}
-      <div className={`fixed top-0 left-0 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg z-40 ${
+    <div className="flex min-h-screen min-w-0 overflow-x-hidden bg-background">
+      {/* Sidebar - Fixed position, always on top */}
+      <div className={`fixed top-0 left-0 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg z-[100] ${
         sidebarCollapsed ? 'w-16' : 'w-72'
       }`}>
         <div className="flex flex-col h-full">
@@ -579,8 +579,8 @@ export function DashboardLayout({
         sidebarCollapsed ? 'w-16' : 'w-72'
       }`} />
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      {/* Main content - constrained width, no overflow escape */}
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 overflow-x-hidden">
         {/* Org preview banner for Super Admin */}
         {isPreviewingOrg && (
           <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">
