@@ -713,7 +713,7 @@ export async function getOrganizationsForDeals(): Promise<Array<{
     const { data, error } = await supabase
       .from('organizations')
       .select('id, name, status, industry, website')
-      .in('status', ['lead', 'prospect', 'evaluating', 'closing', 'onboarding', 'live', 'frozen'])
+      .in('status', ['lead', 'prospect', 'demo', 'evaluating', 'closing', 'onboarding', 'live', 'frozen'])
       .order('name');
 
     if (error) throw error;

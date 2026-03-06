@@ -79,6 +79,7 @@ const STATUS_CONFIG: Record<
 > = {
   lead: { label: 'Lead', color: 'text-slate-600 dark:text-slate-400', bgColor: 'bg-slate-100 dark:bg-slate-800' },
   prospect: { label: 'Prospect', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
+  demo: { label: 'Demo', color: 'text-violet-600 dark:text-violet-400', bgColor: 'bg-violet-50 dark:bg-violet-950' },
   evaluating: { label: 'Evaluating', color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-950' },
   closing: { label: 'Closing', color: 'text-amber-600 dark:text-amber-400', bgColor: 'bg-amber-50 dark:bg-amber-950' },
   onboarding: { label: 'Onboarding', color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-950' },
@@ -94,6 +95,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'active-pipeline', label: 'Active Pipeline' },
   { value: 'lead', label: 'Lead' },
   { value: 'prospect', label: 'Prospect' },
+  { value: 'demo', label: 'Demo' },
   { value: 'evaluating', label: 'Evaluating' },
   { value: 'closing', label: 'Closing' },
   { value: 'onboarding', label: 'Onboarding' },
@@ -105,7 +107,7 @@ const STATUS_FILTER_OPTIONS = [
 ];
 
 const ACTIVE_PIPELINE_STATUSES: OrganizationStatus[] = [
-  'lead', 'prospect', 'evaluating', 'closing', 'onboarding',
+  'lead', 'prospect', 'demo', 'evaluating', 'closing', 'onboarding',
 ];
 
 export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg }: OrganizationsListProps) {
@@ -344,8 +346,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
 
       <div className="p-6 space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-3">
-          {(['lead', 'prospect', 'evaluating', 'closing', 'live'] as OrganizationStatus[]).map(
+        <div className="grid grid-cols-6 gap-3">
+          {(['lead', 'prospect', 'demo', 'evaluating', 'closing', 'live'] as OrganizationStatus[]).map(
             (status) => {
               const config = STATUS_CONFIG[status];
               return (

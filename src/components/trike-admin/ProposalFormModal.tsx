@@ -301,10 +301,10 @@ export function ProposalFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-6 py-2">
           {/* ─── Cover Info ─── */}
-          <fieldset className="space-y-3">
-            <legend className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               Cover Info
-            </legend>
+            </h3>
 
             <div className="space-y-1.5">
               <Label htmlFor="proposal-name">Proposal Name *</Label>
@@ -318,11 +318,11 @@ export function ProposalFormModal({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Deal *</Label>
+              <Label>Demo *</Label>
               {loadingDeals ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading deals...
+                  Loading demos...
                 </div>
               ) : (
                 <Select
@@ -331,10 +331,10 @@ export function ProposalFormModal({
                   disabled={isEditMode}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a deal" />
+                    <SelectValue placeholder="Select a demo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select a deal...</SelectItem>
+                    <SelectItem value="none">Select a demo...</SelectItem>
                     {deals.map((d) => (
                       <SelectItem key={d.id} value={d.id}>
                         {d.name} — {d.org_name}
@@ -374,14 +374,14 @@ export function ProposalFormModal({
                 />
               </div>
             </div>
-          </fieldset>
+          </div>
 
           {/* ─── Pricing Tiers ─── */}
-          <fieldset className="space-y-3">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <legend className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Pricing Tiers
-              </legend>
+              </h3>
               <Button
                 type="button"
                 variant="ghost"
@@ -457,19 +457,19 @@ export function ProposalFormModal({
                     className="flex min-h-[56px] w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
                     value={tier.features}
                     onChange={(e) => updateTier(i, 'features', e.target.value)}
-                    placeholder="Unlimited users&#10;Priority support&#10;Custom branding"
+                    placeholder={"Unlimited users\nPriority support\nCustom branding"}
                   />
                 </div>
               </div>
             ))}
-          </fieldset>
+          </div>
 
           {/* ─── Content Sections ─── */}
-          <fieldset className="space-y-3">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <legend className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Content Sections
-              </legend>
+              </h3>
               <Button
                 type="button"
                 variant="ghost"
@@ -520,7 +520,7 @@ export function ProposalFormModal({
                 </div>
               </div>
             ))}
-          </fieldset>
+          </div>
 
           {/* ─── Notes ─── */}
           <div className="space-y-1.5">

@@ -14,6 +14,7 @@ export type DealType = 'new' | 'upsell' | 'renewal' | 'expansion';
 export type OrganizationStatus =
   | 'lead'
   | 'prospect'
+  | 'demo'
   | 'evaluating'
   | 'closing'
   | 'onboarding'

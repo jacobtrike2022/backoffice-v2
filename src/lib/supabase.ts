@@ -92,6 +92,12 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     return _viewingOrgOverride;
   }
 
+  // On localhost, default to trike.co org (unless previewing another org via override above)
+  if (typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return getDefaultOrgId();
+  }
+
   // Get authenticated user first
   const { data: { user } } = await supabase.auth.getUser();
 
