@@ -13,6 +13,7 @@ import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
+import TrackScopeSelector from './TrackScopeSelector';
 import {
   Play,
   Calendar,
@@ -1895,6 +1896,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               </div>
             </CardContent>
           </Card>
+
+          {/* Content Scope */}
+          {track?.id && (
+            <TrackScopeSelector
+              trackId={track.id}
+              currentScope={track.content_scope || 'universal'}
+              readOnly={!isEditMode}
+            />
+          )}
 
           {/* Key Facts */}
           <Card>

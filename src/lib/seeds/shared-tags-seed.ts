@@ -37,7 +37,9 @@ export async function seedSharedTags() {
       console.log('✅ Created SHARED system');
     }
 
-    // 2. Geography Category (States) - KEPT but Orange
+    // 2. Geography Category (States) - DEPRECATED: Use track_scope_assignments instead
+    // State-level scoping is now handled by the content_scope system on tracks.
+    // This tag category is retained for backward compatibility but should not be used for new content.
     let geographyCategoryId: string;
     const { data: existingGeography } = await supabase
       .from('tags')
@@ -48,17 +50,17 @@ export async function seedSharedTags() {
 
     if (existingGeography) {
       geographyCategoryId = existingGeography.id;
-      console.log('ℹ️  Geography category already exists');
+      console.log('ℹ️  Geography category already exists (DEPRECATED - use content_scope system)');
     } else {
       const geographyCategory = await createTag({
         name: 'Geography',
         parent_id: sharedSystemId,
         system_category: 'shared',
-        description: 'States and territories',
+        description: 'States and territories (DEPRECATED: use track content_scope system)',
         display_order: 1,
       });
       geographyCategoryId = geographyCategory.id;
-      console.log('✅ Created Geography category');
+      console.log('✅ Created Geography category (DEPRECATED)');
     }
 
     // All 50 US States - Colored Orange

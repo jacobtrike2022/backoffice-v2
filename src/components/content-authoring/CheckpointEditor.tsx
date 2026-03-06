@@ -13,6 +13,7 @@ import { AssociatedPlaylists } from './AssociatedPlaylists';
 import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
+import TrackScopeSelector from '../TrackScopeSelector';
 import { CheckpointPreviewModal } from './CheckpointPreviewModal';
 import {
   ArrowLeft,
@@ -1516,6 +1517,14 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Content Scope */}
+            {currentTrackId && existingTrack && (
+              <TrackScopeSelector
+                trackId={currentTrackId}
+                currentScope={existingTrack.content_scope || 'universal'}
+              />
+            )}
             
             {/* Associated Playlists */}
             {currentTrackId && (
@@ -1938,6 +1947,14 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               </Button>
             </CardContent>
           </Card>
+
+          {/* Content Scope */}
+          {currentTrackId && existingTrack && (
+            <TrackScopeSelector
+              trackId={currentTrackId}
+              currentScope={existingTrack.content_scope || 'universal'}
+            />
+          )}
 
           {/* Thumbnail */}
           <Card>

@@ -34,7 +34,8 @@ import {
   Archive,
   Plus,
   Zap,
-  FolderOpen
+  FolderOpen,
+  Globe
 } from 'lucide-react';
 import {
   Select,
@@ -65,6 +66,7 @@ import { useTracks, useCurrentUser, useAITagSuggestionsCount } from '../lib/hook
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
+import type { ContentScope } from '../lib/crud/tracks';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -120,7 +122,8 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
-  const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published'); // Status filter
+  const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published');
+  const [scopeFilter, setScopeFilter] = useState<ContentScope | 'all'>('all');
   const [orgTags, setOrgTags] = useState<tagsCrud.Tag[]>([]); // Organization tags with colors
   const [archiveWarningDialog, setArchiveWarningDialog] = useState<{
     open: boolean;
@@ -204,9 +207,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
-    status: statusFilter, // Use dynamic status filter
+    status: statusFilter,
     type: selectedType !== 'all' ? selectedType as any : undefined,
-    search: searchQuery || undefined
+    search: searchQuery || undefined,
+    contentScope: scopeFilter !== 'all' ? scopeFilter : undefined,
   });
 
   // Debug logging (disabled for performance - enable only when needed)
@@ -1144,6 +1148,28 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               </SelectContent>
             </Select>
 
+            {/* Scope Filter */}
+            <Select value={scopeFilter} onValueChange={(val) => setScopeFilter(val as ContentScope | 'all')}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Scope" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4" />
+                    All Scopes
+                  </div>
+                </SelectItem>
+                <SelectItem value="universal">Universal</SelectItem>
+                <SelectItem value="sector">Sector</SelectItem>
+                <SelectItem value="industry">Industry</SelectItem>
+                <SelectItem value="state">State</SelectItem>
+                <SelectItem value="program">Program</SelectItem>
+                <SelectItem value="company">Company</SelectItem>
+                <SelectItem value="unit">Unit</SelectItem>
+              </SelectContent>
+            </Select>
+
             {/* Sort - Icon only with popover */}
             <Popover>
               <PopoverTrigger asChild>
@@ -1605,6 +1631,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
                             <Lock className="h-3 w-3 mr-1" />
                             Trike Library
+                          </Badge>
+                        )}
+                        {track.content_scope && track.content_scope !== 'universal' && (
+                          <Badge variant="outline" className="text-xs capitalize flex-shrink-0">
+                            <Globe className="h-3 w-3 mr-1" />
+                            {track.content_scope}
                           </Badge>
                         )}
                       </div>

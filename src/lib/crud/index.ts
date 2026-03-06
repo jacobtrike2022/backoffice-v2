@@ -4,6 +4,7 @@
 
 // Tracks
 export * from './tracks';
+export * from './trackScope';
 
 // Albums & Playlists
 export * from './albums';

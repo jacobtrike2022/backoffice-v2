@@ -13,6 +13,7 @@ import { AssociatedPlaylists } from './AssociatedPlaylists';
 import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
+import TrackScopeSelector from '../TrackScopeSelector';
 import { StoryPreview } from './StoryPreview';
 import { StoryTranscript } from './StoryTranscript';
 import {
@@ -2615,6 +2616,14 @@ export function StoryEditor({
               </Button>
             </CardContent>
           </Card>
+
+          {/* Content Scope */}
+          {existingTrack?.id && (
+            <TrackScopeSelector
+              trackId={existingTrack.id}
+              currentScope={existingTrack.content_scope || 'universal'}
+            />
+          )}
         </div>
 
         {/* Live Preview Sidebar */}
@@ -2885,6 +2894,15 @@ export function StoryEditor({
               </div>
             </CardContent>
           </Card>
+
+          {/* Content Scope */}
+          {existingTrack?.id && (
+            <TrackScopeSelector
+              trackId={existingTrack.id}
+              currentScope={existingTrack.content_scope || 'universal'}
+              readOnly
+            />
+          )}
 
           {/* Live Preview */}
           <Card className="bg-gradient-to-br from-primary/5 to-primary/10">

@@ -11,6 +11,16 @@ import { generateKeyFacts } from './facts';
 import { calculateTrackDuration } from '../utils/trackDuration';
 import { assignTrackTagsByName } from './tags';
 
+export type ContentScope = 'universal' | 'sector' | 'industry' | 'state' | 'program' | 'company' | 'unit';
+
+export interface TrackScopeAssignment {
+  id?: string;
+  track_id: string;
+  scope_type: Exclude<ContentScope, 'universal'>;
+  scope_ref_id: string;
+  created_at?: string;
+}
+
 export interface CreateTrackInput {
   title: string;
   description?: string;
@@ -26,6 +36,7 @@ export interface CreateTrackInput {
   tags?: string[];
   is_system_content?: boolean; // System tracks from Trike Library (non-editable)
   content_text?: string;
+  content_scope?: ContentScope;
   // Versioning fields
   parent_track_id?: string; // Points to original track (V1) for versions
   version_number?: number; // 1, 2, 3...
@@ -1159,6 +1170,8 @@ export async function getTracks(filters: {
   includeAllVersions?: boolean; // Set to true to include old versions
   organizationId?: string; // Optional: specific org ID (defaults to current user's org)
   isSystemContent?: boolean; // Optional: filter for system content
+  contentScope?: ContentScope; // Optional: filter by content scope level
+  filterByApplicability?: boolean; // If true, only return tracks applicable to the org
 } = {}) {
   // Use provided organizationId or fall back to current user's org
   const orgId = filters.organizationId || await getCurrentUserOrgId();
@@ -1183,6 +1196,10 @@ export async function getTracks(filters: {
 
   if (filters.type) {
     query = query.eq('type', filters.type);
+  }
+
+  if (filters.contentScope) {
+    query = query.eq('content_scope', filters.contentScope);
   }
 
   // Handle tag filtering via junction table (source of truth)
@@ -1353,33 +1370,15 @@ export async function getTracks(filters: {
   // Enrich tracks with tags from junction table (source of truth)
   const enrichedTracks = await enrichTracksWithJunctionTags(data || []);
 
-  // Post-fetch geographic filtering for system content
-  // This ensures demo prospects only see relevant regulatory training for their states
-  if (filters.isSystemContent && orgId) {
+  // Scope-based applicability filtering
+  if (filters.filterByApplicability && orgId) {
     try {
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('operating_states')
-        .eq('id', orgId)
-        .single();
-
-      const states = orgData?.operating_states || [];
-      if (states && states.length > 0) {
-        const stateTagPrefix = 'state:';
-        const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s.toUpperCase()}`);
-
-        return enrichedTracks.filter(track => {
-          const trackTags = track.tags || [];
-          const hasStateTags = trackTags.some((tag: string) => tag.startsWith(stateTagPrefix));
-
-          // If track has no state tags, it's national content (allowed for everyone)
-          // If it has state tags, at least one must match the organization's operating states
-          return !hasStateTags || trackTags.some((tag: string) => allowedStateTags.includes(tag));
-        });
-      }
+      const { getApplicableTracksForOrg } = await import('./trackScope');
+      const applicableIds = await getApplicableTracksForOrg(orgId);
+      const applicableSet = new Set(applicableIds);
+      return enrichedTracks.filter(track => applicableSet.has(track.id));
     } catch (err) {
-      console.warn('Geographic filtering failed (non-critical):', err);
-      // Fallback: return all enriched tracks if org fetch fails
+      console.error('Scope-based filtering failed (non-critical):', err);
     }
   }
 
