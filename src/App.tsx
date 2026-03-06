@@ -5,7 +5,7 @@ import { APP_CONFIG } from './lib/config';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
-import { getCurrentUserOrgId } from './lib/supabase';
+import { supabase, getCurrentUserOrgId, setViewingOrgOverride, getUserHomeOrgId } from './lib/supabase';
 
 // Expose brain indexing utilities globally for console access
 // Usage: window.brainUtils.reindexAll() or window.brainUtils.backfill()
@@ -62,9 +62,9 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
 import { TrikeAdminPage } from "./components/trike-admin";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 import { checkServerHealth } from "./lib/serverHealth";
-import { supabase, getCurrentUserOrgId } from "./lib/supabase";
+
 
 type UserRole =
   | "admin"
@@ -148,6 +148,10 @@ export default function App() {
     isDemoExpired: boolean;
   }>({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
 
+  // Org preview state for Super Admin
+  const [viewingOrgId, setViewingOrgId] = useState<string | null>(null);
+  const [viewingOrgName, setViewingOrgName] = useState<string | null>(null);
+
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -195,6 +199,22 @@ export default function App() {
     checkServerHealth().catch(() => {});
   }, []);
 
+  // Handle previewing an org as Super Admin
+  const handlePreviewOrg = async (orgId: string, orgName: string) => {
+    setViewingOrgOverride(orgId);
+    setViewingOrgId(orgId);
+    setViewingOrgName(orgName);
+    window.dispatchEvent(new Event('organization-updated'));
+  };
+
+  const handleExitOrgPreview = () => {
+    setViewingOrgOverride(null);
+    setViewingOrgId(null);
+    setViewingOrgName(null);
+    setOrgStatusInfo({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
+    window.dispatchEvent(new Event('organization-updated'));
+  };
+
   // Fetch org status for prospect/frozen detection
   useEffect(() => {
     if (!user) return;
@@ -222,7 +242,7 @@ export default function App() {
         // Silent - org status is optional context
       }
     })();
-  }, [user]);
+  }, [user, viewingOrgId]);
 
   // URL parsing for direct deep links (e.g. /?track=abc&type=article)
   useEffect(() => {
@@ -756,7 +776,7 @@ export default function App() {
           requestNavigate('dashboard');
           return null;
         }
-        return <TrikeAdminPage />;
+        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} />;
       default:
         return (
           <Dashboard
@@ -830,6 +850,9 @@ export default function App() {
               darkMode={darkMode}
               onDarkModeToggle={() => setDarkMode(!darkMode)}
               orgStatusInfo={orgStatusInfo}
+              viewingOrgId={viewingOrgId}
+              viewingOrgName={viewingOrgName}
+              onExitOrgPreview={handleExitOrgPreview}
             >
               {renderContent()}
             </DashboardLayout>

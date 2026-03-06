@@ -16,6 +16,7 @@ import {
   X,
   Save,
   Plus,
+  Eye,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -69,6 +70,7 @@ import type { Organization, OrganizationStatus } from './types';
 interface OrganizationsListProps {
   onViewJourney?: (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => void;
   onProvisionDemo?: (orgId: string, orgName: string) => void;
+  onPreviewOrg?: (orgId: string, orgName: string) => void;
 }
 
 const STATUS_CONFIG: Record<
@@ -106,7 +108,7 @@ const ACTIVE_PIPELINE_STATUSES: OrganizationStatus[] = [
   'lead', 'prospect', 'evaluating', 'closing', 'onboarding',
 ];
 
-export function OrganizationsList({ onViewJourney, onProvisionDemo }: OrganizationsListProps) {
+export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg }: OrganizationsListProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -564,6 +566,14 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {onPreviewOrg && (
+                                <DropdownMenuItem
+                                  onClick={() => onPreviewOrg(org.id, org.name)}
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  Preview as this org
+                                </DropdownMenuItem>
+                              )}
                               {onViewJourney && (
                                 <DropdownMenuItem
                                   onClick={() =>

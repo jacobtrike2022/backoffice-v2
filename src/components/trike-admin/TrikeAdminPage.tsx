@@ -56,7 +56,11 @@ const tabs: Array<{
  * Trike Admin Page - Full page view for sales pipeline management
  * Accessible via sidebar navigation for trike-super-admin role only
  */
-export function TrikeAdminPage() {
+interface TrikeAdminPageProps {
+  onPreviewOrg?: (orgId: string, orgName: string) => void;
+}
+
+export function TrikeAdminPage({ onPreviewOrg }: TrikeAdminPageProps) {
   const { user } = useCurrentUser();
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
   const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
@@ -153,6 +157,7 @@ export function TrikeAdminPage() {
               setSelectedOrgName(orgName);
               setIsProvisioningModalOpen(true);
             }}
+            onPreviewOrg={onPreviewOrg}
           />
         );
       case 'proposals':

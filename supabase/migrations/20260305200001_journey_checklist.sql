@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_jcl_org_phase ON journey_checklist_items(organiza
 ALTER TABLE journey_checklist_items ENABLE ROW LEVEL SECURITY;
 
 -- Org members can read their own checklist
+DROP POLICY IF EXISTS "Org members can read checklist" ON journey_checklist_items;
 CREATE POLICY "Org members can read checklist" ON journey_checklist_items
   FOR SELECT USING (
     organization_id = (
@@ -37,6 +38,7 @@ CREATE POLICY "Org members can read checklist" ON journey_checklist_items
   );
 
 -- Trike super admins can manage all checklists
+DROP POLICY IF EXISTS "Trike admins manage checklists" ON journey_checklist_items;
 CREATE POLICY "Trike admins manage checklists" ON journey_checklist_items
   FOR ALL USING (
     EXISTS (
@@ -46,6 +48,7 @@ CREATE POLICY "Trike admins manage checklists" ON journey_checklist_items
   );
 
 -- Org admins can manage their own org's checklist
+DROP POLICY IF EXISTS "Org admins manage own checklist" ON journey_checklist_items;
 CREATE POLICY "Org admins manage own checklist" ON journey_checklist_items
   FOR ALL USING (
     organization_id = (

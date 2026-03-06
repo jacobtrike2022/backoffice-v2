@@ -63,6 +63,18 @@ export async function refreshAuthSession() {
 export const supabaseUrl = `https://${projectId}.supabase.co`;
 export const supabaseAnonKey = publicAnonKey;
 
+// Session-level org override for Super Admin "preview as org" functionality.
+// When set, getCurrentUserOrgId() returns this instead of the user's actual org.
+let _viewingOrgOverride: string | null = null;
+
+export function setViewingOrgOverride(orgId: string | null) {
+  _viewingOrgOverride = orgId;
+}
+
+export function getViewingOrgOverride(): string | null {
+  return _viewingOrgOverride;
+}
+
 /**
  * Get current authenticated user's organization ID
  * 
@@ -75,6 +87,11 @@ export const supabaseAnonKey = publicAnonKey;
  * 3. Use JWT claims to embed org_id in auth token
  */
 export async function getCurrentUserOrgId(): Promise<string | null> {
+  // If a Super Admin has set a viewing override, use that
+  if (_viewingOrgOverride) {
+    return _viewingOrgOverride;
+  }
+
   // Get authenticated user first
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -84,22 +101,15 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     const demoOrgId = params.get('demo_org_id');
 
     if (demoOrgId) {
-      // Allow override if:
-      // 1. User is not logged in (prospect viewing a demo)
-      // 2. User is a Super Admin (admin testing the demo)
-      // 3. User actually belongs to this demo org (logged in via magic link)
-
       if (!user) {
         return demoOrgId;
       }
 
-      // Check if user belongs to the requested demo org
       const userOrgFromMetadata = user.user_metadata?.organization_id;
       if (userOrgFromMetadata === demoOrgId) {
         return demoOrgId;
       }
 
-      // Check if user is a Super Admin
       const profile = await getCurrentUserProfile();
       const isSuperAdmin = profile?.role?.name === 'Trike Super Admin';
 
@@ -107,7 +117,6 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
         return demoOrgId;
       }
 
-      // Also check the users table for org membership
       const { data: userRecord } = await supabase
         .from('users')
         .select('organization_id')
@@ -118,19 +127,15 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
         return demoOrgId;
       }
 
-      // If they don't belong to this org, ignore the override for security
       console.warn('Unauthorized demo_org_id override attempt ignored for non-member user');
     }
   }
 
   // For authenticated users, always check their actual org first
-  // (even in single-tenant mode, demo users need their own org)
   if (user) {
-    // Option 1: Get from user metadata (set during onboarding)
     const orgIdFromMetadata = user.user_metadata?.organization_id;
     if (orgIdFromMetadata) return orgIdFromMetadata;
 
-    // Option 2: Query users table for organization_id
     const { data } = await supabase
       .from('users')
       .select('organization_id')
@@ -145,12 +150,33 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     return APP_CONFIG.DEFAULT_ORG_ID;
   }
 
-  // MULTI-TENANT MODE with no authenticated user
   if (APP_CONFIG.DEMO_MODE) {
     return APP_CONFIG.DEFAULT_ORG_ID;
   }
 
   return null;
+}
+
+/**
+ * Get the user's actual/home organization ID (ignores viewing override).
+ * Used to know what the Super Admin's "home" org is.
+ */
+export async function getUserHomeOrgId(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return APP_CONFIG.DEMO_MODE ? APP_CONFIG.DEFAULT_ORG_ID : null;
+  }
+
+  const orgIdFromMetadata = user.user_metadata?.organization_id;
+  if (orgIdFromMetadata) return orgIdFromMetadata;
+
+  const { data } = await supabase
+    .from('users')
+    .select('organization_id')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  return data?.organization_id || APP_CONFIG.DEFAULT_ORG_ID;
 }
 
 /**

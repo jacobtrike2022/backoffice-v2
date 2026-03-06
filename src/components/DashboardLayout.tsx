@@ -59,6 +59,9 @@ interface DashboardLayoutProps {
   currentView?: string;
   onNavigate?: (view: string) => void;
   orgStatusInfo?: OrgStatusInfo;
+  viewingOrgId?: string | null;
+  viewingOrgName?: string | null;
+  onExitOrgPreview?: () => void;
 }
 
 interface NavigationGroup {
@@ -208,12 +211,13 @@ export function DashboardLayout({
   currentView = 'dashboard',
   onNavigate,
   orgStatusInfo,
+  viewingOrgId,
+  viewingOrgName,
+  onExitOrgPreview,
 }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
   const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
-  const [isDemoOrgView, setIsDemoOrgView] = useState(false);
-  const [demoOrgName, setDemoOrgName] = useState<string>('');
 
   // Update activeTab when currentView changes
   React.useEffect(() => {
@@ -221,12 +225,7 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Detect demo org viewing mode via URL param
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const demoOrgId = params.get('demo_org_id');
-    setIsDemoOrgView(!!demoOrgId);
-  }, []);
+  const isPreviewingOrg = !!viewingOrgId;
 
   // Fetch organization name and logo
   useEffect(() => {
@@ -244,14 +243,8 @@ export function DashboardLayout({
         if (org) {
           if (org.name) {
             setOrganizationName(org.name);
-            // Track demo org name for the banner
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('demo_org_id')) {
-              setDemoOrgName(org.name);
-            }
           }
 
-          // Set logo based on current dark mode
           const logoUrl = darkMode
             ? (org.logo_dark_url || trikeLogo)
             : (org.logo_light_url || trikeLogo);
@@ -264,7 +257,6 @@ export function DashboardLayout({
 
     fetchOrganizationData();
 
-    // Listen for organization updates
     const handleOrgUpdate = () => {
       fetchOrganizationData();
     };
@@ -273,7 +265,7 @@ export function DashboardLayout({
     return () => {
       window.removeEventListener('organization-updated', handleOrgUpdate);
     };
-  }, [darkMode]);
+  }, [darkMode, viewingOrgId]);
 
   const roleLabels = {
     'admin': 'Administrator',
@@ -589,24 +581,21 @@ export function DashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-h-screen">
-        {/* Demo org viewing banner */}
-        {isDemoOrgView && (
+        {/* Org preview banner for Super Admin */}
+        {isPreviewingOrg && (
           <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Eye className="h-4 w-4" />
-              <span>Viewing demo: <strong>{demoOrgName || 'Demo Organization'}</strong></span>
+              <span>Previewing: <strong>{viewingOrgName || organizationName || 'Organization'}</strong></span>
             </div>
             <Button
               variant="ghost"
               size="sm"
               className="text-white hover:bg-white/20 hover:text-white gap-1.5 h-7 text-xs font-semibold"
-              onClick={() => {
-                // Strip demo_org_id param and return to Trike admin
-                window.location.href = window.location.origin + '/';
-              }}
+              onClick={onExitOrgPreview}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Exit Demo
+              Return to Trike
             </Button>
           </div>
         )}

@@ -76,9 +76,11 @@ export function ProposalView({ onAccepted }: ProposalViewProps) {
         (p) => p.status === 'sent' || p.status === 'viewed'
       );
       if (active) {
-        setActiveProposal(active);
         if (active.status === 'sent') {
-          await updateProposalStatus(active.id, 'viewed');
+          const viewed = await updateProposalStatus(active.id, 'viewed');
+          setActiveProposal(viewed || { ...active, status: 'viewed' });
+        } else {
+          setActiveProposal(active);
         }
       } else if (data.length > 0) {
         setActiveProposal(data[0]);

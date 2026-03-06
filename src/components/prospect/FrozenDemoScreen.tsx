@@ -8,7 +8,8 @@ import trikeLogo from '../../assets/trike-logo.png';
 export function FrozenDemoScreen() {
   const [orgData, setOrgData] = useState<{
     name: string;
-    logo_url: string | null;
+    logo_dark_url: string | null;
+    logo_light_url: string | null;
   } | null>(null);
   const [hasProposal, setHasProposal] = useState(false);
 
@@ -21,7 +22,7 @@ export function FrozenDemoScreen() {
         const [{ data: org }, { data: proposals }] = await Promise.all([
           supabase
             .from('organizations')
-            .select('name, logo_url')
+            .select('name, logo_dark_url, logo_light_url')
             .eq('id', orgId)
             .single(),
           supabase
@@ -46,10 +47,10 @@ export function FrozenDemoScreen() {
         {/* Logos */}
         <div className="flex items-center justify-center gap-6">
           <img src={trikeLogo} alt="Trike" className="h-10 object-contain" />
-          {orgData?.logo_url && (
+          {(orgData?.logo_dark_url || orgData?.logo_light_url) && (
             <>
               <div className="h-8 w-px bg-border" />
-              <img src={orgData.logo_url} alt={orgData.name} className="h-10 object-contain" />
+              <img src={orgData.logo_dark_url || orgData.logo_light_url || ''} alt={orgData.name} className="h-10 object-contain" />
             </>
           )}
         </div>
