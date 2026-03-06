@@ -55,7 +55,7 @@ function DroppableStageColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'flex-1 transition-colors duration-200 rounded-b-lg',
+        'flex-1 min-h-0 flex flex-col overflow-hidden transition-colors duration-200 rounded-b-lg',
         isOver && 'bg-primary/5 ring-2 ring-primary/30 ring-inset'
       )}
     >
@@ -418,7 +418,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Header */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between mb-4">
@@ -677,8 +677,8 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex-1 overflow-x-auto p-6">
-          <div className="flex gap-4 h-full min-w-max">
+        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-6">
+          <div className="flex gap-4 h-full min-h-0 min-w-max">
             {PIPELINE_STAGES.map((stage) => {
               const config = STAGE_CONFIG[stage];
               const deals = filteredDealsByStage[stage];
@@ -687,7 +687,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
               return (
                 <div
                   key={stage}
-                  className="w-80 flex flex-col bg-muted/30 rounded-lg"
+                  className="w-80 flex flex-col min-h-0 bg-muted/30 rounded-lg"
                 >
                   {/* Stage Header */}
                   <div
@@ -717,7 +717,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
 
                   {/* Droppable deals area */}
                   <DroppableStageColumn stage={stage} isOver={overStage === stage}>
-                    <ScrollArea className="flex-1">
+                    <ScrollArea className="flex-1 min-h-0">
                       <div className="p-2 space-y-2 min-h-[80px]">
                         {deals.map((deal) => (
                           <DraggableDealCard key={deal.id} deal={deal}>
