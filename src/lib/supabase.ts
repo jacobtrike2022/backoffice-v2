@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { getSupabaseClient } from '../utils/supabase/client';
-import { APP_CONFIG } from './config';
+import { APP_CONFIG, getDefaultOrgId } from './config';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Use singleton Supabase client to avoid multiple GoTrueClient instances
@@ -145,13 +145,9 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     if (data?.organization_id) return data.organization_id;
   }
 
-  // Fallback: use default org
-  if (!APP_CONFIG.ENABLE_MULTI_TENANCY) {
-    return APP_CONFIG.DEFAULT_ORG_ID;
-  }
-
-  if (APP_CONFIG.DEMO_MODE) {
-    return APP_CONFIG.DEFAULT_ORG_ID;
+  // Fallback: use default org (localhost → trike.co)
+  if (!APP_CONFIG.ENABLE_MULTI_TENANCY || APP_CONFIG.DEMO_MODE) {
+    return getDefaultOrgId();
   }
 
   return null;
@@ -164,7 +160,7 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
 export async function getUserHomeOrgId(): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return APP_CONFIG.DEMO_MODE ? APP_CONFIG.DEFAULT_ORG_ID : null;
+    return APP_CONFIG.DEMO_MODE ? getDefaultOrgId() : null;
   }
 
   const orgIdFromMetadata = user.user_metadata?.organization_id;
@@ -176,7 +172,7 @@ export async function getUserHomeOrgId(): Promise<string | null> {
     .eq('auth_user_id', user.id)
     .single();
 
-  return data?.organization_id || APP_CONFIG.DEFAULT_ORG_ID;
+  return data?.organization_id || getDefaultOrgId();
 }
 
 /**
