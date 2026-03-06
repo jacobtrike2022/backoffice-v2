@@ -46,9 +46,7 @@ export interface Deal {
     id: string;
     first_name: string | null;
     last_name: string | null;
-    display_name: string;
     email: string;
-    avatar_url: string | null;
   };
 }
 
@@ -70,8 +68,6 @@ export interface DealActivity {
     id: string;
     first_name: string | null;
     last_name: string | null;
-    display_name: string;
-    avatar_url: string | null;
   };
 }
 
@@ -148,7 +144,7 @@ export async function getDeals(filters?: DealFilters): Promise<Deal[]> {
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .order('last_activity_at', { ascending: false });
 
@@ -221,7 +217,7 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .eq('id', dealId)
       .single();
@@ -249,7 +245,7 @@ export async function getDealsByStage(stages?: DealStage[]): Promise<Record<Deal
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .in('stage', targetStages)
       .order('last_activity_at', { ascending: false });
@@ -306,7 +302,7 @@ export async function createDeal(input: CreateDealInput): Promise<Deal> {
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .single();
 
@@ -332,7 +328,7 @@ export async function updateDeal(dealId: string, input: UpdateDealInput): Promis
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .single();
 
@@ -380,7 +376,7 @@ export async function updateDealStage(
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .single();
 
@@ -521,7 +517,7 @@ export async function getDealActivities(dealId: string, limit?: number): Promise
       .from('deal_activities')
       .select(`
         *,
-        user:users(id, first_name, last_name, display_name, avatar_url)
+        user:users(id, first_name, last_name)
       `)
       .eq('deal_id', dealId)
       .order('created_at', { ascending: false });
@@ -564,7 +560,7 @@ export async function addDealActivity(input: {
       }])
       .select(`
         *,
-        user:users(id, first_name, last_name, display_name, avatar_url)
+        user:users(id, first_name, last_name)
       `)
       .single();
 
@@ -585,7 +581,7 @@ export async function getRecentActivities(limit: number = 20): Promise<DealActiv
       .from('deal_activities')
       .select(`
         *,
-        user:users(id, first_name, last_name, display_name, avatar_url)
+        user:users(id, first_name, last_name)
       `)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -594,6 +590,46 @@ export async function getRecentActivities(limit: number = 20): Promise<DealActiv
     return (data || []) as DealActivity[];
   } catch (err) {
     console.error('Error in getRecentActivities:', err);
+    throw err;
+  }
+}
+
+// ============================================================================
+// STAGE TRANSITION ANALYTICS
+// ============================================================================
+
+export interface StageTransition {
+  deal_id: string;
+  from_stage: string;
+  to_stage: string;
+  transitioned_at: string; // created_at of the activity
+}
+
+/**
+ * Get all stage_change activities across all deals.
+ * Used by analytics to compute:
+ * - Historical conversion rates between stages
+ * - Average time-in-stage (bottleneck detection)
+ */
+export async function getStageTransitions(): Promise<StageTransition[]> {
+  try {
+    const { data, error } = await supabase
+      .from('deal_activities')
+      .select('deal_id, from_stage, to_stage, created_at')
+      .eq('activity_type', 'stage_change')
+      .not('from_stage', 'is', null)
+      .not('to_stage', 'is', null)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      deal_id: row.deal_id,
+      from_stage: row.from_stage,
+      to_stage: row.to_stage,
+      transitioned_at: row.created_at,
+    }));
+  } catch (err) {
+    console.error('Error in getStageTransitions:', err);
     throw err;
   }
 }
@@ -616,7 +652,7 @@ export async function getUpcomingActions(daysAhead: number = 7): Promise<Deal[]>
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .not('next_action', 'is', null)
       .not('next_action_date', 'is', null)
@@ -645,7 +681,7 @@ export async function getOverdueDeals(): Promise<Deal[]> {
       .select(`
         *,
         organization:organizations(id, name, status, industry, website),
-        owner:users!owner_id(id, first_name, last_name, display_name, email, avatar_url)
+        owner:users!owner_id(id, first_name, last_name, email)
       `)
       .lt('expected_close_date', today)
       .in('stage', ['lead', 'prospect', 'evaluating', 'closing'])
@@ -695,16 +731,14 @@ export async function getDealOwnerCandidates(): Promise<Array<{
   id: string;
   first_name: string | null;
   last_name: string | null;
-  display_name: string;
   email: string;
-  avatar_url: string | null;
 }>> {
   try {
     const { data, error } = await supabase
       .from('users')
       .select(`
-        id, first_name, last_name, display_name, email, avatar_url,
-        role:roles(name)
+        id, first_name, last_name, email,
+        role:roles!role_id(name)
       `)
       .eq('status', 'active');
 
@@ -717,14 +751,66 @@ export async function getDealOwnerCandidates(): Promise<Array<{
       id: u.id,
       first_name: u.first_name,
       last_name: u.last_name,
-      display_name: u.display_name,
       email: u.email,
-      avatar_url: u.avatar_url,
     }));
 
     return admins;
   } catch (err) {
     console.error('Error in getDealOwnerCandidates:', err);
+    throw err;
+  }
+}
+
+// ============================================================================
+// BULK OPERATIONS
+// ============================================================================
+
+/**
+ * Move multiple deals to a new stage at once
+ */
+export async function bulkUpdateDealStage(
+  dealIds: string[],
+  newStage: DealStage
+): Promise<void> {
+  if (dealIds.length === 0) return;
+
+  try {
+    const { error } = await supabase
+      .from('deals')
+      .update({
+        stage: newStage,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', dealIds);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('Error in bulkUpdateDealStage:', err);
+    throw err;
+  }
+}
+
+/**
+ * Reassign multiple deals to a new owner
+ */
+export async function bulkReassignOwner(
+  dealIds: string[],
+  newOwnerId: string
+): Promise<void> {
+  if (dealIds.length === 0) return;
+
+  try {
+    const { error } = await supabase
+      .from('deals')
+      .update({
+        owner_id: newOwnerId,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', dealIds);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('Error in bulkReassignOwner:', err);
     throw err;
   }
 }

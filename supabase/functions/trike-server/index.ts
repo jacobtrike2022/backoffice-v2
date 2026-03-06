@@ -21,6 +21,52 @@ const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+// ── Rate Limiting ──────────────────────────────────────────
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  '/brain/': { limit: 30, windowMs: 60_000 },
+  '/email/send': { limit: 20, windowMs: 60_000 },
+  '/contracts/': { limit: 5, windowMs: 60_000 },
+  '/billing/': { limit: 10, windowMs: 60_000 },
+};
+
+function checkRateLimit(path: string, identityKey: string): { allowed: boolean; retryAfterMs?: number } {
+  // Find matching rate limit config
+  const configKey = Object.keys(RATE_LIMITS).find((prefix) => path.startsWith(prefix));
+  if (!configKey) return { allowed: true };
+
+  const config = RATE_LIMITS[configKey];
+  const key = `${identityKey}:${configKey}`;
+  const now = Date.now();
+
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(key, { count: 1, resetAt: now + config.windowMs });
+    return { allowed: true };
+  }
+
+  if (entry.count >= config.limit) {
+    return { allowed: false, retryAfterMs: entry.resetAt - now };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (now > entry.resetAt) rateLimitStore.delete(key);
+  }
+}, 300_000);
+
 console.log('[ENV] SUPABASE_URL:', SUPABASE_URL);
 console.log('[ENV] SUPABASE_SERVICE_ROLE_KEY set:', !!SUPABASE_SERVICE_ROLE_KEY);
 
@@ -328,20 +374,73 @@ Deno.serve(async (req: Request) => {
     // HEALTH CHECK
     // =========================================================================
     if (method === "GET" && (path === "/health" || path === "")) {
-      return jsonResponse({ 
-        status: "ok", 
-        timestamp: new Date().toISOString(),
-        services: {
-          openai: !!OPENAI_API_KEY,
-          assemblyai: !!ASSEMBLYAI_API_KEY,
-        }
-      });
+      const checks: Record<string, string> = {};
+
+      // Check database connectivity
+      try {
+        const { error } = await supabase.from('roles').select('id').limit(1).single();
+        checks.database = error ? `error: ${error.message}` : 'ok';
+      } catch {
+        checks.database = 'unreachable';
+      }
+
+      // Check OpenAI API key presence
+      checks.openai = OPENAI_API_KEY ? 'configured' : 'missing';
+
+      // Check Resend API key presence
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      checks.resend = resendKey ? 'configured' : 'missing';
+
+      // Check eSignatures token presence
+      const esigToken = Deno.env.get("ESIGNATURES_API_TOKEN");
+      checks.esignatures = esigToken ? 'configured' : 'not_configured';
+
+      // Check Stripe key presence
+      const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+      checks.stripe = stripeKey ? 'configured' : 'not_configured';
+
+      const allHealthy = checks.database === 'ok' &&
+        checks.openai === 'configured' &&
+        checks.resend === 'configured';
+
+      return jsonResponse(
+        {
+          status: allHealthy ? 'healthy' : 'degraded',
+          checks,
+          timestamp: new Date().toISOString(),
+        },
+        allHealthy ? 200 : 503
+      );
+    }
+
+    // =========================================================================
+    // RATE LIMITING
+    // =========================================================================
+    // Use Authorization header token hash as identity key (orgId isn't
+    // extracted until individual handlers run)
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader) {
+      const rateLimitIdentity = authHeader.slice(-16); // last 16 chars of token
+      const rateCheck = checkRateLimit(path, rateLimitIdentity);
+      if (!rateCheck.allowed) {
+        return new Response(
+          JSON.stringify({ error: 'Too many requests. Please try again shortly.' }),
+          {
+            status: 429,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+              'Retry-After': String(Math.ceil((rateCheck.retryAfterMs || 60000) / 1000)),
+            },
+          }
+        );
+      }
     }
 
     // =========================================================================
     // ATTACHMENTS
     // =========================================================================
-    
+
     // Upload attachment
     if (method === "POST" && path === "/upload-attachment") {
       return await handleUploadAttachment(req);
@@ -969,6 +1068,42 @@ Deno.serve(async (req: Request) => {
       return await handlePlaybookPublish(req);
     }
 
+    // Provision a demo environment for a prospect organization
+    if (method === "POST" && path === "/demo/provision") {
+      return await handleDemoProvision(req);
+    }
+
+    // Unified demo creation: enrich + create org + provision in one call
+    if (method === "POST" && path === "/demo/create") {
+      return await handleDemoCreate(req);
+    }
+
+    // Stripe billing endpoints
+    if (method === "POST" && path === "/billing/setup-intent") {
+      return await handleBillingSetupIntent(req);
+    }
+    if (method === "POST" && path === "/billing/webhook") {
+      return await handleBillingWebhook(req);
+    }
+
+    // eSignatures.io contract endpoints
+    if (method === "POST" && path === "/contracts/send") {
+      return await handleContractSend(req);
+    }
+    if (method === "POST" && path === "/contracts/webhook") {
+      return await handleContractWebhook(req);
+    }
+    if (method === "GET" && path.startsWith("/contracts/") && path.endsWith("/status")) {
+      const contractId = path.split("/")[2];
+      const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+      if (!ESIG_TOKEN) {
+        return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+      }
+      const resp = await fetch(`https://esignatures.com/api/contracts/${contractId}?token=${ESIG_TOKEN}`);
+      const data = await resp.json();
+      return jsonResponse(data);
+    }
+
     // =========================================================================
     // 404 - Route not found
     // =========================================================================
@@ -1069,7 +1204,13 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/confirm-track",
         "POST /playbook/generate-draft",
         "POST /playbook/approve-track",
-        "POST /playbook/publish"
+        "POST /playbook/publish",
+        "POST /demo/provision",
+        "POST /billing/setup-intent",
+        "POST /billing/webhook",
+        "POST /contracts/send",
+        "POST /contracts/webhook",
+        "GET /contracts/:id/status"
       ]
     }, 404);
 
@@ -7063,9 +7204,7 @@ async function handleBrainSearch(req: Request): Promise<Response> {
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
 
-    // Build query
-    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
-    // For now, this only searches the user's org content
+    // Build query — includes both org-specific and system template embeddings
     let dbQuery = supabase.rpc("match_brain_embeddings", {
       query_embedding: queryEmbedding,
       match_threshold: 0.6, // Lowered from 0.7 for better recall
@@ -7711,6 +7850,16 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     // Extract data from HTML
     const scrapedData = await extractCompanyDataFromHTML(html, url, domainName);
 
+    // Phase 1: External logo fallback if HTML scraping didn't find one
+    if (!scrapedData.logo_url) {
+      console.log(`[Onboarding] No logo from HTML scrape, trying external services...`);
+      const externalLogo = await tryExternalLogoFallback(domain);
+      if (externalLogo) {
+        scrapedData.logo_url = externalLogo;
+        console.log(`[Onboarding] External logo found: ${externalLogo}`);
+      }
+    }
+
     // Try to find store locator page and scrape locations
     const storeLocatorUrls = [
       "/locations",
@@ -7725,6 +7874,8 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     ];
 
     let stores: any[] = [];
+    let foundLocatorPage = false;
+    let bestLocatorHtml = ""; // Capture best locations page HTML for AI analysis
     for (const locatorPath of storeLocatorUrls) {
       try {
         const locatorUrl = new URL(locatorPath, url).toString();
@@ -7739,12 +7890,26 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
           const locatorHtml = await locatorResponse.text();
           stores = extractStoresFromHTML(locatorHtml);
 
-          // If no stores found directly, check for WPSL (WordPress Store Locator) AJAX endpoint
-          if (stores.length === 0 && locatorHtml.includes('wpsl')) {
-            console.log(`[Onboarding] Detected WPSL plugin, trying AJAX endpoint...`);
+          // Detect WordPress Store Locator or other dynamic store locator plugins
+          // Broader detection: check for various WPSL indicators, Google Maps API, or store locator plugins
+          const hasWPSL = /wpsl|wp-store-locator|store[-_]?locator|wpStoreLocator|wpslSettings/i.test(locatorHtml);
+          const hasGoogleMapsStoreLocator = /google\.maps|maps\.googleapis|initMap|storeLocator/i.test(locatorHtml);
+          const isWordPress = /wp-content|wp-includes|wordpress/i.test(locatorHtml) || /wp-content|wp-includes/i.test(html);
+
+          if (stores.length === 0 && (hasWPSL || (hasGoogleMapsStoreLocator && isWordPress))) {
+            console.log(`[Onboarding] Detected dynamic store locator (WPSL=${hasWPSL}, Maps+WP=${hasGoogleMapsStoreLocator && isWordPress}), trying AJAX endpoint...`);
             const wpslStores = await tryWPSLAjax(url);
             if (wpslStores.length > 0) {
               stores = wpslStores;
+            }
+          }
+
+          // Track that we found a valid locations page (even if no stores parsed yet)
+          if (locatorHtml.length > 500) {
+            foundLocatorPage = true;
+            // Keep the longest/best locations page HTML for downstream AI analysis
+            if (locatorHtml.length > bestLocatorHtml.length) {
+              bestLocatorHtml = locatorHtml;
             }
           }
 
@@ -7758,10 +7923,49 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       }
     }
 
-    // Use AI to enhance the scraped data
-    let enrichedData = await enrichWithAI(scrapedData, html, stores);
+    // If we found a locations page but couldn't extract stores, try WPSL AJAX as a general WordPress fallback
+    if (stores.length === 0 && foundLocatorPage) {
+      const isWordPressSite = /wp-content|wp-includes|wordpress/i.test(html);
+      if (isWordPressSite) {
+        console.log(`[Onboarding] WordPress site with locations page but no stores parsed, trying WPSL AJAX fallback...`);
+        const wpslStores = await tryWPSLAjax(url);
+        if (wpslStores.length > 0) {
+          stores = wpslStores;
+          console.log(`[Onboarding] WPSL fallback found ${stores.length} stores`);
+        }
+      }
+    }
 
-    // If we still don't have a good logo or company name, try Claude Vision
+    // Phase 5: AI-powered location extraction fallback
+    // If regex couldn't parse stores but we found a locations page, let AI try
+    if (stores.length === 0 && foundLocatorPage && bestLocatorHtml) {
+      console.log(`[Onboarding] Regex found 0 stores from locations page, trying AI extraction...`);
+      const aiStores = await extractStoresWithAI(bestLocatorHtml, domain);
+      if (aiStores && aiStores.length > 0) {
+        stores = aiStores;
+        console.log(`[Onboarding] AI extracted ${stores.length} stores`);
+      }
+    }
+
+    // Phase 2: Derive operating states from scraped store addresses
+    const derivedStates = deriveOperatingStatesFromStores(stores);
+    if (derivedStates.length > 0) {
+      console.log(`[Onboarding] Derived ${derivedStates.length} states from store addresses: ${derivedStates.join(", ")}`);
+    }
+
+    // Use AI to enhance the scraped data (Phase 4: now with locations page HTML)
+    let enrichedData = await enrichWithAI(scrapedData, html, stores, bestLocatorHtml);
+
+    // Merge derived states with AI-detected states (deduped)
+    if (derivedStates.length > 0) {
+      const aiStates = (enrichedData.operating_states || []) as string[];
+      const mergedStates = Array.from(new Set([...derivedStates, ...aiStates.map((s: string) => s.toUpperCase())]))
+        .filter(s => US_STATE_CODES.has(s))
+        .sort();
+      enrichedData.operating_states = mergedStates;
+    }
+
+    // Phase 6: If we still don't have a good logo or company name, try Claude with actual HTML
     const needsVisionFallback = !enrichedData.logo_url ||
       !enrichedData.company_name ||
       enrichedData.company_name.length > 40 ||
@@ -7769,10 +7973,30 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       enrichedData.company_name.includes('|');
 
     if (needsVisionFallback) {
-      console.log(`[Onboarding] HTML scrape incomplete, trying Claude Vision fallback...`);
-      const visionData = await enrichWithClaudeVision(url, enrichedData);
+      console.log(`[Onboarding] HTML scrape incomplete, trying Claude fallback with actual HTML...`);
+      const visionData = await enrichWithClaudeVision(url, enrichedData, html, bestLocatorHtml);
       if (visionData) {
         enrichedData = { ...enrichedData, ...visionData };
+      }
+    }
+
+    // Phase 3: Self-QA validation before saving
+    const qaResult = validateEnrichmentResults(enrichedData, stores);
+    if (qaResult.issues.length > 0) {
+      console.log(`[Onboarding] QA found ${qaResult.issues.length} issues: ${qaResult.issues.join("; ")}`);
+    }
+    if (qaResult.fixes) {
+      enrichedData = { ...enrichedData, ...qaResult.fixes };
+    }
+
+    // Post-QA logo fallback: if QA rejected the logo (or it was never found),
+    // retry with external services (Clearbit, Google Favicon)
+    if (!enrichedData.logo_url) {
+      console.log(`[Onboarding] No logo after QA validation, retrying external fallback...`);
+      const postQaLogo = await tryExternalLogoFallback(domain);
+      if (postQaLogo) {
+        enrichedData.logo_url = postQaLogo;
+        console.log(`[Onboarding] Post-QA external logo found: ${postQaLogo}`);
       }
     }
 
@@ -7787,7 +8011,10 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         .eq("session_token", session_token);
     }
 
-    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}`);
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}, stores: ${enrichedData.store_count || 0}, states: ${(enrichedData.operating_states || []).join(",") || 'NONE'}`);
+    if (!enrichedData.logo_url) {
+      console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
+    }
 
     return jsonResponse({
       success: true,
@@ -7796,6 +8023,283 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
     return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+  }
+}
+
+// US state code constants (shared by state derivation and QA validation)
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+  "DC",
+]);
+
+/**
+ * Try external services for company logo when HTML scraping fails.
+ * Clearbit Logo API (free, no key) → Google Favicon (128px fallback)
+ */
+async function tryExternalLogoFallback(domain: string): Promise<string | null> {
+  // 1. Clearbit Logo API — high quality, transparent PNGs
+  const clearbitUrl = `https://logo.clearbit.com/${domain}`;
+  try {
+    const headRes = await fetch(clearbitUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const ct = headRes.headers.get("content-type") || "";
+      if (ct.includes("image/")) {
+        console.log(`[Onboarding] Clearbit logo found for ${domain}`);
+        return clearbitUrl;
+      }
+    }
+  } catch (_e) {
+    // Clearbit unavailable, try next
+  }
+
+  // 2. Google Favicon API — always returns something, 128px max
+  const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  try {
+    const headRes = await fetch(googleFaviconUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const cl = parseInt(headRes.headers.get("content-length") || "0", 10);
+      // Google returns a tiny default globe icon (~600 bytes) for unknown domains
+      // Real favicons are typically 2KB+
+      if (cl > 1000) {
+        console.log(`[Onboarding] Google Favicon found for ${domain} (${cl} bytes)`);
+        return googleFaviconUrl;
+      }
+    }
+  } catch (_e) {
+    // Google API unavailable
+  }
+
+  return null;
+}
+
+/**
+ * Derive operating states from scraped store data.
+ * Extracts unique 2-letter state codes from store address fields.
+ */
+function deriveOperatingStatesFromStores(stores: any[]): string[] {
+  const states = new Set<string>();
+
+  for (const store of stores) {
+    // Skip placeholder count objects
+    if (store._count || store._note) continue;
+
+    // Try state field directly
+    if (store.state) {
+      const code = store.state.trim().toUpperCase();
+      if (US_STATE_CODES.has(code)) {
+        states.add(code);
+      }
+    }
+
+    // Try to extract from address string (e.g. "123 Main St, City, TX 78701")
+    const addr = store.address || store.full_address || "";
+    if (addr) {
+      // Match ", ST " or ", ST\n" or ", STATE ZIP" patterns
+      const stateMatch = addr.match(/,\s*([A-Z]{2})\s+\d{5}/i)
+        || addr.match(/,\s*([A-Z]{2})\s*$/i)
+        || addr.match(/\b([A-Z]{2})\s+\d{5}\b/);
+      if (stateMatch) {
+        const code = stateMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+
+    // Try city_state combined field
+    if (store.city_state) {
+      const csMatch = store.city_state.match(/,\s*([A-Z]{2})\s*$/i)
+        || store.city_state.match(/\b([A-Z]{2})\s*$/i);
+      if (csMatch) {
+        const code = csMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+  }
+
+  return Array.from(states).sort();
+}
+
+/**
+ * Phase 3: Self-QA validation — catch common enrichment mistakes before saving.
+ * Returns { issues: string[], fixes: Record<string, any> | null }
+ */
+function validateEnrichmentResults(data: any, stores: any[]): { issues: string[]; fixes: any | null } {
+  const issues: string[] = [];
+  const fixes: any = {};
+
+  // 1. Store count sanity — align count with actual array length
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  const countPlaceholder = stores.find((s) => s._count);
+  if (realStores.length > 0 && data.store_count !== realStores.length) {
+    issues.push(`store_count mismatch: data says ${data.store_count}, actual array has ${realStores.length}`);
+    fixes.store_count = realStores.length;
+  } else if (realStores.length === 0 && countPlaceholder?._count) {
+    // We only have a count placeholder (e.g. "39 Locations" parsed from text)
+    if (data.store_count !== countPlaceholder._count) {
+      issues.push(`store_count placeholder: using parsed count ${countPlaceholder._count}`);
+      fixes.store_count = countPlaceholder._count;
+    }
+  }
+
+  // 2. Logo URL sanity — reject common false-positive patterns
+  if (data.logo_url) {
+    const logoLower = data.logo_url.toLowerCase();
+    const isBadLogo =
+      /spacer|pixel|blank|1x1|tracking|beacon|clear\.gif/i.test(logoLower) ||
+      /\.gif$/i.test(logoLower) && /spacer|blank|pixel|1x1/i.test(logoLower) ||
+      logoLower.includes("data:image/gif") ||
+      logoLower.includes("data:image/svg") && logoLower.length < 200;
+
+    if (isBadLogo) {
+      issues.push(`logo_url looks like a tracking pixel or spacer: ${data.logo_url.substring(0, 80)}`);
+      fixes.logo_url = null;
+    }
+  }
+
+  // 3. Company name cleanup — strip common suffixes
+  if (data.company_name) {
+    let cleaned = data.company_name
+      .replace(/\s*[|–-]\s*(Home|Homepage|Welcome|Official Site|Official Website)\s*$/i, "")
+      .replace(/\s*(Home|Homepage)\s*$/i, "")
+      .trim();
+
+    // Also strip leading "Welcome to " or "Home | "
+    cleaned = cleaned
+      .replace(/^(?:Welcome\s+to\s+|Home\s*[|–-]\s*)/i, "")
+      .trim();
+
+    if (cleaned !== data.company_name) {
+      issues.push(`company_name cleaned: "${data.company_name}" → "${cleaned}"`);
+      fixes.company_name = cleaned;
+    }
+  }
+
+  // 4. State code validation — filter out invalid codes
+  if (data.operating_states && Array.isArray(data.operating_states)) {
+    const validStates = data.operating_states.filter((s: string) =>
+      typeof s === "string" && US_STATE_CODES.has(s.toUpperCase())
+    );
+    if (validStates.length !== data.operating_states.length) {
+      const invalid = data.operating_states.filter((s: string) =>
+        typeof s !== "string" || !US_STATE_CODES.has(s.toUpperCase())
+      );
+      issues.push(`invalid state codes removed: ${invalid.join(", ")}`);
+      fixes.operating_states = validStates;
+    }
+  }
+
+  // 5. Ensure stores array is clean (no placeholder objects in the stored data)
+  if (data.stores && Array.isArray(data.stores)) {
+    const cleanStores = data.stores.filter((s: any) => !s._count && !s._note);
+    if (cleanStores.length !== data.stores.length) {
+      issues.push(`removed ${data.stores.length - cleanStores.length} placeholder store objects`);
+      fixes.stores = cleanStores;
+    }
+  }
+
+  return {
+    issues,
+    fixes: Object.keys(fixes).length > 0 ? fixes : null,
+  };
+}
+
+/**
+ * Phase 5: AI-powered location extraction when regex fails on JS-rendered pages.
+ * Uses GPT-4o-mini to parse store addresses from HTML that regex couldn't handle.
+ */
+async function extractStoresWithAI(locatorHtml: string, domain: string): Promise<any[]> {
+  if (!OPENAI_API_KEY) {
+    console.warn("[Onboarding] No OpenAI key, skipping AI store extraction");
+    return [];
+  }
+
+  // Pre-check: skip if HTML has no address/location indicators
+  const hasAddressIndicators = /\d{5}|address|location|store|branch/i.test(locatorHtml);
+  if (!hasAddressIndicators) {
+    console.log("[Onboarding] Locations page has no address indicators, skipping AI extraction");
+    return [];
+  }
+
+  try {
+    // Truncate to 20K chars for token limits
+    const truncatedHtml = locatorHtml.substring(0, 20000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You extract store/location addresses from HTML content. Return JSON only.
+
+Look for:
+- Individual store addresses with street, city, state, zip
+- Store names/numbers
+- Phone numbers
+
+If you can identify individual locations, return them. If you can only determine a total count, return that.
+
+Return JSON: { "stores": [...], "estimated_count": number }
+Each store: { "name": string|null, "address": string|null, "city": string|null, "state": string|null, "zip": string|null, "phone": string|null }`
+          },
+          {
+            role: "user",
+            content: `Extract store locations from this ${domain} locations page HTML:
+
+${truncatedHtml}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Onboarding] AI store extraction API error: ${response.status}`);
+      return [];
+    }
+
+    const aiResult = await response.json();
+    const aiData = JSON.parse(aiResult.choices[0].message.content);
+
+    if (aiData.stores && Array.isArray(aiData.stores) && aiData.stores.length > 0) {
+      // Filter out empty/invalid stores
+      const validStores = aiData.stores.filter((s: any) =>
+        s.address || s.city || s.name
+      );
+      console.log(`[Onboarding] AI extracted ${validStores.length} stores (raw: ${aiData.stores.length})`);
+      return validStores;
+    }
+
+    // If AI found a count but no individual stores, return a count placeholder
+    if (aiData.estimated_count && aiData.estimated_count > 0) {
+      console.log(`[Onboarding] AI estimated ${aiData.estimated_count} stores but couldn't parse details`);
+      return [{ _count: aiData.estimated_count, _note: "AI estimated count, details not parseable" }];
+    }
+
+    return [];
+  } catch (error: any) {
+    console.error("[Onboarding] AI store extraction failed:", error.message || error);
+    return [];
   }
 }
 
@@ -7822,8 +8326,15 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     const logoAltMatch = html.match(/<img[^>]*(?:class|id)=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']+)["']/i)
       || html.match(/<img[^>]*alt=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*logo[^"']*["']/i)
       || html.match(/<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]*alt=["']([^"']+)["']/i);
-    if (logoAltMatch && logoAltMatch[1].trim().length > 1 && logoAltMatch[1].trim().length < 50) {
-      data.company_name = logoAltMatch[1].trim();
+    if (logoAltMatch) {
+      // Clean the alt text: strip common suffixes like "Logo", "Icon", "Image"
+      let altName = logoAltMatch[1].trim()
+        .replace(/\s*[-–|]\s*(logo|icon|image|banner|brand|img)$/i, '')
+        .replace(/\s+(logo|icon|image|banner|brand|img)$/i, '')
+        .trim();
+      if (altName.length > 1 && altName.length < 50) {
+        data.company_name = altName;
+      }
     }
   }
 
@@ -7882,45 +8393,111 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     data.company_name = capitalizeWords(domainFallback);
   }
 
-  // Extract logo - expanded patterns
-  const logoPatterns = [
-    // Header logo images (most common)
-    /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
-    /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
-    /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
-    // Logo in alt text
-    /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
-    // SVG logos
-    /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    // Fallback to og:image
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-    /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
-    // Apple touch icon (usually a good square logo)
-    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
-    // Favicon as last resort
-    /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
-  ];
+  // Extract logo - smart selection with domain awareness
+  const siteDomain = new URL(url).hostname.replace("www.", "");
 
-  for (const pattern of logoPatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      let logoUrl = match[1];
-      // Skip data URIs, tiny images, and tracking pixels
-      if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) continue;
-      // Make relative URLs absolute
-      if (logoUrl.startsWith("//")) {
-        logoUrl = "https:" + logoUrl;
-      } else if (logoUrl.startsWith("/")) {
-        logoUrl = new URL(logoUrl, url).toString();
-      } else if (!logoUrl.startsWith("http")) {
-        logoUrl = new URL(logoUrl, url).toString();
+  // Helper: check if a URL belongs to the same domain as the site
+  const isSameDomain = (imgUrl: string): boolean => {
+    try {
+      if (imgUrl.startsWith("/") && !imgUrl.startsWith("//")) return true;
+      if (!imgUrl.startsWith("http") && !imgUrl.startsWith("//")) return true;
+      const imgDomain = new URL(imgUrl.startsWith("//") ? "https:" + imgUrl : imgUrl).hostname.replace("www.", "");
+      return imgDomain === siteDomain;
+    } catch { return true; }
+  };
+
+  // Helper: normalize a logo URL to absolute
+  const normalizeLogoUrl = (logoUrl: string): string | null => {
+    if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) return null;
+    // Resolve Shopify responsive image templates: {width}x → 300x
+    if (logoUrl.includes("{width}")) {
+      logoUrl = logoUrl.replace("{width}", "300");
+    }
+    if (logoUrl.startsWith("//")) return "https:" + logoUrl;
+    if (logoUrl.startsWith("/")) return new URL(logoUrl, url).toString();
+    if (!logoUrl.startsWith("http")) return new URL(logoUrl, url).toString();
+    return logoUrl;
+  };
+
+  // Strategy 1: Find logo inside a link to the site's own homepage (most reliable)
+  // Pattern: <a href="https://site.com/"> ... <img src="logo.png"> ... </a>
+  const homepageLinkLogoMatch = html.match(
+    /<a[^>]*href=["'](?:https?:\/\/(?:www\.)?)?(?:\/|[^"']*?(?:\/|\/index\.html?))["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/i
+  );
+  // Also try: header links that point to the domain root
+  const headerHomeLinkMatches = html.matchAll(
+    /<header[^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/gi
+  );
+  for (const match of headerHomeLinkMatches) {
+    const linkHref = match[1];
+    const imgSrc = match[2];
+    // Check if this link points to the homepage (/, /index, or the full domain URL)
+    const isHomepageLink = linkHref === "/" ||
+      linkHref === url ||
+      linkHref === `https://${siteDomain}/` ||
+      linkHref === `https://www.${siteDomain}/` ||
+      linkHref === `http://${siteDomain}/` ||
+      linkHref === `http://www.${siteDomain}/`;
+    if (isHomepageLink && isSameDomain(imgSrc)) {
+      const normalized = normalizeLogoUrl(imgSrc);
+      if (normalized) {
+        data.logo_url = normalized;
+        break;
       }
-      data.logo_url = logoUrl;
-      break;
+    }
+  }
+
+  // Strategy 2: Use pattern-based matching if homepage link strategy didn't work
+  if (!data.logo_url) {
+    const logoPatterns = [
+      // Logo class/id patterns (very reliable)
+      /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
+      /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+      // Logo in alt text
+      /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
+      // SVG logos
+      /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      // Header logo (fallback - first img in header, but prefer same-domain)
+      /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
+      // Fallback to og:image
+      /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+      // Apple touch icon (usually a good square logo)
+      /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+      // Favicon as last resort
+      /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
+    ];
+
+    for (const pattern of logoPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const logoUrl = match[1];
+        // Prefer same-domain images; skip external domain logos (e.g., rewards program logos)
+        if (!isSameDomain(logoUrl)) continue;
+        const normalized = normalizeLogoUrl(logoUrl);
+        if (normalized) {
+          data.logo_url = normalized;
+          break;
+        }
+      }
+    }
+
+    // If no same-domain logo found, retry without domain filter (some companies host logos on CDNs)
+    if (!data.logo_url) {
+      for (const pattern of logoPatterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          const normalized = normalizeLogoUrl(match[1]);
+          if (normalized) {
+            data.logo_url = normalized;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -8135,7 +8712,42 @@ function extractStoresFromHTML(html: string): any[] {
     }
   }
 
-  return stores.slice(0, 100); // Cap at 100 for performance
+  // Filter out garbage stores whose fields contain HTML fragments
+  // (e.g. Shopify product availability modals, nav menus parsed as stores)
+  const cleanStores = stores.filter((store) => {
+    const fields = [store.name, store.address, store.city, store.state, store.zip, store.phone]
+      .filter(Boolean)
+      .join(" ");
+    // Reject if fields contain HTML tags, class/id attributes, or CSS selectors
+    if (/<[a-z][^>]*>/i.test(fields)) return false;
+    if (/\bclass\s*=\s*["']/i.test(fields)) return false;
+    if (/\bid\s*=\s*["']/i.test(fields)) return false;
+    if (/\bdata-[a-z]+=["']/i.test(fields)) return false;
+    // Reject if address is suspiciously short (< 5 chars) or missing entirely
+    if (!store.address && !store.city && !store.zip && !store.name) return false;
+    return true;
+  });
+
+  // Deduplicate stores - many sites render the same store multiple times
+  // (e.g. accordion expand/collapse, responsive views, summary + detail cards)
+  const seen = new Set<string>();
+  const uniqueStores = cleanStores.filter((store) => {
+    // Build a dedup key from address+zip or name
+    const addrKey = [
+      (store.address || '').replace(/\s+/g, ' ').trim().toLowerCase(),
+      (store.zip || '').trim(),
+    ].join('|');
+    const nameKey = (store.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // Use address+zip as primary key, fall back to name
+    const key = addrKey !== '|' ? addrKey : nameKey;
+    if (!key || key === '|') return true; // Keep stores we can't dedup
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueStores.slice(0, 100); // Cap at 100 for performance
 }
 
 /**
@@ -8194,16 +8806,35 @@ function parseStructuredStore(item: any): any {
 }
 
 /**
- * Use AI to enhance and classify scraped data
+ * Use AI to enhance and classify scraped data.
+ * Phase 4: Now accepts optional locatorHtml for multi-page analysis.
  */
-async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Promise<any> {
+async function enrichWithAI(scrapedData: any, html: string, stores: any[], locatorHtml?: string): Promise<any> {
   if (!OPENAI_API_KEY) {
     console.warn("[Onboarding] No OpenAI key, skipping AI enrichment");
     return { ...scrapedData, stores, services: [], industry: null };
   }
 
-  // Truncate HTML to avoid token limits
-  const truncatedHtml = html.substring(0, 15000);
+  // Phase 4: Reduce homepage slice to make room for locations page content
+  const homepageSlice = html.substring(0, locatorHtml ? 12000 : 15000);
+
+  // Build combined content: homepage + locations page + sample store data
+  let combinedContent = `Homepage content (truncated):\n${homepageSlice}`;
+
+  if (locatorHtml && locatorHtml.length > 100) {
+    combinedContent += `\n\n--- LOCATIONS PAGE (truncated) ---\n${locatorHtml.substring(0, 5000)}`;
+  }
+
+  // Include sample store data if available (first 5 stores for context)
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  if (realStores.length > 0) {
+    const sample = realStores.slice(0, 5).map((s) =>
+      [s.name, s.address, s.city, s.state, s.zip].filter(Boolean).join(", ")
+    );
+    combinedContent += `\n\n--- SAMPLE STORES (${realStores.length} total) ---\n${sample.join("\n")}`;
+  }
+
+  const truncatedHtml = combinedContent;
 
   try {
     // Fetch industries from database to use actual codes in the prompt
@@ -8241,8 +8872,9 @@ Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, ph
 Analyze the website content and determine:
 1. The company's industry (use the industry CODE only, e.g., "cstore" not "Convenience Stores")
 2. What services they likely offer based on the website content
-3. A brief description of the company
-4. Operating states if mentioned`
+3. A brief description of the company (1-2 sentences)
+4. Operating states as 2-letter state codes (e.g. "TX", "FL"). Look for state names in the text like "Texas" → "TX"
+5. Total number of store/location count if mentioned anywhere on the site (e.g. "25 stores" → 25)`
           },
           {
             role: "user",
@@ -8252,7 +8884,7 @@ Website: ${scrapedData.website}
 Website content (truncated):
 ${truncatedHtml}
 
-Return JSON with: { industry, services: [], description, operating_states: [] }`
+Return JSON with: { industry, services: [], description, operating_states: [], store_count: 0 }`
           }
         ],
         response_format: { type: "json_object" },
@@ -8275,7 +8907,7 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
       description: aiData.description || null,
       operating_states: aiData.operating_states || [],
       stores: stores,
-      store_count: stores.length,
+      store_count: stores.length > 0 ? stores.length : (aiData.store_count || 0),
     };
   } catch (error: any) {
     console.error("[Onboarding] AI enrichment failed:", error);
@@ -8284,21 +8916,17 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
 }
 
 /**
- * Use Claude Vision to extract company info from a screenshot of the website
- * This is used as a fallback when HTML parsing doesn't work well
+ * Phase 6: Use Claude to extract company info from actual HTML content.
+ * Enhanced fallback that sends real HTML instead of just a URL.
  */
-async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Promise<any | null> {
+async function enrichWithClaudeVision(websiteUrl: string, existingData: any, homepageHtml?: string, locatorHtml?: string): Promise<any | null> {
   if (!ANTHROPIC_API_KEY) {
-    console.warn("[Onboarding] No Anthropic API key, skipping Claude Vision fallback");
+    console.warn("[Onboarding] No Anthropic API key, skipping Claude fallback");
     return null;
   }
 
   try {
-    // Use a screenshot service or fetch the page and use vision
-    // For now, we'll use the URL directly with Claude's web capabilities
-    // In production, you might use a service like screenshotapi.net or similar
-
-    console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
+    console.log(`[Onboarding] Calling Claude fallback for: ${websiteUrl} (html: ${homepageHtml ? homepageHtml.length : 0} chars, locator: ${locatorHtml ? locatorHtml.length : 0} chars)`);
 
     // Fetch industries from database to use actual codes in the prompt
     const { data: industries } = await supabase
@@ -8311,6 +8939,43 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
       .filter(i => i.code)
       .map(i => `${i.code} (${i.name})`)
       .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
+    // Build content with actual HTML when available
+    let contentParts: string[] = [];
+
+    contentParts.push(`I need to extract company information from this website: ${websiteUrl}`);
+
+    // Include actual HTML for Claude to analyze
+    if (homepageHtml && homepageHtml.length > 200) {
+      contentParts.push(`\n--- HOMEPAGE HTML (truncated) ---\n${homepageHtml.substring(0, 10000)}`);
+    }
+
+    if (locatorHtml && locatorHtml.length > 200) {
+      contentParts.push(`\n--- LOCATIONS PAGE HTML (truncated) ---\n${locatorHtml.substring(0, 5000)}`);
+    }
+
+    contentParts.push(`
+Based on the HTML content above (or the domain if no HTML provided), please:
+1. Find the company's LOGO URL — look for <img> tags with "logo" in class, id, alt, or src. Return the full absolute URL.
+2. Determine the clean company name (just the brand name, no taglines or "Home |" prefixes)
+3. What industry they're in. Use the CODE only from this list: ${industryList}
+4. What services they offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
+
+I already scraped this data but it might be incomplete or wrong:
+- Company name: ${existingData.company_name || "unknown"}
+- Logo: ${existingData.logo_url || "MISSING"}
+- Industry: ${existingData.industry || "unknown"}
+- Services: ${JSON.stringify(existingData.services || [])}
+
+IMPORTANT: Look carefully in the HTML for logo image URLs. Check <img> tags, <link rel="icon">, og:image meta tags, and any image with "logo" in the path or attributes.
+
+Return JSON only:
+{
+  "company_name": "Clean Company Name",
+  "industry": "industry_code",
+  "services": ["service1", "service2"],
+  "logo_url": "absolute URL to the logo image, or null if not found"
+}`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -8325,25 +8990,7 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
         messages: [
           {
             role: "user",
-            content: `I need to extract company information from a website. The URL is: ${websiteUrl}
-
-Based on the domain and what you know, please provide:
-1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
-2. What industry they're likely in. Use the CODE only from this list: ${industryList}
-3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
-
-I already scraped this data but it might be wrong:
-- Company name: ${existingData.company_name || "unknown"}
-- Industry: ${existingData.industry || "unknown"}
-- Services: ${JSON.stringify(existingData.services || [])}
-
-Please correct any issues and return JSON only:
-{
-  "company_name": "Clean Company Name",
-  "industry": "industry_code",
-  "services": ["service1", "service2"],
-  "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
-}`,
+            content: contentParts.join("\n"),
           },
         ],
       }),
@@ -8743,6 +9390,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Validate logo if provided
     let validatedLogoUrl: string | null = null;
     let logoValidation = null;
+    console.log(`[Onboarding] Session collected_data logo_url: ${data.logo_url || 'MISSING'}`);
     if (data.logo_url) {
       console.log(`[Onboarding] Validating logo: ${data.logo_url}`);
       logoValidation = await validateLogoUrl(data.logo_url);
@@ -8762,6 +9410,8 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         subdomain: finalSubdomain,
         website: data.website,
         logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
         status: "demo",
         demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
         industry: data.industry,
@@ -8954,11 +9604,13 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
+      // Use request origin for dev/staging, fallback to production URL
+      const frontendOrigin = req.headers.get('origin') || 'https://app.trike.app';
       const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
         type: "magiclink",
         email: data.contact_email,
         options: {
-          redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/dashboard`,
+          redirectTo: `${frontendOrigin}/?demo_org_id=${org.id}`,
         },
       });
 
@@ -9189,7 +9841,7 @@ async function sendEmailViaResend(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: params.from || "Trike <noreply@notifications.trike.co>",
+        from: params.from || Deno.env.get("EMAIL_FROM_ADDRESS") || "Trike <noreply@notifications.trike.co>",
         to: params.to,
         subject: params.subject,
         html: params.html,
@@ -17201,5 +17853,696 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ success: false, error: error.message || "Publish failed" }, 500);
+  }
+}
+
+// =============================================================================
+// UNIFIED DEMO CREATION
+// =============================================================================
+
+/**
+ * POST /demo/create
+ * Unified demo creation: optionally enrich from website, create org + auth user,
+ * provision demo content, return magic link. Used by both admin single-create
+ * and batch-create flows.
+ */
+async function handleDemoCreate(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const {
+      url: websiteUrl,
+      organization_name,
+      contact_email,
+      contact_name,
+      demo_days = 14,
+      industry,
+      operating_states,
+    } = body;
+
+    if (!contact_email) {
+      return jsonResponse({ error: "contact_email is required" }, 400);
+    }
+
+    if (!websiteUrl && !organization_name) {
+      return jsonResponse({ error: "Either url or organization_name is required" }, 400);
+    }
+
+    console.log(`[DemoCreate] Starting for ${websiteUrl || organization_name} (${contact_email})`);
+
+    // Step 1: Enrich from website if URL provided
+    let enrichedData: any = {};
+    if (websiteUrl) {
+      try {
+        let normalizedUrl = websiteUrl.trim().toLowerCase();
+        if (!normalizedUrl.startsWith("http")) {
+          normalizedUrl = "https://" + normalizedUrl;
+        }
+
+        const domain = new URL(normalizedUrl).hostname.replace("www.", "");
+        const domainName = domain.split(".")[0];
+
+        const response = await fetch(normalizedUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          enrichedData = await extractCompanyDataFromHTML(html, normalizedUrl, domainName);
+
+          if (!enrichedData.logo_url) {
+            const externalLogo = await tryExternalLogoFallback(domain);
+            if (externalLogo) enrichedData.logo_url = externalLogo;
+          }
+        } else {
+          enrichedData.company_name = capitalizeWords(domainName);
+        }
+
+        enrichedData.website = normalizedUrl;
+      } catch (enrichErr: any) {
+        console.error(`[DemoCreate] Enrichment failed:`, enrichErr.message);
+        enrichedData.website = websiteUrl;
+      }
+    }
+
+    const companyName = enrichedData.company_name || organization_name || "Demo Company";
+    const subdomain = companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .substring(0, 30);
+
+    const { data: existing } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .single();
+
+    const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
+
+    // Validate logo
+    let validatedLogoUrl: string | null = null;
+    if (enrichedData.logo_url) {
+      const logoValidation = await validateLogoUrl(enrichedData.logo_url);
+      if (logoValidation.url && logoValidation.quality !== "poor") {
+        validatedLogoUrl = logoValidation.url;
+      }
+    }
+
+    // Step 2: Create organization
+    const demoExpiry = new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .insert({
+        name: companyName,
+        subdomain: finalSubdomain,
+        website: enrichedData.website || null,
+        logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
+        status: "prospect",
+        demo_expires_at: demoExpiry,
+        industry: industry || enrichedData.industry || null,
+        operating_states: operating_states || enrichedData.operating_states || [],
+        onboarding_source: "admin",
+        scraped_data: enrichedData,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+    console.log(`[DemoCreate] Created org: ${org.name} (${org.id})`);
+
+    // Step 3: Create admin role
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .insert({
+        organization_id: org.id,
+        name: "Admin",
+        description: "Full administrative access",
+        level: 3,
+        permissions: JSON.stringify([
+          "manage_users", "manage_content", "manage_assignments",
+          "manage_settings", "view_reports", "manage_compliance",
+        ]),
+      })
+      .select()
+      .single();
+
+    // Step 4: Create auth user + user record
+    const tempPassword = crypto.randomUUID().substring(0, 16) + "!Aa1";
+    let magicLink: string | null = null;
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: contact_email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: {
+        organization_id: org.id,
+        full_name: contact_name || "",
+      },
+    });
+
+    if (authError) {
+      console.error("[DemoCreate] Failed to create auth user:", authError);
+    }
+
+    if (authUser?.user) {
+      const nameParts = (contact_name || "Admin User").trim().split(/\s+/);
+      const firstName = nameParts[0] || "Admin";
+      const lastName = nameParts.slice(1).join(" ") || "User";
+
+      await supabase.from("users").insert({
+        organization_id: org.id,
+        role_id: adminRole?.id || null,
+        auth_user_id: authUser.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        email: contact_email,
+        status: "active",
+        metadata: { onboarded_at: new Date().toISOString(), source: "admin_demo_create" },
+      });
+
+      // Generate magic link
+      const { data: linkData } = await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: contact_email,
+      });
+      if (linkData?.properties?.action_link) {
+        magicLink = linkData.properties.action_link;
+      }
+    }
+
+    // Step 5: Provision demo content (compliance topics + sample tracks)
+    let topicsCloned = 0;
+    let tracksCloned = 0;
+
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      const topicsToInsert = globalTopics.map((t: any, i: number) => ({
+        organization_id: org.id,
+        topic_id: t.id,
+        is_active: true,
+        priority: i,
+        added_during: "admin_demo",
+      }));
+      const { error: topicsErr } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+      if (!topicsErr) topicsCloned = topicsToInsert.length;
+    }
+
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    if (templateTracks && templateTracks.length > 0) {
+      const tracksToInsert = templateTracks.map((t: any) => ({
+        organization_id: org.id,
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        content_url: t.content_url,
+        thumbnail_url: t.thumbnail_url,
+        duration_minutes: t.duration_minutes,
+        tags: t.tags,
+        status: "published",
+        is_demo_content: true,
+      }));
+      const { error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert);
+      if (!tracksErr) tracksCloned = tracksToInsert.length;
+    }
+
+    // Step 6: Create a deal record
+    await supabase.from("deals").insert({
+      organization_id: org.id,
+      name: `${companyName} - Demo`,
+      stage: "evaluating",
+      deal_type: "new",
+      probability: 50,
+    });
+
+    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned}`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        demo_expires_at: org.demo_expires_at,
+      },
+      magic_link: magicLink,
+      enriched_data: enrichedData.company_name ? enrichedData : undefined,
+      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned },
+    });
+  } catch (error: any) {
+    console.error("[DemoCreate] Error:", error);
+    return jsonResponse({ error: error.message || "Demo creation failed" }, 500);
+  }
+}
+
+// =============================================================================
+// DEMO PROVISIONING
+// =============================================================================
+
+/**
+ * Provision a demo environment for an existing prospect organization.
+ * Clones template content (compliance topics, sample tracks) into the org's namespace.
+ */
+async function handleDemoProvision(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id, demo_days = 14 } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    console.log(`[DemoProvision] Starting provisioning for org: ${organization_id}`);
+
+    // Step 1: Verify org exists
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Step 2: Update org status and set demo expiry
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + demo_days);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "prospect",
+        demo_expires_at: expiryDate.toISOString(),
+        onboarding_source: "sales_demo",
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[DemoProvision] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    console.log(`[DemoProvision] Org status updated, demo expires: ${expiryDate.toISOString()}`);
+
+    // Step 3: Clone template compliance topics into the org
+    // Get all global compliance topics (not org-specific)
+    let topicsCloned = 0;
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      // Check which topics are already assigned to avoid duplicates
+      const { data: existingTopics } = await supabase
+        .from("organization_compliance_topics")
+        .select("topic_id")
+        .eq("organization_id", organization_id);
+
+      const existingTopicIds = new Set((existingTopics || []).map((t: any) => t.topic_id));
+      const newTopics = globalTopics.filter((t: any) => !existingTopicIds.has(t.id));
+
+      if (newTopics.length > 0) {
+        const topicsToInsert = newTopics.map((topic: any, index: number) => ({
+          organization_id,
+          topic_id: topic.id,
+          is_active: true,
+          priority: index,
+          added_during: "sales_demo",
+        }));
+
+        const { error: topicsError } = await supabase
+          .from("organization_compliance_topics")
+          .insert(topicsToInsert);
+
+        if (topicsError) {
+          console.error("[DemoProvision] Failed to clone compliance topics:", topicsError);
+        } else {
+          topicsCloned = topicsToInsert.length;
+          console.log(`[DemoProvision] Cloned ${topicsCloned} compliance topics`);
+        }
+      }
+    }
+
+    // Step 4: Clone sample published tracks into the org
+    // Find published tracks from the Trike master org (if any) or any published tracks
+    let tracksCloned = 0;
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("id, title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    if (templateTracks && templateTracks.length > 0) {
+      // Check if org already has tracks to avoid duplicates
+      const { data: existingTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .limit(1);
+
+      if (!existingTracks || existingTracks.length === 0) {
+        const tracksToInsert = templateTracks.map((track: any) => ({
+          organization_id,
+          title: track.title,
+          description: track.description,
+          type: track.type,
+          content_url: track.content_url,
+          thumbnail_url: track.thumbnail_url,
+          duration_minutes: track.duration_minutes,
+          tags: track.tags,
+          status: "published",
+          is_demo_content: true,
+        }));
+
+        const { error: tracksError } = await supabase
+          .from("tracks")
+          .insert(tracksToInsert);
+
+        if (tracksError) {
+          console.error("[DemoProvision] Failed to clone tracks:", tracksError);
+        } else {
+          tracksCloned = tracksToInsert.length;
+          console.log(`[DemoProvision] Cloned ${tracksCloned} sample tracks`);
+        }
+      }
+    }
+
+    // Step 5: Update the deal stage if one exists
+    const { data: deal } = await supabase
+      .from("deals")
+      .select("id, stage")
+      .eq("organization_id", organization_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (deal && !["evaluating", "closing", "won", "lost"].includes(deal.stage)) {
+      const { error: dealError } = await supabase
+        .from("deals")
+        .update({ stage: "evaluating", updated_at: new Date().toISOString() })
+        .eq("id", deal.id);
+      if (dealError) {
+        console.error(`[DemoProvision] Failed to update deal ${deal.id}:`, dealError);
+      } else {
+        console.log(`[DemoProvision] Updated deal ${deal.id} to evaluating stage`);
+      }
+    }
+
+    console.log(`[DemoProvision] Complete! Org: ${org.name}`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        demo_expires_at: expiryDate.toISOString(),
+      },
+      provisioned: {
+        compliance_topics: topicsCloned,
+        sample_tracks: tracksCloned,
+        deal_updated: !!deal,
+      },
+    });
+  } catch (error: any) {
+    console.error("[DemoProvision] Error:", error);
+    return jsonResponse({ error: error.message || "Demo provisioning failed" }, 500);
+  }
+}
+
+// =============================================================================
+// eSignatures.io CONTRACT HANDLERS
+// =============================================================================
+
+/**
+ * Send a contract for e-signature via eSignatures.io
+ * POST /contracts/send
+ * Body: { deal_id, template_id, signer_name, signer_email, metadata? }
+ */
+async function handleContractSend(req: Request): Promise<Response> {
+  const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+  if (!ESIG_TOKEN) {
+    return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { deal_id, template_id, signer_name, signer_email, metadata } = body;
+
+  if (!deal_id || !template_id || !signer_name || !signer_email) {
+    return jsonResponse(
+      { error: "deal_id, template_id, signer_name, and signer_email are required" },
+      400
+    );
+  }
+
+  // Send contract via eSignatures.io API
+  const esigResponse = await fetch(
+    `https://esignatures.com/api/contracts?token=${ESIG_TOKEN}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id,
+        signers: [{ name: signer_name, email: signer_email }],
+        metadata: JSON.stringify({ deal_id, ...metadata }),
+        title: `Agreement for ${signer_name}`,
+      }),
+    }
+  );
+
+  if (!esigResponse.ok) {
+    const errText = await esigResponse.text();
+    return jsonResponse({ error: "Failed to send contract", details: errText }, 500);
+  }
+
+  const esigData = await esigResponse.json();
+  const contractId = esigData.data?.contract?.id;
+
+  // Update deal with contract info
+  await supabase
+    .from("deals")
+    .update({
+      contract_id: contractId,
+      contract_status: "sent",
+      contract_signer_email: signer_email,
+    })
+    .eq("id", deal_id);
+
+  // Log activity
+  await supabase.from("deal_activities").insert({
+    deal_id,
+    activity_type: "system",
+    description: `Contract sent to ${signer_email}`,
+    metadata: { contract_id: contractId },
+  });
+
+  return jsonResponse({ success: true, contract_id: contractId });
+}
+
+/**
+ * Handle webhook events from eSignatures.io
+ * POST /contracts/webhook
+ * Body: { status, contract: { id, signers, metadata } }
+ */
+async function handleContractWebhook(req: Request): Promise<Response> {
+  const body = await req.json();
+  const { status, contract } = body;
+
+  if (!contract?.id) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
+  }
+
+  const contractId = contract.id;
+  const signerEmail = contract.signers?.[0]?.email;
+  let metadata: any = {};
+  try {
+    metadata = JSON.parse(contract.metadata || "{}");
+  } catch {
+    // ignore parse errors
+  }
+
+  const dealId = metadata.deal_id;
+  if (!dealId) {
+    return jsonResponse({ error: "No deal_id in contract metadata" }, 400);
+  }
+
+  // Map eSignatures.io event to deal status
+  let contractStatus = "sent";
+  let activityDesc = "";
+
+  switch (status) {
+    case "signer-viewed-the-contract":
+      contractStatus = "viewed";
+      activityDesc = `Contract viewed by ${signerEmail}`;
+      break;
+    case "signer-signed":
+    case "contract-signed":
+      contractStatus = "signed";
+      activityDesc = `Contract signed by ${signerEmail}`;
+      break;
+    case "signer-declined":
+      contractStatus = "declined";
+      activityDesc = `Contract declined by ${signerEmail}`;
+      break;
+    case "contract-withdrawn":
+      contractStatus = "withdrawn";
+      activityDesc = "Contract withdrawn";
+      break;
+    default:
+      activityDesc = `Contract event: ${status}`;
+  }
+
+  // Update deal
+  const updateFields: Record<string, any> = { contract_status: contractStatus };
+  if (contractStatus === "signed") {
+    updateFields.contract_signed_at = new Date().toISOString();
+  }
+
+  await supabase.from("deals").update(updateFields).eq("id", dealId);
+
+  // Log activity
+  if (activityDesc) {
+    await supabase.from("deal_activities").insert({
+      deal_id: dealId,
+      activity_type: "system",
+      description: activityDesc,
+      metadata: { contract_id: contractId, event: status },
+    });
+  }
+
+  return jsonResponse({ success: true });
+}
+
+// =============================================================================
+// STRIPE BILLING HANDLERS
+// =============================================================================
+
+async function handleBillingSetupIntent(req: Request): Promise<Response> {
+  const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!STRIPE_KEY) {
+    return jsonResponse({ error: "Stripe not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { organization_id } = body;
+  if (!organization_id) {
+    return jsonResponse({ error: "organization_id is required" }, 400);
+  }
+
+  // Get org details
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("id, name, stripe_customer_id")
+    .eq("id", organization_id)
+    .single();
+
+  if (!org) {
+    return jsonResponse({ error: "Organization not found" }, 404);
+  }
+
+  const stripeHeaders = {
+    Authorization: `Bearer ${STRIPE_KEY}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+
+  let customerId = org.stripe_customer_id;
+
+  // Create Stripe customer if needed
+  if (!customerId) {
+    const custResp = await fetch("https://api.stripe.com/v1/customers", {
+      method: "POST",
+      headers: stripeHeaders,
+      body: new URLSearchParams({
+        name: org.name,
+        "metadata[organization_id]": organization_id,
+      }),
+    });
+    const custData = await custResp.json();
+    if (custData.error) {
+      return jsonResponse({ error: custData.error.message || "Failed to create Stripe customer" }, 500);
+    }
+    customerId = custData.id;
+
+    // Save customer ID
+    await supabase
+      .from("organizations")
+      .update({ stripe_customer_id: customerId })
+      .eq("id", organization_id);
+  }
+
+  // Create SetupIntent
+  const siResp = await fetch("https://api.stripe.com/v1/setup_intents", {
+    method: "POST",
+    headers: stripeHeaders,
+    body: new URLSearchParams({
+      customer: customerId,
+      "payment_method_types[]": "card",
+      "metadata[organization_id]": organization_id,
+    }),
+  });
+  const siData = await siResp.json();
+  if (siData.error) {
+    return jsonResponse({ error: siData.error.message || "Failed to create SetupIntent" }, 500);
+  }
+
+  return jsonResponse({
+    client_secret: siData.client_secret,
+    customer_id: customerId,
+  });
+}
+
+async function handleBillingWebhook(req: Request): Promise<Response> {
+  const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  // Read raw body for signature verification
+  const rawBody = await req.text();
+
+  // Verify webhook signature if secret is configured
+  if (STRIPE_WEBHOOK_SECRET) {
+    const sig = req.headers.get("stripe-signature");
+    // Note: In production, verify signature using Stripe's algorithm
+    // For now, proceed with basic validation
+    if (!sig) {
+      return jsonResponse({ error: "Missing stripe-signature header" }, 400);
+    }
+  }
+
+  try {
+    const event = JSON.parse(rawBody);
+
+    if (event.type === "setup_intent.succeeded") {
+      const setupIntent = event.data.object;
+      const orgId = setupIntent.metadata?.organization_id;
+      const paymentMethodId = setupIntent.payment_method;
+
+      if (orgId && paymentMethodId) {
+        await supabase
+          .from("organizations")
+          .update({
+            stripe_payment_method_id: paymentMethodId,
+            billing_status: "payment_method_saved",
+          })
+          .eq("id", orgId);
+      }
+    }
+
+    return jsonResponse({ received: true });
+  } catch (err: any) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
   }
 }

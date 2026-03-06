@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Calendar, DollarSign, MoreHorizontal, User } from 'lucide-react';
+import { Building2, Calendar, Check, DollarSign, Map, MoreHorizontal, User } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
@@ -15,16 +15,28 @@ import { type Deal, STAGE_CONFIG } from './types';
 
 interface DealCardProps {
   deal: Partial<Deal>;
+  isSelected?: boolean;
+  isBulkMode?: boolean;
+  onToggleSelect?: (dealId: string) => void;
   onSelect?: (deal: Partial<Deal>) => void;
   onEdit?: (deal: Partial<Deal>) => void;
   onStageChange?: (deal: Partial<Deal>, newStage: string) => void;
+  onAddNote?: (deal: Partial<Deal>) => void;
+  onLogActivity?: (deal: Partial<Deal>) => void;
+  onViewJourney?: (deal: Partial<Deal>) => void;
 }
 
 export function DealCard({
   deal,
+  isSelected,
+  isBulkMode,
+  onToggleSelect,
   onSelect,
   onEdit,
   onStageChange,
+  onAddNote,
+  onLogActivity,
+  onViewJourney,
 }: DealCardProps) {
   const config = STAGE_CONFIG[deal.stage!];
 
@@ -55,18 +67,44 @@ export function DealCard({
     <Card
       className={cn(
         'cursor-pointer hover:shadow-md transition-all border-l-4',
-        config.borderColor
+        config.borderColor,
+        isSelected && 'ring-2 ring-primary bg-primary/5'
       )}
-      onClick={() => onSelect?.(deal)}
+      onClick={() => {
+        if (isBulkMode && deal.id) {
+          onToggleSelect?.(deal.id);
+        } else {
+          onSelect?.(deal);
+        }
+      }}
     >
       <CardContent className="p-3 space-y-3">
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <h4 className="font-medium text-sm truncate">{deal.name}</h4>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-              <Building2 className="h-3 w-3" />
-              <span className="truncate">{deal.organization?.name || 'Unknown'}</span>
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            {/* Bulk-select checkbox */}
+            {isBulkMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (deal.id) onToggleSelect?.(deal.id);
+                }}
+                className={cn(
+                  'mt-0.5 shrink-0 h-4 w-4 rounded border flex items-center justify-center transition-colors',
+                  isSelected
+                    ? 'bg-primary border-primary text-primary-foreground'
+                    : 'border-muted-foreground/50 hover:border-primary'
+                )}
+              >
+                {isSelected && <Check className="h-3 w-3" />}
+              </button>
+            )}
+            <div className="flex-1 min-w-0">
+              <h4 className="font-medium text-sm truncate">{deal.name}</h4>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                <Building2 className="h-3 w-3" />
+                <span className="truncate">{deal.organization?.name || 'Unknown'}</span>
+              </div>
             </div>
           </div>
           <DropdownMenu>
@@ -75,12 +113,16 @@ export function DealCard({
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => onEdit?.(deal)}>
-                Edit deal
+                Edit demo
               </DropdownMenuItem>
-              <DropdownMenuItem>Add note</DropdownMenuItem>
-              <DropdownMenuItem>Log activity</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onAddNote?.(deal)}>Add note</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onLogActivity?.(deal)}>Log activity</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onViewJourney?.(deal)}>
+                <Map className="h-4 w-4 mr-2" />
+                View journey
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onStageChange?.(deal, 'won')}
@@ -162,7 +204,7 @@ export function DealCard({
             <div className="flex items-center gap-1">
               <User className="h-3 w-3 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">
-                {deal.owner.first_name || deal.owner.display_name}
+                {`${deal.owner.first_name || ''} ${deal.owner.last_name || ''}`.trim() || deal.owner.email}
               </span>
             </div>
           )}

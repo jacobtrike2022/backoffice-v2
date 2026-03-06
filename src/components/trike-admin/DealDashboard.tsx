@@ -1,127 +1,74 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   TrendingUp,
   DollarSign,
   Users,
   Calendar,
-  ArrowUpRight,
-  ArrowDownRight,
   ChevronRight,
   Building2,
   Clock,
+  Zap,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { cn } from '../ui/utils';
-import { STAGE_CONFIG, PIPELINE_STAGES, type DealStage, type Deal } from './types';
+import { STAGE_CONFIG, PIPELINE_STAGES, type DealStage, type Deal, type PipelineSummary } from './types';
 import type { TrikeAdminView } from './TrikeAdminPage';
+import {
+  getPipelineSummary,
+  getPipelineMetrics,
+  getDeals,
+  getUpcomingActions
+} from '../../lib/crud/deals';
 
 interface DealDashboardProps {
   onNavigate: (view: TrikeAdminView) => void;
+  onProvisionDemo?: (orgId: string, orgName: string) => void;
 }
 
-// Mock data for development - will be replaced with real API calls
-const mockPipelineSummary = [
-  { stage: 'lead' as DealStage, count: 8, value: 45000, mrr: 3200 },
-  { stage: 'prospect' as DealStage, count: 12, value: 156000, mrr: 11200 },
-  { stage: 'evaluating' as DealStage, count: 6, value: 234000, mrr: 16800 },
-  { stage: 'closing' as DealStage, count: 3, value: 89000, mrr: 6400 },
-];
+export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProps) {
+  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<PipelineSummary[]>([]);
+  const [metrics, setMetrics] = useState({
+    totalValue: 0,
+    weightedValue: 0,
+    totalDeals: 0,
+    avgDealSize: 0,
+    totalMrr: 0
+  });
+  const [recentDeals, setRecentDeals] = useState<Deal[]>([]);
+  const [upcomingActions, setUpcomingActions] = useState<Deal[]>([]);
 
-const mockRecentDeals: Partial<Deal>[] = [
-  {
-    id: '1',
-    name: 'QuikTrip - Initial Contract',
-    stage: 'closing',
-    value: 45000,
-    mrr: 3200,
-    probability: 80,
-    expected_close_date: '2026-02-15',
-    organization: {
-      id: 'org-1',
-      name: 'QuikTrip',
-      industry: 'convenience_retail',
-    } as any,
-  },
-  {
-    id: '2',
-    name: "Casey's General - Expansion",
-    stage: 'evaluating',
-    value: 78000,
-    mrr: 5600,
-    probability: 60,
-    expected_close_date: '2026-03-01',
-    organization: {
-      id: 'org-2',
-      name: "Casey's General Stores",
-      industry: 'convenience_retail',
-    } as any,
-  },
-  {
-    id: '3',
-    name: 'Wawa - Pilot Program',
-    stage: 'prospect',
-    value: 32000,
-    mrr: 2300,
-    probability: 40,
-    expected_close_date: '2026-03-15',
-    organization: {
-      id: 'org-3',
-      name: 'Wawa',
-      industry: 'convenience_retail',
-    } as any,
-  },
-  {
-    id: '4',
-    name: 'RaceTrac - Enterprise',
-    stage: 'prospect',
-    value: 125000,
-    mrr: 8900,
-    probability: 35,
-    expected_close_date: '2026-04-01',
-    organization: {
-      id: 'org-4',
-      name: 'RaceTrac',
-      industry: 'convenience_retail',
-    } as any,
-  },
-];
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        setLoading(true);
+        const [
+          summaryData,
+          metricsData,
+          recentDealsData,
+          upcomingActionsData
+        ] = await Promise.all([
+          getPipelineSummary(),
+          getPipelineMetrics(),
+          getDeals({ limit: 5 }),
+          getUpcomingActions(14)
+        ]);
 
-const mockUpcomingActions = [
-  {
-    id: '1',
-    deal: 'QuikTrip',
-    action: 'Send revised proposal',
-    date: '2026-01-28',
-    daysUntil: 2,
-  },
-  {
-    id: '2',
-    deal: "Casey's General",
-    action: 'Schedule demo call',
-    date: '2026-01-29',
-    daysUntil: 3,
-  },
-  {
-    id: '3',
-    deal: 'Wawa',
-    action: 'Follow up on ROI analysis',
-    date: '2026-01-30',
-    daysUntil: 4,
-  },
-];
+        setSummary(summaryData);
+        setMetrics(metricsData);
+        setRecentDeals(recentDealsData);
+        setUpcomingActions(upcomingActionsData);
+      } catch (error) {
+        console.error('Error loading sales dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-export function DealDashboard({ onNavigate }: DealDashboardProps) {
-  const totalPipelineValue = mockPipelineSummary.reduce(
-    (sum, s) => sum + s.value,
-    0
-  );
-  const totalDeals = mockPipelineSummary.reduce((sum, s) => sum + s.count, 0);
-  const weightedValue = mockPipelineSummary.reduce(
-    (sum, s) => sum + s.value * (getDefaultProbability(s.stage) / 100),
-    0
-  );
+    loadDashboardData();
+  }, []);
 
   return (
     <div className="flex-1 overflow-auto">
@@ -129,14 +76,14 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Sales Pipeline</h1>
+            <h1 className="text-2xl font-bold">Prospect to Client Overview</h1>
             <p className="text-sm text-muted-foreground">
               Track and manage your prospect-to-client pipeline
             </p>
           </div>
           <Button onClick={() => onNavigate('pipeline')}>
             <TrendingUp className="h-4 w-4 mr-2" />
-            View Pipeline Board
+            View Demo Board
           </Button>
         </div>
       </div>
@@ -146,31 +93,31 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
         <div className="grid grid-cols-4 gap-4">
           <MetricCard
             title="Total Pipeline"
-            value={formatCurrency(totalPipelineValue)}
-            change={12}
+            value={formatCurrency(metrics.totalValue)}
             icon={DollarSign}
-            description="Active deal value"
+            description="Active demo value"
+            loading={loading}
           />
           <MetricCard
             title="Weighted Pipeline"
-            value={formatCurrency(weightedValue)}
-            change={8}
+            value={formatCurrency(metrics.weightedValue)}
             icon={TrendingUp}
             description="Probability-adjusted"
+            loading={loading}
           />
           <MetricCard
-            title="Active Deals"
-            value={totalDeals.toString()}
-            change={3}
-            icon={Building2}
-            description="In pipeline"
+          title="Active Demos"
+          value={metrics.totalDeals.toString()}
+          icon={Building2}
+          description="In pipeline"
+            loading={loading}
           />
           <MetricCard
-            title="Avg. Deal Size"
-            value={formatCurrency(totalPipelineValue / totalDeals)}
-            change={-2}
-            icon={Users}
-            description="Per deal"
+          title="Avg. Demo Size"
+          value={formatCurrency(metrics.avgDealSize)}
+          icon={Users}
+          description="Per demo"
+            loading={loading}
           />
         </div>
 
@@ -192,7 +139,7 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
           <CardContent>
             <div className="grid grid-cols-4 gap-4">
               {PIPELINE_STAGES.map((stage) => {
-                const stageData = mockPipelineSummary.find(
+                const stageData = summary.find(
                   (s) => s.stage === stage
                 );
                 const config = STAGE_CONFIG[stage];
@@ -202,7 +149,8 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
                     className={cn(
                       'p-4 rounded-lg border-2',
                       config.bgColor,
-                      config.borderColor
+                      config.borderColor,
+                      loading && 'animate-pulse opacity-50'
                     )}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -210,14 +158,14 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
                         {config.label}
                       </span>
                       <Badge variant="secondary" className="text-xs">
-                        {stageData?.count || 0}
+                        {stageData?.deal_count || 0}
                       </Badge>
                     </div>
                     <div className={cn('text-2xl font-bold', config.color)}>
-                      {formatCurrency(stageData?.value || 0)}
+                      {formatCurrency(stageData?.total_value || 0)}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {formatCurrency(stageData?.mrr || 0)}/mo MRR
+                      {formatCurrency(stageData?.total_mrr || 0)}/mo MRR
                     </div>
                   </div>
                 );
@@ -232,7 +180,7 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Recent Deals</CardTitle>
+                <CardTitle className="text-lg">Recent Demos</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -245,43 +193,69 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {mockRecentDeals.map((deal) => {
-                  const config = STAGE_CONFIG[deal.stage!];
-                  return (
-                    <div
-                      key={deal.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={cn(
-                            'h-10 w-10 rounded-lg flex items-center justify-center',
-                            config.bgColor
-                          )}
-                        >
-                          <Building2 className={cn('h-5 w-5', config.color)} />
-                        </div>
-                        <div>
-                          <div className="font-medium text-sm">{deal.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {deal.organization?.name}
+                {loading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                  ))
+                ) : recentDeals.length > 0 ? (
+                  recentDeals.map((deal) => {
+                    const config = STAGE_CONFIG[deal.stage!];
+                    return (
+                      <div
+                        key={deal.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={cn(
+                              'h-10 w-10 rounded-lg flex items-center justify-center',
+                              config.bgColor
+                            )}
+                          >
+                            <Building2 className={cn('h-5 w-5', config.color)} />
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm">{deal.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {deal.organization?.name}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-sm">
-                          {formatCurrency(deal.value || 0)}
+                        <div className="text-right flex items-center gap-4">
+                          <div>
+                            <div className="font-semibold text-sm">
+                              {formatCurrency(deal.value || 0)}
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={cn('text-xs', config.color)}
+                            >
+                              {config.label}
+                            </Badge>
+                          </div>
+                          {deal.stage === 'evaluating' && onProvisionDemo && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1.5 border-primary/30 hover:border-primary hover:bg-primary/5 text-primary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onProvisionDemo(deal.organization_id, deal.organization?.name || deal.name);
+                              }}
+                            >
+                              <Zap className="h-3.5 w-3.5" />
+                              Demo
+                            </Button>
+                          )}
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={cn('text-xs', config.color)}
-                        >
-                          {config.label}
-                        </Badge>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground text-sm">
+                    No recent demos
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -299,36 +273,53 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {mockUpcomingActions.map((action) => (
-                  <div
-                    key={action.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-sm">{action.action}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {action.deal}
+                {loading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                  ))
+                ) : upcomingActions.length > 0 ? (
+                  upcomingActions.map((deal) => {
+                    const daysUntil = deal.next_action_date ?
+                      Math.ceil((new Date(deal.next_action_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
+
+                    return (
+                      <div
+                        key={deal.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <Clock className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm">{deal.next_action}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {deal.name}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-medium">
+                            {daysUntil === 0
+                              ? 'Today'
+                              : daysUntil === 1
+                              ? 'Tomorrow'
+                              : daysUntil < 0
+                              ? 'Overdue'
+                              : `${daysUntil} days`}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {deal.next_action_date ? formatDate(deal.next_action_date) : ''}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-medium">
-                        {action.daysUntil === 0
-                          ? 'Today'
-                          : action.daysUntil === 1
-                          ? 'Tomorrow'
-                          : `${action.daysUntil} days`}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatDate(action.date)}
-                      </div>
-                    </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground text-sm">
+                    No upcoming actions
                   </div>
-                ))}
+                )}
               </div>
             </CardContent>
           </Card>
@@ -343,37 +334,24 @@ export function DealDashboard({ onNavigate }: DealDashboardProps) {
 function MetricCard({
   title,
   value,
-  change,
   icon: Icon,
   description,
+  loading = false,
 }: {
   title: string;
   value: string;
-  change: number;
   icon: React.ComponentType<{ className?: string }>;
   description: string;
+  loading?: boolean;
 }) {
-  const isPositive = change >= 0;
   return (
-    <Card>
+    <Card className={cn(loading && 'animate-pulse opacity-70')}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
           <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div
-            className={cn(
-              'flex items-center text-xs font-medium',
-              isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
-            )}
-          >
-            {isPositive ? (
-              <ArrowUpRight className="h-3 w-3" />
-            ) : (
-              <ArrowDownRight className="h-3 w-3" />
-            )}
-            {Math.abs(change)}%
-          </div>
+          <span className="text-xs text-muted-foreground">{title}</span>
         </div>
         <div className="mt-3">
           <div className="text-2xl font-bold">{value}</div>
@@ -397,17 +375,4 @@ function formatCurrency(value: number): string {
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function getDefaultProbability(stage: DealStage): number {
-  const probabilities: Record<DealStage, number> = {
-    lead: 10,
-    prospect: 25,
-    evaluating: 50,
-    closing: 75,
-    won: 100,
-    lost: 0,
-    frozen: 0,
-  };
-  return probabilities[stage];
 }

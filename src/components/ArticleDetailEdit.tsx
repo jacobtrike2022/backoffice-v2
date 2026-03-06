@@ -130,6 +130,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     tags: [],
     content_url: '',
     article_body: '',
+    is_system_content: false,
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
@@ -322,6 +323,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
           show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          is_system_content: track.is_system_content || false,
         });
 
         console.log('📝 Form data initialized with article_body:', track.transcript || '');
@@ -540,6 +542,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '', // Store article body as transcript
+        is_system_content: editFormData.is_system_content,
         // learning_objectives removed - facts are now stored in the facts table
       };
 
@@ -1917,6 +1920,43 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             </Card>
           )}
           
+          {/* Super Admin Settings */}
+          {isSuperAdminAuthenticated && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-orange-500" />
+                  Super Admin Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark as Trike Library content
+                    </p>
+                  </div>
+                  <Switch
+                    id="system-content"
+                    checked={isEditMode ? editFormData.is_system_content : track.is_system_content}
+                    onCheckedChange={(checked) => {
+                      if (isEditMode) {
+                        setEditFormData({ ...editFormData, is_system_content: checked });
+                      } else {
+                        crud.updateTrack({ id: track.id, is_system_content: checked })
+                          .then(() => {
+                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            onUpdate();
+                          });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Quick Stats */}
           <Card>
             <CardHeader>

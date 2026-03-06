@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Drawer,
   DrawerContent,
@@ -44,9 +44,10 @@ interface JourneyStep {
 interface ProspectJourneyPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  // For now, mock data - later this will come from the org
   currentStatus?: OrganizationStatus;
   organizationName?: string;
+  organizationId?: string;
+  onStepClick?: (stepId: string, step: JourneyStep) => void;
 }
 
 /**
@@ -161,8 +162,14 @@ export function ProspectJourneyPanel({
   onClose,
   currentStatus = 'prospect',
   organizationName = 'Demo Company',
+  organizationId,
+  onStepClick,
 }: ProspectJourneyPanelProps) {
   const steps = getJourneySteps(currentStatus);
+
+  const firstIncompleteStep = steps.find(
+    (s) => s.status === 'current' || s.status === 'upcoming'
+  );
 
   // Group steps by stage for visual separation
   const prospectSteps = steps.filter(s => s.stage === 'prospect');
@@ -221,6 +228,7 @@ export function ProspectJourneyPanel({
                 step.status === 'locked' && 'opacity-50 cursor-not-allowed'
               )}
               disabled={step.status === 'locked'}
+              onClick={() => onStepClick?.(step.id, step)}
             >
               {getStepIcon(step)}
               <div className="flex-1 min-w-0">
@@ -315,8 +323,16 @@ export function ProspectJourneyPanel({
         <DrawerFooter className="border-t">
           <Button
             className="w-full bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
+            onClick={() => {
+              if (firstIncompleteStep && onStepClick) {
+                onStepClick(firstIncompleteStep.id, firstIncompleteStep);
+              }
+            }}
+            disabled={!firstIncompleteStep}
           >
-            Continue Journey
+            {firstIncompleteStep
+              ? `Continue: ${firstIncompleteStep.title}`
+              : 'Journey Complete!'}
           </Button>
           <Button
             variant="outline"

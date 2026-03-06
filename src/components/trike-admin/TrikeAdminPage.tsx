@@ -1,7 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { DealDashboard } from './DealDashboard';
 import { DealPipelineBoard } from './DealPipelineBoard';
+import { OrganizationsList } from './OrganizationsList';
+import { ProposalsList } from './ProposalsList';
+import { PipelineAnalytics } from './PipelineAnalytics';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
+import { DemoProvisioningModal } from './DemoProvisioningModal';
+import { ROICalculator } from './ROICalculator';
+import { GoLiveChecklist } from './GoLiveChecklist';
+import { SendContractDialog } from './SendContractDialog';
+import { PaymentSetup } from './PaymentSetup';
+import { TeamInvite } from './TeamInvite';
+import { PipelineNotificationsBell } from './PipelineNotifications';
+import { CreateDemoModal } from './CreateDemoModal';
+import { BatchDemoCreation } from './BatchDemoCreation';
 import {
   Home,
   TrendingUp,
@@ -11,9 +23,13 @@ import {
   Settings,
   Briefcase,
   UserCircle,
+  Plus,
+  Layers,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../ui/utils';
+import { useCurrentUser } from '../../lib/hooks/useSupabase';
+import type { OrganizationStatus } from './types';
 
 export type TrikeAdminView =
   | 'dashboard'
@@ -30,8 +46,7 @@ const tabs: Array<{
   icon: React.ComponentType<{ className?: string }>;
 }> = [
   { id: 'dashboard', label: 'Overview', icon: Home },
-  { id: 'pipeline', label: 'Pipeline', icon: TrendingUp },
-  { id: 'prospect-portal', label: 'Prospect Portal', icon: UserCircle },
+  { id: 'pipeline', label: 'Demos', icon: TrendingUp },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'proposals', label: 'Proposals', icon: FileText },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -41,39 +56,116 @@ const tabs: Array<{
  * Trike Admin Page - Full page view for sales pipeline management
  * Accessible via sidebar navigation for trike-super-admin role only
  */
-export function TrikeAdminPage() {
+interface TrikeAdminPageProps {
+  onPreviewOrg?: (orgId: string, orgName: string) => void;
+}
+
+export function TrikeAdminPage({ onPreviewOrg }: TrikeAdminPageProps) {
+  const { user } = useCurrentUser();
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
   const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
+  const [isProvisioningModalOpen, setIsProvisioningModalOpen] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [selectedOrgName, setSelectedOrgName] = useState<string | null>(null);
+  const [isROIOpen, setIsROIOpen] = useState(false);
+  const [isGoLiveOpen, setIsGoLiveOpen] = useState(false);
+  const [isContractDialogOpen, setIsContractDialogOpen] = useState(false);
+  const [isPaymentSetupOpen, setIsPaymentSetupOpen] = useState(false);
+  const [isTeamInviteOpen, setIsTeamInviteOpen] = useState(false);
+  const [orgListKey, setOrgListKey] = useState(0);
+  const [isCreateDemoOpen, setIsCreateDemoOpen] = useState(false);
+  const [isBatchDemoOpen, setIsBatchDemoOpen] = useState(false);
+
+  // Journey panel state — tracks which org's journey to display
+  const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
+  const [journeyOrgName, setJourneyOrgName] = useState<string>('Demo Company');
+  const [journeyOrgStatus, setJourneyOrgStatus] = useState<OrganizationStatus>('prospect');
+
+  // Open journey panel for a specific org
+  const handleOpenJourney = useCallback(
+    (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => {
+      setJourneyOrgId(orgId);
+      setJourneyOrgName(orgName);
+      setJourneyOrgStatus(orgStatus || 'prospect');
+      setIsJourneyPanelOpen(true);
+    },
+    []
+  );
+
+  // Handle journey step clicks — navigate to the relevant section
+  const handleJourneyStepClick = useCallback(
+    (stepId: string) => {
+      switch (stepId) {
+        case 'explore':
+          // In the real prospect flow, the App-level navigateTo('content') is called
+          // and ContentLibrary detects ?preview=true from the URL.
+          // From admin test, we append the param so it's visible when prospects view content.
+          {
+            const url = new URL(window.location.href);
+            url.searchParams.set('preview', 'true');
+            window.history.replaceState({}, '', url.toString());
+          }
+          break;
+        case 'roi':
+          setIsROIOpen(true);
+          break;
+        case 'invite':
+          setIsTeamInviteOpen(true);
+          break;
+        case 'proposal':
+          setCurrentView('proposals');
+          break;
+        case 'sign':
+          setIsContractDialogOpen(true);
+          break;
+        case 'payment':
+          setIsPaymentSetupOpen(true);
+          break;
+        case 'configure':
+          setCurrentView('organizations');
+          break;
+        case 'launch':
+          setIsGoLiveOpen(true);
+          break;
+      }
+    },
+    []
+  );
 
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
-        return <DealDashboard onNavigate={setCurrentView} />;
+        return (
+          <DealDashboard
+            onNavigate={setCurrentView}
+            onProvisionDemo={(orgId, orgName) => {
+              setSelectedOrgId(orgId);
+              setSelectedOrgName(orgName);
+              setIsProvisioningModalOpen(true);
+            }}
+          />
+        );
       case 'pipeline':
-        return <DealPipelineBoard />;
+        return <DealPipelineBoard onViewJourney={handleOpenJourney} />;
       case 'organizations':
         return (
-          <PlaceholderView
-            title="Organizations"
-            description="Manage all customer accounts, demos, and prospects."
+          <OrganizationsList
+            key={orgListKey}
+            onViewJourney={handleOpenJourney}
+            onProvisionDemo={(orgId, orgName) => {
+              setSelectedOrgId(orgId);
+              setSelectedOrgName(orgName);
+              setIsProvisioningModalOpen(true);
+            }}
+            onPreviewOrg={onPreviewOrg}
           />
         );
       case 'proposals':
-        return (
-          <PlaceholderView
-            title="Proposals"
-            description="Create, send, and track sales proposals."
-          />
-        );
+        return <ProposalsList />;
       case 'analytics':
-        return (
-          <PlaceholderView
-            title="Analytics"
-            description="Sales performance metrics and reporting."
-          />
-        );
+        return <PipelineAnalytics />;
       case 'prospect-portal':
-        return <ProspectPortalTestView onOpenPanel={() => setIsJourneyPanelOpen(true)} />;
+        return null;
       case 'settings':
         return (
           <PlaceholderView
@@ -91,28 +183,53 @@ export function TrikeAdminPage() {
       <div className="flex flex-col h-full -m-8">
         {/* Tab Navigation */}
         <div className="border-b border-border bg-card px-6">
-          <div className="flex items-center gap-1">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = currentView === tab.id;
-              return (
-                <Button
-                  key={tab.id}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentView(tab.id)}
-                  className={cn(
-                    'gap-2 rounded-none border-b-2 -mb-px h-12',
-                    isActive
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                </Button>
-              );
-            })}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = currentView === tab.id;
+                return (
+                  <Button
+                    key={tab.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCurrentView(tab.id)}
+                    className={cn(
+                      'gap-2 rounded-none border-b-2 -mb-px h-12',
+                      isActive
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsBatchDemoOpen(true)}
+              >
+                <Layers className="h-4 w-4 mr-1.5" />
+                Batch
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setIsCreateDemoOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Create Demo
+              </Button>
+              <PipelineNotificationsBell
+                userId={user?.id || null}
+                onNavigateToDeal={(dealId) => {
+                  setCurrentView('pipeline');
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -126,8 +243,78 @@ export function TrikeAdminPage() {
       <ProspectJourneyPanel
         isOpen={isJourneyPanelOpen}
         onClose={() => setIsJourneyPanelOpen(false)}
-        currentStatus="prospect"
-        organizationName="Acme Convenience Stores"
+        currentStatus={journeyOrgStatus}
+        organizationName={journeyOrgName}
+        organizationId={journeyOrgId || undefined}
+        onStepClick={handleJourneyStepClick}
+      />
+
+      {selectedOrgId && selectedOrgName && (
+        <DemoProvisioningModal
+          isOpen={isProvisioningModalOpen}
+          onClose={() => {
+            setIsProvisioningModalOpen(false);
+            setSelectedOrgId(null);
+            setSelectedOrgName(null);
+          }}
+          organizationId={selectedOrgId}
+          organizationName={selectedOrgName}
+          onProvisioned={() => setOrgListKey((k) => k + 1)}
+        />
+      )}
+
+      {/* ROI Calculator Dialog */}
+      <ROICalculator
+        open={isROIOpen}
+        onOpenChange={setIsROIOpen}
+      />
+
+      {/* Go-Live Checklist Dialog */}
+      {journeyOrgId && (
+        <GoLiveChecklist
+          open={isGoLiveOpen}
+          onOpenChange={setIsGoLiveOpen}
+          organizationId={journeyOrgId}
+        />
+      )}
+
+      {/* Send Contract Dialog */}
+      <SendContractDialog
+        open={isContractDialogOpen}
+        onOpenChange={setIsContractDialogOpen}
+        organizationName={journeyOrgName}
+      />
+
+      {/* Payment Setup Dialog */}
+      {journeyOrgId && (
+        <PaymentSetup
+          open={isPaymentSetupOpen}
+          onOpenChange={setIsPaymentSetupOpen}
+          organizationId={journeyOrgId}
+        />
+      )}
+
+      {/* Team Invite Dialog */}
+      {journeyOrgId && (
+        <TeamInvite
+          open={isTeamInviteOpen}
+          onOpenChange={setIsTeamInviteOpen}
+          organizationId={journeyOrgId}
+        />
+      )}
+
+      {/* Create Demo Modal */}
+      <CreateDemoModal
+        isOpen={isCreateDemoOpen}
+        onClose={() => setIsCreateDemoOpen(false)}
+        onCreated={() => setOrgListKey((k) => k + 1)}
+      />
+
+      {/* Batch Demo Creation */}
+      <BatchDemoCreation
+        isOpen={isBatchDemoOpen}
+        onClose={() => setIsBatchDemoOpen(false)}
+        onCreated={() => setOrgListKey((k) => k + 1)}
       />
     </>
   );

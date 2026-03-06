@@ -23,6 +23,9 @@ import { ProgramCategoriesManager } from './ProgramCategoriesManager';
 import { ProgramsManager } from './ProgramsManager';
 import { IndustryConfigManager } from './IndustryConfigManager';
 
+// Super Admin Content Management
+import { SystemContentManager } from './SystemContentManager';
+
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
 interface TrikeAdminFunctionsProps {
@@ -31,7 +34,7 @@ interface TrikeAdminFunctionsProps {
 }
 
 export function TrikeAdminFunctions({ currentRole, onNavigate }: TrikeAdminFunctionsProps) {
-  const [activeSection, setActiveSection] = useState<'compliance' | 'programs'>('compliance');
+  const [activeSection, setActiveSection] = useState<'compliance' | 'programs' | 'content'>('compliance');
   const [complianceTab, setComplianceTab] = useState('topics');
   const [programsTab, setProgramsTab] = useState('industries');
 
@@ -94,8 +97,8 @@ export function TrikeAdminFunctions({ currentRole, onNavigate }: TrikeAdminFunct
       </Card>
 
       {/* Main Section Tabs */}
-      <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as 'compliance' | 'programs')}>
-        <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:inline-grid">
+      <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as 'compliance' | 'programs' | 'content')}>
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="compliance" className="gap-2">
             <ShieldCheck className="h-4 w-4" />
             Compliance Management
@@ -103,6 +106,10 @@ export function TrikeAdminFunctions({ currentRole, onNavigate }: TrikeAdminFunct
           <TabsTrigger value="programs" className="gap-2">
             <Package className="h-4 w-4" />
             Programs & Industries
+          </TabsTrigger>
+          <TabsTrigger value="content" className="gap-2">
+            <Layers className="h-4 w-4" />
+            Content Management
           </TabsTrigger>
         </TabsList>
 
@@ -168,6 +175,11 @@ export function TrikeAdminFunctions({ currentRole, onNavigate }: TrikeAdminFunct
               <ProgramsManager />
             </TabsContent>
           </Tabs>
+        </TabsContent>
+
+        {/* Content Management Section */}
+        <TabsContent value="content" className="mt-6 space-y-6">
+          <SystemContentManager />
         </TabsContent>
       </Tabs>
     </div>

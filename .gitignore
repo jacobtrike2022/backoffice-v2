@@ -25,3 +25,7 @@ dist
 # Logs
 *.log
 npm-debug.log*
+
+# Git worktrees
+.worktrees/
+.vercel
