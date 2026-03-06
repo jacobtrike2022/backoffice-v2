@@ -115,7 +115,7 @@ export function DealCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => onEdit?.(deal)}>
-                Edit deal
+                Edit demo
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onAddNote?.(deal)}>Add note</DropdownMenuItem>
               <DropdownMenuItem onClick={() => onLogActivity?.(deal)}>Log activity</DropdownMenuItem>

@@ -12,6 +12,8 @@ import { SendContractDialog } from './SendContractDialog';
 import { PaymentSetup } from './PaymentSetup';
 import { TeamInvite } from './TeamInvite';
 import { PipelineNotificationsBell } from './PipelineNotifications';
+import { CreateDemoModal } from './CreateDemoModal';
+import { BatchDemoCreation } from './BatchDemoCreation';
 import {
   Home,
   TrendingUp,
@@ -21,6 +23,8 @@ import {
   Settings,
   Briefcase,
   UserCircle,
+  Plus,
+  Layers,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { cn } from '../ui/utils';
@@ -42,8 +46,7 @@ const tabs: Array<{
   icon: React.ComponentType<{ className?: string }>;
 }> = [
   { id: 'dashboard', label: 'Overview', icon: Home },
-  { id: 'pipeline', label: 'Pipeline', icon: TrendingUp },
-  { id: 'prospect-portal', label: 'Prospect Portal', icon: UserCircle },
+  { id: 'pipeline', label: 'Demos', icon: TrendingUp },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'proposals', label: 'Proposals', icon: FileText },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -66,6 +69,8 @@ export function TrikeAdminPage() {
   const [isPaymentSetupOpen, setIsPaymentSetupOpen] = useState(false);
   const [isTeamInviteOpen, setIsTeamInviteOpen] = useState(false);
   const [orgListKey, setOrgListKey] = useState(0);
+  const [isCreateDemoOpen, setIsCreateDemoOpen] = useState(false);
+  const [isBatchDemoOpen, setIsBatchDemoOpen] = useState(false);
 
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
@@ -155,13 +160,7 @@ export function TrikeAdminPage() {
       case 'analytics':
         return <PipelineAnalytics />;
       case 'prospect-portal':
-        return (
-          <ProspectPortalTestView
-            onOpenPanel={() =>
-              handleOpenJourney('test-org', 'Acme Convenience Stores', 'prospect')
-            }
-          />
-        );
+        return null;
       case 'settings':
         return (
           <PlaceholderView
@@ -203,12 +202,29 @@ export function TrikeAdminPage() {
                 );
               })}
             </div>
-            <PipelineNotificationsBell
-              userId={user?.id || null}
-              onNavigateToDeal={(dealId) => {
-                setCurrentView('pipeline');
-              }}
-            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsBatchDemoOpen(true)}
+              >
+                <Layers className="h-4 w-4 mr-1.5" />
+                Batch
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setIsCreateDemoOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Create Demo
+              </Button>
+              <PipelineNotificationsBell
+                userId={user?.id || null}
+                onNavigateToDeal={(dealId) => {
+                  setCurrentView('pipeline');
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -281,6 +297,20 @@ export function TrikeAdminPage() {
           organizationId={journeyOrgId}
         />
       )}
+
+      {/* Create Demo Modal */}
+      <CreateDemoModal
+        isOpen={isCreateDemoOpen}
+        onClose={() => setIsCreateDemoOpen(false)}
+        onCreated={() => setOrgListKey((k) => k + 1)}
+      />
+
+      {/* Batch Demo Creation */}
+      <BatchDemoCreation
+        isOpen={isBatchDemoOpen}
+        onClose={() => setIsBatchDemoOpen(false)}
+        onCreated={() => setOrgListKey((k) => k + 1)}
+      />
     </>
   );
 }

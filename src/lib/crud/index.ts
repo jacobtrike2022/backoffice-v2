@@ -64,3 +64,6 @@ export * from './email';
 
 // Reports
 export * from './reports';
+
+// Journey Checklist
+export * from './journeyChecklist';

@@ -76,14 +76,14 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Sales Pipeline</h1>
+            <h1 className="text-2xl font-bold">Prospect to Client Overview</h1>
             <p className="text-sm text-muted-foreground">
               Track and manage your prospect-to-client pipeline
             </p>
           </div>
           <Button onClick={() => onNavigate('pipeline')}>
             <TrendingUp className="h-4 w-4 mr-2" />
-            View Pipeline Board
+            View Demo Board
           </Button>
         </div>
       </div>
@@ -95,7 +95,7 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
             title="Total Pipeline"
             value={formatCurrency(metrics.totalValue)}
             icon={DollarSign}
-            description="Active deal value"
+            description="Active demo value"
             loading={loading}
           />
           <MetricCard
@@ -106,17 +106,17 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
             loading={loading}
           />
           <MetricCard
-            title="Active Deals"
-            value={metrics.totalDeals.toString()}
-            icon={Building2}
-            description="In pipeline"
+          title="Active Demos"
+          value={metrics.totalDeals.toString()}
+          icon={Building2}
+          description="In pipeline"
             loading={loading}
           />
           <MetricCard
-            title="Avg. Deal Size"
-            value={formatCurrency(metrics.avgDealSize)}
-            icon={Users}
-            description="Per deal"
+          title="Avg. Demo Size"
+          value={formatCurrency(metrics.avgDealSize)}
+          icon={Users}
+          description="Per demo"
             loading={loading}
           />
         </div>
@@ -180,7 +180,7 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Recent Deals</CardTitle>
+                <CardTitle className="text-lg">Recent Demos</CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -253,7 +253,7 @@ export function DealDashboard({ onNavigate, onProvisionDemo }: DealDashboardProp
                   })
                 ) : (
                   <div className="py-8 text-center text-muted-foreground text-sm">
-                    No recent deals
+                    No recent demos
                   </div>
                 )}
               </div>

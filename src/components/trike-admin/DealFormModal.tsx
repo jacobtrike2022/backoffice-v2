@@ -180,7 +180,7 @@ export function DealFormModal({
     e.preventDefault();
 
     if (!name.trim()) {
-      toast.error('Deal name is required');
+        toast.error('Demo name is required');
       return;
     }
     if (!organizationId) {
@@ -206,7 +206,7 @@ export function DealFormModal({
           notes: notes.trim() || null,
         };
         await updateDeal(deal!.id!, updates);
-        toast.success('Deal updated successfully');
+        toast.success('Demo updated successfully');
       } else {
         const input: CreateDealInput = {
           organization_id: organizationId,
@@ -223,14 +223,14 @@ export function DealFormModal({
           notes: notes.trim() || null,
         };
         await createDeal(input);
-        toast.success('Deal created successfully');
+        toast.success('Demo created successfully');
       }
 
       onSuccess();
       onClose();
     } catch (error: any) {
       console.error('Error saving deal:', error);
-      toast.error(`Failed to save deal: ${error.message}`);
+      toast.error(`Failed to save demo: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -241,19 +241,19 @@ export function DealFormModal({
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditMode ? 'Edit Deal' : 'Create New Deal'}
+            {isEditMode ? 'Edit Demo' : 'Create New Demo'}
           </DialogTitle>
           <DialogDescription>
             {isEditMode
               ? `Update details for "${deal?.name}"`
-              : 'Add a new deal to the pipeline'}
+              : 'Add a new demo to the pipeline'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           {/* Deal Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="deal-name">Deal Name *</Label>
+            <Label htmlFor="deal-name">Demo Name *</Label>
             <Input
               id="deal-name"
               value={name}
@@ -330,7 +330,7 @@ export function DealFormModal({
           {/* Value + MRR row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="deal-value">Deal Value ($)</Label>
+              <Label htmlFor="deal-value">Demo Value ($)</Label>
               <Input
                 id="deal-value"
                 type="number"
@@ -384,7 +384,7 @@ export function DealFormModal({
 
           {/* Owner */}
           <div className="space-y-1.5">
-            <Label>Deal Owner</Label>
+            <Label>Demo Owner</Label>
             {loadingOptions ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -451,7 +451,7 @@ export function DealFormModal({
             </Button>
             <Button type="submit" disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {isEditMode ? 'Save Changes' : 'Create Deal'}
+              {isEditMode ? 'Save Changes' : 'Create Demo'}
             </Button>
           </DialogFooter>
         </form>

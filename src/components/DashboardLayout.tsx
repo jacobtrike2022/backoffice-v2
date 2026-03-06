@@ -43,6 +43,13 @@ import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
+interface OrgStatusInfo {
+  status: string | null;
+  demoExpiresAt: string | null;
+  isProspectOrg: boolean;
+  isDemoExpired: boolean;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
   currentRole: UserRole;
@@ -51,6 +58,7 @@ interface DashboardLayoutProps {
   onDarkModeToggle: () => void;
   currentView?: string;
   onNavigate?: (view: string) => void;
+  orgStatusInfo?: OrgStatusInfo;
 }
 
 interface NavigationGroup {
@@ -183,7 +191,7 @@ const navigationGroups: NavigationGroup[] = [
       },
       {
         id: 'trike-admin',
-        label: 'Sales Pipeline',
+        label: 'Prospect to Client',
         icon: Briefcase,
         roles: ['trike-super-admin']
       }
@@ -198,7 +206,8 @@ export function DashboardLayout({
   darkMode, 
   onDarkModeToggle,
   currentView = 'dashboard',
-  onNavigate
+  onNavigate,
+  orgStatusInfo,
 }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
@@ -228,7 +237,7 @@ export function DashboardLayout({
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, logo_dark_url, logo_light_url')
+          .select('name, logo_dark_url, logo_light_url, status, demo_expires_at')
           .eq('id', orgId)
           .single();
 
@@ -299,7 +308,25 @@ export function DashboardLayout({
     }
   };
 
+  const isProspectUser = orgStatusInfo?.isProspectOrg && currentRole !== 'trike-super-admin';
+
   const getFilteredGroups = () => {
+    if (isProspectUser) {
+      return [
+        {
+          label: 'Overview',
+          items: [
+            { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+          ],
+        },
+        {
+          label: 'Content',
+          items: [
+            { id: 'content', label: 'Content Library', icon: CheckSquare, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+          ],
+        },
+      ];
+    }
     return navigationGroups.map(group => ({
       ...group,
       items: group.items.filter(item => item.roles.includes(currentRole))
@@ -374,6 +401,21 @@ export function DashboardLayout({
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
+            </div>
+          )}
+
+          {/* Demo Expiry Badge for Prospects */}
+          {!sidebarCollapsed && isProspectUser && orgStatusInfo?.demoExpiresAt && (
+            <div className="px-6 py-3 border-b border-sidebar-border">
+              <div className="flex items-center gap-2 text-sm">
+                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-muted-foreground">
+                  Demo expires in{' '}
+                  <span className="font-semibold text-sidebar-foreground">
+                    {Math.max(0, Math.ceil((new Date(orgStatusInfo.demoExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days
+                  </span>
+                </span>
+              </div>
             </div>
           )}
 

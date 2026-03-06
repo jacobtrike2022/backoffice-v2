@@ -83,14 +83,15 @@ const defaultThumbnail = '/default-thumbnail.png';
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   isSuperAdminAuthenticated?: boolean;
-  initialTrackId?: string; // Track ID to open on mount
+  initialTrackId?: string;
   onNavigateToPlaylist?: (playlistId: string) => void;
-  onNavigateToAlbum?: (albumId: string) => void;  // NEW
-  onNavigateToPlaylistsTab?: () => void;  // Navigate to playlists tab (no specific playlist)
-  onNavigateToAlbumsTab?: () => void;     // Navigate to albums tab (no specific album)
-  onBackToLibrary?: () => void; // Callback to notify parent when returning to library
-  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
-  onNavigate?: (view: string, trackId?: string) => void; // Navigation callback for creating/editing content
+  onNavigateToAlbum?: (albumId: string) => void;
+  onNavigateToPlaylistsTab?: () => void;
+  onNavigateToAlbumsTab?: () => void;
+  onBackToLibrary?: () => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void;
+  onNavigate?: (view: string, trackId?: string) => void;
+  isProspectOrg?: boolean;
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -109,9 +110,9 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
-  const isPreviewMode = new URLSearchParams(window.location.search).get('preview') === 'true';
+  const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');

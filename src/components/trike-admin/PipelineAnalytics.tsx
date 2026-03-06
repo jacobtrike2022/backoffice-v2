@@ -462,7 +462,7 @@ export function PipelineAnalytics() {
           <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-semibold mb-1">No Data Available</h3>
           <p className="text-sm text-muted-foreground">
-            Pipeline analytics will appear once deals are created.
+            Analytics will appear once demos are created.
           </p>
         </div>
       </div>
@@ -481,7 +481,7 @@ export function PipelineAnalytics() {
           color="text-emerald-600 dark:text-emerald-400"
         />
         <KPICard
-          title="Active Deals"
+          title="Active Demos"
           value={metrics.totalDeals.toString()}
           subtitle={`Avg size: ${formatCurrency(metrics.avgDealSize)}`}
           icon={TrendingUp}
@@ -635,7 +635,7 @@ export function PipelineAnalytics() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <PieChartIcon className="h-4 w-4 text-muted-foreground" />
-              Deal Outcomes
+              Demo Outcomes
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -710,7 +710,7 @@ export function PipelineAnalytics() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Award className="h-4 w-4 text-muted-foreground" />
-              Deals by Type
+              Demos by Type
             </CardTitle>
           </CardHeader>
           <CardContent>

@@ -1073,6 +1073,11 @@ Deno.serve(async (req: Request) => {
       return await handleDemoProvision(req);
     }
 
+    // Unified demo creation: enrich + create org + provision in one call
+    if (method === "POST" && path === "/demo/create") {
+      return await handleDemoCreate(req);
+    }
+
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
       return await handleBillingSetupIntent(req);
@@ -17630,6 +17635,260 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ success: false, error: error.message || "Publish failed" }, 500);
+  }
+}
+
+// =============================================================================
+// UNIFIED DEMO CREATION
+// =============================================================================
+
+/**
+ * POST /demo/create
+ * Unified demo creation: optionally enrich from website, create org + auth user,
+ * provision demo content, return magic link. Used by both admin single-create
+ * and batch-create flows.
+ */
+async function handleDemoCreate(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const {
+      url: websiteUrl,
+      organization_name,
+      contact_email,
+      contact_name,
+      demo_days = 14,
+      industry,
+      operating_states,
+    } = body;
+
+    if (!contact_email) {
+      return jsonResponse({ error: "contact_email is required" }, 400);
+    }
+
+    if (!websiteUrl && !organization_name) {
+      return jsonResponse({ error: "Either url or organization_name is required" }, 400);
+    }
+
+    console.log(`[DemoCreate] Starting for ${websiteUrl || organization_name} (${contact_email})`);
+
+    // Step 1: Enrich from website if URL provided
+    let enrichedData: any = {};
+    if (websiteUrl) {
+      try {
+        let normalizedUrl = websiteUrl.trim().toLowerCase();
+        if (!normalizedUrl.startsWith("http")) {
+          normalizedUrl = "https://" + normalizedUrl;
+        }
+
+        const domain = new URL(normalizedUrl).hostname.replace("www.", "");
+        const domainName = domain.split(".")[0];
+
+        const response = await fetch(normalizedUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          enrichedData = await extractCompanyDataFromHTML(html, normalizedUrl, domainName);
+
+          if (!enrichedData.logo_url) {
+            const externalLogo = await tryExternalLogoFallback(domain);
+            if (externalLogo) enrichedData.logo_url = externalLogo;
+          }
+        } else {
+          enrichedData.company_name = capitalizeWords(domainName);
+        }
+
+        enrichedData.website = normalizedUrl;
+      } catch (enrichErr: any) {
+        console.error(`[DemoCreate] Enrichment failed:`, enrichErr.message);
+        enrichedData.website = websiteUrl;
+      }
+    }
+
+    const companyName = enrichedData.company_name || organization_name || "Demo Company";
+    const subdomain = companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .substring(0, 30);
+
+    const { data: existing } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .single();
+
+    const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
+
+    // Validate logo
+    let validatedLogoUrl: string | null = null;
+    if (enrichedData.logo_url) {
+      const logoValidation = await validateLogoUrl(enrichedData.logo_url);
+      if (logoValidation.url && logoValidation.quality !== "poor") {
+        validatedLogoUrl = logoValidation.url;
+      }
+    }
+
+    // Step 2: Create organization
+    const demoExpiry = new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .insert({
+        name: companyName,
+        subdomain: finalSubdomain,
+        website: enrichedData.website || null,
+        logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
+        status: "prospect",
+        demo_expires_at: demoExpiry,
+        industry: industry || enrichedData.industry || null,
+        operating_states: operating_states || enrichedData.operating_states || [],
+        onboarding_source: "admin",
+        scraped_data: enrichedData,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+    console.log(`[DemoCreate] Created org: ${org.name} (${org.id})`);
+
+    // Step 3: Create admin role
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .insert({
+        organization_id: org.id,
+        name: "Admin",
+        description: "Full administrative access",
+        level: 3,
+        permissions: JSON.stringify([
+          "manage_users", "manage_content", "manage_assignments",
+          "manage_settings", "view_reports", "manage_compliance",
+        ]),
+      })
+      .select()
+      .single();
+
+    // Step 4: Create auth user + user record
+    const tempPassword = crypto.randomUUID().substring(0, 16) + "!Aa1";
+    let magicLink: string | null = null;
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: contact_email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: {
+        organization_id: org.id,
+        full_name: contact_name || "",
+      },
+    });
+
+    if (authError) {
+      console.error("[DemoCreate] Failed to create auth user:", authError);
+    }
+
+    if (authUser?.user) {
+      const nameParts = (contact_name || "Admin User").trim().split(/\s+/);
+      const firstName = nameParts[0] || "Admin";
+      const lastName = nameParts.slice(1).join(" ") || "User";
+
+      await supabase.from("users").insert({
+        organization_id: org.id,
+        role_id: adminRole?.id || null,
+        auth_user_id: authUser.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        email: contact_email,
+        status: "active",
+        metadata: { onboarded_at: new Date().toISOString(), source: "admin_demo_create" },
+      });
+
+      // Generate magic link
+      const { data: linkData } = await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: contact_email,
+      });
+      if (linkData?.properties?.action_link) {
+        magicLink = linkData.properties.action_link;
+      }
+    }
+
+    // Step 5: Provision demo content (compliance topics + sample tracks)
+    let topicsCloned = 0;
+    let tracksCloned = 0;
+
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      const topicsToInsert = globalTopics.map((t: any, i: number) => ({
+        organization_id: org.id,
+        topic_id: t.id,
+        is_active: true,
+        priority: i,
+        added_during: "admin_demo",
+      }));
+      const { error: topicsErr } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+      if (!topicsErr) topicsCloned = topicsToInsert.length;
+    }
+
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    if (templateTracks && templateTracks.length > 0) {
+      const tracksToInsert = templateTracks.map((t: any) => ({
+        organization_id: org.id,
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        content_url: t.content_url,
+        thumbnail_url: t.thumbnail_url,
+        duration_minutes: t.duration_minutes,
+        tags: t.tags,
+        status: "published",
+        is_demo_content: true,
+      }));
+      const { error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert);
+      if (!tracksErr) tracksCloned = tracksToInsert.length;
+    }
+
+    // Step 6: Create a deal record
+    await supabase.from("deals").insert({
+      organization_id: org.id,
+      name: `${companyName} - Demo`,
+      stage: "evaluating",
+      deal_type: "new",
+      probability: 50,
+    });
+
+    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned}`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        demo_expires_at: org.demo_expires_at,
+      },
+      magic_link: magicLink,
+      enriched_data: enrichedData.company_name ? enrichedData : undefined,
+      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned },
+    });
+  } catch (error: any) {
+    console.error("[DemoCreate] Error:", error);
+    return jsonResponse({ error: error.message || "Demo creation failed" }, 500);
   }
 }
 

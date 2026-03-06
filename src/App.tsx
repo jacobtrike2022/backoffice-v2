@@ -64,6 +64,7 @@ import { Toaster } from "./components/ui/sonner";
 import { TrikeAdminPage } from "./components/trike-admin";
 import { toast } from "sonner@2.0.3";
 import { checkServerHealth } from "./lib/serverHealth";
+import { supabase, getCurrentUserOrgId } from "./lib/supabase";
 
 type UserRole =
   | "admin"
@@ -138,6 +139,15 @@ export default function App() {
   const [knowledgeBaseKey, setKnowledgeBaseKey] = useState(0); // Key to force KnowledgeBase reset
   const [playlistsRefreshKey, setPlaylistsRefreshKey] = useState(0); // Key to force Playlists refresh after wizard
   const [playbookSourceFileId, setPlaybookSourceFileId] = useState<string | null>(null); // For playbook build view
+
+  // Org status for prospect/frozen/onboarding detection
+  const [orgStatusInfo, setOrgStatusInfo] = useState<{
+    status: string | null;
+    demoExpiresAt: string | null;
+    isProspectOrg: boolean;
+    isDemoExpired: boolean;
+  }>({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
+
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -182,10 +192,37 @@ export default function App() {
 
   // Server health check on mount (silent - warnings are logged to console only)
   useEffect(() => {
-    checkServerHealth().catch(() => {
-      // Silent catch - health check already logs warnings internally
-    });
+    checkServerHealth().catch(() => {});
   }, []);
+
+  // Fetch org status for prospect/frozen detection
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('status, demo_expires_at')
+          .eq('id', orgId)
+          .single();
+        if (org) {
+          const prospectStatuses = ['prospect', 'evaluating', 'closing'];
+          const isProspect = prospectStatuses.includes(org.status);
+          const expired = org.demo_expires_at ? new Date(org.demo_expires_at) < new Date() : false;
+          setOrgStatusInfo({
+            status: org.status,
+            demoExpiresAt: org.demo_expires_at,
+            isProspectOrg: isProspect,
+            isDemoExpired: isProspect && expired,
+          });
+        }
+      } catch {
+        // Silent - org status is optional context
+      }
+    })();
+  }, [user]);
 
   // URL parsing for direct deep links (e.g. /?track=abc&type=article)
   useEffect(() => {
@@ -425,6 +462,46 @@ export default function App() {
   }, []);
 
   const renderContent = () => {
+    const isTrikeSuperAdmin = currentRole === 'trike-super-admin';
+
+    // Frozen demo: show frozen screen regardless of view
+    if (orgStatusInfo.isDemoExpired && !isTrikeSuperAdmin) {
+      const FrozenDemoScreen = React.lazy(() =>
+        import('./components/prospect/FrozenDemoScreen').then(m => ({ default: m.FrozenDemoScreen }))
+      );
+      return (
+        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+          <FrozenDemoScreen />
+        </React.Suspense>
+      );
+    }
+
+    // Prospect org: show journey view on dashboard, content library on content
+    if (orgStatusInfo.isProspectOrg && !isTrikeSuperAdmin && currentView === 'dashboard') {
+      const ProspectJourneyView = React.lazy(() =>
+        import('./components/prospect/ProspectJourneyView').then(m => ({ default: m.ProspectJourneyView }))
+      );
+      return (
+        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+          <ProspectJourneyView
+            onNavigate={requestNavigate}
+          />
+        </React.Suspense>
+      );
+    }
+
+    // Client onboarding view
+    if (orgStatusInfo.status === 'onboarding' && !isTrikeSuperAdmin && currentView === 'dashboard') {
+      const ClientOnboardingView = React.lazy(() =>
+        import('./components/prospect/ClientOnboardingView').then(m => ({ default: m.ClientOnboardingView }))
+      );
+      return (
+        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+          <ClientOnboardingView onNavigate={(v) => setCurrentView(v as any)} />
+        </React.Suspense>
+      );
+    }
+
     switch (currentView) {
       case "dashboard":
         return (
@@ -485,6 +562,7 @@ export default function App() {
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             initialTrackId={initialTrackId}
             onBackToLibrary={handleBackFromContentAuthoring}
+            isProspectOrg={orgStatusInfo.isProspectOrg && currentRole !== 'trike-super-admin'}
             registerUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
             onNavigateToPlaylist={(playlistId: string) => {
               setSelectedPlaylistId(playlistId);
@@ -751,7 +829,7 @@ export default function App() {
               onRoleChange={handleRoleChange}
               darkMode={darkMode}
               onDarkModeToggle={() => setDarkMode(!darkMode)}
-              isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+              orgStatusInfo={orgStatusInfo}
             >
               {renderContent()}
             </DashboardLayout>
