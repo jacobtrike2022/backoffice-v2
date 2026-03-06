@@ -144,11 +144,13 @@ WHERE id IN (
 -- 7. RLS Policies for track_scope_assignments
 ALTER TABLE track_scope_assignments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "authenticated_users_read_scope_assignments" ON track_scope_assignments;
 CREATE POLICY "authenticated_users_read_scope_assignments"
   ON track_scope_assignments FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "org_admins_manage_scope_assignments" ON track_scope_assignments;
 CREATE POLICY "org_admins_manage_scope_assignments"
   ON track_scope_assignments FOR ALL
   TO authenticated

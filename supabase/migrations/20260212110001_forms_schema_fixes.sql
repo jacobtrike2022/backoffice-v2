@@ -14,43 +14,50 @@
 BEGIN;
 
 -- =====================================================
--- STEP 1: RENAME COLUMNS FOR CONSISTENCY
+-- STEP 1: RENAME COLUMNS FOR CONSISTENCY (idempotent)
 -- =====================================================
 
--- forms.created_by → forms.created_by_id
--- This matches the naming convention used in CRUD code (line 50)
-ALTER TABLE forms
-  RENAME COLUMN created_by TO created_by_id;
+-- forms.created_by → forms.created_by_id (only if created_by exists)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'forms' AND column_name = 'created_by'
+  ) THEN
+    ALTER TABLE forms RENAME COLUMN created_by TO created_by_id;
+  END IF;
+END $$;
 
--- form_submissions.reviewed_by → form_submissions.reviewed_by_id
--- This maintains consistency across the schema
-ALTER TABLE form_submissions
-  RENAME COLUMN reviewed_by TO reviewed_by_id;
+-- form_submissions.reviewed_by → form_submissions.reviewed_by_id (only if reviewed_by exists)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'form_submissions' AND column_name = 'reviewed_by'
+  ) THEN
+    ALTER TABLE form_submissions RENAME COLUMN reviewed_by TO reviewed_by_id;
+  END IF;
+END $$;
 
 -- =====================================================
--- STEP 2: ADD MISSING COLUMNS ON forms TABLE
+-- STEP 2: ADD MISSING COLUMNS ON forms TABLE (idempotent)
 -- =====================================================
 
--- Add type column (previously in JSONB settings)
--- CRUD code expects this at line 45
-ALTER TABLE forms
-  ADD COLUMN type TEXT
-  CHECK (type IN ('ojt-checklist', 'inspection', 'audit', 'survey', 'other'));
+ALTER TABLE forms ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE forms ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE forms ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN DEFAULT false;
+ALTER TABLE forms ADD COLUMN IF NOT EXISTS allow_anonymous BOOLEAN DEFAULT false;
 
--- Add category column (previously in JSONB settings)
--- CRUD code expects this at line 46
-ALTER TABLE forms
-  ADD COLUMN category TEXT;
-
--- Add requires_approval flag (previously in JSONB settings)
--- CRUD code expects this at line 48
-ALTER TABLE forms
-  ADD COLUMN requires_approval BOOLEAN DEFAULT false;
-
--- Add allow_anonymous flag (previously in JSONB settings)
--- CRUD code expects this at line 49
-ALTER TABLE forms
-  ADD COLUMN allow_anonymous BOOLEAN DEFAULT false;
+-- Add check constraint for type if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'forms_type_check'
+  ) THEN
+    ALTER TABLE forms ADD CONSTRAINT forms_type_check
+      CHECK (type IN ('ojt-checklist', 'inspection', 'audit', 'survey', 'other'));
+  END IF;
+END $$;
 
 -- =====================================================
 -- STEP 3: MIGRATE EXISTING DATA FROM JSONB
@@ -91,7 +98,8 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_form_status
 -- Current policy allows ANY user in org to manage forms (security risk)
 DROP POLICY IF EXISTS "Admins can manage forms" ON forms;
 
--- CREATE: Only managers/admins can create forms
+-- CREATE: Only managers/admins can create forms (drop first for idempotency)
+DROP POLICY IF EXISTS "Managers can create forms" ON forms;
 CREATE POLICY "Managers can create forms"
   ON forms FOR INSERT
   WITH CHECK (
@@ -105,6 +113,7 @@ CREATE POLICY "Managers can create forms"
   );
 
 -- READ: Users can see published forms or their own drafts
+DROP POLICY IF EXISTS "Users can view published forms or own drafts" ON forms;
 CREATE POLICY "Users can view published forms or own drafts"
   ON forms FOR SELECT
   USING (
@@ -116,6 +125,7 @@ CREATE POLICY "Users can view published forms or own drafts"
   );
 
 -- UPDATE: Form creators can update their own forms
+DROP POLICY IF EXISTS "Form creators can update own forms" ON forms;
 CREATE POLICY "Form creators can update own forms"
   ON forms FOR UPDATE
   USING (
@@ -128,6 +138,7 @@ CREATE POLICY "Form creators can update own forms"
   );
 
 -- DELETE: Only admins can delete forms
+DROP POLICY IF EXISTS "Admins can delete forms" ON forms;
 CREATE POLICY "Admins can delete forms"
   ON forms FOR DELETE
   USING (
@@ -148,6 +159,7 @@ CREATE POLICY "Admins can delete forms"
 -- Add policies for INSERT/UPDATE/DELETE
 
 -- Allow form creators to add blocks to their forms
+DROP POLICY IF EXISTS "Form creators can add blocks" ON form_blocks;
 CREATE POLICY "Form creators can add blocks"
   ON form_blocks FOR INSERT
   WITH CHECK (
@@ -159,6 +171,7 @@ CREATE POLICY "Form creators can add blocks"
   );
 
 -- Allow form creators to update blocks in their forms
+DROP POLICY IF EXISTS "Form creators can update blocks" ON form_blocks;
 CREATE POLICY "Form creators can update blocks"
   ON form_blocks FOR UPDATE
   USING (
@@ -170,6 +183,7 @@ CREATE POLICY "Form creators can update blocks"
   );
 
 -- Allow form creators to delete blocks from their forms
+DROP POLICY IF EXISTS "Form creators can delete blocks" ON form_blocks;
 CREATE POLICY "Form creators can delete blocks"
   ON form_blocks FOR DELETE
   USING (
@@ -185,6 +199,7 @@ CREATE POLICY "Form creators can delete blocks"
 -- =====================================================
 
 -- Add policy for managers to view team submissions
+DROP POLICY IF EXISTS "Managers can view team submissions" ON form_submissions;
 CREATE POLICY "Managers can view team submissions"
   ON form_submissions FOR SELECT
   USING (
@@ -198,6 +213,7 @@ CREATE POLICY "Managers can view team submissions"
   );
 
 -- Allow users to update their own draft submissions
+DROP POLICY IF EXISTS "Users can update own draft submissions" ON form_submissions;
 CREATE POLICY "Users can update own draft submissions"
   ON form_submissions FOR UPDATE
   USING (
