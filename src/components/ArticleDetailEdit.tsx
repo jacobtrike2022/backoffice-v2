@@ -43,7 +43,8 @@ import {
   MoreVertical,
   Copy,
   Archive,
-  GitBranch
+  GitBranch,
+  Shield
 } from 'lucide-react';
 import {
   Popover,

@@ -39,7 +39,8 @@ import {
   Copy,
   Archive,
   GitBranch,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Shield
 } from 'lucide-react';
 import {
   Popover,
