@@ -1,15 +1,16 @@
 name: Sync exp/jacob to demo/stable
 
 on:
-  workflow_dispatch:  # Allow manual trigger too
-
   push:
     branches:
       - exp/jacob
+  workflow_dispatch:  # Manual trigger from Actions tab
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to push to demo/stable
     steps:
       - uses: actions/checkout@v4
         with:
