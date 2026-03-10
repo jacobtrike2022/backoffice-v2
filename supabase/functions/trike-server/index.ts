@@ -1077,6 +1077,10 @@ Deno.serve(async (req: Request) => {
     if (method === "POST" && path === "/demo/create") {
       return await handleDemoCreate(req);
     }
+    // Transition prospect → onboarding: remove seed data, update status
+    if (method === "POST" && path === "/org/transition-to-onboarding") {
+      return await handleOrgTransitionToOnboarding(req);
+    }
 
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
@@ -4791,7 +4795,43 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
     }
 
     const body = await req.json();
-    const { title, content, description, transcript, trackType, trackId, companyId } = body;
+    const { title, content, description, transcript, trackType, trackId, companyId, replaceExisting } = body;
+
+    // When trackId provided and replaceExisting is false/undefined: skip if track already has facts (prevents duplicate generation from multiple callers)
+    if (trackId && !replaceExisting) {
+      const { count: factCount } = await supabase
+        .from("fact_usage")
+        .select("*", { count: "exact", head: true })
+        .eq("track_id", trackId);
+
+      if (factCount && factCount > 0) {
+        const { data: existingFacts } = await supabase
+          .from("fact_usage")
+          .select("fact_id, facts!inner(id, title, content, type, steps, context, extracted_by, extraction_confidence, company_id, created_at, updated_at)")
+          .eq("track_id", trackId);
+        const facts = (existingFacts || []).map((row: any) => row.facts);
+        return jsonResponse({
+          enriched: facts,
+          factIds: facts.map((f: any) => f.id),
+          skipped: true,
+          reason: "Track already has facts",
+        });
+      }
+    }
+
+    // When replaceExisting: delete existing fact_usage for this track before inserting new facts
+    if (trackId && replaceExisting) {
+      const { error: deleteError } = await supabase
+        .from("fact_usage")
+        .delete()
+        .eq("track_id", trackId);
+
+      if (deleteError) {
+        console.error("Failed to delete existing fact_usage before replace:", deleteError);
+      } else {
+        console.log(`Replaced facts for track ${trackId} (deleted existing fact_usage links)`);
+      }
+    }
 
     // Build the content to analyze
     let textToAnalyze = "";
@@ -17639,6 +17679,290 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
 }
 
 // =============================================================================
+// DEMO SEED DATA HELPERS
+// =============================================================================
+
+const SEED_PEOPLE = [
+  { first_name: "Jamie", last_name: "Chen", email: "jamie.demo@example.com", employee_id: "E101" },
+  { first_name: "Marcus", last_name: "Rivera", email: "marcus.demo@example.com", employee_id: "E102" },
+  { first_name: "Sofia", last_name: "Kim", email: "sofia.demo@example.com", employee_id: "E103" },
+  { first_name: "Alex", last_name: "Thompson", email: "alex.demo@example.com", employee_id: "E104" },
+  { first_name: "Jordan", last_name: "Williams", email: "jordan.demo@example.com", employee_id: "E105" },
+];
+
+const SEED_UNITS = [
+  { name: "Downtown Store", code: "DT01", city: "Atlanta", state: "GA" },
+  { name: "Airport Location", code: "AP02", city: "Atlanta", state: "GA" },
+  { name: "Highway Stop", code: "HW03", city: "Marietta", state: "GA" },
+  { name: "Campus Store", code: "CP04", city: "Athens", state: "GA" },
+  { name: "Mall Kiosk", code: "MK05", city: "Atlanta", state: "GA" },
+];
+
+/**
+ * Seed demo org with 5 people, 5 units, and dummy activity for dashboards.
+ * All seeded rows get is_seed=true so they can be removed on prospect→onboarding.
+ */
+async function seedDemoOrgData(
+  orgId: string,
+  adminRoleId: string | null,
+  trackIds: string[]
+): Promise<{ people: number; units: number; activity: number }> {
+  const stats = { people: 0, units: 0, activity: 0 };
+
+  // Create Employee role for seed people
+  const { data: employeeRole } = await supabase
+    .from("roles")
+    .insert({
+      organization_id: orgId,
+      name: "Employee",
+      description: "Basic access",
+      level: 0,
+      permissions: JSON.stringify(["view_content"]),
+    })
+    .select("id")
+    .single();
+
+  const roleId = employeeRole?.id || adminRoleId;
+  if (!roleId) return stats;
+
+  // 2 seed districts
+  const { data: districts } = await supabase
+    .from("districts")
+    .insert([
+      { organization_id: orgId, name: "North Region", code: "NORTH", is_seed: true },
+      { organization_id: orgId, name: "South Region", code: "SOUTH", is_seed: true },
+    ])
+    .select("id");
+
+  if (!districts || districts.length < 2) return stats;
+
+  // 5 seed stores
+  const storesToInsert = SEED_UNITS.map((u, i) => ({
+    organization_id: orgId,
+    district_id: districts[i % 2].id,
+    name: u.name,
+    code: u.code,
+    city: u.city,
+    state: u.state,
+    is_active: true,
+    is_seed: true,
+  }));
+
+  const { data: stores } = await supabase.from("stores").insert(storesToInsert).select("id");
+  if (!stores || stores.length === 0) return stats;
+  stats.units = stores.length;
+
+  // 5 seed people (no auth_user_id)
+  const usersToInsert = SEED_PEOPLE.map((p, i) => ({
+    organization_id: orgId,
+    role_id: roleId,
+    store_id: stores[i % stores.length].id,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    email: `seed${i + 1}@org-${orgId.slice(0, 8)}.demo`,
+    employee_id: p.employee_id,
+    status: "active",
+    is_seed: true,
+  }));
+
+  const { data: seedUsers } = await supabase.from("users").insert(usersToInsert).select("id");
+  if (!seedUsers || seedUsers.length === 0) return stats;
+  stats.people = seedUsers.length;
+
+  const now = new Date();
+  const activityLogs: any[] = [];
+  const activityEvents: any[] = [];
+  const trackCompletions: any[] = [];
+  const userProgressRows: any[] = [];
+
+  for (let i = 0; i < seedUsers.length; i++) {
+    const uid = seedUsers[i].id;
+    const daysAgo = (days: number) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d.toISOString();
+    };
+
+    // Activity logs (admin-style activity)
+    activityLogs.push({ organization_id: orgId, user_id: uid, action: "login", entity_type: "user", entity_id: uid, details: {}, is_seed: true });
+    if (trackIds.length > 0) {
+      activityLogs.push(
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[0], details: {}, is_seed: true },
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[Math.min(1, trackIds.length - 1)], details: {}, is_seed: true }
+      );
+    }
+
+    // Activity events (learning activity - completions)
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const ts = daysAgo(i + 1);
+      activityEvents.push({
+        user_id: uid,
+        verb: "completed",
+        object_type: "track",
+        object_id: trackId,
+        object_name: "Training",
+        result_completion: true,
+        result_success: true,
+        context_platform: "web",
+        timestamp: ts,
+        stored_at: ts,
+        is_seed: true,
+      });
+    }
+
+    // Track completions
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const completedAt = daysAgo(i + 1);
+      trackCompletions.push({
+        user_id: uid,
+        track_id: trackId,
+        track_version_number: 1,
+        status: "completed",
+        passed: true,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+        metadata: { is_seed: true },
+      });
+      userProgressRows.push({
+        organization_id: orgId,
+        user_id: uid,
+        track_id: trackId,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+      });
+    }
+  }
+
+  if (activityLogs.length > 0) {
+    await supabase.from("activity_logs").insert(activityLogs);
+    stats.activity += activityLogs.length;
+  }
+  if (activityEvents.length > 0) {
+    await supabase.from("activity_events").insert(activityEvents);
+    stats.activity += activityEvents.length;
+  }
+  if (trackCompletions.length > 0) {
+    await supabase.from("track_completions").insert(trackCompletions);
+  }
+  if (userProgressRows.length > 0) {
+    await supabase.from("user_progress").insert(userProgressRows);
+  }
+
+  return stats;
+}
+
+/**
+ * Remove all demo seed data when org transitions prospect→onboarding.
+ * Keeps user-entered data (is_seed=false or null).
+ */
+async function removeDemoSeedData(orgId: string): Promise<{ removed: number }> {
+  let removed = 0;
+
+  const { data: seedUsers } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedUserIds = seedUsers?.map((u: any) => u.id) || [];
+
+  if (seedUserIds.length > 0) {
+    await supabase.from("user_progress").delete().in("user_id", seedUserIds);
+    await supabase.from("track_completions").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_logs").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_events").delete().in("user_id", seedUserIds);
+    await supabase.from("assignments").delete().in("user_id", seedUserIds);
+    await supabase.from("users").delete().in("id", seedUserIds);
+    removed += seedUserIds.length;
+  }
+
+  const { data: seedStores } = await supabase.from("stores").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedStoreIds = seedStores?.map((s: any) => s.id) || [];
+
+  if (seedStoreIds.length > 0) {
+    await supabase.from("stores").delete().in("id", seedStoreIds);
+    removed += seedStoreIds.length;
+  }
+
+  await supabase.from("districts").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+  const { data: deletedLogs } = await supabase.from("activity_logs").delete().eq("organization_id", orgId).eq("is_seed", true).select("id");
+  if (deletedLogs) removed += deletedLogs.length;
+
+  await supabase.from("tracks").delete().eq("organization_id", orgId).eq("is_demo_content", true);
+
+  const { data: octTopics } = await supabase.from("organization_compliance_topics").delete().eq("organization_id", orgId).eq("added_during", "admin_demo").select("id");
+  if (octTopics) removed += octTopics.length;
+
+  console.log(`[RemoveDemoSeed] Org ${orgId}: removed ${removed} seed items`);
+  return { removed };
+}
+
+/**
+ * POST /org/transition-to-onboarding
+ * Transition prospect org to onboarding: remove demo seed data, update status.
+ * Call when prospect accepts proposal + billing (e.g. from admin, webhook, or Go Live).
+ */
+async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    if (org.status !== "prospect" && org.status !== "demo") {
+      return jsonResponse({ error: `Org status must be prospect or demo, got: ${org.status}` }, 400);
+    }
+
+    const { removed } = await removeDemoSeedData(organization_id);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "onboarding",
+        converted_at: new Date().toISOString(),
+        demo_expires_at: null,
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[TransitionToOnboarding] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    const { error: dealError } = await supabase
+      .from("deals")
+      .update({ stage: "won" })
+      .eq("organization_id", organization_id);
+
+    if (dealError) console.error("[TransitionToOnboarding] Deal update (non-fatal):", dealError);
+
+    console.log(`[TransitionToOnboarding] ${org.name} → onboarding, removed ${removed} seed items`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      status: "onboarding",
+      seed_data_removed: removed,
+    });
+  } catch (error: any) {
+    console.error("[TransitionToOnboarding] Error:", error);
+    return jsonResponse({ error: error.message || "Transition failed" }, 500);
+  }
+}
+
+// =============================================================================
 // UNIFIED DEMO CREATION
 // =============================================================================
 
@@ -17846,6 +18170,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       .eq("status", "published")
       .limit(10);
 
+    let clonedTrackIds: string[] = [];
     if (templateTracks && templateTracks.length > 0) {
       const tracksToInsert = templateTracks.map((t: any) => ({
         organization_id: org.id,
@@ -17859,8 +18184,19 @@ async function handleDemoCreate(req: Request): Promise<Response> {
         status: "published",
         is_demo_content: true,
       }));
-      const { error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert);
-      if (!tracksErr) tracksCloned = tracksToInsert.length;
+      const { data: insertedTracks, error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert).select("id");
+      if (!tracksErr && insertedTracks) {
+        tracksCloned = insertedTracks.length;
+        clonedTrackIds = insertedTracks.map((t: any) => t.id);
+      }
+    }
+
+    // Step 5b: Seed demo people, units, and activity (5 people, 5 units, dummy activity)
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    try {
+      seedStats = await seedDemoOrgData(org.id, adminRole?.id, clonedTrackIds);
+    } catch (seedErr: any) {
+      console.error("[DemoCreate] Seed data failed (non-fatal):", seedErr.message);
     }
 
     // Step 6: Create a deal record
@@ -17872,7 +18208,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       probability: 50,
     });
 
-    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned}`);
+    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned} seed:${seedStats.people}p/${seedStats.units}u/${seedStats.activity}a`);
 
     return jsonResponse({
       success: true,
@@ -17884,7 +18220,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       },
       magic_link: magicLink,
       enriched_data: enrichedData.company_name ? enrichedData : undefined,
-      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned },
+      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned, seed_people: seedStats.people, seed_units: seedStats.units, seed_activity: seedStats.activity },
     });
   } catch (error: any) {
     console.error("[DemoCreate] Error:", error);

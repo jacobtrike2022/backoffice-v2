@@ -234,12 +234,15 @@ The `POST /demo/create` endpoint should seed default prospect checklist items au
 
 #### 6.5 Onboarding Transition Automation
 When a prospect accepts proposal + sets up billing:
-1. Update `organizations.status` to `'onboarding'`
-2. Update deal stage to `won`
-3. Seed default onboarding checklist items (Phase B)
-4. Redirect to `ClientOnboardingView`
+1. Call `POST /org/transition-to-onboarding` with `{ organization_id }` — this:
+   - Removes demo seed data (is_seed=true: users, stores, districts, activity, demo tracks)
+   - Keeps user-entered data (people, units, content they added)
+   - Updates `organizations.status` to `'onboarding'`, sets `converted_at`, clears `demo_expires_at`
+   - Updates deal stage to `won`
+2. Seed default onboarding checklist items (Phase B)
+3. Redirect to `ClientOnboardingView`
 
-This transition logic needs to be wired from the Go Live step or triggered by Stripe webhook confirmation.
+Wire this from the Go Live step, admin UI, or Stripe webhook confirmation.
 
 ### Medium Priority (Post-Event Polish)
 

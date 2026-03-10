@@ -359,6 +359,16 @@ async function automateStoryWorkflow(track: { id: string; title?: string; descri
       return;
     }
 
+    // Skip if track already has facts (prevents duplicate generation)
+    const { count: storyFactCount } = await supabase
+      .from('fact_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('track_id', track.id);
+    if (storyFactCount && storyFactCount > 0) {
+      console.log(`[Story Workflow] Track ${track.id} already has ${storyFactCount} facts, skipping`);
+      return;
+    }
+
     console.log(`[Story Workflow] Starting automation for track ${track.id} with ${videoSlides.length} video slides...`);
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -590,20 +600,10 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
       }
     }
 
-    // Step 3: Generate key facts
-    console.log('[Video Workflow] Step 3: Generating key facts...');
-    const orgId = track.organization_id || await getCurrentUserOrgId();
-    
-    await generateKeyFacts({
-      title: track.title || 'Untitled Video',
-      description: track.description || '',
-      transcript: transcriptText,
-      trackType: 'video',
-      trackId: track.id,
-      companyId: orgId || undefined,
-    });
-
-    console.log(`[Video Workflow] ✓ Key facts generated for track ${track.id}`);
+    // Step 3: Key facts - SKIP here. The /transcribe endpoint handles key fact generation when trackId
+    // is provided (it checks fact_usage and only generates if none exist). Calling generateKeyFacts here
+    // caused duplicate facts because both this workflow AND the transcribe callback were generating.
+    console.log('[Video Workflow] Key facts handled by transcribe endpoint (no duplicate generation)');
     console.log('[Video Workflow] Automation complete!');
 
   } catch (error) {
@@ -624,6 +624,16 @@ async function automateArticleWorkflow(track: { id: string; title?: string; desc
   }
 
   try {
+    // Skip if track already has facts (backend also checks; this avoids unnecessary API call)
+    const { count } = await supabase
+      .from('fact_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('track_id', track.id);
+    if (count && count > 0) {
+      console.log(`[Article Workflow] Track ${track.id} already has ${count} facts, skipping`);
+      return;
+    }
+
     console.log(`[Article Workflow] Starting automation for track ${track.id}...`);
 
     // Strip HTML to get plain text for word count check
@@ -933,7 +943,8 @@ export async function updateTrack(input: UpdateTrackInput) {
           trackType: track.type,
           title: track.title || '',
           description: updateData.transcript || '',
-          content: plainText
+          content: plainText,
+          replaceExisting: true  // Replace facts when article content changes (was adding duplicates)
         })
       })
       .then(async (res) => {
