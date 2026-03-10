@@ -154,6 +154,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           last_activity_at,
           next_action,
           next_action_date,
+          scraped_data,
           stores(count)
         `)
         .order('created_at', { ascending: false });
@@ -492,13 +493,16 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                         {/* Locations & States */}
                         <TableCell>
                           {(() => {
-                            const storeCount = (org as any).stores?.[0]?.count || 0;
+                            const actualStoreCount = (org as any).stores?.[0]?.count || 0;
+                            const estimatedCount = (org as any).scraped_data?.store_count || 0;
+                            const storeCount = actualStoreCount || estimatedCount;
+                            const isEstimated = actualStoreCount === 0 && estimatedCount > 0;
                             const stateCount = org.operating_states?.length || 0;
                             if (!storeCount && !stateCount) return <span className="text-muted-foreground text-sm">-</span>;
                             return (
                               <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
                                 <MapPin className="h-3 w-3 shrink-0" />
-                                {storeCount > 0 && `${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
+                                {storeCount > 0 && `${isEstimated ? '~' : ''}${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
                                 {storeCount > 0 && stateCount > 0 && ' · '}
                                 {stateCount > 0 && `${stateCount} state${stateCount !== 1 ? 's' : ''}`}
                               </Badge>

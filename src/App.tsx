@@ -199,6 +199,34 @@ export default function App() {
     checkServerHealth().catch(() => {});
   }, []);
 
+  // Read demo_org_id from URL on mount — activates org preview for demo links
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+    if (!demoOrgId || viewingOrgId === demoOrgId) return;
+
+    (async () => {
+      try {
+        // Fetch org name for the sidebar
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', demoOrgId)
+          .single();
+
+        if (org) {
+          setViewingOrgOverride(demoOrgId);
+          setViewingOrgId(demoOrgId);
+          setViewingOrgName(org.name);
+          window.dispatchEvent(new Event('organization-updated'));
+        }
+      } catch {
+        // Silent — demo_org_id may be invalid
+      }
+    })();
+  }, [user]); // Only run when user auth state changes, not on viewingOrgId change
+
   // Handle previewing an org as Super Admin
   const handlePreviewOrg = async (orgId: string, orgName: string) => {
     setViewingOrgOverride(orgId);

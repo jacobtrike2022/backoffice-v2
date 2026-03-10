@@ -68,6 +68,13 @@ export interface Organization {
   onboarding_source: string | null;
   created_at: string;
 
+  // Enrichment data from AI scraping (batch demo creation)
+  scraped_data: {
+    store_count?: number;
+    employee_count?: number;
+    [key: string]: any;
+  } | null;
+
   // Deal-related fields on org
   deal_value: number | null;
   deal_probability: number | null;
