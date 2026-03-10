@@ -1,0 +1,25 @@
+name: Sync exp/jacob to demo/stable
+
+on:
+  workflow_dispatch:  # Allow manual trigger too
+
+  push:
+    branches:
+      - exp/jacob
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge exp/jacob into demo/stable
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout demo/stable
+          git merge origin/exp/jacob -m "chore: sync exp/jacob into demo/stable"
+          git push origin demo/stable
