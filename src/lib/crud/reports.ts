@@ -418,8 +418,13 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
     users.forEach(user => {
       const userAssignments = (assignments || []).filter(a => a.user_id === user.id);
 
-      // Skip users with no assignments
-      if (userAssignments.length === 0) return;
+      // Exclude orphaned assignments (playlist was deleted - would show as N/A)
+      const validAssignments = userAssignments.filter(
+        a => (a.playlist as { title?: string } | null)?.title
+      );
+
+      // Skip users with no valid assignments (all orphaned or none)
+      if (validAssignments.length === 0) return;
 
       const userCerts = certificationsByUser.get(user.id) || [];
       const latestCert = userCerts.length > 0
@@ -440,10 +445,10 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
       const allPlaylists: string[] = [];
       const allTracks: string[] = [];
 
-      userAssignments.forEach(assignment => {
-        // Get album name (if any)
-        const album = albumMap.get(assignment.playlist_id) || (assignment.playlist as any)?.title || 'N/A';
-        const playlistTitle = (assignment.playlist as any)?.title || 'N/A';
+      validAssignments.forEach(assignment => {
+        // Get album name (if any) - playlist exists (we filtered orphans above)
+        const playlistTitle = (assignment.playlist as { title?: string })?.title ?? '';
+        const album = albumMap.get(assignment.playlist_id) || playlistTitle || 'N/A';
 
         // Calculate progress for the playlist
         const totalTracksInPlaylist = trackCountByPlaylist.get(assignment.playlist_id) || 0;
