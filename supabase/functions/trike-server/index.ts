@@ -18142,6 +18142,48 @@ async function seedDemoOrgData(
     await supabase.from("user_progress").insert(userProgressRows);
   }
 
+  // Create seed playlist and assignments so Reports (People, Assignments, Units) show demo data
+  if (trackIds.length > 0 && seedUsers.length > 0) {
+    const { data: playlist } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id: orgId,
+        title: "Demo Training",
+        description: "Sample training for demo dashboards",
+        type: "manual",
+        is_active: true,
+      })
+      .select("id")
+      .single();
+
+    if (playlist?.id) {
+      const pts = trackIds.map((tid, idx) => ({
+        playlist_id: playlist.id,
+        track_id: tid,
+        display_order: idx,
+      }));
+      await supabase.from("playlist_tracks").insert(pts);
+
+      const assignmentRows = seedUsers.map((u, i) => {
+        const completedAt = (() => {
+          const d = new Date(now);
+          d.setDate(d.getDate() - (i + 1));
+          return d.toISOString();
+        })();
+        return {
+          organization_id: orgId,
+          user_id: u.id,
+          playlist_id: playlist.id,
+          assigned_at: completedAt,
+          status: "completed",
+          progress_percent: 100,
+          completed_at: completedAt,
+        };
+      });
+      await supabase.from("assignments").insert(assignmentRows);
+    }
+  }
+
   return stats;
 }
 
@@ -18163,6 +18205,19 @@ async function removeDemoSeedData(orgId: string): Promise<{ removed: number }> {
     await supabase.from("assignments").delete().in("user_id", seedUserIds);
     await supabase.from("users").delete().in("id", seedUserIds);
     removed += seedUserIds.length;
+  }
+
+  // Remove seed playlist "Demo Training" created for reports
+  const { data: seedPlaylists } = await supabase
+    .from("playlists")
+    .select("id")
+    .eq("organization_id", orgId)
+    .eq("title", "Demo Training");
+  if (seedPlaylists && seedPlaylists.length > 0) {
+    const playlistIds = seedPlaylists.map((p: any) => p.id);
+    await supabase.from("playlist_tracks").delete().in("playlist_id", playlistIds);
+    await supabase.from("playlists").delete().in("id", playlistIds);
+    removed += seedPlaylists.length;
   }
 
   const { data: seedStores } = await supabase.from("stores").select("id").eq("organization_id", orgId).eq("is_seed", true);
