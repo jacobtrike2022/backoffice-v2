@@ -7940,10 +7940,13 @@ async function handleOnboardingStart(req: Request): Promise<Response> {
  * Scrape company info from website URL
  */
 async function handleEnrichCompany(req: Request): Promise<Response> {
+  let websiteInput = "";
   try {
-    const { website, session_token } = await req.json();
+    const body = await req.json();
+    const { website, session_token } = body;
+    websiteInput = website || "";
 
-    if (!website) {
+    if (!websiteInput) {
       return jsonResponse({ error: "website URL is required" }, 400);
     }
 
@@ -8072,10 +8075,6 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     }
 
     const responseData: Record<string, any> = { ...enrichedData };
-    if (relayResult) {
-      responseData.relay_run_id = relayResult.runId;
-      responseData.relay_run_link = relayResult.runLink;
-    }
 
     return jsonResponse({
       success: true,
@@ -8083,7 +8082,24 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     });
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
-    return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    // Fallback: same minimal logic as Create Demo — return domain-derived company name so user can continue
+    try {
+      if (!websiteInput) return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+      const fallbackUrl = websiteInput.startsWith("http") ? websiteInput : "https://" + websiteInput;
+      const domain = new URL(fallbackUrl).hostname.replace("www.", "");
+      const domainName = domain.split(".")[0];
+      return jsonResponse({
+        success: true,
+        data: {
+          website: fallbackUrl,
+          company_name: capitalizeWords(domainName),
+          scraped: false,
+          error: "Could not fully enrich company data",
+        },
+      });
+    } catch (fallbackErr: any) {
+      return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    }
   }
 }
 
