@@ -21,6 +21,7 @@ dist
 
 # Credentials (never commit)
 .cursor/credentials/
+.cursor/mcp.json
 
 # Logs
 *.log
