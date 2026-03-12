@@ -50,6 +50,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase, supabaseAnonKey, refreshAuthSession } from '../lib/supabase';
+import { APP_CONFIG } from '../lib/config';
 import { getServerUrl } from '../utils/supabase/info';
 import { cn } from './ui/utils';
 import { ChunkToTrackGenerator } from './ChunkToTrackGenerator';
@@ -291,14 +292,17 @@ export function DocumentIntelligenceEditor({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [bladeMode]);
 
-  /** Get session for API calls; tries refresh if getSession returns null (handles timing/expiry) */
-  async function getSessionForFetch() {
+  /** Get session for API calls; tries refresh if null. In DEMO_MODE, falls back to anon key when no session. */
+  async function getSessionForFetch(): Promise<{ access_token: string }> {
     let { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    if (!session && !APP_CONFIG.DEMO_MODE) {
       session = await refreshAuthSession();
     }
-    if (!session) throw new Error('Not authenticated');
-    return session;
+    if (session) return session;
+    if (APP_CONFIG.DEMO_MODE) {
+      return { access_token: supabaseAnonKey };
+    }
+    throw new Error('Not authenticated');
   }
 
   async function loadSourceFile() {
