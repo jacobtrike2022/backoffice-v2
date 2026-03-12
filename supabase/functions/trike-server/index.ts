@@ -7655,7 +7655,8 @@ async function triggerRelayLocationScraper(
       console.error("[Relay] Trigger failed:", resp.status, resp.statusText, data);
       return null;
     }
-    if (data.runId && options?.orgId) {
+    const runId = data.runId || data.existingRunId;
+    if (runId && options?.orgId) {
       const { data: org } = await supabase
         .from("organizations")
         .select("scraped_data")
@@ -7665,13 +7666,13 @@ async function triggerRelayLocationScraper(
       await supabase
         .from("organizations")
         .update({
-          scraped_data: { ...existing, relay_run_id: data.runId, relay_run_link: data.runLink || null },
+          scraped_data: { ...existing, relay_run_id: runId, relay_run_link: data.runLink || null },
         })
         .eq("id", options.orgId);
     }
-    if (data.runId) {
-      console.log("[Relay] Trigger success:", data.runId, data.runLink);
-      return { runId: data.runId, runLink: data.runLink || "" };
+    if (runId) {
+      console.log("[Relay] Trigger success:", runId, data.runLink || "(existing run)");
+      return { runId, runLink: data.runLink || "" };
     }
     console.warn("[Relay] Trigger response missing runId:", data);
     return null;
@@ -9521,7 +9522,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         const domain = new URL(fullUrl).hostname.replace("www.", "");
         await triggerRelayLocationScraper(data.company_name, domain, {
           orgId: org.id,
-          deduplicationKey: domain,
+          deduplicationKey: org.id,
           fullWebsiteUrl: fullUrl,
         });
         console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
@@ -18797,7 +18798,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
         console.log(`[DemoCreate] Triggering Relay for ${companyName} (${websiteForUrl})`);
         const relayResult = await triggerRelayLocationScraper(companyName, demoDomain, {
           orgId: org.id,
-          deduplicationKey: demoDomain,
+          deduplicationKey: org.id,
           fullWebsiteUrl: enrichedData.website,
         });
         if (relayResult) {

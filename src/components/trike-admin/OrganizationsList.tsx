@@ -487,13 +487,21 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                           {(() => {
                             const actualStoreCount = (org as any).stores?.[0]?.count || 0;
                             const estimatedCount = (org as any).scraped_data?.store_count || 0;
+                            const scrapedTotal = (org as any).scraped_data?.relay_locations_total;
                             const storeCount = actualStoreCount || estimatedCount;
                             const isEstimated = actualStoreCount === 0 && estimatedCount > 0;
-                            if (!storeCount) return <span className="text-muted-foreground text-sm">-</span>;
+                            const showScraped = scrapedTotal != null && scrapedTotal > 0 && scrapedTotal !== storeCount;
+                            if (!storeCount && !scrapedTotal) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayCount = storeCount || scrapedTotal;
                             return (
                               <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
                                 <MapPin className="h-3 w-3 shrink-0" />
-                                {`${isEstimated ? '~' : ''}${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
+                                {`${isEstimated ? '~' : ''}${displayCount} loc${displayCount !== 1 ? 's' : ''}`}
+                                {showScraped && (
+                                  <span className="text-muted-foreground ml-0.5" title={`${storeCount} imported, ${scrapedTotal} scraped by Relay`}>
+                                    ({scrapedTotal} scraped)
+                                  </span>
+                                )}
                               </Badge>
                             );
                           })()}

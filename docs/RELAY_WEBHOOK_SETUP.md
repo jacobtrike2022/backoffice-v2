@@ -38,6 +38,7 @@ Add an **HTTP Request** step at the end of your Relay playbook that POSTs to the
 | `company_name` | Trigger input | e.g. "Friendly Express" |
 | `company_domain` | Trigger input | e.g. "https://www.friendlyexpress.com" |
 | `locations` | Scraper output | Array of `{ name, address, city, state, zip, code?, ... }` |
+| `total_scraped` or `totalLocationCount` | Scraper output | **Optional.** Total locations found by scraper (e.g. 38). Relay AI step often outputs `totalLocationCount`. If the `locations` array has fewer items, send this so the UI can show "5 locs (38 scraped)". |
 
 ### Example body (Relay step)
 

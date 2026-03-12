@@ -67,13 +67,19 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     // Relay returns "locations"; we also accept "stores" for compatibility
-    const { org_id, company_name, company_domain, store_count, stores, locations } = body;
+    const { org_id, company_name, company_domain, store_count, total_scraped, totalLocationCount, stores, locations } = body;
     const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+    const scrapedTotal =
+      typeof total_scraped === "number" ? total_scraped
+      : typeof totalLocationCount === "number" ? totalLocationCount
+      : typeof store_count === "number" ? store_count
+      : null;
 
     console.log("[Relay] Callback received:", {
       org_id,
       company_domain: company_domain?.slice?.(0, 50),
       storesCount: storeList.length,
+      scrapedTotal: scrapedTotal ?? "(not provided)",
       hasLocations: !!locations,
       hasStores: !!stores,
     });
@@ -247,11 +253,17 @@ serve(async (req) => {
       .eq("id", orgId)
       .single();
     const existing = (org as any)?.scraped_data || {};
+    const scrapedDataUpdate: Record<string, unknown> = {
+      ...existing,
+      store_count: newStoreIds.length,
+      relay_locations_imported_at: new Date().toISOString(),
+    };
+    if (scrapedTotal != null) {
+      scrapedDataUpdate.relay_locations_total = scrapedTotal;
+    }
     await supabase
       .from("organizations")
-      .update({
-        scraped_data: { ...existing, store_count: newStoreIds.length, relay_locations_imported_at: new Date().toISOString() },
-      })
+      .update({ scraped_data: scrapedDataUpdate })
       .eq("id", orgId);
 
     console.log(`[Relay] Callback: imported ${newStoreIds.length} stores for org ${orgId}`);
