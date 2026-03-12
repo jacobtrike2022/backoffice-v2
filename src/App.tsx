@@ -235,10 +235,28 @@ export default function App() {
     window.dispatchEvent(new Event('organization-updated'));
   };
 
-  const handleExitOrgPreview = () => {
-    setViewingOrgOverride(null);
-    setViewingOrgId(null);
-    setViewingOrgName(null);
+  const handleExitOrgPreview = async () => {
+    // Clear demo_org_id from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('demo_org_id');
+    window.history.replaceState({}, '', url.pathname + url.search);
+
+    // Return to trike.co (main) — same as clicking "Return to main" for trike.co row
+    const trikeCoId = APP_CONFIG.TRIKE_CO_ORG_ID;
+    try {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', trikeCoId)
+        .single();
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName(org?.name ?? 'Trike');
+    } catch {
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName('Trike');
+    }
     setOrgStatusInfo({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
     window.dispatchEvent(new Event('organization-updated'));
   };

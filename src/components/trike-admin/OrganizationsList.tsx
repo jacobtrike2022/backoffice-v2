@@ -60,12 +60,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../ui/sheet';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '../ui/hover-card';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
+
+const TRIKE_CO_ORG_ID = '10000000-0000-0000-0000-000000000001';
 
 interface OrganizationsListProps {
   onViewJourney?: (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => void;
@@ -122,6 +129,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           name,
           subdomain,
           website,
+          logo_url,
           status,
           industry,
           industries(name),
@@ -150,7 +158,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
         return;
       }
 
-      setOrganizations((data as Organization[]) || []);
+      setOrganizations((data as unknown as Organization[]) || []);
     } catch (err) {
       console.error('Error loading organizations:', err);
     } finally {
@@ -390,7 +398,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                   <TableHead className="w-[250px]">Organization</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Industry</TableHead>
-                  <TableHead>Locations</TableHead>
+                  <TableHead># Locations</TableHead>
+                  <TableHead>States</TableHead>
                   <TableHead>Demo</TableHead>
                   <TableHead>Demo Link</TableHead>
                   <TableHead>Next Action</TableHead>
@@ -430,13 +439,21 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                           <div className="flex items-center gap-3">
                             <div
                               className={cn(
-                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0',
+                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden',
                                 statusConfig.bgColor
                               )}
                             >
-                              <Building2
-                                className={cn('h-4 w-4', statusConfig.color)}
-                              />
+                              {org.logo_url ? (
+                                <img
+                                  src={org.logo_url}
+                                  alt=""
+                                  className="h-9 w-9 object-contain"
+                                />
+                              ) : (
+                                <Building2
+                                  className={cn('h-4 w-4', statusConfig.color)}
+                                />
+                              )}
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-sm truncate">
@@ -467,22 +484,58 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                           {(org as { industries?: { name: string } | null }).industries?.name || org.industry || '-'}
                         </TableCell>
 
-                        {/* Locations & States */}
+                        {/* # Locations */}
                         <TableCell>
                           {(() => {
                             const actualStoreCount = (org as any).stores?.[0]?.count || 0;
                             const estimatedCount = (org as any).scraped_data?.store_count || 0;
                             const storeCount = actualStoreCount || estimatedCount;
                             const isEstimated = actualStoreCount === 0 && estimatedCount > 0;
-                            const stateCount = org.operating_states?.length || 0;
-                            if (!storeCount && !stateCount) return <span className="text-muted-foreground text-sm">-</span>;
+                            if (!storeCount) return <span className="text-muted-foreground text-sm">-</span>;
                             return (
                               <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
                                 <MapPin className="h-3 w-3 shrink-0" />
-                                {storeCount > 0 && `${isEstimated ? '~' : ''}${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
-                                {storeCount > 0 && stateCount > 0 && ' · '}
-                                {stateCount > 0 && `${stateCount} state${stateCount !== 1 ? 's' : ''}`}
+                                {`${isEstimated ? '~' : ''}${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
                               </Badge>
+                            );
+                          })()}
+                        </TableCell>
+
+                        {/* States - pills with hover popup */}
+                        <TableCell>
+                          {(() => {
+                            const states = org.operating_states || [];
+                            const stateCount = states.length;
+                            if (stateCount === 0) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayStates = states.slice(0, 3);
+                            const overflowCount = stateCount - displayStates.length;
+                            return (
+                              <HoverCard openDelay={200}>
+                                <HoverCardTrigger asChild>
+                                  <div className="flex flex-wrap gap-1 cursor-default">
+                                    {displayStates.map((s) => (
+                                      <Badge key={s} variant="secondary" className="text-xs font-normal">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                    {overflowCount > 0 && (
+                                      <Badge variant="outline" className="text-xs font-normal bg-muted">
+                                        +{overflowCount}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-auto p-2" align="start" side="bottom">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">Operating states</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {states.map((s) => (
+                                      <Badge key={s} variant="outline" className="text-xs">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
                             );
                           })()}
                         </TableCell>
@@ -552,7 +605,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                   onClick={() => onPreviewOrg(org.id, org.name)}
                                 >
                                   <Eye className="h-4 w-4 mr-2" />
-                                  Preview as this org
+                                  {org.id === TRIKE_CO_ORG_ID ? 'Return to main' : 'Preview as this org'}
                                 </DropdownMenuItem>
                               )}
                               {onViewJourney && (

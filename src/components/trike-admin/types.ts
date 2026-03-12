@@ -54,6 +54,7 @@ export interface Organization {
   demo_expires_at: string | null;
   brand_primary_color: string | null;
   brand_secondary_color: string | null;
+  logo_url?: string | null;
   logo_dark_url: string | null;
   logo_light_url: string | null;
   onboarding_source: string | null;

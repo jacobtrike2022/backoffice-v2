@@ -40,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { APP_CONFIG } from '../lib/config';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -225,7 +226,7 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const isPreviewingOrg = !!viewingOrgId;
+  const isPreviewingOrg = !!viewingOrgId && viewingOrgId !== APP_CONFIG.TRIKE_CO_ORG_ID;
 
   // Fetch organization name and logo
   useEffect(() => {
