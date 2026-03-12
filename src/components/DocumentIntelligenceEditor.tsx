@@ -49,7 +49,7 @@ import {
   Scissors,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase, supabaseAnonKey } from '../lib/supabase';
+import { supabase, supabaseAnonKey, refreshAuthSession } from '../lib/supabase';
 import { getServerUrl } from '../utils/supabase/info';
 import { cn } from './ui/utils';
 import { ChunkToTrackGenerator } from './ChunkToTrackGenerator';
@@ -291,6 +291,16 @@ export function DocumentIntelligenceEditor({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [bladeMode]);
 
+  /** Get session for API calls; tries refresh if getSession returns null (handles timing/expiry) */
+  async function getSessionForFetch() {
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      session = await refreshAuthSession();
+    }
+    if (!session) throw new Error('Not authenticated');
+    return session;
+  }
+
   async function loadSourceFile() {
     if (!sourceFileId) return;
 
@@ -386,9 +396,7 @@ export function DocumentIntelligenceEditor({
     setProcessingStep('Auto-processing document...');
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
+      const session = await getSessionForFetch();
       const serverUrl = getServerUrl();
 
       // Chunk the document with built-in classification
@@ -437,9 +445,7 @@ export function DocumentIntelligenceEditor({
     if (!sourceFileId) return;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
+      const session = await getSessionForFetch();
       const serverUrl = getServerUrl();
       const response = await fetch(`${serverUrl}/chunks/${sourceFileId}`, {
         headers: {
@@ -551,9 +557,7 @@ export function DocumentIntelligenceEditor({
 
     setProcessing(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
+      const session = await getSessionForFetch();
       const serverUrl = getServerUrl();
 
       // Step 1: Extract text (if not already done)
@@ -1202,9 +1206,7 @@ export function DocumentIntelligenceEditor({
       setProcessingStep('Extracting job description data...');
 
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error('Not authenticated');
-
+        const session = await getSessionForFetch();
         const serverUrl = getServerUrl();
 
         // Call extract-jd endpoint to create entity from chunk

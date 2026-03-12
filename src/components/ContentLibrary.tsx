@@ -1010,6 +1010,33 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Create Variant Modal - must be in track detail view for ... menu */}
+        <CreateVariantModal
+          isOpen={createVariantModal.open}
+          onClose={() => setCreateVariantModal({ open: false, track: null })}
+          sourceTrack={createVariantModal.track ? {
+            id: createVariantModal.track.id,
+            title: createVariantModal.track.title,
+            type: createVariantModal.track.type,
+            thumbnail_url: createVariantModal.track.thumbnail_url
+          } : undefined}
+          onVariantCreated={(newTrackId) => {
+            setCreateVariantModal({ open: false, track: null });
+            if (onNavigate) {
+              toast.success('Variant created! Opening editor...');
+              onNavigate('authoring', newTrackId);
+            } else {
+              refetch().then(() => {
+                const newTrack = tracks.find((t: any) => t.id === newTrackId);
+                if (newTrack) {
+                  setSelectedTrack(newTrack);
+                }
+              });
+              toast.success('Variant created successfully');
+            }
+          }}
+        />
       </>
     );
   }
