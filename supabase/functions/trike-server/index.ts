@@ -1095,6 +1095,10 @@ Deno.serve(async (req: Request) => {
     if (method === "POST" && path === "/admin/seed-demo-org-all") {
       return await handleAdminSeedDemoOrgAll(req);
     }
+    // Admin: create seed stores for orgs where Relay was triggered but never returned (call by cron, e.g. every 10 min)
+    if (method === "POST" && path === "/admin/relay-fallback-seed") {
+      return await handleRelayFallbackSeed(req);
+    }
 
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
@@ -1226,6 +1230,7 @@ Deno.serve(async (req: Request) => {
         "POST /demo/provision",
         "POST /admin/seed-demo-org",
         "POST /admin/seed-demo-org-all",
+        "POST /admin/relay-fallback-seed",
         "POST /billing/setup-intent",
         "POST /billing/webhook",
         "POST /contracts/send",
@@ -7705,7 +7710,9 @@ async function triggerRelayLocationScraper(
 async function handleRelayLocationCallback(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
-    const { org_id, company_name, company_domain, store_count, stores } = body;
+    // Relay returns "locations"; we also accept "stores" for compatibility
+    const { org_id, company_name, company_domain, store_count, stores, locations } = body;
+    const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
 
     let orgId = org_id;
     if (!orgId && company_domain) {
@@ -7723,11 +7730,33 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
       return jsonResponse({ error: "org_id or company_domain required" }, 400);
     }
 
-    const storeList = Array.isArray(stores) ? stores : [];
     const hasLocations = storeList.length > 0;
 
     if (!hasLocations) {
-      console.log(`[Relay] Callback: no locations for org ${orgId} (${company_name || company_domain || "unknown"}) — keeping seed stores`);
+      // No locations from Relay. If we have no stores (DemoCreate skipped them), create seed fallback so demo isn't broken.
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log(`[Relay] Callback: no locations for org ${orgId} — creating seed fallback (5 stores)`);
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const firstId = inserted?.[0]?.id;
+        if (firstId) {
+          await supabase.from("users").update({ store_id: firstId }).eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        }
+        return jsonResponse({ success: true, action: "no_locations_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      console.log(`[Relay] Callback: no locations for org ${orgId} — keeping existing seed stores`);
       return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
     }
 
@@ -7754,7 +7783,7 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
       };
     };
 
-    const storesToInsert = storeList.slice(0, 50).map(mapStore);
+    const storesToInsert = storeList.slice(0, 500).map(mapStore); // Support 5–500 stores
 
     // Get districts for this org (seed districts or any)
     const { data: districts } = await supabase
@@ -7789,18 +7818,48 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
 
     if (insertErr) {
       console.error("[Relay] Callback: failed to insert stores:", insertErr);
+      // Fallback: create seed stores so demo isn't broken
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log("[Relay] Callback: creating seed fallback after insert error");
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const { data: seedPeople } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        if (seedPeople && seedPeople.length > 0 && storeIds.length > 0) {
+          for (let i = 0; i < seedPeople.length; i++) {
+            const storeId = storeIds[i % storeIds.length];
+            await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+          }
+        }
+        return jsonResponse({ success: true, action: "insert_error_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
       return jsonResponse({ error: insertErr.message }, 500);
     }
 
     const newStoreIds = (insertedStores || []).map((s: any) => s.id);
-    const firstNewStoreId = newStoreIds[0];
-
-    if (firstNewStoreId && deletedStoreIds.size > 0) {
-      await supabase
-        .from("users")
-        .update({ store_id: firstNewStoreId })
-        .eq("organization_id", orgId)
-        .in("store_id", Array.from(deletedStoreIds));
+    // Distribute seed people across first N stores (N = min(5, storeCount)) — scales to 5 or 500 stores
+    const storesForAssignment = newStoreIds.slice(0, 5);
+    let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+    peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
+    const { data: seedPeople } = await peopleQuery;
+    if (seedPeople && seedPeople.length > 0 && storesForAssignment.length > 0) {
+      for (let i = 0; i < seedPeople.length; i++) {
+        const storeId = storesForAssignment[i % storesForAssignment.length];
+        await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+      }
+      console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
     }
 
     // Update org scraped_data with store_count
@@ -17916,13 +17975,17 @@ const SEED_UNITS = [
 /**
  * Seed demo org with 5 people, 5 units, and dummy activity for dashboards.
  * All seeded rows get is_seed=true so they can be removed on prospect→onboarding.
+ * When skipStores=true (Relay will provide real locations), create people with store_id=null
+ * so the Relay callback can assign them to real stores when it runs.
  */
 async function seedDemoOrgData(
   orgId: string,
   adminRoleId: string | null,
-  trackIds: string[]
+  trackIds: string[],
+  options?: { skipStores?: boolean }
 ): Promise<{ people: number; units: number; activity: number }> {
   const stats = { people: 0, units: 0, activity: 0 };
+  const skipStores = options?.skipStores === true;
 
   // Create Employee role for seed people
   const { data: employeeRole } = await supabase
@@ -17951,27 +18014,29 @@ async function seedDemoOrgData(
 
   if (!districts || districts.length < 2) return stats;
 
-  // 5 seed stores
-  const storesToInsert = SEED_UNITS.map((u, i) => ({
-    organization_id: orgId,
-    district_id: districts[i % 2].id,
-    name: u.name,
-    code: u.code,
-    city: u.city,
-    state: u.state,
-    is_active: true,
-    is_seed: true,
-  }));
+  // 5 seed stores (skip when Relay will provide real locations)
+  let stores: { id: string }[] = [];
+  if (!skipStores) {
+    const storesToInsert = SEED_UNITS.map((u, i) => ({
+      organization_id: orgId,
+      district_id: districts[i % 2].id,
+      name: u.name,
+      code: u.code,
+      city: u.city,
+      state: u.state,
+      is_active: true,
+      is_seed: true,
+    }));
+    const { data: insertedStores } = await supabase.from("stores").insert(storesToInsert).select("id");
+    stores = insertedStores || [];
+    if (stores.length > 0) stats.units = stores.length;
+  }
 
-  const { data: stores } = await supabase.from("stores").insert(storesToInsert).select("id");
-  if (!stores || stores.length === 0) return stats;
-  stats.units = stores.length;
-
-  // 5 seed people (no auth_user_id)
+  // 5 seed people (no auth_user_id). store_id=null when skipStores (Relay callback will assign)
   const usersToInsert = SEED_PEOPLE.map((p, i) => ({
     organization_id: orgId,
     role_id: roleId,
-    store_id: stores[i % stores.length].id,
+    store_id: stores.length > 0 ? stores[i % stores.length].id : null,
     first_name: p.first_name,
     last_name: p.last_name,
     email: `seed${i + 1}@org-${orgId.slice(0, 8)}.demo`,
@@ -18365,6 +18430,106 @@ async function handleAdminSeedDemoOrgAll(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * POST /admin/relay-fallback-seed
+ * Create seed stores for orgs where Relay was triggered but never returned.
+ * Call via cron (e.g. every 10 min) to recover demos stuck with 0 stores.
+ * Body: { minutesAgo?: number } — only consider orgs created at least this long ago (default 10).
+ */
+async function handleRelayFallbackSeed(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const minutesAgo = body.minutesAgo ?? 10;
+    const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name, scraped_data, created_at")
+      .lt("created_at", cutoff);
+
+    if (orgsError || !orgs) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    const candidates = orgs.filter(
+      (o: any) =>
+        o.scraped_data?.relay_run_id && !o.scraped_data?.relay_locations_imported_at
+    );
+
+    const results: Array<{ org_id: string; org_name: string; status: string; stores_created?: number }> = [];
+
+    for (const org of candidates) {
+      const { count } = await supabase
+        .from("stores")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", org.id);
+      if ((count ?? 0) > 0) continue;
+
+      try {
+        const { data: districts } = await supabase
+          .from("districts")
+          .select("id")
+          .eq("organization_id", org.id)
+          .limit(2);
+        const districtIds = (districts || []).map((d: any) => d.id);
+
+        const storesToInsert = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: org.id,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+
+        const { data: inserted } = await supabase.from("stores").insert(storesToInsert).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const firstId = storeIds[0];
+
+        if (firstId) {
+          const { data: seedPeople } = await supabase
+            .from("users")
+            .select("id")
+            .eq("organization_id", org.id)
+            .eq("is_seed", true)
+            .is("store_id", null);
+          const storesForAssignment = storeIds.slice(0, 5);
+          if (seedPeople && seedPeople.length > 0) {
+            for (let i = 0; i < seedPeople.length; i++) {
+              const storeId = storesForAssignment[i % storesForAssignment.length];
+              await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+            }
+          }
+        }
+
+        await supabase
+          .from("organizations")
+          .update({
+            scraped_data: { ...(org.scraped_data || {}), relay_fallback_seed_at: new Date().toISOString() },
+          })
+          .eq("id", org.id);
+
+        results.push({ org_id: org.id, org_name: org.name, status: "seeded", stores_created: 5 });
+        console.log(`[RelayFallbackSeed] ${org.name}: created 5 seed stores`);
+      } catch (err: any) {
+        results.push({ org_id: org.id, org_name: org.name, status: "error" });
+        console.error(`[RelayFallbackSeed] ${org.name} failed:`, err.message);
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      message: `Checked ${candidates.length} orgs, seeded ${results.filter((r) => r.status === "seeded").length}`,
+      results,
+    });
+  } catch (error: any) {
+    console.error("[RelayFallbackSeed] Error:", error);
+    return jsonResponse({ error: error.message || "Relay fallback failed" }, 500);
+  }
+}
+
 // =============================================================================
 // UNIFIED DEMO CREATION
 // =============================================================================
@@ -18606,10 +18771,13 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       }
     }
 
-    // Step 5b: Seed demo people, units, and activity (5 people, 5 units, dummy activity)
+    // Step 5a: Determine if Relay will run (we need this before seeding)
+    const canTriggerRelay = !!(websiteUrl && enrichedData?.website);
+
+    // Step 5b: Seed demo people, units, and activity. Skip stores when Relay will provide real locations.
     let seedStats = { people: 0, units: 0, activity: 0 };
     try {
-      seedStats = await seedDemoOrgData(org.id, adminRole?.id, clonedTrackIds);
+      seedStats = await seedDemoOrgData(org.id, adminRole?.id, clonedTrackIds, { skipStores: canTriggerRelay });
     } catch (seedErr: any) {
       console.error("[DemoCreate] Seed data failed (non-fatal):", seedErr.message);
     }
@@ -18626,7 +18794,6 @@ async function handleDemoCreate(req: Request): Promise<Response> {
     // Step 7: Trigger Relay location scraper when we have website (async, fire-and-forget)
     let relayRunId: string | null = null;
     let relayRunLink: string | null = null;
-    const canTriggerRelay = !!(websiteUrl && enrichedData?.website);
     if (!canTriggerRelay) {
       console.log(`[DemoCreate] Skipping Relay trigger: websiteUrl=${!!websiteUrl} enrichedData.website=${!!enrichedData?.website}`);
     }

@@ -66,7 +66,17 @@ serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { org_id, company_name, company_domain, store_count, stores } = body;
+    // Relay returns "locations"; we also accept "stores" for compatibility
+    const { org_id, company_name, company_domain, store_count, stores, locations } = body;
+    const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+
+    console.log("[Relay] Callback received:", {
+      org_id,
+      company_domain: company_domain?.slice?.(0, 50),
+      storesCount: storeList.length,
+      hasLocations: !!locations,
+      hasStores: !!stores,
+    });
 
     let orgId = org_id;
     if (!orgId && company_domain) {
@@ -84,11 +94,45 @@ serve(async (req) => {
       return jsonResponse({ error: "org_id or company_domain required" }, 400);
     }
 
-    const storeList = Array.isArray(stores) ? stores : [];
     const hasLocations = storeList.length > 0;
 
     if (!hasLocations) {
-      console.log(`[Relay] Callback: no locations for org ${orgId} (${company_name || company_domain || "unknown"}) — keeping seed stores`);
+      // No locations from Relay. If we have no stores (DemoCreate skipped them), create seed fallback so demo isn't broken.
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log(`[Relay] Callback: no locations for org ${orgId} — creating seed fallback (5 stores)`);
+        // Create seed stores as fallback (same as seedDemoOrgData)
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const SEED_UNITS = [
+          { name: "Downtown Store", code: "DT01", city: "Atlanta", state: "GA" },
+          { name: "Airport Location", code: "AP02", city: "Atlanta", state: "GA" },
+          { name: "Highway Stop", code: "HW03", city: "Marietta", state: "GA" },
+          { name: "Campus Store", code: "CP04", city: "Athens", state: "GA" },
+          { name: "Mall Kiosk", code: "MK05", city: "Atlanta", state: "GA" },
+        ];
+        const storesToInsert = SEED_UNITS.map((u, i) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(storesToInsert).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const { data: seedPeople } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        if (seedPeople && seedPeople.length > 0 && storeIds.length > 0) {
+          for (let i = 0; i < seedPeople.length; i++) {
+            const storeId = storeIds[i % storeIds.length];
+            await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+          }
+        }
+        return jsonResponse({ success: true, action: "no_locations_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      console.log(`[Relay] Callback: no locations for org ${orgId} — keeping existing seed stores`);
       return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
     }
 
@@ -114,7 +158,7 @@ serve(async (req) => {
       };
     };
 
-    const storesToInsert = storeList.slice(0, 50).map(mapStore);
+    const storesToInsert = storeList.slice(0, 500).map(mapStore); // Support 5–500 stores
 
     const { data: districts } = await supabase
       .from("districts")
@@ -146,18 +190,55 @@ serve(async (req) => {
 
     if (insertErr) {
       console.error("[Relay] Callback: failed to insert stores:", insertErr);
+      // Fallback: create seed stores so demo isn't broken
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log("[Relay] Callback: creating seed fallback after insert error");
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const SEED_UNITS = [
+          { name: "Downtown Store", code: "DT01", city: "Atlanta", state: "GA" },
+          { name: "Airport Location", code: "AP02", city: "Atlanta", state: "GA" },
+          { name: "Highway Stop", code: "HW03", city: "Marietta", state: "GA" },
+          { name: "Campus Store", code: "CP04", city: "Athens", state: "GA" },
+          { name: "Mall Kiosk", code: "MK05", city: "Atlanta", state: "GA" },
+        ];
+        const storesToInsert = SEED_UNITS.map((u, i) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(storesToInsert).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const { data: seedPeople } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        if (seedPeople && seedPeople.length > 0 && storeIds.length > 0) {
+          for (let i = 0; i < seedPeople.length; i++) {
+            const storeId = storeIds[i % storeIds.length];
+            await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+          }
+        }
+        return jsonResponse({ success: true, action: "insert_error_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
       return jsonResponse({ error: insertErr.message }, 500);
     }
 
     const newStoreIds = (insertedStores || []).map((s: any) => s.id);
-    const firstNewStoreId = newStoreIds[0];
-
-    if (firstNewStoreId && deletedStoreIds.size > 0) {
-      await supabase
-        .from("users")
-        .update({ store_id: firstNewStoreId })
-        .eq("organization_id", orgId)
-        .in("store_id", Array.from(deletedStoreIds));
+    // Distribute seed people across first N stores (N = min(5, storeCount)) — scales to 5 or 500 stores
+    const storesForAssignment = newStoreIds.slice(0, 5);
+    let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+    peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
+    const { data: seedPeople } = await peopleQuery;
+    if (seedPeople && seedPeople.length > 0 && storesForAssignment.length > 0) {
+      for (let i = 0; i < seedPeople.length; i++) {
+        const storeId = storesForAssignment[i % storesForAssignment.length];
+        await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+      }
+      console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
     }
 
     const { data: org } = await supabase
