@@ -102,6 +102,7 @@ interface CollectedData {
   operating_states?: string[];
   stores?: any[];
   store_count?: number;
+  relay_run_id?: string;
   employee_count?: number;
   description?: string;
   contact_name?: string;
@@ -346,6 +347,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
         if (data.store_count && data.store_count > 0) {
           responseMsg += ` I found ${data.store_count} store locations.`;
+        } else if (data.relay_run_id) {
+          responseMsg += ` Location data is being fetched (2–3 min).`;
         }
 
         responseMsg += '\n\nDoes this look right?';
@@ -859,6 +862,12 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                     {collectedData.store_count} locations
                   </Badge>
                 )}
+                {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                  <Badge variant="outline" className="gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Location data fetching (2–3 min)
+                  </Badge>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -1099,8 +1108,16 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Location count - only show if we didn't find any */}
-              {(!collectedData.store_count || collectedData.store_count === 0) && (
+              {/* Location data being fetched via Relay */}
+              {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                  <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
+                  <span className="text-sm">Location data is being fetched (2–3 min)</span>
+                </div>
+              )}
+
+              {/* Location count - only show if we didn't find any and Relay isn't fetching */}
+              {(!collectedData.store_count || collectedData.store_count === 0) && !collectedData.relay_run_id && (
                 <div className="space-y-2">
                   <Label>How many locations do you have?</Label>
                   <Input

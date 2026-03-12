@@ -256,8 +256,7 @@ export default function App() {
           .eq('id', orgId)
           .single();
         if (org) {
-          const prospectStatuses = ['prospect', 'evaluating', 'closing'];
-          const isProspect = prospectStatuses.includes(org.status);
+          const isProspect = org.status === 'demo';
           const expired = org.demo_expires_at ? new Date(org.demo_expires_at) < new Date() : false;
           setOrgStatusInfo({
             status: org.status,
@@ -539,17 +538,7 @@ export default function App() {
     }
 
     // Client onboarding view
-    if (orgStatusInfo.status === 'onboarding' && !isTrikeSuperAdmin && currentView === 'dashboard') {
-      const ClientOnboardingView = React.lazy(() =>
-        import('./components/prospect/ClientOnboardingView').then(m => ({ default: m.ClientOnboardingView }))
-      );
-      return (
-        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
-          <ClientOnboardingView onNavigate={(v) => setCurrentView(v as any)} />
-        </React.Suspense>
-      );
-    }
-
+    // Live orgs see full dashboard (no separate onboarding status)
     switch (currentView) {
       case "dashboard":
         return (

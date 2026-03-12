@@ -27,6 +27,7 @@ interface BatchResult {
   orgName?: string;
   magicLink?: string;
   error?: string;
+  relayRunId?: string;
 }
 
 const TRIKE_SERVER_URL =
@@ -111,6 +112,7 @@ export function BatchDemoCreation({ isOpen, onClose, onCreated }: BatchDemoCreat
                   status: 'success',
                   orgName: data.organization.name,
                   magicLink: data.magic_link || undefined,
+                  relayRunId: data.enriched_data?.relay_run_id,
                 }
               : r
           )
@@ -251,6 +253,12 @@ export function BatchDemoCreation({ isOpen, onClose, onCreated }: BatchDemoCreat
                       </div>
                       {r.error && (
                         <p className="text-xs text-red-500">{r.error}</p>
+                      )}
+                      {r.relayRunId && r.status === 'success' && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <span className="inline-block h-1 w-1 rounded-full bg-amber-500 animate-pulse" />
+                          Location data fetching (2–3 min)
+                        </p>
                       )}
                     </div>
                     {r.magicLink && (

@@ -209,6 +209,12 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
                   {result.enrichedData.operating_states?.length > 0 && (
                     <p>States: {result.enrichedData.operating_states.join(', ')}</p>
                   )}
+                  {result.enrichedData.relay_run_id && (
+                    <p className="flex items-center gap-1.5 pt-1">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      Location data is being fetched (2–3 min)
+                    </p>
+                  )}
                 </div>
               )}
             </div>

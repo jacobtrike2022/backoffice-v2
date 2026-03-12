@@ -50,6 +50,10 @@ interface EnrichedCompanyData {
   }>;
   store_count?: number;
   scraped: boolean;
+  /** Relay.app run ID when location scraper was triggered (async) */
+  relay_run_id?: string;
+  /** Link to view Relay run when location scraper was triggered */
+  relay_run_link?: string;
 }
 
 interface ChatResponse {

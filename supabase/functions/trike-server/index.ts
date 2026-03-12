@@ -713,6 +713,11 @@ Deno.serve(async (req: Request) => {
       return await handleOnboardingOptions(req);
     }
 
+    // Relay.app location scraper callback (when playbook completes)
+    if (method === "POST" && path === "/relay/location-callback") {
+      return await handleRelayLocationCallback(req);
+    }
+
     // =========================================================================
     // EMAIL SYSTEM
     // =========================================================================
@@ -1082,6 +1087,15 @@ Deno.serve(async (req: Request) => {
       return await handleOrgTransitionToOnboarding(req);
     }
 
+    // Admin: seed demo data for a single org (existing orgs that weren't provisioned with seed data)
+    if (method === "POST" && path === "/admin/seed-demo-org") {
+      return await handleAdminSeedDemoOrg(req);
+    }
+    // Admin: seed demo data for all orgs except Trike.co main org
+    if (method === "POST" && path === "/admin/seed-demo-org-all") {
+      return await handleAdminSeedDemoOrgAll(req);
+    }
+
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
       return await handleBillingSetupIntent(req);
@@ -1210,6 +1224,8 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/approve-track",
         "POST /playbook/publish",
         "POST /demo/provision",
+        "POST /admin/seed-demo-org",
+        "POST /admin/seed-demo-org-all",
         "POST /billing/setup-intent",
         "POST /billing/webhook",
         "POST /contracts/send",
@@ -7586,6 +7602,215 @@ async function handleMigrateTagsToJunction(req: Request): Promise<Response> {
 }
 
 // =============================================================================
+// RELAY.APP INTEGRATION
+// =============================================================================
+
+const RELAY_LOCATION_SCRAPER_WEBHOOK =
+  "https://hook.relay.app/api/v1/playbook/cmmmltie700p80qkkh1f30u6m/trigger/fkm3uJkE_8uhMgo8sEC7MA";
+
+/**
+ * Trigger Relay.app location scraper automation.
+ * API expects: company_name, company_domain
+ * Response: { status, runId, runLink }
+ * Optional relayDeduplicationKey for run dedup.
+ */
+async function triggerRelayLocationScraper(
+  companyName: string,
+  companyDomain: string,
+  options?: { orgId?: string; deduplicationKey?: string }
+): Promise<{ runId: string; runLink: string } | null> {
+  try {
+    const body: Record<string, string> = {
+      company_name: companyName,
+      company_domain: companyDomain,
+    };
+    if (options?.orgId) {
+      body.org_id = options.orgId;
+    }
+    if (options?.deduplicationKey) {
+      body.relayDeduplicationKey = options.deduplicationKey;
+    }
+    const resp = await fetch(RELAY_LOCATION_SCRAPER_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.runId && options?.orgId) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", options.orgId)
+        .single();
+      const existing = (org as any)?.scraped_data || {};
+      await supabase
+        .from("organizations")
+        .update({
+          scraped_data: { ...existing, relay_run_id: data.runId, relay_run_link: data.runLink || null },
+        })
+        .eq("id", options.orgId);
+    }
+    return data.runId ? { runId: data.runId, runLink: data.runLink || "" } : null;
+  } catch (e) {
+    console.error("[Relay] triggerRelayLocationScraper error:", e);
+    return null;
+  }
+}
+
+/**
+ * Expected Relay callback payload (configure playbook to POST to /relay/location-callback):
+ * {
+ *   org_id: string,           // Echoed from trigger (required for correlation)
+ *   company_name?: string,
+ *   company_domain?: string,
+ *   store_count?: number,
+ *   stores: Array<{
+ *     name?: string,
+ *     address?: string,
+ *     street_address?: string,
+ *     city?: string,
+ *     state?: string,
+ *     zip?: string,
+ *     postal_code?: string,
+ *     phone?: string,
+ *     lat?: number,
+ *     lng?: number,
+ *     latitude?: number,
+ *     longitude?: string
+ *   }>
+ * }
+ *
+ * If stores is empty or missing: log for tracking, leave seed stores (is_seed=true) as-is.
+ * If stores has data: replace seed stores with real stores (is_seed=false).
+ */
+async function handleRelayLocationCallback(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { org_id, company_name, company_domain, store_count, stores } = body;
+
+    let orgId = org_id;
+    if (!orgId && company_domain) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .ilike("website", `%${company_domain}%`)
+        .limit(1)
+        .single();
+      orgId = org?.id;
+    }
+
+    if (!orgId) {
+      console.error("[Relay] Callback: missing org_id and could not resolve from company_domain");
+      return jsonResponse({ error: "org_id or company_domain required" }, 400);
+    }
+
+    const storeList = Array.isArray(stores) ? stores : [];
+    const hasLocations = storeList.length > 0;
+
+    if (!hasLocations) {
+      console.log(`[Relay] Callback: no locations for org ${orgId} (${company_name || company_domain || "unknown"}) — keeping seed stores`);
+      return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
+    }
+
+    // Map Relay store format to our stores table
+    const mapStore = (s: any, index: number) => {
+      const addr = s.address || s.street_address || [s.street, s.city, s.state, s.zip].filter(Boolean).join(", ") || null;
+      const zip = s.zip || s.postal_code || null;
+      const lat = s.latitude ?? s.lat ?? null;
+      const lng = s.longitude ?? s.lng ?? null;
+      return {
+        organization_id: orgId,
+        name: s.name || `Location ${index + 1}`,
+        code: s.code || `S${(index + 1).toString().padStart(2, "0")}`,
+        address: addr,
+        city: s.city || null,
+        state: s.state || null,
+        zip,
+        phone: s.phone || null,
+        latitude: typeof lat === "number" ? lat : (typeof lat === "string" ? parseFloat(lat) : null),
+        longitude: typeof lng === "number" ? lng : (typeof lng === "string" ? parseFloat(lng) : null),
+        is_active: true,
+        is_seed: false,
+      };
+    };
+
+    const storesToInsert = storeList.slice(0, 50).map(mapStore);
+
+    // Get districts for this org (seed districts or any)
+    const { data: districts } = await supabase
+      .from("districts")
+      .select("id")
+      .eq("organization_id", orgId)
+      .limit(2);
+
+    const districtIds = districts?.map((d: any) => d.id) || [];
+
+    // Delete seed stores and get their IDs for user reassignment
+    const { data: deletedStores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("is_seed", true);
+
+    const deletedStoreIds = new Set((deletedStores || []).map((s: any) => s.id));
+
+    await supabase.from("stores").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+    // Insert real stores with district assignment
+    const storesWithDistrict = storesToInsert.map((s, i) => ({
+      ...s,
+      district_id: districtIds[i % districtIds.length] || null,
+    }));
+
+    const { data: insertedStores, error: insertErr } = await supabase
+      .from("stores")
+      .insert(storesWithDistrict)
+      .select("id");
+
+    if (insertErr) {
+      console.error("[Relay] Callback: failed to insert stores:", insertErr);
+      return jsonResponse({ error: insertErr.message }, 500);
+    }
+
+    const newStoreIds = (insertedStores || []).map((s: any) => s.id);
+    const firstNewStoreId = newStoreIds[0];
+
+    if (firstNewStoreId && deletedStoreIds.size > 0) {
+      await supabase
+        .from("users")
+        .update({ store_id: firstNewStoreId })
+        .eq("organization_id", orgId)
+        .in("store_id", Array.from(deletedStoreIds));
+    }
+
+    // Update org scraped_data with store_count
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("scraped_data")
+      .eq("id", orgId)
+      .single();
+    const existing = (org as any)?.scraped_data || {};
+    await supabase
+      .from("organizations")
+      .update({
+        scraped_data: { ...existing, store_count: newStoreIds.length, relay_locations_imported_at: new Date().toISOString() },
+      })
+      .eq("id", orgId);
+
+    console.log(`[Relay] Callback: imported ${newStoreIds.length} stores for org ${orgId}`);
+    return jsonResponse({
+      success: true,
+      action: "imported_locations",
+      org_id: orgId,
+      stores_imported: newStoreIds.length,
+    });
+  } catch (e: any) {
+    console.error("[Relay] Callback error:", e);
+    return jsonResponse({ error: e.message || "Callback failed" }, 500);
+  }
+}
+
+// =============================================================================
 // ONBOARDING HANDLERS
 // =============================================================================
 
@@ -7691,94 +7916,19 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       }
     }
 
-    // Try to find store locator page and scrape locations
-    const storeLocatorUrls = [
-      "/locations",
-      "/location",  // singular (WordPress common)
-      "/stores",
-      "/store",
-      "/find-us",
-      "/store-locator",
-      "/our-locations",
-      "/find-a-store",
-      "/all-locations",
-    ];
-
-    let stores: any[] = [];
-    let foundLocatorPage = false;
-    let bestLocatorHtml = ""; // Capture best locations page HTML for AI analysis
-    for (const locatorPath of storeLocatorUrls) {
-      try {
-        const locatorUrl = new URL(locatorPath, url).toString();
-        const locatorResponse = await fetch(locatorUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/json",
-          },
-        });
-
-        if (locatorResponse.ok) {
-          const locatorHtml = await locatorResponse.text();
-          stores = extractStoresFromHTML(locatorHtml);
-
-          // Detect WordPress Store Locator or other dynamic store locator plugins
-          // Broader detection: check for various WPSL indicators, Google Maps API, or store locator plugins
-          const hasWPSL = /wpsl|wp-store-locator|store[-_]?locator|wpStoreLocator|wpslSettings/i.test(locatorHtml);
-          const hasGoogleMapsStoreLocator = /google\.maps|maps\.googleapis|initMap|storeLocator/i.test(locatorHtml);
-          const isWordPress = /wp-content|wp-includes|wordpress/i.test(locatorHtml) || /wp-content|wp-includes/i.test(html);
-
-          if (stores.length === 0 && (hasWPSL || (hasGoogleMapsStoreLocator && isWordPress))) {
-            console.log(`[Onboarding] Detected dynamic store locator (WPSL=${hasWPSL}, Maps+WP=${hasGoogleMapsStoreLocator && isWordPress}), trying AJAX endpoint...`);
-            const wpslStores = await tryWPSLAjax(url);
-            if (wpslStores.length > 0) {
-              stores = wpslStores;
-            }
-          }
-
-          // Track that we found a valid locations page (even if no stores parsed yet)
-          if (locatorHtml.length > 500) {
-            foundLocatorPage = true;
-            // Keep the longest/best locations page HTML for downstream AI analysis
-            if (locatorHtml.length > bestLocatorHtml.length) {
-              bestLocatorHtml = locatorHtml;
-            }
-          }
-
-          if (stores.length > 0) {
-            console.log(`[Onboarding] Found ${stores.length} stores at ${locatorPath}`);
-            break;
-          }
-        }
-      } catch (e) {
-        // Continue to next URL
-      }
+    // Location scraping: delegated to Relay.app automation (replaces in-house scraper)
+    const companyName = scrapedData.company_name || capitalizeWords(domainName);
+    const relayResult = await triggerRelayLocationScraper(companyName, domain, {
+      deduplicationKey: domain,
+    });
+    if (relayResult) {
+      console.log(`[Onboarding] Triggered Relay location scraper: ${relayResult.runId}`);
     }
 
-    // If we found a locations page but couldn't extract stores, try WPSL AJAX as a general WordPress fallback
-    if (stores.length === 0 && foundLocatorPage) {
-      const isWordPressSite = /wp-content|wp-includes|wordpress/i.test(html);
-      if (isWordPressSite) {
-        console.log(`[Onboarding] WordPress site with locations page but no stores parsed, trying WPSL AJAX fallback...`);
-        const wpslStores = await tryWPSLAjax(url);
-        if (wpslStores.length > 0) {
-          stores = wpslStores;
-          console.log(`[Onboarding] WPSL fallback found ${stores.length} stores`);
-        }
-      }
-    }
+    const stores: any[] = [];
+    const bestLocatorHtml = "";
 
-    // Phase 5: AI-powered location extraction fallback
-    // If regex couldn't parse stores but we found a locations page, let AI try
-    if (stores.length === 0 && foundLocatorPage && bestLocatorHtml) {
-      console.log(`[Onboarding] Regex found 0 stores from locations page, trying AI extraction...`);
-      const aiStores = await extractStoresWithAI(bestLocatorHtml, domain);
-      if (aiStores && aiStores.length > 0) {
-        stores = aiStores;
-        console.log(`[Onboarding] AI extracted ${stores.length} stores`);
-      }
-    }
-
-    // Phase 2: Derive operating states from scraped store addresses
+    // Phase 2: Derive operating states from scraped store addresses (empty when using Relay)
     const derivedStates = deriveOperatingStatesFromStores(stores);
     if (derivedStates.length > 0) {
       console.log(`[Onboarding] Derived ${derivedStates.length} states from store addresses: ${derivedStates.join(", ")}`);
@@ -7847,9 +7997,15 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
     }
 
+    const responseData: Record<string, any> = { ...enrichedData };
+    if (relayResult) {
+      responseData.relay_run_id = relayResult.runId;
+      responseData.relay_run_link = relayResult.runLink;
+    }
+
     return jsonResponse({
       success: true,
-      data: enrichedData,
+      data: responseData,
     });
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
@@ -9262,6 +9418,20 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     if (orgError) throw orgError;
 
     console.log(`[Onboarding] Created org: ${org.name} (${org.id})`);
+
+    // Trigger Relay location scraper when we have website (async, fire-and-forget)
+    if (data.website && data.company_name) {
+      try {
+        const domain = new URL(data.website.startsWith("http") ? data.website : `https://${data.website}`).hostname.replace("www.", "");
+        await triggerRelayLocationScraper(data.company_name, domain, {
+          orgId: org.id,
+          deduplicationKey: domain,
+        });
+        console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
+      } catch (relayErr: any) {
+        console.error("[Onboarding] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
 
     // Create Admin role for this organization
     const { data: adminRole, error: roleError } = await supabase
@@ -17921,8 +18091,8 @@ async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> 
       return jsonResponse({ error: "Organization not found" }, 404);
     }
 
-    if (org.status !== "prospect" && org.status !== "demo") {
-      return jsonResponse({ error: `Org status must be prospect or demo, got: ${org.status}` }, 400);
+    if (org.status !== "demo") {
+      return jsonResponse({ error: `Org status must be demo, got: ${org.status}` }, 400);
     }
 
     const { removed } = await removeDemoSeedData(organization_id);
@@ -17930,7 +18100,7 @@ async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> 
     const { error: updateError } = await supabase
       .from("organizations")
       .update({
-        status: "onboarding",
+        status: "live",
         converted_at: new Date().toISOString(),
         demo_expires_at: null,
       })
@@ -17948,17 +18118,205 @@ async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> 
 
     if (dealError) console.error("[TransitionToOnboarding] Deal update (non-fatal):", dealError);
 
-    console.log(`[TransitionToOnboarding] ${org.name} → onboarding, removed ${removed} seed items`);
+    console.log(`[TransitionToOnboarding] ${org.name} → live, removed ${removed} seed items`);
 
     return jsonResponse({
       success: true,
       organization_id,
-      status: "onboarding",
+      status: "live",
       seed_data_removed: removed,
     });
   } catch (error: any) {
     console.error("[TransitionToOnboarding] Error:", error);
     return jsonResponse({ error: error.message || "Transition failed" }, 500);
+  }
+}
+
+/** Trike.co main org — excluded from bulk seed operations */
+const TRIKE_CO_ORG_ID = "10000000-0000-0000-0000-000000000001";
+
+/**
+ * POST /admin/seed-demo-org
+ * Seed demo data (people, units, activity) for a single existing org.
+ * Body: { organization_id: "..." }
+ * Skips Trike.co main org. Guards against double-seeding (skips if seed users exist).
+ */
+async function handleAdminSeedDemoOrg(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    if (organization_id === TRIKE_CO_ORG_ID) {
+      return jsonResponse({ error: "Cannot seed Trike.co main org" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Guard against double-seeding
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+
+    if (existingSeedUsers && existingSeedUsers.length > 0) {
+      return jsonResponse({
+        success: false,
+        skipped: true,
+        reason: "Org already has seed data (seed users exist)",
+        organization_id,
+      }, 200);
+    }
+
+    // Get Admin role for org
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .ilike("name", "%admin%")
+      .limit(1)
+      .maybeSingle();
+
+    // Get org's published tracks for activity/completion data
+    const { data: tracks } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("status", "published")
+      .limit(10);
+
+    const trackIds = (tracks || []).map((t: any) => t.id);
+
+    const stats = await seedDemoOrgData(organization_id, adminRole?.id || null, trackIds);
+
+    console.log(`[AdminSeedDemoOrg] ${org.name} (${organization_id}): ${stats.people}p ${stats.units}u ${stats.activity}a`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      organization_name: org.name,
+      seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrg] Error:", error);
+    return jsonResponse({ error: error.message || "Seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/seed-demo-org-all
+ * Seed demo data for all orgs except Trike.co main org.
+ * Skips orgs that already have seed users. Returns summary per org.
+ */
+async function handleAdminSeedDemoOrgAll(req: Request): Promise<Response> {
+  try {
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .neq("id", TRIKE_CO_ORG_ID);
+
+    if (orgsError) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    if (!orgs || orgs.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No orgs to seed (excluding Trike.co main org)",
+        results: [],
+      });
+    }
+
+    const results: Array<{
+      organization_id: string;
+      organization_name: string;
+      status: "seeded" | "skipped" | "error";
+      reason?: string;
+      seeded?: { people: number; units: number; activity: number };
+    }> = [];
+
+    for (const org of orgs) {
+      try {
+        // Guard against double-seeding
+        const { data: existingSeedUsers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("is_seed", true)
+          .limit(1);
+
+        if (existingSeedUsers && existingSeedUsers.length > 0) {
+          results.push({
+            organization_id: org.id,
+            organization_name: org.name,
+            status: "skipped",
+            reason: "Already has seed data",
+          });
+          continue;
+        }
+
+        const { data: adminRole } = await supabase
+          .from("roles")
+          .select("id")
+          .eq("organization_id", org.id)
+          .ilike("name", "%admin%")
+          .limit(1)
+          .maybeSingle();
+
+        const { data: tracks } = await supabase
+          .from("tracks")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("status", "published")
+          .limit(10);
+
+        const trackIds = (tracks || []).map((t: any) => t.id);
+        const stats = await seedDemoOrgData(org.id, adminRole?.id || null, trackIds);
+
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "seeded",
+          seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+        });
+
+        console.log(`[AdminSeedDemoOrgAll] ${org.name}: ${stats.people}p ${stats.units}u ${stats.activity}a`);
+      } catch (err: any) {
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "error",
+          reason: err.message || "Unknown error",
+        });
+        console.error(`[AdminSeedDemoOrgAll] ${org.name} failed:`, err.message);
+      }
+    }
+
+    const seeded = results.filter((r) => r.status === "seeded").length;
+    const skipped = results.filter((r) => r.status === "skipped").length;
+    const errors = results.filter((r) => r.status === "error").length;
+
+    return jsonResponse({
+      success: true,
+      summary: { total: orgs.length, seeded, skipped, errors },
+      results,
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrgAll] Error:", error);
+    return jsonResponse({ error: error.message || "Bulk seed failed" }, 500);
   }
 }
 
@@ -18068,7 +18426,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
         logo_url: validatedLogoUrl,
         logo_dark_url: validatedLogoUrl,
         logo_light_url: validatedLogoUrl,
-        status: "prospect",
+        status: "demo",
         demo_expires_at: demoExpiry,
         industry: industry || enrichedData.industry || null,
         operating_states: operating_states || enrichedData.operating_states || [],
@@ -18208,6 +18566,30 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       probability: 50,
     });
 
+    // Step 7: Trigger Relay location scraper when we have website (async, fire-and-forget)
+    let relayRunId: string | null = null;
+    let relayRunLink: string | null = null;
+    if (websiteUrl && enrichedData.website) {
+      try {
+        const demoDomain = new URL(enrichedData.website).hostname.replace("www.", "");
+        const relayResult = await triggerRelayLocationScraper(companyName, demoDomain, {
+          orgId: org.id,
+          deduplicationKey: demoDomain,
+        });
+        if (relayResult) {
+          relayRunId = relayResult.runId;
+          relayRunLink = relayResult.runLink;
+          console.log(`[DemoCreate] Triggered Relay location scraper for ${companyName}`);
+        }
+      } catch (relayErr: any) {
+        console.error("[DemoCreate] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    const enrichedDataOut = enrichedData.company_name
+      ? { ...enrichedData, ...(relayRunId && { relay_run_id: relayRunId, relay_run_link: relayRunLink }) }
+      : undefined;
+
     console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned} seed:${seedStats.people}p/${seedStats.units}u/${seedStats.activity}a`);
 
     return jsonResponse({
@@ -18219,7 +18601,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
         demo_expires_at: org.demo_expires_at,
       },
       magic_link: magicLink,
-      enriched_data: enrichedData.company_name ? enrichedData : undefined,
+      enriched_data: enrichedDataOut,
       provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned, seed_people: seedStats.people, seed_units: seedStats.units, seed_activity: seedStats.activity },
     });
   } catch (error: any) {
@@ -18265,7 +18647,7 @@ async function handleDemoProvision(req: Request): Promise<Response> {
     const { error: updateError } = await supabase
       .from("organizations")
       .update({
-        status: "prospect",
+        status: "demo",
         demo_expires_at: expiryDate.toISOString(),
         onboarding_source: "sales_demo",
       })

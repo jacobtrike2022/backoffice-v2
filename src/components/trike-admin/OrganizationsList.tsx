@@ -77,35 +77,14 @@ const STATUS_CONFIG: Record<
   OrganizationStatus,
   { label: string; color: string; bgColor: string }
 > = {
-  lead: { label: 'Lead', color: 'text-slate-600 dark:text-slate-400', bgColor: 'bg-slate-100 dark:bg-slate-800' },
-  prospect: { label: 'Prospect', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
-  evaluating: { label: 'Evaluating', color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-950' },
-  closing: { label: 'Closing', color: 'text-amber-600 dark:text-amber-400', bgColor: 'bg-amber-50 dark:bg-amber-950' },
-  onboarding: { label: 'Onboarding', color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-950' },
+  demo: { label: 'Demo', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
   live: { label: 'Live', color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-50 dark:bg-emerald-950' },
-  churned: { label: 'Churned', color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-950' },
-  suspended: { label: 'Suspended', color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-950' },
-  frozen: { label: 'Frozen', color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-50 dark:bg-cyan-950' },
-  renewing: { label: 'Renewing', color: 'text-teal-600 dark:text-teal-400', bgColor: 'bg-teal-50 dark:bg-teal-950' },
 };
 
 const STATUS_FILTER_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'active-pipeline', label: 'Active Pipeline' },
-  { value: 'lead', label: 'Lead' },
-  { value: 'prospect', label: 'Prospect' },
-  { value: 'evaluating', label: 'Evaluating' },
-  { value: 'closing', label: 'Closing' },
-  { value: 'onboarding', label: 'Onboarding' },
+  { value: 'demo', label: 'Demo' },
   { value: 'live', label: 'Live' },
-  { value: 'churned', label: 'Churned' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'frozen', label: 'Frozen' },
-  { value: 'renewing', label: 'Renewing' },
-];
-
-const ACTIVE_PIPELINE_STATUSES: OrganizationStatus[] = [
-  'lead', 'prospect', 'evaluating', 'closing', 'onboarding',
 ];
 
 export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg }: OrganizationsListProps) {
@@ -123,7 +102,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     name: '',
     website: '',
     subdomain: '',
-    status: 'lead' as OrganizationStatus,
+    status: 'demo' as OrganizationStatus,
     industry: '',
     operating_states: [] as string[],
     next_action: '',
@@ -160,9 +139,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
         .order('created_at', { ascending: false });
 
       // Apply status filter
-      if (statusFilter === 'active-pipeline') {
-        query = query.in('status', ACTIVE_PIPELINE_STATUSES);
-      } else if (statusFilter !== 'all') {
+      if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
 
@@ -255,7 +232,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       name: org.name || '',
       website: org.website || '',
       subdomain: org.subdomain || '',
-      status: org.status || 'lead',
+      status: org.status || 'demo',
       industry: org.industry || '',
       operating_states: org.operating_states || [],
       next_action: org.next_action || '',
@@ -345,8 +322,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
 
       <div className="p-6 space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-3">
-          {(['lead', 'prospect', 'evaluating', 'closing', 'live'] as OrganizationStatus[]).map(
+        <div className="grid grid-cols-2 gap-3">
+          {(['demo', 'live'] as OrganizationStatus[]).map(
             (status) => {
               const config = STATUS_CONFIG[status];
               return (
@@ -589,7 +566,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                 </DropdownMenuItem>
                               )}
                               {onProvisionDemo &&
-                                ['prospect', 'evaluating'].includes(org.status) && (
+                                org.status === 'demo' && (
                                   <DropdownMenuItem
                                     onClick={() =>
                                       onProvisionDemo(org.id, org.name)

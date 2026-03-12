@@ -79,14 +79,14 @@ export function TrikeAdminPage({ onPreviewOrg }: TrikeAdminPageProps) {
   // Journey panel state — tracks which org's journey to display
   const [journeyOrgId, setJourneyOrgId] = useState<string | null>(null);
   const [journeyOrgName, setJourneyOrgName] = useState<string>('Demo Company');
-  const [journeyOrgStatus, setJourneyOrgStatus] = useState<OrganizationStatus>('prospect');
+  const [journeyOrgStatus, setJourneyOrgStatus] = useState<OrganizationStatus>('demo');
 
   // Open journey panel for a specific org
   const handleOpenJourney = useCallback(
     (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => {
       setJourneyOrgId(orgId);
       setJourneyOrgName(orgName);
-      setJourneyOrgStatus(orgStatus || 'prospect');
+      setJourneyOrgStatus(orgStatus || 'demo');
       setIsJourneyPanelOpen(true);
     },
     []

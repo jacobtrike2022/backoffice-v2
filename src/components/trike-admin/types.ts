@@ -11,17 +11,8 @@ export type DealStage =
 
 export type DealType = 'new' | 'upsell' | 'renewal' | 'expansion';
 
-export type OrganizationStatus =
-  | 'lead'
-  | 'prospect'
-  | 'evaluating'
-  | 'closing'
-  | 'onboarding'
-  | 'live'
-  | 'churned'
-  | 'suspended'
-  | 'frozen'
-  | 'renewing';
+/** Only two org states: demo = prospect portal + timer; live = full org until deactivated */
+export type OrganizationStatus = 'demo' | 'live';
 
 export interface Deal {
   id: string;
