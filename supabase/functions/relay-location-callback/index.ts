@@ -69,11 +69,14 @@ serve(async (req) => {
     // Relay returns "locations"; we also accept "stores" for compatibility
     const { org_id, company_name, company_domain, store_count, total_scraped, totalLocationCount, stores, locations } = body;
     const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+    const toNum = (v: unknown) => (typeof v === "number" && !isNaN(v) ? v : (typeof v === "string" ? parseInt(v, 10) : NaN));
     const scrapedTotal =
-      typeof total_scraped === "number" ? total_scraped
-      : typeof totalLocationCount === "number" ? totalLocationCount
-      : typeof store_count === "number" ? store_count
-      : null;
+      (() => {
+        const n = toNum(total_scraped) || toNum(totalLocationCount);
+        if (!isNaN(n) && n > 0) return n;
+        const sc = toNum(store_count);
+        return !isNaN(sc) && sc > storeList.length ? sc : null;
+      })();
 
     console.log("[Relay] Callback received:", {
       org_id,
