@@ -12,6 +12,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Loader2, Copy, Check, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey } from '../../utils/supabase/info';
 
 interface CreateDemoModalProps {
   isOpen: boolean;
@@ -68,7 +69,11 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
       setCreating(true);
       const resp = await fetch(`${TRIKE_SERVER_URL}/demo/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'apikey': publicAnonKey,
+        },
         body: JSON.stringify({
           url: domainUrl.trim() || undefined,
           organization_name: companyName.trim() || undefined,

@@ -14,6 +14,7 @@ import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Loader2, Copy, Check, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey } from '../../utils/supabase/info';
 
 interface BatchDemoCreationProps {
   isOpen: boolean;
@@ -91,7 +92,11 @@ export function BatchDemoCreation({ isOpen, onClose, onCreated }: BatchDemoCreat
       try {
         const resp = await fetch(`${TRIKE_SERVER_URL}/demo/create`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'apikey': publicAnonKey,
+          },
           body: JSON.stringify({
             url: initialResults[i].domain,
             contact_email: contactEmail.trim(),
