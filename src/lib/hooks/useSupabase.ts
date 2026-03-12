@@ -3,8 +3,41 @@
 // ============================================================================
 
 import { useState, useEffect } from 'react';
-import { supabase, getCurrentUserProfile } from '../supabase';
+import { supabase, getCurrentUserProfile, getCurrentUserOrgId } from '../supabase';
 import * as crud from '../crud';
+
+/**
+ * Hook to get the effective org ID for data fetching.
+ * Respects Super Admin "preview as org" override and demo_org_id URL param.
+ * Use this instead of user.organization_id when fetching org-scoped data.
+ */
+export function useEffectiveOrgId() {
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOrgId() {
+      try {
+        const id = await getCurrentUserOrgId();
+        if (!cancelled) setOrgId(id);
+      } catch {
+        if (!cancelled) setOrgId(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchOrgId();
+    const handler = () => fetchOrgId();
+    window.addEventListener('organization-updated', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('organization-updated', handler);
+    };
+  }, []);
+
+  return { orgId, loading };
+}
 
 /**
  * Hook to get current user profile

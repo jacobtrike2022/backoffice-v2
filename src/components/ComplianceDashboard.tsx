@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -119,7 +119,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
     return null;
   }
 
-  const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<ComplianceDashboardMetrics | null>(null);
   const [categoryData, setCategoryData] = useState<ComplianceByCategoryType[]>([]);
@@ -136,7 +136,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
   // Fetch all compliance data
   useEffect(() => {
     async function fetchComplianceData() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       setLoading(true);
       try {
@@ -182,7 +182,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
     }
 
     fetchComplianceData();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   // Calculate derived metrics
   const compliantEmployees = metrics?.compliantEmployees ?? 0;

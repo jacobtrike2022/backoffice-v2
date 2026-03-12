@@ -49,7 +49,7 @@ import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import {
   runPlaylistTrigger,
@@ -241,6 +241,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   };
 
   const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
@@ -251,14 +252,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   // Fetch roles from database - run FIRST before other data loads
   useEffect(() => {
     const fetchRoles = async () => {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       setRolesLoading(true);
       try {
         const { data: roles, error } = await supabase
           .from('roles')
           .select('id, name')
-          .eq('organization_id', user.organization_id)
+          .eq('organization_id', effectiveOrgId)
           .order('name');
 
         if (!error && roles && roles.length > 0) {
@@ -276,12 +277,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchRoles();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   // Fetch real employees from database
   useEffect(() => {
     const fetchEmployees = async () => {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       setLoadingEmployees(true);
       try {
@@ -296,12 +297,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchEmployees();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   // Fetch real albums and tracks from database
   useEffect(() => {
     const fetchContent = async () => {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       setLoadingContent(true);
       try {
@@ -321,7 +322,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchContent();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   // Build trigger rules from conditions (helper function)
   const buildTriggerRules = useCallback(() => {
@@ -463,7 +464,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         // Load existing playlist data when in edit mode
   useEffect(() => {
     const loadPlaylist = async () => {
-      if (!existingPlaylistId || mode !== 'edit' || !user?.organization_id) return;
+      if (!existingPlaylistId || mode !== 'edit' || !effectiveOrgId) return;
       
       setIsLoadingPlaylist(true);
       try {
@@ -519,7 +520,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             .from('assignments')
             .select('user_id')
             .eq('playlist_id', existingPlaylistId)
-            .eq('organization_id', user.organization_id);
+            .eq('organization_id', effectiveOrgId);
 
           if (assignments && assignments.length > 0) {
             loadedEmployeeIds = assignments.map(a => a.user_id);
@@ -596,7 +597,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
     
     loadPlaylist();
-  }, [existingPlaylistId, mode, user?.organization_id]);
+  }, [existingPlaylistId, mode, effectiveOrgId]);
   
   // Save initial state for create mode
   useEffect(() => {
@@ -861,7 +862,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         const assignmentRecords = selectedEmployees.map(userId => ({
-          organization_id: user.organization_id,
+          organization_id: effectiveOrgId,
           user_id: userId,
           playlist_id: playlist.id,
           status: 'assigned',

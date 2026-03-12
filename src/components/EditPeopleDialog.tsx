@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { updateUser } from '../lib/crud/users';
-import { useRoles, useStores, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useRoles, useStores, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { toast } from 'sonner@2.0.3';
 
 interface User {
@@ -50,8 +50,9 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
   const [saving, setSaving] = useState(false);
 
   const { user: currentUser } = useCurrentUser();
-  const { roles } = useRoles(currentUser?.organization_id);
-  const { stores } = useStores({ organization_id: currentUser?.organization_id });
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
+  const { roles } = useRoles(effectiveOrgId ?? undefined);
+  const { stores } = useStores(effectiveOrgId ? { organization_id: effectiveOrgId } : undefined);
 
   // Pre-fill form when user data is provided
   useEffect(() => {
