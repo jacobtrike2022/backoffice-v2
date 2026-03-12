@@ -7996,15 +7996,8 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     }
 
     // Location scraping: delegated to Relay.app automation (replaces in-house scraper)
-    const companyName = scrapedData.company_name || capitalizeWords(domainName);
-    const relayResult = await triggerRelayLocationScraper(companyName, domain, {
-      deduplicationKey: domain,
-      fullWebsiteUrl: url,
-    });
-    if (relayResult) {
-      console.log(`[Onboarding] Triggered Relay location scraper: ${relayResult.runId}`);
-    }
-
+    // Skip Relay here — no org exists yet (EnrichCompany runs before org creation).
+    // Relay trigger schema requires org_id; we only trigger from DemoCreate and Onboarding (create org).
     const stores: any[] = [];
     const bestLocatorHtml = "";
 

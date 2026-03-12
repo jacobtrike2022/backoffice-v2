@@ -2,6 +2,10 @@
 
 Relay.app scrapes store locations from company websites. When the playbook completes, it must **POST to our callback** so we can replace seed stores with real locations.
 
+**What we automate vs. what you configure once:**
+- **Automated:** Fallback cron (pg_cron every 10 min) seeds orgs when Relay never returns.
+- **Manual (one-time):** Add an HTTP step in Relay.app that POSTs to our callback when the scraper finishes. We cannot configure Relay from code—it's a third-party automation platform.
+
 ## Current Behavior
 
 - **DemoCreate** triggers Relay → Relay runs scraper → returns locations
@@ -78,20 +82,23 @@ If Relay never returns or returns an error, seed stores are created so demos sta
 |----------|----------|
 | Relay returns no locations | Callback creates 5 seed stores, assigns people |
 | Relay callback insert fails | Callback creates 5 seed stores as fallback |
-| Relay never calls back | Cron calls `POST /admin/relay-fallback-seed` (see below) |
+| Relay never calls back | **pg_cron** runs every 10 min and seeds stuck orgs (automated) |
 
-### Cron: Relay Fallback Seed
+### Relay Fallback Cron (automated)
 
-Call this endpoint periodically (e.g. every 10 min) to create seed stores for orgs where Relay was triggered but never returned:
+A **pg_cron** job runs every 10 minutes and calls the `relay-fallback-cron` Edge Function. No manual curl needed.
+
+**Setup:** After deploy, ensure vault has `project_url` and `anon_key` (Dashboard > Database > Vault). If you already use these for notification emails, you're good. The migration `20260311110001_relay_fallback_cron.sql` creates the cron job.
+
+**Manual fallback (optional):** If you need to run it immediately after deploy:
 
 ```bash
-curl -X POST "https://<project>.supabase.co/functions/v1/trike-server/admin/relay-fallback-seed" \
-  -H "Authorization: Bearer <service_role_key>" \
+curl -X POST "https://<project>.supabase.co/functions/v1/relay-fallback-cron" \
   -H "Content-Type: application/json" \
   -d '{"minutesAgo": 10}'
 ```
 
-Requires JWT (service role). Finds orgs with `relay_run_id` set, no `relay_locations_imported_at`, 0 stores, created > `minutesAgo` minutes ago.
+No JWT required (`relay-fallback-cron` has `verify_jwt = false`).
 
 ## People Distribution
 
@@ -110,4 +117,7 @@ After configuring the callback step:
 
 ```bash
 npx supabase functions deploy relay-location-callback
+npx supabase functions deploy relay-fallback-cron
 ```
+
+Then run migrations (or `supabase db push`) so the pg_cron job is created.

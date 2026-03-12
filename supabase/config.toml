@@ -3,6 +3,11 @@
 enabled = true
 verify_jwt = false
 
+# Relay fallback cron - no JWT (called by pg_cron). Optional: set RELAY_CRON_SECRET env.
+[functions.relay-fallback-cron]
+enabled = true
+verify_jwt = false
+
 [functions.trike-server]
 enabled = true
 verify_jwt = true
