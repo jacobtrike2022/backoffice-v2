@@ -118,6 +118,7 @@ type OnboardingStep =
   | 'website'           // Enter website URL
   | 'scraping'          // Loading state while scraping
   | 'confirm'           // Confirm scraped company info
+  | 'company_name'      // Manual company name (when website lookup fails — matches Create Demo flow)
   | 'industry'          // Select industry
   | 'compliance_topics' // Select compliance topics (with industry defaults)
   | 'programs'          // Select programs/vendors (with industry defaults)
@@ -177,6 +178,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactRole, setContactRole] = useState('');
+  const [companyNameManual, setCompanyNameManual] = useState('');
+  const [websiteFailed, setWebsiteFailed] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -371,7 +374,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           timestamp: new Date(),
         },
       ]);
-      setCurrentStep('industry');
+      setWebsiteFailed(true);
+      setCurrentStep('company_name');
     } finally {
       setIsLoading(false);
     }
@@ -465,6 +469,15 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleNextStep = () => {
     switch (currentStep) {
+      case 'company_name':
+        setCollectedData((prev) => ({ ...prev, company_name: companyNameManual.trim() }));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', content: companyNameManual.trim(), timestamp: new Date() },
+          { role: 'assistant', content: "What industry are you in?", timestamp: new Date() },
+        ]);
+        setCurrentStep('industry');
+        break;
       case 'industry':
         setMessages((prev) => [
           ...prev,
@@ -520,6 +533,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleBackStep = () => {
     switch (currentStep) {
+      case 'company_name':
+        setCurrentStep('website');
+        break;
+      case 'industry':
+        if (websiteFailed) {
+          setCurrentStep('company_name');
+        }
+        break;
       case 'compliance_topics':
         setCurrentStep('industry');
         break;
@@ -653,6 +674,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const canProceed = () => {
     switch (currentStep) {
+      case 'company_name':
+        return !!companyNameManual.trim();
       case 'industry':
         return !!selectedIndustryId;
       case 'compliance_topics':
@@ -684,6 +707,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const currentStepIndex = steps.findIndex(s =>
     s.key === currentStep ||
     (currentStep === 'confirm' && s.key === 'website') ||
+    (currentStep === 'company_name' && s.key === 'website') ||
     (currentStep === 'scraping' && s.key === 'website') ||
     (currentStep === 'review' && s.key === 'contact') ||
     (currentStep === 'creating' && s.key === 'contact') ||
@@ -891,6 +915,38 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           </Card>
         )}
 
+        {/* Company Name (manual entry when website lookup fails — matches Create Demo flow) */}
+        {currentStep === 'company_name' && (
+          <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                What's your company name?
+              </CardTitle>
+              <CardDescription>We'll use this to set up your account.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                placeholder="e.g., Acme Convenience"
+                value={companyNameManual}
+                onChange={(e) => setCompanyNameManual(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && canProceed() && handleNextStep()}
+                className="text-base"
+              />
+              <div className="flex justify-between pt-2">
+                <Button variant="ghost" onClick={handleBackStep}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+                <Button onClick={handleNextStep} disabled={!canProceed()}>
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Industry Selection */}
         {currentStep === 'industry' && (
           <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -920,7 +976,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </div>
 
               <div className="flex justify-between pt-2">
-                <Button variant="ghost" onClick={handleBackStep} disabled>
+                <Button variant="ghost" onClick={handleBackStep} disabled={!websiteFailed}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
                 </Button>
