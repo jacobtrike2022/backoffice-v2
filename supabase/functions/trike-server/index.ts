@@ -7718,9 +7718,10 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
       const zip = s.zip || s.postal_code || null;
       const lat = s.latitude ?? s.lat ?? null;
       const lng = s.longitude ?? s.lng ?? null;
+      const storeName = s.name ? decodeHtmlEntities(String(s.name)) : `Location ${index + 1}`;
       return {
         organization_id: orgId,
-        name: s.name || `Location ${index + 1}`,
+        name: storeName,
         code: s.code || `S${(index + 1).toString().padStart(2, "0")}`,
         address: addr,
         city: s.city || null,
@@ -8291,6 +8292,23 @@ ${truncatedHtml}`
 }
 
 /**
+ * Decode HTML entities in text (e.g. &#039; → ', &amp; → &)
+ */
+function decodeHtmlEntities(str: string): string {
+  if (!str || typeof str !== "string") return str;
+  return str
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
+}
+
+/**
  * Extract company data from HTML
  */
 function extractCompanyDataFromHTML(html: string, url: string, domainFallback: string): any {
@@ -8378,6 +8396,11 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
   // 5. Use domain name as last resort
   if (!data.company_name) {
     data.company_name = capitalizeWords(domainFallback);
+  }
+
+  // Decode HTML entities (e.g. Dak&#039;s Market → Dak's Market)
+  if (data.company_name) {
+    data.company_name = decodeHtmlEntities(data.company_name);
   }
 
   // Extract logo - smart selection with domain awareness
