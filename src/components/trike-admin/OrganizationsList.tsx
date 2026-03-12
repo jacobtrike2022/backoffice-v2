@@ -449,11 +449,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                             >
                               {(() => {
                                 const logoUrl = (darkMode ? (org.logo_dark_url || org.logo_light_url) : (org.logo_light_url || org.logo_dark_url)) || org.logo_url;
-                                const src = logoUrl || (org.id === TRIKE_CO_ORG_ID ? trikeLogo : null);
-                                if (src) {
-                                  return <img src={src} alt="" className="h-9 w-9 object-contain" />;
-                                }
-                                return <Building2 className={cn('h-4 w-4', statusConfig.color)} />;
+                                const src = logoUrl || trikeLogo;
+                                return <img src={src} alt="" className="h-9 w-9 object-contain" />;
                               })()}
                             </div>
                             <div className="min-w-0">
