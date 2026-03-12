@@ -811,7 +811,7 @@ export default function App() {
           requestNavigate('dashboard');
           return null;
         }
-        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} />;
+        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} darkMode={darkMode} />;
       default:
         return (
           <Dashboard

@@ -58,9 +58,10 @@ const tabs: Array<{
  */
 interface TrikeAdminPageProps {
   onPreviewOrg?: (orgId: string, orgName: string) => void;
+  darkMode?: boolean;
 }
 
-export function TrikeAdminPage({ onPreviewOrg }: TrikeAdminPageProps) {
+export function TrikeAdminPage({ onPreviewOrg, darkMode }: TrikeAdminPageProps) {
   const { user } = useCurrentUser();
   const [currentView, setCurrentView] = useState<TrikeAdminView>('dashboard');
   const [isJourneyPanelOpen, setIsJourneyPanelOpen] = useState(false);
@@ -158,6 +159,7 @@ export function TrikeAdminPage({ onPreviewOrg }: TrikeAdminPageProps) {
               setIsProvisioningModalOpen(true);
             }}
             onPreviewOrg={onPreviewOrg}
+            darkMode={darkMode}
           />
         );
       case 'proposals':

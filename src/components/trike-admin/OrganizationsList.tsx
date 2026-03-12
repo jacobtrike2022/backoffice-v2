@@ -69,6 +69,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
+import trikeLogo from '../../assets/trike-logo.png';
 import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
 
@@ -78,6 +79,7 @@ interface OrganizationsListProps {
   onViewJourney?: (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => void;
   onProvisionDemo?: (orgId: string, orgName: string) => void;
   onPreviewOrg?: (orgId: string, orgName: string) => void;
+  darkMode?: boolean;
 }
 
 const STATUS_CONFIG: Record<
@@ -94,7 +96,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'live', label: 'Live' },
 ];
 
-export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg }: OrganizationsListProps) {
+export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg, darkMode }: OrganizationsListProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,6 +132,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           subdomain,
           website,
           logo_url,
+          logo_dark_url,
+          logo_light_url,
           status,
           industry,
           industries(name),
@@ -440,20 +444,17 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                             <div
                               className={cn(
                                 'h-9 w-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden',
-                                statusConfig.bgColor
+                                darkMode ? 'bg-muted/50' : statusConfig.bgColor
                               )}
                             >
-                              {org.logo_url ? (
-                                <img
-                                  src={org.logo_url}
-                                  alt=""
-                                  className="h-9 w-9 object-contain"
-                                />
-                              ) : (
-                                <Building2
-                                  className={cn('h-4 w-4', statusConfig.color)}
-                                />
-                              )}
+                              {(() => {
+                                const logoUrl = (darkMode ? (org.logo_dark_url || org.logo_light_url) : (org.logo_light_url || org.logo_dark_url)) || org.logo_url;
+                                const src = logoUrl || (org.id === TRIKE_CO_ORG_ID ? trikeLogo : null);
+                                if (src) {
+                                  return <img src={src} alt="" className="h-9 w-9 object-contain" />;
+                                }
+                                return <Building2 className={cn('h-4 w-4', statusConfig.color)} />;
+                              })()}
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-sm truncate">
