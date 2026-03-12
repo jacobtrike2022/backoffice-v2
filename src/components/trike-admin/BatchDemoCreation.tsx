@@ -101,6 +101,7 @@ export function BatchDemoCreation({ isOpen, onClose, onCreated }: BatchDemoCreat
             url: initialResults[i].domain,
             contact_email: contactEmail.trim(),
             demo_days: parseInt(demoDays) || 14,
+            origin: window.location.origin,
           }),
         });
 
@@ -116,7 +117,7 @@ export function BatchDemoCreation({ isOpen, onClose, onCreated }: BatchDemoCreat
                   ...r,
                   status: 'success',
                   orgName: data.organization.name,
-                  magicLink: data.magic_link || undefined,
+                  magicLink: data.magic_link || (data.organization?.id ? `${window.location.origin}/?demo_org_id=${data.organization.id}` : undefined),
                   relayRunId: data.enriched_data?.relay_run_id,
                 }
               : r

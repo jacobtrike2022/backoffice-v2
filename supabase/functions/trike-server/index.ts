@@ -7617,12 +7617,15 @@ const RELAY_LOCATION_SCRAPER_WEBHOOK =
 async function triggerRelayLocationScraper(
   companyName: string,
   companyDomain: string,
-  options?: { orgId?: string; deduplicationKey?: string }
+  options?: { orgId?: string; deduplicationKey?: string; fullWebsiteUrl?: string }
 ): Promise<{ runId: string; runLink: string } | null> {
   try {
+    // Relay expects company_name and company_domain. Use full URL for domain if provided
+    // (AI step "Go to [Company Domain]" may need full URL to navigate)
+    const domainForRelay = options?.fullWebsiteUrl || companyDomain;
     const body: Record<string, string> = {
       company_name: companyName,
-      company_domain: companyDomain,
+      company_domain: domainForRelay,
     };
     if (options?.orgId) {
       body.org_id = options.orgId;
@@ -7630,12 +7633,23 @@ async function triggerRelayLocationScraper(
     if (options?.deduplicationKey) {
       body.relayDeduplicationKey = options.deduplicationKey;
     }
+    console.log("[Relay] Triggering:", { url: RELAY_LOCATION_SCRAPER_WEBHOOK, body });
     const resp = await fetch(RELAY_LOCATION_SCRAPER_WEBHOOK, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await resp.json();
+    const respText = await resp.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(respText);
+    } catch {
+      console.error("[Relay] Non-JSON response:", respText?.slice(0, 500));
+    }
+    if (!resp.ok) {
+      console.error("[Relay] Trigger failed:", resp.status, resp.statusText, data);
+      return null;
+    }
     if (data.runId && options?.orgId) {
       const { data: org } = await supabase
         .from("organizations")
@@ -7650,9 +7664,14 @@ async function triggerRelayLocationScraper(
         })
         .eq("id", options.orgId);
     }
-    return data.runId ? { runId: data.runId, runLink: data.runLink || "" } : null;
-  } catch (e) {
-    console.error("[Relay] triggerRelayLocationScraper error:", e);
+    if (data.runId) {
+      console.log("[Relay] Trigger success:", data.runId, data.runLink);
+      return { runId: data.runId, runLink: data.runLink || "" };
+    }
+    console.warn("[Relay] Trigger response missing runId:", data);
+    return null;
+  } catch (e: any) {
+    console.error("[Relay] triggerRelayLocationScraper error:", e?.message || e);
     return null;
   }
 }
@@ -7921,6 +7940,7 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     const companyName = scrapedData.company_name || capitalizeWords(domainName);
     const relayResult = await triggerRelayLocationScraper(companyName, domain, {
       deduplicationKey: domain,
+      fullWebsiteUrl: url,
     });
     if (relayResult) {
       console.log(`[Onboarding] Triggered Relay location scraper: ${relayResult.runId}`);
@@ -9445,10 +9465,12 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Trigger Relay location scraper when we have website (async, fire-and-forget)
     if (data.website && data.company_name) {
       try {
-        const domain = new URL(data.website.startsWith("http") ? data.website : `https://${data.website}`).hostname.replace("www.", "");
+        const fullUrl = data.website.startsWith("http") ? data.website : `https://${data.website}`;
+        const domain = new URL(fullUrl).hostname.replace("www.", "");
         await triggerRelayLocationScraper(data.company_name, domain, {
           orgId: org.id,
           deduplicationKey: domain,
+          fullWebsiteUrl: fullUrl,
         });
         console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
       } catch (relayErr: any) {
@@ -18364,6 +18386,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
       demo_days = 14,
       industry,
       operating_states,
+      origin: clientOrigin,
     } = body;
 
     if (!contact_email) {
@@ -18410,7 +18433,7 @@ async function handleDemoCreate(req: Request): Promise<Response> {
         enrichedData.website = normalizedUrl;
       } catch (enrichErr: any) {
         console.error(`[DemoCreate] Enrichment failed:`, enrichErr.message);
-        enrichedData.website = websiteUrl;
+        enrichedData.website = normalizedUrl || (websiteUrl.startsWith("http") ? websiteUrl : "https://" + websiteUrl);
       }
     }
 
@@ -18494,6 +18517,17 @@ async function handleDemoCreate(req: Request): Promise<Response> {
 
     if (authError) {
       console.error("[DemoCreate] Failed to create auth user:", authError);
+      // When email already exists (batch demos with same contact), provide demo URL fallback
+      if (authError.code === "email_exists" || authError.message?.includes("already been registered")) {
+        let base = clientOrigin || req.headers.get("origin");
+        if (!base && req.headers.get("referer")) {
+          try {
+            base = new URL(req.headers.get("referer")!).origin;
+          } catch {}
+        }
+        base = base || "https://trikebackoffice20.vercel.app";
+        magicLink = `${base.replace(/\/$/, "")}/?demo_org_id=${org.id}`;
+      }
     }
 
     if (authUser?.user) {
@@ -18592,12 +18626,19 @@ async function handleDemoCreate(req: Request): Promise<Response> {
     // Step 7: Trigger Relay location scraper when we have website (async, fire-and-forget)
     let relayRunId: string | null = null;
     let relayRunLink: string | null = null;
-    if (websiteUrl && enrichedData.website) {
+    const canTriggerRelay = !!(websiteUrl && enrichedData?.website);
+    if (!canTriggerRelay) {
+      console.log(`[DemoCreate] Skipping Relay trigger: websiteUrl=${!!websiteUrl} enrichedData.website=${!!enrichedData?.website}`);
+    }
+    if (canTriggerRelay) {
       try {
-        const demoDomain = new URL(enrichedData.website).hostname.replace("www.", "");
+        const websiteForUrl = enrichedData.website.startsWith("http") ? enrichedData.website : "https://" + enrichedData.website;
+        const demoDomain = new URL(websiteForUrl).hostname.replace("www.", "");
+        console.log(`[DemoCreate] Triggering Relay for ${companyName} (${websiteForUrl})`);
         const relayResult = await triggerRelayLocationScraper(companyName, demoDomain, {
           orgId: org.id,
           deduplicationKey: demoDomain,
+          fullWebsiteUrl: enrichedData.website,
         });
         if (relayResult) {
           relayRunId = relayResult.runId;

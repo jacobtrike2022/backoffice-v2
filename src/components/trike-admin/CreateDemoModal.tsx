@@ -80,6 +80,7 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
           contact_email: contactEmail.trim(),
           contact_name: contactName.trim() || undefined,
           demo_days: parseInt(demoDays) || 14,
+          origin: window.location.origin,
         }),
       });
 
@@ -91,7 +92,7 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
       setResult({
         orgId: data.organization.id,
         orgName: data.organization.name,
-        magicLink: data.magic_link,
+        magicLink: data.magic_link || (data.organization?.id ? `${window.location.origin}/?demo_org_id=${data.organization.id}` : null),
         enrichedData: data.enriched_data,
       });
 
