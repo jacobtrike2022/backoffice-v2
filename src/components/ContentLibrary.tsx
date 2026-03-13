@@ -76,9 +76,7 @@ import {
 } from './ui/dialog';
 import { AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
 import { CreateVariantModal } from './content-authoring/CreateVariantModal';
-
-// Default thumbnail from public folder
-const defaultThumbnail = '/default-thumbnail.png';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -121,6 +119,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
   const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published'); // Status filter
+  const [scopeLevelFilter, setScopeLevelFilter] = useState<string>('all'); // Scope level filter
   const [orgTags, setOrgTags] = useState<tagsCrud.Tag[]>([]); // Organization tags with colors
   const [archiveWarningDialog, setArchiveWarningDialog] = useState<{
     open: boolean;
@@ -204,9 +203,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
-    status: statusFilter, // Use dynamic status filter
+    status: statusFilter,
     type: selectedType !== 'all' ? selectedType as any : undefined,
-    search: searchQuery || undefined
+    search: searchQuery || undefined,
+    scopeLevel: scopeLevelFilter !== 'all' ? scopeLevelFilter : undefined,
   });
 
   // Debug logging (disabled for performance - enable only when needed)
@@ -1171,6 +1171,23 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               </SelectContent>
             </Select>
 
+            {/* Scope Filter */}
+            <Select value={scopeLevelFilter} onValueChange={setScopeLevelFilter}>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue placeholder="Scope" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All scopes</SelectItem>
+                <SelectItem value="UNIVERSAL">Universal</SelectItem>
+                <SelectItem value="SECTOR">Sector</SelectItem>
+                <SelectItem value="INDUSTRY">Industry</SelectItem>
+                <SelectItem value="STATE">State</SelectItem>
+                <SelectItem value="COMPANY">Company</SelectItem>
+                <SelectItem value="PROGRAM">Program</SelectItem>
+                <SelectItem value="UNIT">Unit</SelectItem>
+              </SelectContent>
+            </Select>
+
             {/* Sort - Icon only with popover */}
             <Popover>
               <PopoverTrigger asChild>
@@ -1309,21 +1326,26 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-muted overflow-hidden">
                   <img
-                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                     alt={track.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      if (target.src !== defaultThumbnail) {
-                        target.src = defaultThumbnail;
+                      if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                        target.src = DEFAULT_THUMBNAIL_URL;
                       }
                     }}
                   />
-                  <div className="absolute top-2 right-2">
+                  <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
                     <Badge className={getTypeBadgeColor(track.type)}>
                       {getTypeIcon(track.type)}
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
+                    {track.scope?.scope_level && (
+                      <Badge variant="outline" className="text-xs bg-background/80">
+                        {track.scope.scope_level}
+                      </Badge>
+                    )}
                   </div>
                   {/* AI Suggestions Badge */}
                   {aiSuggestionCounts[track.id] > 0 && (
@@ -1606,13 +1628,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   {/* Thumbnail */}
                   <div className="w-48 h-28 flex-shrink-0 bg-muted rounded overflow-hidden">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt={track.title}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        if (target.src !== defaultThumbnail) {
-                          target.src = defaultThumbnail;
+                        if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                          target.src = DEFAULT_THUMBNAIL_URL;
                         }
                       }}
                     />

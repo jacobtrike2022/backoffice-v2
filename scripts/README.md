@@ -12,6 +12,26 @@
 
 ---
 
+## Track thumbnail recovery (list / restore from storage)
+
+**When:** Track thumbnails were overwritten with the default image in the DB, but the original thumbnail files may still exist in Supabase Storage.
+
+**What it does:** Lists all files in the track-media bucket under `thumbnails/` (path pattern: `thumbnails/{trackId}-{timestamp}.ext`). You can then optionally restore `thumbnail_url` for tracks that currently have no custom thumbnail.
+
+**Usage:**
+
+```bash
+# List thumbnail files and see which tracks would be updated (dry run)
+npx tsx scripts/list-and-recover-track-thumbnails.ts
+
+# Apply updates: set thumbnail_url to a new signed URL for each track that has a file in storage
+npx tsx scripts/list-and-recover-track-thumbnails.ts --recover
+```
+
+**Requires:** `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_TOKEN` in `.env` or `.cursor/credentials/SUPABASE_TOKEN.md`, and `VITE_SUPABASE_PROJECT_ID` or `SUPABASE_URL` if not using the default project.
+
+---
+
 # O*NET Data Import Scripts
 
 ## Overview

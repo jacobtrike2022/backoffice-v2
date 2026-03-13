@@ -14,6 +14,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { TrackScopeModal } from './content-authoring/TrackScopeModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { TTSPlayer } from './content/TTSPlayer';
 import {
@@ -59,7 +60,7 @@ import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import defaultThumbnail from '../assets/default-thumbnail.jpg';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -105,6 +106,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   // Actions menu popover state
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track scope modal
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
 
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
@@ -320,7 +324,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           learning_objectives: facts,
           tags: tagNames,
           content_url: track.content_url || '',
-          thumbnail_url: (track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png') ? track.thumbnail_url : '',
+          thumbnail_url: getEffectiveThumbnailUrl(track.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (track.thumbnail_url || '') : '',
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
           show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
@@ -1916,7 +1920,38 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               </CardContent>
             </Card>
           )}
-          
+
+          {/* Content scope */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Content scope
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {track.scope ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{track.scope.scope_level}</Badge>
+                  {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
+                  {track.scope.state_id && <Badge variant="outline">State</Badge>}
+                  {track.scope.industry_id && <Badge variant="outline">Industry</Badge>}
+                  {track.scope.company_id && <Badge variant="outline">Company</Badge>}
+                  {track.scope.program_id && <Badge variant="outline">Program</Badge>}
+                  {track.scope.unit_id && <Badge variant="outline">Unit</Badge>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
+                {track.scope ? 'Edit scope' : 'Set scope'}
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Super Admin Settings */}
           {isSuperAdminAuthenticated && (
             <Card>
@@ -2024,7 +2059,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <ImageIcon className="h-4 w-4" />
                     Header Image
                   </label>
-                  {editFormData.thumbnail_url && editFormData.thumbnail_url !== '/default-thumbnail.png' ? (
+                  {editFormData.thumbnail_url && getEffectiveThumbnailUrl(editFormData.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
@@ -2047,7 +2082,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '/default-thumbnail.png' })}
+                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '' })}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -2057,7 +2092,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
-                          src={defaultThumbnail}
+                          src={DEFAULT_THUMBNAIL_URL}
                           alt="Default Header"
                           className="w-full h-full object-cover"
                         />
@@ -2113,7 +2148,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </label>
                   <div className="relative aspect-video rounded-lg overflow-hidden border">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt="Header"
                       className="w-full h-full object-cover"
                     />
@@ -2393,6 +2428,16 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+
+      <TrackScopeModal
+        isOpen={isScopeModalOpen}
+        onClose={() => setIsScopeModalOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
+        organizationId={track.organization_id}
+        allowAllOrgs={isSuperAdminAuthenticated}
+        onSaved={onUpdate}
       />
 
       {/* Unsaved Changes Dialog */}

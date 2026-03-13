@@ -4,6 +4,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { ArrowRight, ArrowLeft, ExternalLink, GitBranch, MapPin, Building2, Store } from 'lucide-react';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import { getEffectiveThumbnailUrl } from '../../lib/crud/tracks';
 import type { TrackRelationship, VariantType } from '../../lib/crud/trackRelationships';
 
 interface TrackRelationshipsProps {
@@ -179,7 +180,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                   onClick={() => onNavigateToTrack && onNavigateToTrack(sourceRel.source_track!.id)}
                 >
                   <img
-                    src={sourceRel.source_track.thumbnail_url || '/default-thumbnail.png'}
+                    src={getEffectiveThumbnailUrl(sourceRel.source_track.thumbnail_url)}
                     alt=""
                     className={`${sourceTracks.length === 1 ? 'size-16' : 'size-12'} rounded object-cover shrink-0`}
                   />
@@ -221,7 +222,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
                 <img
-                  src={rel.derived_track?.thumbnail_url || '/default-thumbnail.png'}
+                  src={getEffectiveThumbnailUrl(rel.derived_track?.thumbnail_url)}
                   alt=""
                   className="size-12 rounded object-cover shrink-0"
                 />
@@ -262,7 +263,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
                 <img
-                  src={rel.derived_track?.thumbnail_url || '/default-thumbnail.png'}
+                  src={getEffectiveThumbnailUrl(rel.derived_track?.thumbnail_url)}
                   alt=""
                   className="size-12 rounded object-cover shrink-0"
                 />
@@ -308,7 +309,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
               onClick={() => onNavigateToTrack && onNavigateToTrack(baseTrack.source_track!.id)}
             >
               <img
-                src={baseTrack.source_track.thumbnail_url || '/default-thumbnail.png'}
+                src={getEffectiveThumbnailUrl(baseTrack.source_track.thumbnail_url)}
                 alt=""
                 className="size-16 rounded object-cover shrink-0"
               />

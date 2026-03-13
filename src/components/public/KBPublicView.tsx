@@ -21,6 +21,7 @@ import {
   Video,
   FileText
 } from 'lucide-react';
+import { getEffectiveThumbnailUrl } from '../../lib/crud/tracks';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
@@ -307,15 +308,13 @@ export function KBPublicView() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <article className="bg-white rounded-lg shadow-sm overflow-hidden">
           {/* Thumbnail */}
-          {track.thumbnail_url && (
-            <div className="w-full aspect-video bg-gray-100">
-              <img 
-                src={track.thumbnail_url} 
-                alt={track.title}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
+          <div className="w-full aspect-video bg-gray-100">
+            <img 
+              src={getEffectiveThumbnailUrl(track.thumbnail_url)} 
+              alt={track.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
 
           {/* Content */}
           <div className="p-6 md:p-8 space-y-6">

@@ -463,6 +463,52 @@ export async function removeTrackFromAlbum(
 }
 
 /**
+ * Bulk remove multiple tracks from an album (e.g. for System Content Manager).
+ * Reorders remaining tracks to close gaps. Phase 2: wire a "Remove from album" bulk action in UI.
+ */
+export async function bulkRemoveTracksFromAlbum(
+  albumId: string,
+  trackIds: string[]
+): Promise<{ removed: number }> {
+  if (!albumId || typeof albumId !== 'string') throw new Error('Invalid albumId');
+  if (!Array.isArray(trackIds) || trackIds.length === 0) return { removed: 0 };
+
+  const { error } = await supabase
+    .from('album_tracks')
+    .delete()
+    .eq('album_id', albumId)
+    .in('track_id', trackIds);
+
+  if (error) throw error;
+
+  const { data: remainingTracks } = await supabase
+    .from('album_tracks')
+    .select('track_id, display_order')
+    .eq('album_id', albumId)
+    .order('display_order', { ascending: true });
+
+  if (remainingTracks?.length) {
+    for (let i = 0; i < remainingTracks.length; i++) {
+      const newOrder = i + 1;
+      if (remainingTracks[i].display_order !== newOrder) {
+        await supabase
+          .from('album_tracks')
+          .update({ display_order: newOrder })
+          .eq('album_id', albumId)
+          .eq('track_id', remainingTracks[i].track_id);
+      }
+    }
+  }
+
+  await supabase
+    .from('albums')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', albumId);
+
+  return { removed: trackIds.length };
+}
+
+/**
  * Reorder tracks in an album
  * Accepts array of track IDs in desired order
  */

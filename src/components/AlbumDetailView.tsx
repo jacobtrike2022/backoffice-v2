@@ -44,9 +44,8 @@ import {
 import { toast } from 'sonner';
 import * as albumsCrud from '../lib/crud/albums';
 import * as crud from '../lib/crud';
+import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
 import type { Album, AlbumTrack } from '../lib/crud/albums';
-
-const defaultThumbnail = '/default-thumbnail.png';
 
 interface AlbumDetailViewProps {
   album: Album;
@@ -396,7 +395,7 @@ export function AlbumDetailView({
                   </div>
                   
                   <img
-                    src={albumTrack.track?.thumbnail_url || defaultThumbnail}
+                    src={getEffectiveThumbnailUrl(albumTrack.track?.thumbnail_url)}
                     alt=""
                     className="w-12 h-12 rounded object-cover bg-muted"
                   />
@@ -476,7 +475,7 @@ export function AlbumDetailView({
                     className="h-4 w-4"
                   />
                   <img
-                    src={track.thumbnail_url || defaultThumbnail}
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                     alt=""
                     className="w-10 h-10 rounded object-cover bg-muted"
                   />

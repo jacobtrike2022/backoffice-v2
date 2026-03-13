@@ -4,7 +4,7 @@
 
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
-import { supabase, getCurrentUserOrgId } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { compressImage } from '../utils/imageCompression';
 import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
 import { generateKeyFacts } from './facts';
@@ -37,8 +37,20 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
   id: string;
 }
 
-// Default thumbnail URL (served from public folder)
-const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+// Default thumbnail URL (served from public folder) - used only for display when no custom thumbnail
+export const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+
+/**
+ * Returns the URL to display for a track thumbnail.
+ * Use this everywhere we render a track thumbnail so behavior is consistent:
+ * - No thumbnail (null, empty, or the stored default placeholder) → show default Trike image.
+ * - Custom thumbnail from media/upload → show that URL.
+ */
+export function getEffectiveThumbnailUrl(thumbnailUrl: string | null | undefined): string {
+  const trimmed = (thumbnailUrl || '').trim();
+  if (!trimmed || trimmed === DEFAULT_THUMBNAIL_URL) return DEFAULT_THUMBNAIL_URL;
+  return trimmed;
+}
 
 // ============================================================================
 // PUBLISH VALIDATION
@@ -324,6 +336,29 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
       transcript_data: parsedTranscriptData,
     };
   });
+}
+
+/**
+ * Enrich tracks with scope from track_scopes (one row per track)
+ */
+async function enrichTracksWithScope(tracks: any[]): Promise<any[]> {
+  if (!tracks || tracks.length === 0) return tracks;
+  const trackIds = tracks.map(t => t.id);
+  const { data: scopeRows, error } = await supabase
+    .from('track_scopes')
+    .select('*')
+    .in('track_id', trackIds);
+  if (error || !scopeRows?.length) {
+    return tracks.map(t => ({ ...t, scope: null }));
+  }
+  const scopeByTrackId: Record<string, any> = {};
+  scopeRows.forEach((row: any) => {
+    scopeByTrackId[row.track_id] = row;
+  });
+  return tracks.map(t => ({
+    ...t,
+    scope: scopeByTrackId[t.id] ?? null,
+  }));
 }
 
 /**
@@ -669,15 +704,15 @@ async function automateArticleWorkflow(track: { id: string; title?: string; desc
 }
 
 /**
- * Create a new track (defaults to draft)
- * Automatically assigns default thumbnail if none provided
+ * Create a new track (defaults to draft).
+ * Thumbnail: store only when provided (null otherwise). Display layer uses getEffectiveThumbnailUrl() to show default when null.
  */
 export async function createTrack(input: CreateTrackInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  // Set default thumbnail if none provided
-  const thumbnailUrl = input.thumbnail_url || DEFAULT_THUMBNAIL_URL;
+  // Store thumbnail only when a real URL is provided (null = no thumbnail → display shows default)
+  const thumbnailUrl = (input.thumbnail_url || '').trim() || null;
 
   // Auto-calculate duration if not provided
   let calculatedDuration = input.duration_minutes;
@@ -1116,9 +1151,10 @@ export async function getTrackById(trackId: string) {
 
   if (error) throw error;
 
-  // Enrich with tags from junction table
-  const enrichedTracks = await enrichTracksWithJunctionTags([data]);
-  return enrichedTracks[0];
+  // Enrich with tags from junction table and scope (so detail view shows "Content scope")
+  const withTags = await enrichTracksWithJunctionTags([data]);
+  const withScope = await enrichTracksWithScope(withTags);
+  return withScope[0];
 }
 
 /**
@@ -1153,14 +1189,26 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
     return { track, isLatest: false, latestTrackId: trackId };
   }
 
-  // Enrich the latest track with tags from junction table
-  const enrichedTracks = await enrichTracksWithJunctionTags([latestTrack]);
-  return { track: enrichedTracks[0], isLatest: false, latestTrackId: latestTrack.id };
+  // Enrich the latest track with tags and scope
+  const withTags = await enrichTracksWithJunctionTags([latestTrack]);
+  const withScope = await enrichTracksWithScope(withTags);
+  return { track: withScope[0], isLatest: false, latestTrackId: latestTrack.id };
 }
 
 /**
  * Get all tracks for organization with filters
  */
+export interface GetTracksScopeFilters {
+  scopeLevel?: string;
+  sector?: string;
+  industryId?: string;
+  stateCode?: string;
+  stateId?: string;
+  companyId?: string;
+  programId?: string;
+  unitId?: string;
+}
+
 export async function getTracks(filters: {
   type?: string;
   status?: string;
@@ -1170,14 +1218,68 @@ export async function getTracks(filters: {
   includeAllVersions?: boolean; // Set to true to include old versions
   organizationId?: string; // Optional: specific org ID (defaults to current user's org)
   isSystemContent?: boolean; // Optional: filter for system content
+  /** When true and isSystemContent true, skip org filter so Trike Super Admin sees all published system tracks. Only honored if current user is Trike Super Admin. */
+  allSystemTracksForSuperAdmin?: boolean;
+  scopeLevel?: string;
+  sector?: string;
+  industryId?: string;
+  stateCode?: string;
+  stateId?: string;
+  companyId?: string;
+  programId?: string;
+  unitId?: string;
 } = {}) {
   // Use provided organizationId or fall back to current user's org
-  const orgId = filters.organizationId || await getCurrentUserOrgId();
+  let orgId: string | null = filters.organizationId || (await getCurrentUserOrgId());
+  const isSuperAdminAllSystem =
+    filters.allSystemTracksForSuperAdmin === true &&
+    filters.isSystemContent === true;
+  // Content Management tab passes this only when UI role is Trike Super Admin (dropdown + password).
+  // Trust the caller: that view is route- and password-protected, so skip org filter whenever asked.
+  if (isSuperAdminAllSystem) {
+    orgId = null; // Show all published system tracks (RLS allows for anon/Super Admin)
+  }
   if (!orgId && !filters.isSystemContent) throw new Error('User not authenticated and no organization context provided');
 
   let query = supabase
     .from('tracks')
     .select('*');
+
+  // Scope filter: resolve track_ids from track_scopes first
+  const hasScopeFilter =
+    filters.scopeLevel ||
+    filters.sector ||
+    filters.industryId ||
+    filters.stateCode ||
+    filters.stateId ||
+    filters.companyId ||
+    filters.programId ||
+    filters.unitId;
+
+  if (hasScopeFilter) {
+    let scopeQuery = supabase.from('track_scopes').select('track_id');
+    if (filters.scopeLevel) scopeQuery = scopeQuery.eq('scope_level', filters.scopeLevel);
+    if (filters.sector) scopeQuery = scopeQuery.eq('sector', filters.sector);
+    if (filters.industryId) scopeQuery = scopeQuery.eq('industry_id', filters.industryId);
+    if (filters.stateId) scopeQuery = scopeQuery.eq('state_id', filters.stateId);
+    if (filters.companyId) scopeQuery = scopeQuery.eq('company_id', filters.companyId);
+    if (filters.programId) scopeQuery = scopeQuery.eq('program_id', filters.programId);
+    if (filters.unitId) scopeQuery = scopeQuery.eq('unit_id', filters.unitId);
+    if (filters.stateCode) {
+      const { data: stateRow } = await supabase
+        .from('us_states')
+        .select('id')
+        .eq('code', filters.stateCode.toUpperCase())
+        .single();
+      if (stateRow) scopeQuery = scopeQuery.eq('state_id', stateRow.id);
+      else scopeQuery = scopeQuery.eq('state_id', '00000000-0000-0000-0000-000000000000'); // no match
+    }
+    const { data: scopeRows, error: scopeError } = await scopeQuery;
+    if (scopeError) throw scopeError;
+    const scopeTrackIds = [...new Set((scopeRows || []).map((r: { track_id: string }) => r.track_id))];
+    if (scopeTrackIds.length === 0) return [];
+    query = query.in('id', scopeTrackIds);
+  }
 
   // Apply filters
   if (filters.isSystemContent !== undefined) {
@@ -1336,11 +1438,12 @@ export async function getTracks(filters: {
 
       if (retryError) throw retryError;
 
-      // Enrich with tags from junction table
+      // Enrich with tags from junction table and scope
       const tracksWithJunctionTags = await enrichTracksWithJunctionTags(retryData || []);
+      const filteredDataWithScope = await enrichTracksWithScope(tracksWithJunctionTags);
 
       // Apply client-side filtering for tags and in-kb if needed (fallback)
-      let filteredData = tracksWithJunctionTags;
+      let filteredData = filteredDataWithScope;
 
       if (filters.tags && filters.tags.length > 0) {
         filteredData = filteredData.filter(track => {
@@ -1363,10 +1466,11 @@ export async function getTracks(filters: {
 
   // Enrich tracks with tags from junction table (source of truth)
   const enrichedTracks = await enrichTracksWithJunctionTags(data || []);
+  const withScope = await enrichTracksWithScope(enrichedTracks);
 
-  // Post-fetch geographic filtering for system content
+  // Post-fetch geographic filtering for system content (skip when Super Admin viewing all system tracks)
   // This ensures demo prospects only see relevant regulatory training for their states
-  if (filters.isSystemContent && orgId) {
+  if (filters.isSystemContent && orgId && !filters.allSystemTracksForSuperAdmin) {
     try {
       const { data: orgData } = await supabase
         .from('organizations')
@@ -1379,7 +1483,7 @@ export async function getTracks(filters: {
         const stateTagPrefix = 'state:';
         const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s.toUpperCase()}`);
 
-        return enrichedTracks.filter(track => {
+        return withScope.filter(track => {
           const trackTags = track.tags || [];
           const hasStateTags = trackTags.some((tag: string) => tag.startsWith(stateTagPrefix));
 
@@ -1394,7 +1498,7 @@ export async function getTracks(filters: {
     }
   }
 
-  return enrichedTracks;
+  return withScope;
 }
 
 /**
@@ -2413,4 +2517,48 @@ export async function softDeleteTrack(trackId: string) {
     console.error('Error in softDeleteTrack:', err);
     throw err;
   }
+}
+
+/**
+ * Bulk assign tracks to an album. Skips tracks already in the album.
+ * Used by Trike Super Admin content management.
+ */
+export async function bulkAssignTracksToAlbum(
+  albumId: string,
+  trackIds: string[]
+): Promise<{ added: number; skipped: number; errors: string[] }> {
+  if (!albumId || !trackIds?.length) {
+    return { added: 0, skipped: 0, errors: [] };
+  }
+  const { data: existing } = await supabase
+    .from('album_tracks')
+    .select('track_id')
+    .eq('album_id', albumId);
+  const existingSet = new Set((existing || []).map((r: { track_id: string }) => r.track_id));
+  const toAdd = trackIds.filter((id) => !existingSet.has(id));
+  if (toAdd.length === 0) {
+    return { added: 0, skipped: trackIds.length, errors: [] };
+  }
+  const maxOrderResult = await supabase
+    .from('album_tracks')
+    .select('display_order')
+    .eq('album_id', albumId)
+    .order('display_order', { ascending: false })
+    .limit(1);
+  const maxOrder = (maxOrderResult.data?.[0] as any)?.display_order ?? 0;
+  const records = toAdd.map((track_id, i) => ({
+    album_id: albumId,
+    track_id,
+    display_order: maxOrder + 1 + i,
+    is_required: true,
+    unlock_previous: false,
+  }));
+  const { error } = await supabase.from('album_tracks').insert(records);
+  if (error) throw error;
+  await supabase.from('albums').update({ updated_at: new Date().toISOString() }).eq('id', albumId);
+  return {
+    added: toAdd.length,
+    skipped: trackIds.length - toAdd.length,
+    errors: [],
+  };
 }
