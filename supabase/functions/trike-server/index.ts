@@ -18638,17 +18638,27 @@ async function handleAssignSeedPeopleToStores(req: Request): Promise<Response> {
       return jsonResponse({ error: "No stores found for this organization" }, 400);
     }
 
-    const { data: seedPeople } = await supabase
+    let seedPeople = (await supabase
       .from("users")
       .select("id")
       .eq("organization_id", organization_id)
       .eq("is_seed", true)
-      .is("store_id", null);
+      .is("store_id", null)).data;
+
+    // Fallback: some older demo orgs may have seed people without is_seed set
+    if (!seedPeople || seedPeople.length === 0) {
+      seedPeople = (await supabase
+        .from("users")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .is("store_id", null)
+        .limit(10)).data;
+    }
 
     if (!seedPeople || seedPeople.length === 0) {
       return jsonResponse({
         success: true,
-        message: "No unassigned seed people found",
+        message: "No unassigned people found",
         assigned: 0,
       });
     }

@@ -1,3 +1,17 @@
+# Scripts
+
+## One-off SQL: Fix "value too long" when assigning employees to stores
+
+**When:** You get "value too long for type character" (or 400) when assigning an employee to a Relay-scraped store in Edit People, or when "Fix store assignments" fails.
+
+**Fix:** Run `scripts/apply_handle_location_transfer_fix.sql` in **Supabase Dashboard → SQL Editor**:
+
+1. Open https://supabase.com/dashboard/project/kgzhlvxzdlexsrozbbxs/sql
+2. Paste the contents of `scripts/apply_handle_location_transfer_fix.sql`
+3. Click Run
+
+---
+
 # O*NET Data Import Scripts
 
 ## Overview
