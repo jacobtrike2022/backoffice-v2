@@ -1121,7 +1121,10 @@ export function SystemContentManager() {
           <div className="flex-1 overflow-y-auto min-h-0 px-6 pb-6 space-y-6">
             {previewTrack && (() => {
               const t = fullPreviewTrack?.id === previewTrack.id ? fullPreviewTrack : previewTrack;
-              const articleBody = t.content_text || (t as any).article_body || t.transcript;
+              // Articles: body is often stored in transcript; fall back to content_text / article_body
+              const articleBody = t.type === 'article'
+                ? (t.transcript || t.content_text || (t as any).article_body)
+                : (t.content_text || (t as any).article_body || t.transcript);
               return (
                 <>
                   {previewLoading && (
