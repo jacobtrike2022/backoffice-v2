@@ -798,7 +798,7 @@ export function SystemContentManager() {
               <Table className="table-fixed w-full" style={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[4%] pr-0">
+                    <TableHead className="w-[250px] pr-0">
                       <Checkbox
                         checked={allSelected}
                         onCheckedChange={toggleSelectAll}
