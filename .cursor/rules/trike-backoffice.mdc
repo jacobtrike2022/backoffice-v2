@@ -121,6 +121,39 @@ USING (
 );
 ```
 
+## CRITICAL: Demo Mode - Edge Function Calls
+
+**While building demo mode**, there is no real Supabase auth session. The app uses a "demo admin user" from the database, but `supabase.auth.getSession()` returns null. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
+
+**ALWAYS** use the anon key as fallback when calling Edge Functions from the frontend:
+
+```typescript
+import { publicAnonKey } from '../../utils/supabase/info';
+// or: import { supabaseAnonKey } from '../lib/supabase';
+
+const { data: { session } } = await supabase.auth.getSession();
+const authToken = session?.access_token || publicAnonKey;
+
+const resp = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${authToken}`,
+    'apikey': publicAnonKey,
+  },
+  body: JSON.stringify(payload),
+});
+```
+
+**WRONG - Will 401 in demo mode:**
+```typescript
+'Authorization': `Bearer ${session?.access_token || ''}`,
+```
+
+**Reference implementations:** `src/lib/crud/brain.ts`, `CreateDemoModal.tsx`, `OrganizationsList.tsx` (handleAssignSeedPeopleToStores)
+
+See `docs/DEMO_MODE_DEVELOPMENT.md` for full details.
+
 ## CRITICAL: Radix UI Select Component Rules
 
 ### Empty String Values are FORBIDDEN

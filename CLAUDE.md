@@ -113,6 +113,20 @@ USING (
 
 ---
 
+## CRITICAL: Demo Mode - Edge Function Calls
+
+**While building demo mode**, there is no real Supabase auth session. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
+
+**ALWAYS** use the anon key as fallback:
+```typescript
+const authToken = session?.access_token || publicAnonKey;
+headers: { 'Authorization': `Bearer ${authToken}`, 'apikey': publicAnonKey }
+```
+
+See `docs/DEMO_MODE_DEVELOPMENT.md` for full pattern. Reference: `src/lib/crud/brain.ts`, `OrganizationsList.tsx`.
+
+---
+
 ## CRITICAL: Radix UI Select Component Rules
 
 ### Empty String Values are FORBIDDEN

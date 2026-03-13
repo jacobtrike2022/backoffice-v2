@@ -70,6 +70,7 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
+import { publicAnonKey } from '../../utils/supabase/info';
 import trikeLogo from '../../assets/trike-logo.png';
 import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
@@ -222,11 +223,14 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       const { data: { session } } = await supabase.auth.getSession();
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
       const url = `https://${projectId}.supabase.co/functions/v1/trike-server/admin/assign-seed-people-to-stores`;
+      // Use anon key when no session (demo mode) so the request is not rejected with 401
+      const authToken = session?.access_token || publicAnonKey;
       const resp = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || ''}`,
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({ organization_id: orgId }),
       });
