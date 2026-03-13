@@ -121,6 +121,11 @@ USING (
 );
 ```
 
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** The main body content is stored in the **`transcript`** column (not only in `content_text`). Legacy and many current articles use `transcript` for the prose.
+- When displaying or validating article content (e.g. previews, KB viewer, publish checks), read body from **`transcript` first, then `content_text`**, e.g. `transcript || content_text || article_body`.
+- Videos use `transcript` for speech-to-text; stories use `transcript` for JSON slide data. For `type === 'article'`, treat `transcript` as the primary body field.
+
 ## Supabase migration best practices (idempotency & history)
 
 When adding or editing migrations in `supabase/migrations/`:

@@ -1156,6 +1156,20 @@ export async function getTrackById(trackId: string) {
 }
 
 /**
+ * Content Management preview: fetch full track row by ID via RPC (bypasses RLS).
+ * Use this for the preview dialog so transcript/content_text are always returned
+ * (e.g. in demo mode when there is no auth session).
+ */
+export async function getTrackByIdForContentManagement(trackId: string): Promise<any | null> {
+  const { data, error } = await supabase.rpc('get_track_by_id_for_content_management', {
+    p_track_id: trackId,
+  });
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  return rows.length ? rows[0] : null;
+}
+
+/**
  * Get track by ID, but redirect to latest version if this is an old version
  * Returns: { track, isLatest, latestTrackId }
  */

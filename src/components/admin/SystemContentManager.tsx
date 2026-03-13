@@ -39,7 +39,7 @@ import {
   Trash2,
   Play,
 } from 'lucide-react';
-import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum, bulkUpdateTrackSystemContent, archiveTrack, deleteTrack, getTrackById } from '../../lib/crud/tracks';
+import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum, bulkUpdateTrackSystemContent, archiveTrack, deleteTrack, getTrackByIdForContentManagement } from '../../lib/crud/tracks';
 import { getAlbums, addTracksToAlbum, removeTrackFromAlbum } from '../../lib/crud/albums';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import {
@@ -65,6 +65,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
@@ -158,7 +159,7 @@ export function SystemContentManager() {
     fetchSystemTracks(filterStatus);
   }, [filterStatus]);
 
-  // Fetch full track when preview opens so we have content_text, transcript, content_url for the modal
+  // Fetch full track when preview opens via RPC so we always get transcript/content_text (works in demo mode)
   useEffect(() => {
     if (!previewTrack?.id) {
       setFullPreviewTrack(null);
@@ -168,10 +169,10 @@ export function SystemContentManager() {
     let cancelled = false;
     setPreviewLoading(true);
     setFullPreviewTrack(null);
-    getTrackById(previewTrack.id)
+    getTrackByIdForContentManagement(previewTrack.id)
       .then((full) => {
         if (!cancelled) {
-          setFullPreviewTrack(full);
+          setFullPreviewTrack(full ?? previewTrack);
         }
       })
       .catch(() => {
@@ -1115,6 +1116,7 @@ export function SystemContentManager() {
 
       <Dialog open={!!previewTrack} onOpenChange={(open) => !open && (setPreviewTrack(null), setFullPreviewTrack(null))}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogDescription className="sr-only">Preview of track content (title, description, and body)</DialogDescription>
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle className="pr-8 text-xl">{previewTrack?.title ?? 'Preview'}</DialogTitle>
           </DialogHeader>

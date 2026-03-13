@@ -111,6 +111,10 @@ USING (
 );
 ```
 
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** The main body content is stored in the **`transcript`** column (not only in `content_text`). When displaying or validating article content (previews, KB viewer, publish checks), read body from **`transcript` first, then `content_text`**, e.g. `transcript || content_text || article_body`.
+- For `type === 'article'`, treat `transcript` as the primary body field. (Videos use `transcript` for speech-to-text; stories use it for JSON slide data.)
+
 ---
 
 ## CRITICAL: Demo Mode - Edge Function Calls
@@ -213,6 +217,9 @@ roles (
 - `District Manager` - Manages multiple stores
 - `Store Manager` - Manages single store
 - `Team Member` - Regular employee
+
+### Tracks table - Article body in `transcript`
+- Article-type tracks store body content in **`transcript`** (and sometimes `content_text`). For display/validation use: `transcript || content_text || article_body`.
 
 ---
 
