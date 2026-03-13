@@ -79,7 +79,37 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { supabase, getCurrentUserProfile } from '../../lib/supabase';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { StoryTranscript } from '../content-authoring/StoryTranscript';
 import { toast } from 'sonner@2.0.3';
+
+/** Reuse KB viewer formatting: markdown or passthrough HTML for article body. */
+function convertMarkdownToHtml(markdown: string): string {
+  let html = markdown;
+  const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(markdown);
+  if (!hasHtmlTags) {
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>');
+    html = html.replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>');
+    html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
+    html = html.replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^####\s+(.*)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+    html = html.replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    html = html.replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    html = html.replace(/\n\n+/g, '</p><p>');
+    html = html.replace(/\n/g, '<br/>');
+    if (!html.startsWith('<')) html = '<p>' + html + '</p>';
+  }
+  return html;
+}
 
 export function SystemContentManager() {
   const [tracks, setTracks] = useState<any[]>([]);
@@ -1026,44 +1056,98 @@ export function SystemContentManager() {
       )}
 
       <Dialog open={!!previewTrack} onOpenChange={(open) => !open && setPreviewTrack(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="pr-8">{previewTrack?.title ?? 'Preview'}</DialogTitle>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+            <DialogTitle className="pr-8 text-xl">{previewTrack?.title ?? 'Preview'}</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-auto min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0 px-6 pb-6 space-y-6">
             {previewTrack && (
               <>
-                {previewTrack.type === 'video' && previewTrack.content_url && (
-                  <video
-                    src={previewTrack.content_url}
-                    controls
-                    className="w-full rounded-md"
-                    poster={previewTrack.thumbnail_url}
-                  />
+                {/* KB-style metadata row */}
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  {previewTrack.type === 'video' && <Video className="h-4 w-4" />}
+                  {previewTrack.type === 'article' && <FileText className="h-4 w-4" />}
+                  {previewTrack.type === 'story' && <BookOpen className="h-4 w-4" />}
+                  <span className="capitalize font-medium">{previewTrack.type || 'Track'}</span>
+                  <span>•</span>
+                  <span>Updated {previewTrack.updated_at ? new Date(previewTrack.updated_at).toLocaleDateString() : '—'}</span>
+                </div>
+
+                {/* Description (KB viewer style) */}
+                {previewTrack.description && (
+                  <p className="text-muted-foreground leading-relaxed">{previewTrack.description}</p>
                 )}
-                {(previewTrack.type === 'article' || previewTrack.type === 'story') && (
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-left">
-                    {previewTrack.description && (
+
+                {/* Video: same block as KB viewer */}
+                {previewTrack.type === 'video' && previewTrack.content_url && (
+                  <div className="bg-black rounded-lg overflow-hidden">
+                    <video
+                      src={previewTrack.content_url}
+                      controls
+                      playsInline
+                      className="w-full aspect-video"
+                      poster={previewTrack.thumbnail_url}
+                    >
+                      Your browser does not support video playback.
+                    </video>
+                  </div>
+                )}
+
+                {/* Article: prose body (KB viewer formatting) */}
+                {previewTrack.type === 'article' && (previewTrack.content_text || previewTrack.transcript) && (
+                  <div className="border-b border-border pb-6">
+                    <div
+                      className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ul:pl-6 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-0.5 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold [&_ul]:list-disc [&_ol]:list-decimal"
+                      style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                      dangerouslySetInnerHTML={{
+                        __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.transcript || ''),
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Story: slides/transcript viewer (KB style) */}
+                {previewTrack.type === 'story' && previewTrack.transcript && (
+                  <div className="my-4 not-prose">
+                    <StoryTranscript
+                      storyData={previewTrack.transcript}
+                      trackId={previewTrack.id}
+                      projectId={projectId}
+                      publicAnonKey={publicAnonKey}
+                      readOnly
+                    />
+                  </div>
+                )}
+                {previewTrack.type === 'story' && !previewTrack.transcript && (previewTrack.content_text || previewTrack.description) && (
+                  <div className="border-b border-border pb-6">
+                    <div
+                      className="prose prose-slate dark:prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.description || '') }}
+                    />
+                  </div>
+                )}
+
+                {/* Checkpoint: description + any body text */}
+                {previewTrack.type === 'checkpoint' && (
+                  <div className="space-y-4">
+                    {(previewTrack.content_text || previewTrack.transcript) && (
+                      <div
+                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal"
+                        style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                        dangerouslySetInnerHTML={{
+                          __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.transcript || ''),
+                        }}
+                      />
+                    )}
+                    {!previewTrack.content_text && !previewTrack.transcript && previewTrack.description && (
                       <p className="text-muted-foreground">{previewTrack.description}</p>
                     )}
-                    {previewTrack.content_text && (
-                      <div className="mt-2 whitespace-pre-wrap border rounded p-3 bg-muted/30 max-h-[50vh] overflow-auto">
-                        {previewTrack.content_text}
-                      </div>
-                    )}
-                    {!previewTrack.content_text && !previewTrack.description && (
-                      <p className="text-muted-foreground text-sm">No preview content. Open in editor for full view.</p>
+                    {!previewTrack.content_text && !previewTrack.transcript && !previewTrack.description && (
+                      <p className="text-muted-foreground text-sm">Checkpoint. Open in editor for full quiz/content.</p>
                     )}
                   </div>
                 )}
-                {previewTrack.type === 'checkpoint' && (
-                  <div className="text-sm">
-                    {previewTrack.description && <p className="text-muted-foreground">{previewTrack.description}</p>}
-                    {!previewTrack.description && (
-                      <p className="text-muted-foreground">Checkpoint. Open in editor for full preview.</p>
-                    )}
-                  </div>
-                )}
+
                 {previewTrack && !['video', 'article', 'story', 'checkpoint'].includes(previewTrack.type) && (
                   <p className="text-muted-foreground text-sm">Preview not available for this type. Open in editor.</p>
                 )}
