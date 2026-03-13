@@ -17,7 +17,8 @@ AS $$
   SELECT * FROM tracks
   WHERE is_system_content = true
     AND status = 'published'
-  ORDER BY created_at DESC;
+  ORDER BY created_at DESC
+  LIMIT 2000;
 $$;
 
 COMMENT ON FUNCTION get_all_published_system_tracks() IS 'Content Management: all published system tracks. Bypasses RLS.';

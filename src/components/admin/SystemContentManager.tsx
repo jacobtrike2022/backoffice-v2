@@ -35,7 +35,7 @@ import {
   Layers,
   FolderOpen,
 } from 'lucide-react';
-import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum } from '../../lib/crud/tracks';
+import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum, bulkUpdateTrackSystemContent } from '../../lib/crud/tracks';
 import { getAlbums } from '../../lib/crud/albums';
 import {
   bulkUpdateTrackScope,
@@ -76,6 +76,7 @@ export function SystemContentManager() {
   const [bulkAssignOrgs, setBulkAssignOrgs] = useState<{ id: string; name: string }[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [scopeModalTrack, setScopeModalTrack] = useState<any | null>(null);
+  const [bulkSystemContentOpen, setBulkSystemContentOpen] = useState(false);
 
   useEffect(() => {
     fetchSystemTracks();
@@ -300,6 +301,15 @@ export function SystemContentManager() {
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              onClick={() => setBulkSystemContentOpen(true)}
+              disabled={bulkSaving}
+            >
+              <Globe className="h-4 w-4 mr-1" />
+              Set system content
+            </Button>
+            <Button
+              size="sm"
               variant="ghost"
               onClick={() => setSelectedTrackIds(new Set())}
             >
@@ -315,6 +325,68 @@ export function SystemContentManager() {
           onCancel={() => setBulkScopeOpen(false)}
           saving={bulkSaving}
         />
+      )}
+
+      {bulkSystemContentOpen && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Set system content</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Template for new orgs (Trike content library). Scope (e.g. Universal) is separate.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={async () => {
+                const ids = Array.from(selectedTrackIds);
+                if (ids.length === 0) return;
+                setBulkSaving(true);
+                try {
+                  const { updated } = await bulkUpdateTrackSystemContent(ids, true);
+                  toast.success(`${updated} track(s) set as system content (template for new orgs).`);
+                  setBulkSystemContentOpen(false);
+                  setSelectedTrackIds(new Set());
+                  fetchSystemTracks();
+                } catch (e: any) {
+                  toast.error(e?.message || 'Update failed');
+                } finally {
+                  setBulkSaving(false);
+                }
+              }}
+              disabled={bulkSaving}
+            >
+              {bulkSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes (template for new orgs)
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const ids = Array.from(selectedTrackIds);
+                if (ids.length === 0) return;
+                setBulkSaving(true);
+                try {
+                  const { updated } = await bulkUpdateTrackSystemContent(ids, false);
+                  toast.success(`${updated} track(s) unset from system content.`);
+                  setBulkSystemContentOpen(false);
+                  setSelectedTrackIds(new Set());
+                  fetchSystemTracks();
+                } catch (e: any) {
+                  toast.error(e?.message || 'Update failed');
+                } finally {
+                  setBulkSaving(false);
+                }
+              }}
+              disabled={bulkSaving}
+            >
+              No
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setBulkSystemContentOpen(false)}>
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {bulkAlbumOpen && (
@@ -393,6 +465,7 @@ export function SystemContentManager() {
                   <TableHead>Title</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Scope</TableHead>
+                  <TableHead className="whitespace-nowrap">System</TableHead>
                   <TableHead>Albums</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead className="w-10" />
@@ -401,13 +474,13 @@ export function SystemContentManager() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                     </TableCell>
                   </TableRow>
                 ) : filteredTracks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       No published system tracks found.
                     </TableCell>
                   </TableRow>
@@ -433,6 +506,13 @@ export function SystemContentManager() {
                       <TableCell>
                         {track.scope?.scope_level ? (
                           <Badge variant="outline">{track.scope.scope_level}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {track.is_system_content ? (
+                          <Badge variant="secondary" className="text-xs">Template</Badge>
                         ) : (
                           <span className="text-muted-foreground text-xs">—</span>
                         )}

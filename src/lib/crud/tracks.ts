@@ -2537,3 +2537,20 @@ export async function bulkAssignTracksToAlbum(
     errors: [],
   };
 }
+
+/**
+ * Bulk set is_system_content (Trike template for new orgs) on tracks.
+ * Used by Content Management bulk "Set system content" action.
+ */
+export async function bulkUpdateTrackSystemContent(
+  trackIds: string[],
+  isSystemContent: boolean
+): Promise<{ updated: number; errors: string[] }> {
+  if (!trackIds?.length) return { updated: 0, errors: [] };
+  const { error } = await supabase
+    .from('tracks')
+    .update({ is_system_content: isSystemContent, updated_at: new Date().toISOString() })
+    .in('id', trackIds);
+  if (error) throw error;
+  return { updated: trackIds.length, errors: [] };
+}
