@@ -301,7 +301,8 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
 }
 
 /**
- * Enrich tracks with scope from track_scopes (one row per track)
+ * Enrich tracks with scope from track_scopes (one row per track).
+ * Attaches second-level labels: state_code, state_name, industry_name, company_name, program_name, unit_name.
  */
 async function enrichTracksWithScope(tracks: any[]): Promise<any[]> {
   if (!tracks || tracks.length === 0) return tracks;
@@ -313,10 +314,45 @@ async function enrichTracksWithScope(tracks: any[]): Promise<any[]> {
   if (error || !scopeRows?.length) {
     return tracks.map(t => ({ ...t, scope: null }));
   }
+  const stateIds = [...new Set((scopeRows as any[]).map((r: any) => r.state_id).filter(Boolean))];
+  const industryIds = [...new Set((scopeRows as any[]).map((r: any) => r.industry_id).filter(Boolean))];
+  const companyIds = [...new Set((scopeRows as any[]).map((r: any) => r.company_id).filter(Boolean))];
+  const programIds = [...new Set((scopeRows as any[]).map((r: any) => r.program_id).filter(Boolean))];
+  const unitIds = [...new Set((scopeRows as any[]).map((r: any) => r.unit_id).filter(Boolean))];
+
+  const [statesRes, industriesRes, orgsRes, programsRes, storesRes] = await Promise.all([
+    stateIds.length ? supabase.from('us_states').select('id, code, name').in('id', stateIds) : { data: [] },
+    industryIds.length ? supabase.from('industries').select('id, name').in('id', industryIds) : { data: [] },
+    companyIds.length ? supabase.from('organizations').select('id, name').in('id', companyIds) : { data: [] },
+    programIds.length ? supabase.from('programs').select('id, name').in('id', programIds) : { data: [] },
+    unitIds.length ? supabase.from('stores').select('id, name').in('id', unitIds) : { data: [] },
+  ]);
+
+  const stateById: Record<string, { code: string; name: string }> = {};
+  (statesRes.data || []).forEach((s: any) => { stateById[s.id] = { code: s.code, name: s.name }; });
+  const industryById: Record<string, string> = {};
+  (industriesRes.data || []).forEach((i: any) => { industryById[i.id] = i.name; });
+  const companyById: Record<string, string> = {};
+  (orgsRes.data || []).forEach((o: any) => { companyById[o.id] = o.name; });
+  const programById: Record<string, string> = {};
+  (programsRes.data || []).forEach((p: any) => { programById[p.id] = p.name; });
+  const unitById: Record<string, string> = {};
+  (storesRes.data || []).forEach((u: any) => { unitById[u.id] = u.name; });
+
   const scopeByTrackId: Record<string, any> = {};
   scopeRows.forEach((row: any) => {
-    scopeByTrackId[row.track_id] = row;
+    const scope = { ...row };
+    if (row.state_id && stateById[row.state_id]) {
+      scope.state_code = stateById[row.state_id].code;
+      scope.state_name = stateById[row.state_id].name;
+    }
+    if (row.industry_id && industryById[row.industry_id]) scope.industry_name = industryById[row.industry_id];
+    if (row.company_id && companyById[row.company_id]) scope.company_name = companyById[row.company_id];
+    if (row.program_id && programById[row.program_id]) scope.program_name = programById[row.program_id];
+    if (row.unit_id && unitById[row.unit_id]) scope.unit_name = unitById[row.unit_id];
+    scopeByTrackId[row.track_id] = scope;
   });
+
   return tracks.map(t => ({
     ...t,
     scope: scopeByTrackId[t.id] ?? null,
