@@ -267,43 +267,39 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="role">Role</Label>
-                <Select value={roleId || undefined} onValueChange={setRoleId}>
+                <Select
+                  value={roleId || 'none'}
+                  onValueChange={(v) => setRoleId(v === 'none' ? '' : v)}
+                >
                   <SelectTrigger id="role">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.length > 0 ? (
-                      roles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No roles available
-                      </div>
-                    )}
+                    <SelectItem value="none">None / Not assigned</SelectItem>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label htmlFor="store">Home Store</Label>
-                <Select value={storeId || undefined} onValueChange={setStoreId}>
+                <Select
+                  value={storeId || 'none'}
+                  onValueChange={(v) => setStoreId(v === 'none' ? '' : v)}
+                >
                   <SelectTrigger id="store">
                     <SelectValue placeholder="Select store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {stores.length > 0 ? (
-                      stores.map((store) => (
-                        <SelectItem key={store.id} value={store.id}>
-                          {store.name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No stores available
-                      </div>
-                    )}
+                    <SelectItem value="none">None / Unassigned</SelectItem>
+                    {stores.map((store) => (
+                      <SelectItem key={store.id} value={store.id}>
+                        {store.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
