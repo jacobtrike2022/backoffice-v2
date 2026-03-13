@@ -231,24 +231,10 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
   return tracks.map(track => {
     let parsedTranscriptData = track.transcript_data;
 
-    // DEBUG: Log the raw transcript_data type and structure
-    if (track.transcript_data) {
-      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} transcript_data:`, {
-        type: typeof track.transcript_data,
-        hasTranscriptJson: !!(track.transcript_data?.transcript_json),
-        hasText: !!(track.transcript_data?.text),
-        hasWords: !!(track.transcript_data?.words),
-        preview: typeof track.transcript_data === 'string'
-          ? track.transcript_data.substring(0, 100) + '...'
-          : JSON.stringify(track.transcript_data).substring(0, 100) + '...'
-      });
-    }
-
     // Parse if stored as JSON string
     if (typeof track.transcript_data === 'string') {
       try {
         parsedTranscriptData = JSON.parse(track.transcript_data);
-        console.log(`[enrichTracksWithJunctionTags] Parsed string transcript_data for track ${track.id}`);
       } catch (e) {
         console.warn('[enrichTracksWithJunctionTags] Failed to parse transcript_data for track', track.id, e);
       }
@@ -263,14 +249,6 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
                                           'transcription_service' in parsedTranscriptData;
 
       if (hasMediaTranscriptStructure) {
-        console.log(`[enrichTracksWithJunctionTags] Track ${track.id} has media_transcripts structure`);
-        console.log(`[enrichTracksWithJunctionTags] transcript_json type:`, typeof parsedTranscriptData.transcript_json);
-        console.log(`[enrichTracksWithJunctionTags] transcript_json value preview:`,
-          parsedTranscriptData.transcript_json
-            ? JSON.stringify(parsedTranscriptData.transcript_json).substring(0, 200) + '...'
-            : 'null/undefined'
-        );
-
         // Handle transcript_json - might be object or string (if serialized from JSONB)
         let transcriptJson = parsedTranscriptData.transcript_json;
 
@@ -278,7 +256,6 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
         if (typeof transcriptJson === 'string' && transcriptJson.length > 0) {
           try {
             transcriptJson = JSON.parse(transcriptJson);
-            console.log(`[enrichTracksWithJunctionTags] Parsed string transcript_json for track ${track.id}`);
           } catch (e) {
             console.warn(`[enrichTracksWithJunctionTags] Failed to parse transcript_json string for track ${track.id}`, e);
             transcriptJson = null;
@@ -289,13 +266,10 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
         if (transcriptJson &&
             typeof transcriptJson === 'object' &&
             Object.keys(transcriptJson).length > 0) {
-          console.log(`[enrichTracksWithJunctionTags] Extracting nested transcript_json for track ${track.id}`);
           parsedTranscriptData = transcriptJson;
         }
         // Fallback: construct from transcript_text/utterances
         else if (parsedTranscriptData.transcript_text || parsedTranscriptData.transcript_utterances) {
-          console.log(`[enrichTracksWithJunctionTags] Using transcript_text/utterances fallback for track ${track.id}`);
-
           // Also try to parse transcript_utterances if it's a string
           let utterances = parsedTranscriptData.transcript_utterances;
           if (typeof utterances === 'string') {
@@ -316,18 +290,6 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
           console.warn(`[enrichTracksWithJunctionTags] Track ${track.id} has media_transcripts structure but no usable transcript data`);
         }
       }
-    }
-
-    // DEBUG: Log the final normalized transcript_data
-    if (parsedTranscriptData) {
-      const keys = Object.keys(parsedTranscriptData);
-      console.log(`[enrichTracksWithJunctionTags] Track ${track.id} FINAL transcript_data (${keys.length} keys):`, {
-        keys: keys.slice(0, 10), // First 10 keys
-        hasText: !!parsedTranscriptData.text,
-        hasWords: !!parsedTranscriptData.words,
-        hasUtterances: !!parsedTranscriptData.utterances,
-        textPreview: parsedTranscriptData.text?.substring(0, 50)
-      });
     }
 
     return {
