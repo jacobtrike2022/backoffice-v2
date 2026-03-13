@@ -17,6 +17,7 @@ import {
   Save,
   Plus,
   Eye,
+  Users,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -104,6 +105,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const [deleteOrgId, setDeleteOrgId] = useState<string | null>(null);
   const [deleteOrgName, setDeleteOrgName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [assigningOrgId, setAssigningOrgId] = useState<string | null>(null);
 
   // Edit sheet state
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
@@ -212,6 +214,33 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  const handleAssignSeedPeopleToStores = async (orgId: string, orgName: string) => {
+    setAssigningOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/admin/assign-seed-people-to-stores`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to assign seed people');
+      }
+      toast.success(`Assigned ${data.assigned ?? 0} seed people to stores for ${orgName}`);
+      loadOrganizations();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to assign seed people to stores');
+    } finally {
+      setAssigningOrgId(null);
+    }
   };
 
   const handleDeleteOrg = async () => {
@@ -635,6 +664,15 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                     Provision demo
                                   </DropdownMenuItem>
                                 )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleAssignSeedPeopleToStores(org.id, org.name)}
+                                  disabled={assigningOrgId === org.id}
+                                >
+                                  <Users className="h-4 w-4 mr-2" />
+                                  {assigningOrgId === org.id ? 'Assigning...' : 'Fix store assignments'}
+                                </DropdownMenuItem>
+                              )}
                               {org.website && (
                                 <DropdownMenuItem asChild>
                                   <a

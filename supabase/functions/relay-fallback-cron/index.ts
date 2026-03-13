@@ -99,10 +99,37 @@ serve(async (req) => {
       }
     }
 
+    // Phase 2: Orgs with stores but seed people unassigned (Relay returned but callback missed assignment)
+    const reassignResults: Array<{ org_id: string; org_name: string; status: string; assigned?: number }> = [];
+    for (const org of orgs) {
+      const { count: storeCount } = await supabase.from("stores").select("id", { count: "exact", head: true }).eq("organization_id", org.id);
+      if ((storeCount ?? 0) === 0) continue;
+
+      const { data: unassigned } = await supabase.from("users").select("id").eq("organization_id", org.id).eq("is_seed", true).is("store_id", null);
+      if (!unassigned || unassigned.length === 0) continue;
+
+      try {
+        const { data: stores } = await supabase.from("stores").select("id").eq("organization_id", org.id).order("name").limit(5);
+        const storeIds = (stores || []).map((s: any) => s.id);
+        if (storeIds.length === 0) continue;
+
+        for (let i = 0; i < unassigned.length; i++) {
+          const storeId = storeIds[i % storeIds.length];
+          await supabase.from("users").update({ store_id: storeId }).eq("id", unassigned[i].id);
+        }
+        reassignResults.push({ org_id: org.id, org_name: org.name, status: "reassigned", assigned: unassigned.length });
+        console.log(`[RelayFallbackCron] ${org.name}: reassigned ${unassigned.length} seed people to stores`);
+      } catch (err: any) {
+        reassignResults.push({ org_id: org.id, org_name: org.name, status: "reassign_error" });
+        console.error(`[RelayFallbackCron] ${org.name} reassign failed:`, err.message);
+      }
+    }
+
     return Response.json({
       success: true,
-      message: `Checked ${candidates.length} orgs, seeded ${results.filter((r) => r.status === "seeded").length}`,
+      message: `Checked ${candidates.length} orgs, seeded ${results.filter((r) => r.status === "seeded").length}, reassigned ${reassignResults.filter((r) => r.status === "reassigned").length}`,
       results,
+      reassignResults,
     });
   } catch (error: any) {
     console.error("[RelayFallbackCron] Error:", error);

@@ -1099,6 +1099,10 @@ Deno.serve(async (req: Request) => {
     if (method === "POST" && path === "/admin/relay-fallback-seed") {
       return await handleRelayFallbackSeed(req);
     }
+    // Admin: assign seed people to first 5 stores (fixes orgs where Relay returned but people weren't assigned)
+    if (method === "POST" && path === "/admin/assign-seed-people-to-stores") {
+      return await handleAssignSeedPeopleToStores(req);
+    }
 
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
@@ -1231,6 +1235,7 @@ Deno.serve(async (req: Request) => {
         "POST /admin/seed-demo-org",
         "POST /admin/seed-demo-org-all",
         "POST /admin/relay-fallback-seed",
+        "POST /admin/assign-seed-people-to-stores",
         "POST /billing/setup-intent",
         "POST /billing/webhook",
         "POST /contracts/send",
@@ -18592,6 +18597,65 @@ async function handleRelayFallbackSeed(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error("[RelayFallbackSeed] Error:", error);
     return jsonResponse({ error: error.message || "Relay fallback failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/assign-seed-people-to-stores
+ * Assign seed people (store_id=null) to the first 5 stores for an org.
+ * Fixes orgs where Relay returned stores but the callback didn't assign people (e.g. race, callback failure).
+ * Body: { organization_id: string }
+ */
+async function handleAssignSeedPeopleToStores(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: stores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .order("name")
+      .limit(5);
+
+    const storeIds = (stores || []).map((s: any) => s.id);
+    if (storeIds.length === 0) {
+      return jsonResponse({ error: "No stores found for this organization" }, 400);
+    }
+
+    const { data: seedPeople } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .is("store_id", null);
+
+    if (!seedPeople || seedPeople.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No unassigned seed people found",
+        assigned: 0,
+      });
+    }
+
+    const storesForAssignment = storeIds.slice(0, 5);
+    for (let i = 0; i < seedPeople.length; i++) {
+      const storeId = storesForAssignment[i % storesForAssignment.length];
+      await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+    }
+
+    console.log(`[AssignSeedPeopleToStores] Org ${organization_id}: assigned ${seedPeople.length} people to ${storesForAssignment.length} stores`);
+    return jsonResponse({
+      success: true,
+      assigned: seedPeople.length,
+      stores_used: storesForAssignment.length,
+    });
+  } catch (error: any) {
+    console.error("[AssignSeedPeopleToStores] Error:", error);
+    return jsonResponse({ error: error.message || "Assign failed" }, 500);
   }
 }
 
