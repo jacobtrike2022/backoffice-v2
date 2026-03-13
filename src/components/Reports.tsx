@@ -386,8 +386,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       }
 
       // Playlist status filter (active/archived)
-      // Filter by whether any assignment has a matching playlist status
-      if (filters.playlistStatus.length > 0 && record.assignments) {
+      // Only apply when user has assignments; users with no assignments (e.g. demo seed people) pass through
+      if (filters.playlistStatus.length > 0 && record.assignments && record.assignments.length > 0) {
         const hasMatchingPlaylistStatus = record.assignments.some(
           (a: AssignmentRecord) => filters.playlistStatus.includes(a.playlistStatus)
         );
