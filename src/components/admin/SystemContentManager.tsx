@@ -488,7 +488,7 @@ export function SystemContentManager() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -792,26 +792,26 @@ export function SystemContentManager() {
           <TabsTrigger value="checkpoint">Checkpoints</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={activeType} className="mt-6">
-          <Card className="overflow-hidden">
-            <div className="min-w-0 overflow-x-auto" style={{ isolation: 'isolate' }}>
-              <Table className="table-fixed">
+        <TabsContent value={activeType} className="mt-6 min-w-0 max-w-full">
+          <Card className="overflow-hidden min-w-0 max-w-full">
+            <div className="min-w-0 max-w-full overflow-x-auto" style={{ isolation: 'isolate' }}>
+              <Table className="table-fixed w-full" style={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-9">
+                    <TableHead className="w-[4%] pr-0">
                       <Checkbox
                         checked={allSelected}
                         onCheckedChange={toggleSelectAll}
                         aria-label="Select all"
                       />
                     </TableHead>
-                    <TableHead className="w-[22%] min-w-[120px] max-w-[240px]">Title</TableHead>
-                    <TableHead className="w-[9%] min-w-[64px]">Type</TableHead>
-                    <TableHead className="w-[12%] min-w-[80px]">Scope</TableHead>
-                    <TableHead className="w-[9%] min-w-[64px] whitespace-nowrap">System</TableHead>
-                    <TableHead className="w-[16%] min-w-[88px]">Albums</TableHead>
-                    <TableHead className="w-[9%] min-w-[64px]">Updated</TableHead>
-                    <TableHead className="w-9" />
+                    <TableHead className="w-[30%] pl-1 text-left">Title</TableHead>
+                    <TableHead className="w-[10%]">Type</TableHead>
+                    <TableHead className="w-[12%]">Scope</TableHead>
+                    <TableHead className="w-[10%] whitespace-nowrap">System</TableHead>
+                    <TableHead className="w-[20%]">Albums</TableHead>
+                    <TableHead className="w-[10%]">Updated</TableHead>
+                    <TableHead className="w-[4%]" />
                   </TableRow>
                 </TableHeader>
               <TableBody>
@@ -830,14 +830,14 @@ export function SystemContentManager() {
                 ) : (
                   filteredTracks.map((track) => (
                     <TableRow key={track.id}>
-                      <TableCell>
+                      <TableCell className="pr-0">
                         <Checkbox
                           checked={selectedTrackIds.has(track.id)}
                           onCheckedChange={() => toggleSelect(track.id)}
                           aria-label={`Select ${track.title}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium min-w-0 overflow-hidden">
+                      <TableCell className="font-medium min-w-0 overflow-hidden pl-1 text-left">
                         <button
                           type="button"
                           className="truncate block w-full min-w-0 text-left hover:underline focus:outline-none focus:underline"
