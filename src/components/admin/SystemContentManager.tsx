@@ -35,7 +35,7 @@ import {
   Layers,
   FolderOpen,
 } from 'lucide-react';
-import { getTracks, bulkAssignTracksToAlbum } from '../../lib/crud/tracks';
+import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum } from '../../lib/crud/tracks';
 import { getAlbums } from '../../lib/crud/albums';
 import {
   bulkUpdateTrackScope,
@@ -84,11 +84,7 @@ export function SystemContentManager() {
   async function fetchSystemTracks() {
     try {
       setLoading(true);
-      const data = await getTracks({
-        isSystemContent: true,
-        status: 'published',
-        allSystemTracksForSuperAdmin: true,
-      });
+      const data = await getAllPublishedSystemTracksForContentManagement();
       setTracks(data || []);
     } catch (error) {
       console.error('Error fetching system tracks:', error);

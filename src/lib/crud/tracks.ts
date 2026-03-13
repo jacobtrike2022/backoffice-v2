@@ -1464,6 +1464,19 @@ export async function getTracks(filters: {
 }
 
 /**
+ * Content Management tab: all published system tracks via RPC (bypasses RLS).
+ * Use this when the UI role is Trike Super Admin so the list is not limited by org.
+ */
+export async function getAllPublishedSystemTracksForContentManagement(): Promise<any[]> {
+  const { data, error } = await supabase.rpc('get_all_published_system_tracks');
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  const withTags = await enrichTracksWithJunctionTags(rows);
+  const withScope = await enrichTracksWithScope(withTags);
+  return withScope;
+}
+
+/**
  * Upload track media (video, thumbnail, etc.)
  */
 export async function uploadTrackMedia(
