@@ -119,7 +119,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'views'>('recent');
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
   const [statusFilter, setStatusFilter] = useState<'published' | 'drafts' | 'archived' | 'in-kb'>('published'); // Status filter
-  const [scopeLevelFilter, setScopeLevelFilter] = useState<string>('all'); // Scope level filter
   const [orgTags, setOrgTags] = useState<tagsCrud.Tag[]>([]); // Organization tags with colors
   const [archiveWarningDialog, setArchiveWarningDialog] = useState<{
     open: boolean;
@@ -206,7 +205,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     status: statusFilter,
     type: selectedType !== 'all' ? selectedType as any : undefined,
     search: searchQuery || undefined,
-    scopeLevel: scopeLevelFilter !== 'all' ? scopeLevelFilter : undefined,
   });
 
   // Debug logging (disabled for performance - enable only when needed)
@@ -738,15 +736,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     });
   }, [tracks, sortBy]);
 
-  // Memoize filtered tracks with Set-based lookups for O(1) performance
+  // Memoize filtered tracks: apply search (title, description, transcript/content, tags) then playlist/album filter
   const filteredTracks = useMemo(() => {
-    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterPlaylistTracksSet.has(track.id));
-    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterAlbumTracksSet.has(track.id));
+    let result = sortedTracks;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (track) =>
+          (track.title || '').toLowerCase().includes(q) ||
+          (track.description || '').toLowerCase().includes(q) ||
+          (track.transcript || '').toLowerCase().includes(q) ||
+          (track.content_text || '').toLowerCase().includes(q) ||
+          ((track.tags || []) as string[]).some((tag: string) => tag.toLowerCase().includes(q))
+      );
     }
-    return sortedTracks;
-  }, [sortedTracks, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
+    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
+      result = result.filter((track) => filterPlaylistTracksSet.has(track.id));
+    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
+      result = result.filter((track) => filterAlbumTracksSet.has(track.id));
+    }
+    return result;
+  }, [sortedTracks, searchQuery, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
 
   const trackIds = useMemo(() => filteredTracks.map(t => t.id), [filteredTracks]);
   const { counts: aiSuggestionCounts } = useAITagSuggestionsCount(trackIds);
@@ -1096,7 +1106,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search tracks by title, description, or tags..."
+                placeholder="Search by title, content, description, or tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1168,23 +1178,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     In Knowledge Base
                   </div>
                 </SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Scope Filter */}
-            <Select value={scopeLevelFilter} onValueChange={setScopeLevelFilter}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All scopes</SelectItem>
-                <SelectItem value="UNIVERSAL">Universal</SelectItem>
-                <SelectItem value="SECTOR">Sector</SelectItem>
-                <SelectItem value="INDUSTRY">Industry</SelectItem>
-                <SelectItem value="STATE">State</SelectItem>
-                <SelectItem value="COMPANY">Company</SelectItem>
-                <SelectItem value="PROGRAM">Program</SelectItem>
-                <SelectItem value="UNIT">Unit</SelectItem>
               </SelectContent>
             </Select>
 
