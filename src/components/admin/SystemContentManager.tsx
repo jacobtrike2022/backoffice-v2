@@ -39,7 +39,7 @@ import {
   Trash2,
   Play,
 } from 'lucide-react';
-import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum, bulkUpdateTrackSystemContent, archiveTrack, deleteTrack } from '../../lib/crud/tracks';
+import { getAllPublishedSystemTracksForContentManagement, bulkAssignTracksToAlbum, bulkUpdateTrackSystemContent, archiveTrack, deleteTrack, getTrackById } from '../../lib/crud/tracks';
 import { getAlbums, addTracksToAlbum, removeTrackFromAlbum } from '../../lib/crud/albums';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import {
@@ -140,6 +140,9 @@ export function SystemContentManager() {
   const [inlineOrgs, setInlineOrgs] = useState<{ id: string; name: string }[]>([]);
   const [inlineAddAlbumId, setInlineAddAlbumId] = useState<string>('none');
   const [previewTrack, setPreviewTrack] = useState<any | null>(null);
+  /** Full track fetched for preview (includes content_text, transcript, content_url) so modal shows body/video. */
+  const [fullPreviewTrack, setFullPreviewTrack] = useState<any | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [archiveConfirmTrack, setArchiveConfirmTrack] = useState<any | null>(null);
   const [deleteConfirmTrack, setDeleteConfirmTrack] = useState<any | null>(null);
   const [archiveDeleting, setArchiveDeleting] = useState(false);
@@ -154,6 +157,37 @@ export function SystemContentManager() {
   useEffect(() => {
     fetchSystemTracks(filterStatus);
   }, [filterStatus]);
+
+  // Fetch full track when preview opens so we have content_text, transcript, content_url for the modal
+  useEffect(() => {
+    if (!previewTrack?.id) {
+      setFullPreviewTrack(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setFullPreviewTrack(null);
+    getTrackById(previewTrack.id)
+      .then((full) => {
+        if (!cancelled) {
+          setFullPreviewTrack(full);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFullPreviewTrack(previewTrack);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewTrack?.id]);
 
   async function fetchSystemTracks(status: 'published' | 'archived' = 'published') {
     try {
@@ -1079,104 +1113,117 @@ export function SystemContentManager() {
         />
       )}
 
-      <Dialog open={!!previewTrack} onOpenChange={(open) => !open && setPreviewTrack(null)}>
+      <Dialog open={!!previewTrack} onOpenChange={(open) => !open && (setPreviewTrack(null), setFullPreviewTrack(null))}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
             <DialogTitle className="pr-8 text-xl">{previewTrack?.title ?? 'Preview'}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto min-h-0 px-6 pb-6 space-y-6">
-            {previewTrack && (
-              <>
-                {/* KB-style metadata row */}
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  {previewTrack.type === 'video' && <Video className="h-4 w-4" />}
-                  {previewTrack.type === 'article' && <FileText className="h-4 w-4" />}
-                  {previewTrack.type === 'story' && <BookOpen className="h-4 w-4" />}
-                  <span className="capitalize font-medium">{previewTrack.type || 'Track'}</span>
-                  <span>•</span>
-                  <span>Updated {previewTrack.updated_at ? new Date(previewTrack.updated_at).toLocaleDateString() : '—'}</span>
-                </div>
-
-                {/* Description (KB viewer style) */}
-                {previewTrack.description && (
-                  <p className="text-muted-foreground leading-relaxed">{previewTrack.description}</p>
-                )}
-
-                {/* Video: same block as KB viewer */}
-                {previewTrack.type === 'video' && previewTrack.content_url && (
-                  <div className="bg-black rounded-lg overflow-hidden">
-                    <video
-                      src={previewTrack.content_url}
-                      controls
-                      playsInline
-                      className="w-full aspect-video"
-                      poster={previewTrack.thumbnail_url}
-                    >
-                      Your browser does not support video playback.
-                    </video>
+            {previewTrack && (() => {
+              const t = fullPreviewTrack?.id === previewTrack.id ? fullPreviewTrack : previewTrack;
+              const articleBody = t.content_text || (t as any).article_body || t.transcript;
+              return (
+                <>
+                  {previewLoading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading preview…
+                    </div>
+                  )}
+                  {/* KB-style metadata row */}
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    {t.type === 'video' && <Video className="h-4 w-4" />}
+                    {t.type === 'article' && <FileText className="h-4 w-4" />}
+                    {t.type === 'story' && <BookOpen className="h-4 w-4" />}
+                    <span className="capitalize font-medium">{t.type || 'Track'}</span>
+                    <span>•</span>
+                    <span>Updated {t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '—'}</span>
                   </div>
-                )}
 
-                {/* Article: prose body (KB viewer formatting) */}
-                {previewTrack.type === 'article' && (previewTrack.content_text || previewTrack.transcript) && (
-                  <div className="border-b border-border pb-6">
-                    <div
-                      className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ul:pl-6 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-0.5 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold [&_ul]:list-disc [&_ol]:list-decimal"
-                      style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
-                      dangerouslySetInnerHTML={{
-                        __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.transcript || ''),
-                      }}
-                    />
-                  </div>
-                )}
+                  {/* Description (KB viewer style) */}
+                  {t.description && (
+                    <p className="text-muted-foreground leading-relaxed">{t.description}</p>
+                  )}
 
-                {/* Story: slides/transcript viewer (KB style) */}
-                {previewTrack.type === 'story' && previewTrack.transcript && (
-                  <div className="my-4 not-prose">
-                    <StoryTranscript
-                      storyData={previewTrack.transcript}
-                      trackId={previewTrack.id}
-                      projectId={projectId}
-                      publicAnonKey={publicAnonKey}
-                      readOnly
-                    />
-                  </div>
-                )}
-                {previewTrack.type === 'story' && !previewTrack.transcript && (previewTrack.content_text || previewTrack.description) && (
-                  <div className="border-b border-border pb-6">
-                    <div
-                      className="prose prose-slate dark:prose-invert max-w-none"
-                      dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.description || '') }}
-                    />
-                  </div>
-                )}
+                  {/* Video: same block as KB viewer */}
+                  {t.type === 'video' && t.content_url && (
+                    <div className="bg-black rounded-lg overflow-hidden">
+                      <video
+                        src={t.content_url}
+                        controls
+                        playsInline
+                        className="w-full aspect-video"
+                        poster={t.thumbnail_url}
+                      >
+                        Your browser does not support video playback.
+                      </video>
+                    </div>
+                  )}
 
-                {/* Checkpoint: description + any body text */}
-                {previewTrack.type === 'checkpoint' && (
-                  <div className="space-y-4">
-                    {(previewTrack.content_text || previewTrack.transcript) && (
+                  {/* Article: prose body (KB viewer formatting) - content_text, article_body, or transcript */}
+                  {t.type === 'article' && articleBody && (
+                    <div className="border-b border-border pb-6">
                       <div
-                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal"
+                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ul:pl-6 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-0.5 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold [&_ul]:list-disc [&_ol]:list-decimal"
                         style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
                         dangerouslySetInnerHTML={{
-                          __html: convertMarkdownToHtml(previewTrack.content_text || previewTrack.transcript || ''),
+                          __html: convertMarkdownToHtml(articleBody),
                         }}
                       />
-                    )}
-                    {!previewTrack.content_text && !previewTrack.transcript && previewTrack.description && (
-                      <p className="text-muted-foreground">{previewTrack.description}</p>
-                    )}
-                    {!previewTrack.content_text && !previewTrack.transcript && !previewTrack.description && (
-                      <p className="text-muted-foreground text-sm">Checkpoint. Open in editor for full quiz/content.</p>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                  {t.type === 'article' && !articleBody && !previewLoading && (
+                    <p className="text-muted-foreground text-sm">No article body to preview. Open in editor to add content.</p>
+                  )}
 
-                {previewTrack && !['video', 'article', 'story', 'checkpoint'].includes(previewTrack.type) && (
-                  <p className="text-muted-foreground text-sm">Preview not available for this type. Open in editor.</p>
-                )}
-              </>
-            )}
+                  {/* Story: slides/transcript viewer (KB style) */}
+                  {t.type === 'story' && t.transcript && (
+                    <div className="my-4 not-prose">
+                      <StoryTranscript
+                        storyData={t.transcript}
+                        trackId={t.id}
+                        projectId={projectId}
+                        publicAnonKey={publicAnonKey}
+                        readOnly
+                      />
+                    </div>
+                  )}
+                  {t.type === 'story' && !t.transcript && (t.content_text || t.description) && (
+                    <div className="border-b border-border pb-6">
+                      <div
+                        className="prose prose-slate dark:prose-invert max-w-none"
+                        dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(t.content_text || t.description || '') }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Checkpoint: description + any body text */}
+                  {t.type === 'checkpoint' && (
+                    <div className="space-y-4">
+                      {(t.content_text || t.transcript) && (
+                        <div
+                          className="article-content prose prose-slate dark:prose-invert max-w-none prose-p:leading-relaxed prose-ul:list-disc prose-ol:list-decimal"
+                          style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                          dangerouslySetInnerHTML={{
+                            __html: convertMarkdownToHtml(t.content_text || t.transcript || ''),
+                          }}
+                        />
+                      )}
+                      {!t.content_text && !t.transcript && t.description && (
+                        <p className="text-muted-foreground">{t.description}</p>
+                      )}
+                      {!t.content_text && !t.transcript && !t.description && !previewLoading && (
+                        <p className="text-muted-foreground text-sm">Checkpoint. Open in editor for full quiz/content.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {t && !['video', 'article', 'story', 'checkpoint'].includes(t.type) && (
+                    <p className="text-muted-foreground text-sm">Preview not available for this type. Open in editor.</p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </DialogContent>
       </Dialog>
