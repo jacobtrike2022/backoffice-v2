@@ -796,9 +796,19 @@ export function SystemContentManager() {
           <Card className="overflow-hidden min-w-0 max-w-full">
             <div className="min-w-0 max-w-full overflow-x-auto" style={{ isolation: 'isolate' }}>
               <Table className="table-fixed w-full" style={{ tableLayout: 'fixed', width: '100%' }}>
+                <colgroup>
+                  <col style={{ width: 48, minWidth: 48 }} />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col style={{ width: 48, minWidth: 48 }} />
+                </colgroup>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[250px] pr-0">
+                    <TableHead className="pr-0" style={{ width: 48, minWidth: 48 }}>
                       <Checkbox
                         checked={allSelected}
                         onCheckedChange={toggleSelectAll}
@@ -811,7 +821,7 @@ export function SystemContentManager() {
                     <TableHead className="w-[10%] whitespace-nowrap">System</TableHead>
                     <TableHead className="w-[20%]">Albums</TableHead>
                     <TableHead className="w-[10%]">Updated</TableHead>
-                    <TableHead className="w-[4%]" />
+                    <TableHead style={{ width: 48, minWidth: 48 }} />
                   </TableRow>
                 </TableHeader>
               <TableBody>
@@ -830,7 +840,7 @@ export function SystemContentManager() {
                 ) : (
                   filteredTracks.map((track) => (
                     <TableRow key={track.id}>
-                      <TableCell className="pr-0">
+                      <TableCell className="pr-0 w-[48px] min-w-[48px]">
                         <Checkbox
                           checked={selectedTrackIds.has(track.id)}
                           onCheckedChange={() => toggleSelect(track.id)}
@@ -1000,7 +1010,7 @@ export function SystemContentManager() {
                           ? new Date(track.updated_at).toLocaleDateString()
                           : '—'}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[48px] min-w-[48px]">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
