@@ -9536,23 +9536,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     console.log(`[Onboarding] Created org: ${org.name} (${org.id})`);
 
-    // Trigger Relay location scraper when we have website (async, fire-and-forget)
-    if (data.website && data.company_name) {
-      try {
-        const fullUrl = data.website.startsWith("http") ? data.website : `https://${data.website}`;
-        const domain = new URL(fullUrl).hostname.replace("www.", "");
-        await triggerRelayLocationScraper(data.company_name, domain, {
-          orgId: org.id,
-          deduplicationKey: org.id,
-          fullWebsiteUrl: fullUrl,
-        });
-        console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
-      } catch (relayErr: any) {
-        console.error("[Onboarding] Relay trigger failed (non-fatal):", relayErr.message);
-      }
-    }
-
-    // Create Admin role for this organization
+    // Create Admin role first (needed for seed people)
     const { data: adminRole, error: roleError } = await supabase
       .from("roles")
       .insert({
@@ -9651,7 +9635,35 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
-    // Import stores if we have them
+    // Seed demo people (and activity) when we have a website — Relay will provide real stores and assign them
+    const hasWebsite = !!(data.website && data.company_name);
+    if (hasWebsite && adminRole?.id) {
+      try {
+        const trackIds: string[] = []; // Onboarding doesn't clone tracks; seed people + structure only
+        await seedDemoOrgData(org.id, adminRole.id, trackIds, { skipStores: true });
+        console.log(`[Onboarding] Seeded demo people for ${org.name} (Relay will assign to stores)`);
+      } catch (seedErr: any) {
+        console.error("[Onboarding] Seed data failed (non-fatal):", seedErr.message);
+      }
+    }
+
+    // Trigger Relay location scraper when we have website (must run AFTER seed people exist)
+    if (hasWebsite) {
+      try {
+        const fullUrl = data.website.startsWith("http") ? data.website : `https://${data.website}`;
+        const domain = new URL(fullUrl).hostname.replace("www.", "");
+        await triggerRelayLocationScraper(data.company_name, domain, {
+          orgId: org.id,
+          deduplicationKey: org.id,
+          fullWebsiteUrl: fullUrl,
+        });
+        console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
+      } catch (relayErr: any) {
+        console.error("[Onboarding] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    // Import stores if we have them (from onboarding chat, not Relay)
     let storesImported = 0;
     if (data.stores && data.stores.length > 0) {
       const storesToInsert = data.stores.slice(0, 50).map((store: any, index: number) => ({

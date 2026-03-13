@@ -34,7 +34,7 @@ Add an **HTTP Request** step at the end of your Relay playbook that POSTs to the
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `org_id` | Trigger input | Echoed from DemoCreate (required) |
+| `org_id` | Trigger input | **CRITICAL** — Must be echoed from trigger. Add `org_id` to your Relay playbook trigger schema. Without it, seed people can't be assigned to stores. |
 | `company_name` | Trigger input | e.g. "Friendly Express" |
 | `company_domain` | Trigger input | e.g. "https://www.friendlyexpress.com" |
 | `locations` | Scraper output | Array of `{ name, address, city, state, zip, code?, ... }` |
@@ -104,6 +104,14 @@ No JWT required (`relay-fallback-cron` has `verify_jwt = false`).
 ## People Distribution
 
 Seed people are distributed across the **first 5 stores** (round-robin). Works for 5 or 500 stores: person 0→store 0, person 1→store 1, …, person 5→store 0, etc.
+
+## Troubleshooting: Seed people not assigned to stores
+
+If stores appear but employees show "No Store":
+
+1. **Verify `org_id` is passed** — The Relay HTTP step must send `org_id` from the trigger. Add `org_id` to your playbook's trigger input schema and use `{{trigger.body.org_id}}` in the callback body.
+2. **Check Edge Function logs** — Look for `[Relay] Callback: no seed people` — if you see "total users in org: 0", the org has no users (wrong org_id or creation failed). If "total users in org: 1", only the admin exists (onboarding path didn't seed).
+3. **Manual fix** — In Trike Admin → Organizations → org dropdown → "Fix store assignments".
 
 ## Verification
 

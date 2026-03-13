@@ -239,13 +239,30 @@ serve(async (req) => {
     const newStoreIds = (insertedStores || []).map((s: any) => s.id);
     // Distribute seed people across first N stores (N = min(5, storeCount)) — scales to 5 or 500 stores
     const storesForAssignment = newStoreIds.slice(0, 5);
-    let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
-    peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
-    const { data: seedPeople } = await peopleQuery;
+    // Retry up to 3 times with 2s delay: seed people may not exist yet if callback runs before DemoCreate finishes
+    let seedPeople: { id: string }[] | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+      peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
+      const { data } = await peopleQuery;
+      if (data && data.length > 0) {
+        seedPeople = data;
+        break;
+      }
+      if (attempt < 2) {
+        console.log(`[Relay] Callback: no seed people found for org ${orgId} (attempt ${attempt + 1}/3), retrying in 2s...`);
+        await new Promise((r) => setTimeout(r, 2000));
+      } else {
+        const { count } = await supabase.from("users").select("id", { count: "exact", head: true }).eq("organization_id", orgId);
+        console.warn(`[Relay] Callback: no seed people for org ${orgId} after 3 attempts (total users in org: ${count ?? 0}) — run Fix store assignments from Trike Admin`);
+      }
+    }
+
     if (seedPeople && seedPeople.length > 0 && storesForAssignment.length > 0) {
       for (let i = 0; i < seedPeople.length; i++) {
         const storeId = storesForAssignment[i % storesForAssignment.length];
-        await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+        const { error: updErr } = await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+        if (updErr) console.error(`[Relay] Callback: failed to assign user ${seedPeople[i].id}:`, updErr.message);
       }
       console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
     }
