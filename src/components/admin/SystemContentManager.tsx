@@ -148,15 +148,17 @@ export function SystemContentManager() {
   const [filterSector, setFilterSector] = useState<string>('all');
   const [filterIndustry, setFilterIndustry] = useState<string>('all');
   const [filterCompany, setFilterCompany] = useState<string>('all');
+  /** Published (default) or archived - which tracks to load from the server. */
+  const [filterStatus, setFilterStatus] = useState<'published' | 'archived'>('published');
 
   useEffect(() => {
-    fetchSystemTracks();
-  }, []);
+    fetchSystemTracks(filterStatus);
+  }, [filterStatus]);
 
-  async function fetchSystemTracks() {
+  async function fetchSystemTracks(status: 'published' | 'archived' = 'published') {
     try {
       setLoading(true);
-      const data = await getAllPublishedSystemTracksForContentManagement();
+      const data = await getAllPublishedSystemTracksForContentManagement(status);
       setTracks(data || []);
     } catch (error) {
       console.error('Error fetching system tracks:', error);
@@ -341,7 +343,7 @@ export function SystemContentManager() {
       if (errors.length) toast.error(errors.slice(0, 3).join('; '));
       setBulkScopeOpen(false);
       setSelectedTrackIds(new Set());
-      fetchSystemTracks();
+      fetchSystemTracks(filterStatus);
     } catch (e: any) {
       toast.error(e?.message || 'Bulk scope update failed');
     } finally {
@@ -361,7 +363,7 @@ export function SystemContentManager() {
       setBulkAlbumOpen(false);
       setBulkAlbumId('');
       setSelectedTrackIds(new Set());
-      fetchSystemTracks();
+      fetchSystemTracks(filterStatus);
     } catch (e: any) {
       toast.error(e?.message || 'Assign to album failed');
     } finally {
@@ -395,7 +397,7 @@ export function SystemContentManager() {
       setPendingAlbums({});
       setTrackIdForAlbumPopover(null);
       toast.success('Changes saved.');
-      fetchSystemTracks();
+      fetchSystemTracks(filterStatus);
     } catch (e: any) {
       toast.error(e?.message || 'Save failed');
     } finally {
@@ -423,7 +425,7 @@ export function SystemContentManager() {
       toast.success(`"${track.title}" archived`);
       clearPendingForTrack(track.id);
       setArchiveConfirmTrack(null);
-      fetchSystemTracks();
+      fetchSystemTracks(filterStatus);
     } catch (e: any) {
       toast.error(e?.message || 'Archive failed');
     } finally {
@@ -448,7 +450,7 @@ export function SystemContentManager() {
       toast.success(`"${track.title}" deleted`);
       clearPendingForTrack(track.id);
       setDeleteConfirmTrack(null);
-      fetchSystemTracks();
+      fetchSystemTracks(filterStatus);
     } catch (e: any) {
       toast.error(e?.message || 'Delete failed');
     } finally {
@@ -498,7 +500,7 @@ export function SystemContentManager() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={fetchSystemTracks}>
+          <Button variant="outline" onClick={() => fetchSystemTracks(filterStatus)}>
             Refresh
           </Button>
           <Button className="gap-2">
@@ -510,6 +512,15 @@ export function SystemContentManager() {
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground whitespace-nowrap">Filters:</span>
+        <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as 'published' | 'archived')}>
+          <SelectTrigger className="w-[130px] h-8">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="published">Published</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={filterScopeLevel} onValueChange={setFilterScopeLevel}>
           <SelectTrigger className="w-[140px] h-8">
             <SelectValue placeholder="Scope" />
@@ -678,7 +689,7 @@ export function SystemContentManager() {
                   toast.success(`${updated} track(s) set as system content (template for new orgs).`);
                   setBulkSystemContentOpen(false);
                   setSelectedTrackIds(new Set());
-                  fetchSystemTracks();
+                  fetchSystemTracks(filterStatus);
                 } catch (e: any) {
                   toast.error(e?.message || 'Update failed');
                 } finally {
@@ -702,7 +713,7 @@ export function SystemContentManager() {
                   toast.success(`${updated} track(s) unset from system content.`);
                   setBulkSystemContentOpen(false);
                   setSelectedTrackIds(new Set());
-                  fetchSystemTracks();
+                  fetchSystemTracks(filterStatus);
                 } catch (e: any) {
                   toast.error(e?.message || 'Update failed');
                 } finally {
@@ -782,36 +793,37 @@ export function SystemContentManager() {
         </TabsList>
 
         <TabsContent value={activeType} className="mt-6">
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="Select all"
-                    />
-                  </TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead className="whitespace-nowrap">System</TableHead>
-                  <TableHead>Albums</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
+          <Card className="overflow-hidden">
+            <div className="min-w-0 overflow-x-auto" style={{ isolation: 'isolate' }}>
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-9">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
+                    <TableHead className="w-[22%] min-w-[120px] max-w-[240px]">Title</TableHead>
+                    <TableHead className="w-[9%] min-w-[64px]">Type</TableHead>
+                    <TableHead className="w-[12%] min-w-[80px]">Scope</TableHead>
+                    <TableHead className="w-[9%] min-w-[64px] whitespace-nowrap">System</TableHead>
+                    <TableHead className="w-[16%] min-w-[88px]">Albums</TableHead>
+                    <TableHead className="w-[9%] min-w-[64px]">Updated</TableHead>
+                    <TableHead className="w-9" />
+                  </TableRow>
+                </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                     </TableCell>
                   </TableRow>
                 ) : filteredTracks.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       No published system tracks found.
                     </TableCell>
                   </TableRow>
@@ -825,11 +837,12 @@ export function SystemContentManager() {
                           aria-label={`Select ${track.title}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium max-w-[240px]">
+                      <TableCell className="font-medium min-w-0 overflow-hidden">
                         <button
                           type="button"
-                          className="truncate block w-full text-left hover:underline focus:outline-none focus:underline"
+                          className="truncate block w-full min-w-0 text-left hover:underline focus:outline-none focus:underline"
                           onClick={() => setPreviewTrack(track)}
+                          title={track.title}
                         >
                           {track.title}
                         </button>
@@ -856,7 +869,7 @@ export function SystemContentManager() {
                           <span className="text-muted-foreground text-xs cursor-pointer hover:underline">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[180px]">
+                      <TableCell className="text-xs text-muted-foreground min-w-0 overflow-hidden">
                         <Popover open={trackIdForAlbumPopover === track.id} onOpenChange={(open) => setTrackIdForAlbumPopover(open ? track.id : null)}>
                           <PopoverTrigger asChild>
                             <button type="button" className="text-left w-full truncate block hover:underline focus:outline-none">
@@ -1036,6 +1049,7 @@ export function SystemContentManager() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </Card>
         </TabsContent>
       </Tabs>
@@ -1049,7 +1063,7 @@ export function SystemContentManager() {
           organizationId={scopeModalTrack.organization_id}
           allowAllOrgs={true}
           onSaved={() => {
-            fetchSystemTracks();
+            fetchSystemTracks(filterStatus);
             setScopeModalTrack(null);
           }}
         />

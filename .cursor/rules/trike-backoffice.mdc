@@ -121,6 +121,34 @@ USING (
 );
 ```
 
+## Supabase migration best practices (idempotency & history)
+
+When adding or editing migrations in `supabase/migrations/`:
+
+**1. Idempotent policies and triggers**  
+For new migrations that add RLS policies or triggers, use `DROP ... IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies do not fail (e.g. after a failed push or when the object already exists on remote).
+
+```sql
+DROP POLICY IF EXISTS "Policy name" ON table_name;
+CREATE POLICY "Policy name" ON table_name ...
+```
+
+```sql
+DROP TRIGGER IF EXISTS trigger_name ON table_name;
+CREATE TRIGGER trigger_name ...
+```
+
+**2. "Local migration files to be inserted before"**  
+If `supabase db push` reports that local migration files must be "inserted before" the last remote migration, the remote history is out of sync. **Only when the remote already has that schema** (e.g. it was applied manually or from another branch), repair history without re-running SQL:
+
+```bash
+supabase migration repair <version> --status applied
+```
+
+Use the migration version (filename without `.sql`, e.g. `20250101000000` or `20250109`). Then run `supabase db push` again. Do not use `--status applied` for a migration whose SQL has not been applied on the remote.
+
+See `.cursor/docs/README_MIGRATIONS.mdc` for more detail.
+
 ## CRITICAL: Demo Mode - Edge Function Calls
 
 **While building demo mode**, there is no real Supabase auth session. The app uses a "demo admin user" from the database, but `supabase.auth.getSession()` returns null. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
@@ -228,6 +256,9 @@ This token is used for:
 - Database operations via Supabase API
 
 ## Deployment Commands
+
+### Supabase database migrations
+Apply migrations: `npx supabase db push`. If you see "local migration files to be inserted before", use `supabase migration repair <version> --status applied` (only when remote already has that schema); see "Supabase migration best practices" above and `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ### Deploy Supabase Edge Functions
 After modifying any file in `supabase/functions/trike-server/`, deploy with:

@@ -1500,11 +1500,16 @@ export async function getTracks(filters: {
 }
 
 /**
- * Content Management tab: all published system tracks via RPC (bypasses RLS).
+ * Content Management tab: tracks via RPC (bypasses RLS).
  * Use this when the UI role is Trike Super Admin so the list is not limited by org.
+ * @param status - 'published' (default) or 'archived'
  */
-export async function getAllPublishedSystemTracksForContentManagement(): Promise<any[]> {
-  const { data, error } = await supabase.rpc('get_all_published_system_tracks');
+export async function getAllPublishedSystemTracksForContentManagement(
+  status: 'published' | 'archived' = 'published'
+): Promise<any[]> {
+  const { data, error } = await supabase.rpc('get_all_published_system_tracks', {
+    p_status: status,
+  });
   if (error) throw error;
   const rows = Array.isArray(data) ? data : [];
   const withTags = await enrichTracksWithJunctionTags(rows);

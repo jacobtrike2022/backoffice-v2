@@ -328,8 +328,9 @@ All database operations are in `/src/lib/crud/`:
 - etc.
 
 ### Migrations
-- Main migrations: `/src/migrations/`
-- Supabase-specific: `/src/supabase/migrations/`
+- Supabase migrations: `supabase/migrations/` (use these for schema/RLS changes and `supabase db push`).
+- Make migrations idempotent: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies don't fail.
+- If `db push` says "local migration files to be inserted before": use `supabase migration repair <version> --status applied` only when the remote already has that schema; then run `db push` again. See `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ---
 
@@ -343,10 +344,14 @@ Before submitting code, verify:
 4. [ ] Type assertions for joined Supabase data: `(user.role as any)?.name`
 5. [ ] Null checks for optional joined relations
 6. [ ] No references to `user_profiles` table - use `users` table
+7. [ ] New Supabase migrations: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE` so migrations are idempotent
 
 ---
 
 ## Deployment Commands
+
+### Supabase database migrations
+Run `supabase db push` to apply migrations. If the CLI reports "local migration files to be inserted before", use `supabase migration repair <version> --status applied` only when the remote already has that schema; then run `db push` again. See `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ### Deploy Supabase Edge Functions
 After modifying any file in `supabase/functions/trike-server/`, deploy with:

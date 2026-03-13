@@ -10,6 +10,7 @@
 -- Normal Content Library still filters by org in the query, so no change there.
 -- =====================================================
 
+DROP POLICY IF EXISTS "Authenticated users can view all system tracks" ON tracks;
 CREATE POLICY "Authenticated users can view all system tracks"
   ON tracks FOR SELECT
   USING (auth.uid() IS NOT NULL AND is_system_content = true);

@@ -71,6 +71,7 @@ ON CONFLICT (code) DO NOTHING;
 
 ALTER TABLE us_states ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can read us_states" ON us_states;
 CREATE POLICY "Anyone can read us_states"
     ON us_states FOR SELECT
     USING (true);
@@ -114,6 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_track_scopes_program ON track_scopes(program_id) 
 CREATE INDEX IF NOT EXISTS idx_track_scopes_unit ON track_scopes(unit_id) WHERE unit_id IS NOT NULL;
 
 -- Keep updated_at in sync
+DROP TRIGGER IF EXISTS update_track_scopes_updated_at ON track_scopes;
 CREATE TRIGGER update_track_scopes_updated_at
     BEFORE UPDATE ON track_scopes
     FOR EACH ROW
@@ -122,10 +124,12 @@ CREATE TRIGGER update_track_scopes_updated_at
 ALTER TABLE track_scopes ENABLE ROW LEVEL SECURITY;
 
 -- SELECT: same visibility as tracks (org-scoped or Trike Super Admin)
+DROP POLICY IF EXISTS "Users can view track_scopes for tracks in their org" ON track_scopes;
 CREATE POLICY "Users can view track_scopes for tracks in their org"
     ON track_scopes FOR SELECT
     USING (organization_id = get_user_organization_id());
 
+DROP POLICY IF EXISTS "Trike super admins can view all track_scopes" ON track_scopes;
 CREATE POLICY "Trike super admins can view all track_scopes"
     ON track_scopes FOR SELECT
     USING (EXISTS (
@@ -135,6 +139,7 @@ CREATE POLICY "Trike super admins can view all track_scopes"
     ));
 
 -- INSERT: can create scope for track in org (content creator pattern) or Trike Super Admin
+DROP POLICY IF EXISTS "Users can insert track_scopes for their org tracks" ON track_scopes;
 CREATE POLICY "Users can insert track_scopes for their org tracks"
     ON track_scopes FOR INSERT
     WITH CHECK (
@@ -147,6 +152,7 @@ CREATE POLICY "Users can insert track_scopes for their org tracks"
     );
 
 -- UPDATE: same as insert
+DROP POLICY IF EXISTS "Users can update track_scopes for their org" ON track_scopes;
 CREATE POLICY "Users can update track_scopes for their org"
     ON track_scopes FOR UPDATE
     USING (
@@ -167,6 +173,7 @@ CREATE POLICY "Users can update track_scopes for their org"
     );
 
 -- DELETE: same
+DROP POLICY IF EXISTS "Users can delete track_scopes for their org" ON track_scopes;
 CREATE POLICY "Users can delete track_scopes for their org"
     ON track_scopes FOR DELETE
     USING (
@@ -179,6 +186,7 @@ CREATE POLICY "Users can delete track_scopes for their org"
     );
 
 -- Demo mode: anon can read track_scopes (for demo content visibility)
+DROP POLICY IF EXISTS "Demo mode: anon view track_scopes" ON track_scopes;
 CREATE POLICY "Demo mode: anon view track_scopes"
     ON track_scopes FOR SELECT
     USING (auth.uid() IS NULL);

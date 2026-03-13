@@ -18,4 +18,10 @@ headers: { 'Authorization': `Bearer ${authToken}`, 'apikey': publicAnonKey }
 ```
 
 See **[docs/DEMO_MODE_DEVELOPMENT.md](docs/DEMO_MODE_DEVELOPMENT.md)** for full pattern and checklist.
-  
+
+## Supabase migrations
+
+- **Idempotent migrations:** For new migrations that add RLS policies or triggers, use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies don’t fail.
+- **"Local migration files to be inserted before":** If `supabase db push` fails with this message, repair history (only when the remote already has that schema) with:
+  `supabase migration repair <version> --status applied`
+  then run `supabase db push` again. See **.cursor/docs/README_MIGRATIONS.mdc** for details.
