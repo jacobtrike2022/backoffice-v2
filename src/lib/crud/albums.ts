@@ -642,48 +642,12 @@ export async function updateAlbumTrack(
 // ============================================================================
 
 /**
- * Get most recently updated albums (for sidebar "Active Albums" section)
+ * Get most recently updated albums (for sidebar "Active Albums" section).
+ * Uses same visibility as getAlbums (own + universal + state/company scoped) so demo orgs see universal albums.
  */
 export async function getRecentAlbums(limit: number = 4): Promise<Album[]> {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
-
-  const { data: albums, error } = await supabase
-    .from('albums')
-    .select(`
-      *,
-      album_tracks (
-        track_id,
-        track:tracks (
-          duration_minutes,
-          status
-        )
-      )
-    `)
-    .eq('organization_id', orgId)
-    .order('updated_at', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  // Enrich with computed fields (filter out archived tracks)
-  const enrichedAlbums = (albums || []).map((album: any) => {
-    const albumTracks = album.album_tracks || [];
-    // Filter out archived tracks for counts and duration calculations
-    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
-    const trackCount = publishedTracks.length;
-    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
-      sum + (at.track?.duration_minutes || 0), 0
-    );
-
-    return {
-      ...album,
-      track_count: trackCount,
-      total_duration_minutes: totalDurationMinutes,
-    };
-  });
-
-  return enrichedAlbums as Album[];
+  const all = await getAlbums({});
+  return all.slice(0, limit);
 }
 
 /**

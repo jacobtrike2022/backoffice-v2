@@ -113,6 +113,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const [deleteOrgName, setDeleteOrgName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [assigningOrgId, setAssigningOrgId] = useState<string | null>(null);
+  const [seedingPlaylistOrgId, setSeedingPlaylistOrgId] = useState<string | null>(null);
 
   // Edit sheet state
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
@@ -251,6 +252,38 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       toast.error(err.message || 'Failed to assign seed people to stores');
     } finally {
       setAssigningOrgId(null);
+    }
+  };
+
+  const handleDemoSeedPlaylist = async (orgId: string, orgName: string) => {
+    setSeedingPlaylistOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/demo/seed-playlist`;
+      const authToken = session?.access_token || publicAnonKey;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to create demo playlist');
+      }
+      if (data.created) {
+        toast.success(`Created "Demo Training" playlist for ${orgName} (${data.tracks} tracks, ${data.assignments} assignments)`);
+      } else {
+        toast.success(`Demo Training playlist already exists for ${orgName}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create demo playlist');
+    } finally {
+      setSeedingPlaylistOrgId(null);
     }
   };
 
@@ -683,6 +716,15 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                 >
                                   <Users className="h-4 w-4 mr-2" />
                                   {assigningOrgId === org.id ? 'Assigning...' : 'Fix store assignments'}
+                                </DropdownMenuItem>
+                              )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDemoSeedPlaylist(org.id, org.name)}
+                                  disabled={seedingPlaylistOrgId === org.id}
+                                >
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  {seedingPlaylistOrgId === org.id ? 'Creating...' : 'Create demo playlist'}
                                 </DropdownMenuItem>
                               )}
                               {org.website && (

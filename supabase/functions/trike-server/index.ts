@@ -1103,6 +1103,10 @@ Deno.serve(async (req: Request) => {
     if (method === "POST" && path === "/admin/assign-seed-people-to-stores") {
       return await handleAssignSeedPeopleToStores(req);
     }
+    // Demo: create "Demo Training" playlist for an existing demo org (e.g. Dodge's) that has no playlists
+    if (method === "POST" && path === "/demo/seed-playlist") {
+      return await handleDemoSeedPlaylist(req);
+    }
 
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
@@ -18475,6 +18479,125 @@ async function handleAdminSeedDemoOrg(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error("[AdminSeedDemoOrg] Error:", error);
     return jsonResponse({ error: error.message || "Seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /demo/seed-playlist
+ * Create "Demo Training" playlist for an existing demo org that has no playlists (e.g. created before seed-playlist logic).
+ * Body: { organization_id: string }
+ * Uses system published tracks and assigns to org's seed users (or any users if no seed users).
+ */
+async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const organization_id = body?.organization_id;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id required" }, 400);
+    }
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+    if (orgErr || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+    if ((org as any).status !== "demo") {
+      return jsonResponse({ error: "Only demo organizations can use this endpoint" }, 400);
+    }
+
+    const { data: existing } = await supabase
+      .from("playlists")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("title", "Demo Training")
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      return jsonResponse({
+        success: true,
+        created: false,
+        playlist_id: existing.id,
+        message: "Demo Training playlist already exists",
+      });
+    }
+
+    const { data: seedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true);
+    const users = seedUsers && seedUsers.length > 0 ? seedUsers : (await supabase.from("users").select("id").eq("organization_id", organization_id).limit(10)).data;
+    if (!users || users.length === 0) {
+      return jsonResponse({ error: "No users in org to assign playlist" }, 400);
+    }
+
+    const { data: systemTracks } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("is_system_content", true)
+      .eq("status", "published")
+      .limit(5)
+      .order("created_at", { ascending: false });
+    const trackIds = (systemTracks || []).map((t: any) => t.id);
+    if (trackIds.length === 0) {
+      return jsonResponse({ error: "No published system tracks available for playlist" }, 400);
+    }
+
+    const { data: playlist, error: playlistErr } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id,
+        title: "Demo Training",
+        description: "Sample training for demo dashboards",
+        type: "manual",
+        is_active: true,
+      })
+      .select("id")
+      .single();
+    if (playlistErr || !playlist?.id) {
+      return jsonResponse({ error: playlistErr?.message || "Failed to create playlist" }, 500);
+    }
+
+    const pts = trackIds.map((tid: string, idx: number) => ({
+      playlist_id: playlist.id,
+      track_id: tid,
+      display_order: idx,
+    }));
+    await supabase.from("playlist_tracks").insert(pts);
+
+    const now = new Date();
+    const assignmentRows = users.map((u: any, i: number) => {
+      const completedAt = (() => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - (i + 1));
+        return d.toISOString();
+      })();
+      return {
+        organization_id,
+        user_id: u.id,
+        playlist_id: playlist.id,
+        assigned_at: completedAt,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+      };
+    });
+    await supabase.from("assignments").insert(assignmentRows);
+
+    console.log(`[DemoSeedPlaylist] ${org.name} (${organization_id}): created playlist ${playlist.id}, ${users.length} assignments`);
+    return jsonResponse({
+      success: true,
+      created: true,
+      playlist_id: playlist.id,
+      tracks: trackIds.length,
+      assignments: users.length,
+    });
+  } catch (error: any) {
+    console.error("[DemoSeedPlaylist] Error:", error);
+    return jsonResponse({ error: error.message || "Seed playlist failed" }, 500);
   }
 }
 
