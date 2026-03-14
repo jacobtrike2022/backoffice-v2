@@ -39,6 +39,10 @@ Add an **HTTP Request** step at the end of your Relay playbook that POSTs to the
 | `company_domain` | Trigger input | e.g. "https://www.friendlyexpress.com" |
 | `locations` | Scraper output | Array of `{ name, address, city, state, zip, code?, ... }` |
 | `total_scraped` or `totalLocationCount` | Scraper output | **Optional.** Total locations found by scraper (e.g. 38). Relay AI step often outputs `totalLocationCount`. If the `locations` array has fewer items, send this so the UI can show "5 locs (38 scraped)". |
+| `industry` | Merge step | **Optional.** `{ code: string, name: string }` (e.g. `{ code: 'cstore', name: 'Convenience Stores' }`). Used to set the org’s `industry_id` from the `industries` table. |
+| `operating_states` | Merge step | **Optional.** Array of 2-letter US state codes (e.g. `["TX","LA","GA"]`). Stored on the organization and in `scraped_data`. |
+| `co_type` | Merge step | **Optional.** Notion “Co Type” value, e.g. `"LEAD"` or `"CLIENT"`. Stored in `scraped_data.relay_co_type`. |
+| `date_checked` | Merge step | **Optional.** Date the scraper ran. Stored in `scraped_data.relay_date_checked`. |
 
 ### Example body (Relay step)
 

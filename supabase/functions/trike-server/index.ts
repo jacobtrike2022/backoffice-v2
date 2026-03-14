@@ -7690,35 +7690,46 @@ async function triggerRelayLocationScraper(
 /**
  * Expected Relay callback payload (configure playbook to POST to /relay/location-callback):
  * {
- *   org_id: string,           // Echoed from trigger (required for correlation)
+ *   org_id: string,
  *   company_name?: string,
  *   company_domain?: string,
- *   store_count?: number,
- *   stores: Array<{
- *     name?: string,
- *     address?: string,
- *     street_address?: string,
- *     city?: string,
- *     state?: string,
- *     zip?: string,
- *     postal_code?: string,
- *     phone?: string,
- *     lat?: number,
- *     lng?: number,
- *     latitude?: number,
- *     longitude?: string
- *   }>
+ *   industry?: { code?: string, name?: string },
+ *   operating_states?: string[],
+ *   co_type?: string,
+ *   totalLocationCount?: number,
+ *   date_checked?: string,
+ *   stores / locations: Array<{ name?, address?, city?, state?, zip?, ... }>
  * }
  *
- * If stores is empty or missing: log for tracking, leave seed stores (is_seed=true) as-is.
- * If stores has data: replace seed stores with real stores (is_seed=false).
+ * If stores/locations is empty: leave seed stores as-is (or create seed fallback). CRM fields are still persisted.
+ * If stores/locations has data: replace seed stores with real stores and persist CRM + counts.
  */
 async function handleRelayLocationCallback(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
-    // Relay returns "locations"; we also accept "stores" for compatibility
-    const { org_id, company_name, company_domain, store_count, stores, locations } = body;
+    const {
+      org_id,
+      company_name,
+      company_domain,
+      store_count,
+      totalLocationCount,
+      stores,
+      locations,
+      industry,
+      operating_states,
+      co_type,
+      date_checked,
+    } = body;
     const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+
+    const relayIndustry = industry && typeof industry === "object" ? industry : null;
+    const relayOperatingStates = Array.isArray(operating_states)
+      ? operating_states.filter((s: unknown) => typeof s === "string" && s.length === 2)
+      : [];
+    const relayCoType = typeof co_type === "string" && co_type ? co_type : null;
+    const relayDateChecked = typeof date_checked === "string" && date_checked ? date_checked : null;
+    const toNum = (v: unknown) => (typeof v === "number" && !isNaN(v) ? v : typeof v === "string" ? parseInt(v, 10) : NaN);
+    const scrapedTotal = toNum(totalLocationCount) || toNum(store_count) || null;
 
     let orgId = org_id;
     if (!orgId && company_domain) {
@@ -7734,6 +7745,45 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
     if (!orgId) {
       console.error("[Relay] Callback: missing org_id and could not resolve from company_domain");
       return jsonResponse({ error: "org_id or company_domain required" }, 400);
+    }
+
+    let industryIdToSet: string | null = null;
+    if (relayIndustry?.code) {
+      const { data: ind } = await supabase
+        .from("industries")
+        .select("id")
+        .ilike("code", String(relayIndustry.code).trim())
+        .limit(1)
+        .maybeSingle();
+      industryIdToSet = ind?.id ?? null;
+    }
+
+    async function updateOrgCrm(opts: {
+      storeCount: number | null;
+      scrapedTotal: number | null;
+    }) {
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", orgId)
+        .single();
+      const existing = (orgRow as any)?.scraped_data || {};
+      const scrapedData: Record<string, unknown> = {
+        ...existing,
+        relay_industry: relayIndustry,
+        relay_operating_states: relayOperatingStates,
+        relay_co_type: relayCoType,
+        relay_date_checked: relayDateChecked,
+      };
+      if (opts.storeCount != null) {
+        scrapedData.store_count = opts.storeCount;
+        scrapedData.relay_locations_imported_at = new Date().toISOString();
+      }
+      if (opts.scrapedTotal != null) scrapedData.relay_locations_total = opts.scrapedTotal;
+      const updatePayload: Record<string, unknown> = { scraped_data: scrapedData };
+      if (industryIdToSet != null) (updatePayload as any).industry_id = industryIdToSet;
+      if (relayOperatingStates.length > 0) (updatePayload as any).operating_states = relayOperatingStates;
+      await supabase.from("organizations").update(updatePayload).eq("id", orgId);
     }
 
     const hasLocations = storeList.length > 0;
@@ -7760,9 +7810,11 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
         if (firstId) {
           await supabase.from("users").update({ store_id: firstId }).eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
         }
+        await updateOrgCrm({ storeCount: 5, scrapedTotal });
         return jsonResponse({ success: true, action: "no_locations_seed_fallback", org_id: orgId, stores_created: 5 });
       }
       console.log(`[Relay] Callback: no locations for org ${orgId} — keeping existing seed stores`);
+      await updateOrgCrm({ storeCount: null, scrapedTotal });
       return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
     }
 
@@ -7868,19 +7920,7 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
       console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
     }
 
-    // Update org scraped_data with store_count
-    const { data: org } = await supabase
-      .from("organizations")
-      .select("scraped_data")
-      .eq("id", orgId)
-      .single();
-    const existing = (org as any)?.scraped_data || {};
-    await supabase
-      .from("organizations")
-      .update({
-        scraped_data: { ...existing, store_count: newStoreIds.length, relay_locations_imported_at: new Date().toISOString() },
-      })
-      .eq("id", orgId);
+    await updateOrgCrm({ storeCount: newStoreIds.length, scrapedTotal: scrapedTotal ?? null });
 
     console.log(`[Relay] Callback: imported ${newStoreIds.length} stores for org ${orgId}`);
     return jsonResponse({
