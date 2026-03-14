@@ -111,9 +111,15 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
       }
 
       const profile = await getCurrentUserProfile();
-      const isSuperAdmin = profile?.role?.name === 'Trike Super Admin';
+      const roleName = profile?.role?.name ?? '';
+      const isSuperAdmin = roleName === 'Trike Super Admin';
+      const canPreviewDemo =
+        isSuperAdmin ||
+        roleName === 'Admin' ||
+        roleName === 'District Manager' ||
+        roleName === 'Store Manager';
 
-      if (isSuperAdmin) {
+      if (canPreviewDemo) {
         return demoOrgId;
       }
 

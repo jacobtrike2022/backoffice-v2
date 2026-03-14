@@ -18219,7 +18219,18 @@ async function seedDemoOrgData(
   }
 
   // Create seed playlist and assignments so Reports (People, Assignments, Units) show demo data
-  if (trackIds.length > 0 && seedUsers.length > 0) {
+  let playlistTrackIds = trackIds;
+  if (playlistTrackIds.length === 0 && seedUsers.length > 0) {
+    const { data: systemTracks } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("is_system_content", true)
+      .eq("status", "published")
+      .limit(5)
+      .order("created_at", { ascending: false });
+    playlistTrackIds = (systemTracks || []).map((t: any) => t.id);
+  }
+  if (playlistTrackIds.length > 0 && seedUsers.length > 0) {
     const { data: playlist } = await supabase
       .from("playlists")
       .insert({
@@ -18233,14 +18244,14 @@ async function seedDemoOrgData(
       .single();
 
     if (playlist?.id) {
-      const pts = trackIds.map((tid, idx) => ({
+      const pts = playlistTrackIds.map((tid: string, idx: number) => ({
         playlist_id: playlist.id,
         track_id: tid,
         display_order: idx,
       }));
       await supabase.from("playlist_tracks").insert(pts);
 
-      const assignmentRows = seedUsers.map((u, i) => {
+      const assignmentRows = seedUsers.map((u: any, i: number) => {
         const completedAt = (() => {
           const d = new Date(now);
           d.setDate(d.getDate() - (i + 1));

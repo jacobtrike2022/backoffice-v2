@@ -1500,9 +1500,9 @@ export async function getTracks(filters: {
   const enrichedTracks = await enrichTracksWithJunctionTags(data || []);
   const withScope = await enrichTracksWithScope(enrichedTracks);
 
-  // Post-fetch geographic filtering for system content (skip when Super Admin viewing all system tracks)
-  // This ensures demo prospects only see relevant regulatory training for their states
-  if (filters.isSystemContent && orgId && !filters.allSystemTracksForSuperAdmin) {
+  // Post-fetch geographic filtering when viewing as an org (Content Library, demo account, etc.)
+  // Exclude STATE-scoped tracks whose state is not in the org's operating_states; also filter by state tags.
+  if (orgId && !filters.allSystemTracksForSuperAdmin) {
     try {
       const { data: orgData } = await supabase
         .from('organizations')
@@ -1510,23 +1510,30 @@ export async function getTracks(filters: {
         .eq('id', orgId)
         .single();
 
-      const states = orgData?.operating_states || [];
-      if (states && states.length > 0) {
+      const states: string[] = Array.isArray(orgData?.operating_states)
+        ? (orgData.operating_states as string[]).map((s: string) => String(s).toUpperCase())
+        : [];
+
+      if (states.length > 0) {
         const stateTagPrefix = 'state:';
-        const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s.toUpperCase()}`);
+        const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s}`);
 
         return withScope.filter(track => {
+          // 1) track_scopes STATE: if scope is STATE and state_code not in org's states, exclude
+          const scope = track.scope;
+          if (scope?.scope_level === 'STATE' && scope.state_code) {
+            const code = String(scope.state_code).toUpperCase();
+            if (!states.includes(code)) return false;
+          }
+          // 2) Legacy state tags: if track has state tags, at least one must match org's operating states
           const trackTags = track.tags || [];
           const hasStateTags = trackTags.some((tag: string) => tag.startsWith(stateTagPrefix));
-
-          // If track has no state tags, it's national content (allowed for everyone)
-          // If it has state tags, at least one must match the organization's operating states
-          return !hasStateTags || trackTags.some((tag: string) => allowedStateTags.includes(tag));
+          if (hasStateTags && !trackTags.some((tag: string) => allowedStateTags.includes(tag))) return false;
+          return true;
         });
       }
     } catch (err) {
       console.warn('Geographic filtering failed (non-critical):', err);
-      // Fallback: return all enriched tracks if org fetch fails
     }
   }
 

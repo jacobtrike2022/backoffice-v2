@@ -64,8 +64,9 @@ export interface UpdateAlbumInput {
 // ============================================================================
 
 /**
- * Get all albums for organization with filtering options
- * Returns albums with track_count and total_duration_minutes
+ * Get all albums visible to the organization: own albums + scoped albums
+ * (UNIVERSAL, STATE in org's operating_states, COMPANY = org).
+ * Returns albums with track_count and total_duration_minutes.
  */
 export async function getAlbums(options: {
   status?: 'draft' | 'published' | 'archived';
@@ -75,38 +76,92 @@ export async function getAlbums(options: {
   const orgId = options.organizationId || await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  let query = supabase
-    .from('albums')
-    .select(`
-      *,
-      album_tracks (
-        track_id,
-        display_order,
-        is_required,
-        unlock_previous,
-        track:tracks (
-          id,
-          title,
-          type,
-          duration_minutes,
-          thumbnail_url,
-          status
-        )
+  // 1) Album IDs visible by scope: UNIVERSAL, STATE (org's operating_states), COMPANY = orgId
+  const { data: orgRow } = await supabase
+    .from('organizations')
+    .select('operating_states')
+    .eq('id', orgId)
+    .single();
+  const operatingStates: string[] = Array.isArray(orgRow?.operating_states)
+    ? (orgRow.operating_states as string[]).map((s: string) => String(s).toUpperCase())
+    : [];
+
+  const { data: scopeRows } = await supabase
+    .from('album_scopes')
+    .select('album_id, scope_level, state_id, company_id');
+  const scopes = scopeRows || [];
+
+  const stateIdsToCode: Record<string, string> = {};
+  const stateIdsNeeded = [...new Set(scopes.map((s: any) => s.state_id).filter(Boolean))];
+  if (stateIdsNeeded.length > 0) {
+    const { data: states } = await supabase
+      .from('us_states')
+      .select('id, code')
+      .in('id', stateIdsNeeded);
+    (states || []).forEach((s: any) => { stateIdsToCode[s.id] = String(s.code).toUpperCase(); });
+  }
+
+  const scopedAlbumIds = new Set<string>();
+  for (const s of scopes) {
+    if (s.scope_level === 'UNIVERSAL') {
+      scopedAlbumIds.add(s.album_id);
+    } else if (s.scope_level === 'STATE' && s.state_id) {
+      const code = stateIdsToCode[s.state_id];
+      if (code && operatingStates.includes(code)) scopedAlbumIds.add(s.album_id);
+    } else if (s.scope_level === 'COMPANY' && s.company_id === orgId) {
+      scopedAlbumIds.add(s.album_id);
+    }
+  }
+
+  const albumSelect = `
+    *,
+    album_tracks (
+      track_id,
+      display_order,
+      is_required,
+      unlock_previous,
+      track:tracks (
+        id,
+        title,
+        type,
+        duration_minutes,
+        thumbnail_url,
+        status
       )
-    `)
+    )
+  `;
+
+  // Two-query approach so universal/scoped albums from other orgs reliably return (avoids .or() syntax/RLS edge cases)
+  let ownQuery = supabase
+    .from('albums')
+    .select(albumSelect)
     .eq('organization_id', orgId);
+  if (options.status) ownQuery = ownQuery.eq('status', options.status);
+  if (options.search) ownQuery = ownQuery.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
+  const { data: ownAlbums, error: errOwn } = await ownQuery.order('updated_at', { ascending: false });
+  if (errOwn) throw errOwn;
 
-  if (options.status) {
-    query = query.eq('status', options.status);
+  let albums: any[] = ownAlbums || [];
+  const seenIds = new Set(albums.map((a: any) => a.id));
+
+  if (scopedAlbumIds.size > 0) {
+    const scopedIdsList = [...scopedAlbumIds].filter(id => !seenIds.has(id));
+    if (scopedIdsList.length > 0) {
+      let scopeQuery = supabase.from('albums').select(albumSelect).in('id', scopedIdsList);
+      if (options.status) scopeQuery = scopeQuery.eq('status', options.status);
+      if (options.search) scopeQuery = scopeQuery.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
+      const { data: scopedAlbums, error: errScoped } = await scopeQuery.order('updated_at', { ascending: false });
+      if (!errScoped && scopedAlbums?.length) {
+        for (const a of scopedAlbums) {
+          if (!seenIds.has(a.id)) {
+            seenIds.add(a.id);
+            albums.push(a);
+          }
+        }
+        albums.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      }
+    }
   }
-
-  if (options.search) {
-    query = query.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
-  }
-
-  const { data: albums, error } = await query.order('updated_at', { ascending: false });
-
-  if (error) throw error;
 
   // Enrich with computed fields and transform album_tracks to tracks
   const enrichedAlbums = (albums || []).map((album: any) => {
