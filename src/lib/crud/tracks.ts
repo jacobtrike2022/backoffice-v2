@@ -1232,6 +1232,8 @@ export async function getTracks(filters: {
   isSystemContent?: boolean; // Optional: filter for system content
   /** When true and isSystemContent true, skip org filter so Trike Super Admin sees all published system tracks. Only honored if current user is Trike Super Admin. */
   allSystemTracksForSuperAdmin?: boolean;
+  /** When true (default), include published system tracks (is_system_content = true, status = published) in results so Content Library shows Trike template content for all orgs. Only applied when orgId is set and status is not drafts/archived. */
+  includePublishedSystemTracks?: boolean;
   scopeLevel?: string;
   sector?: string;
   industryId?: string;
@@ -1298,8 +1300,20 @@ export async function getTracks(filters: {
     query = query.eq('is_system_content', filters.isSystemContent);
   }
 
+  // Org scope: either strict org-only or org + published system tracks (so Content Library shows Trike template content)
+  const includeSystem =
+    filters.includePublishedSystemTracks !== false &&
+    orgId &&
+    filters.status !== 'drafts' &&
+    filters.status !== 'archived';
   if (orgId) {
-    query = query.eq('organization_id', orgId);
+    if (includeSystem) {
+      query = query.or(
+        `organization_id.eq.${orgId},and(is_system_content.eq.true,status.eq.published)`
+      );
+    } else {
+      query = query.eq('organization_id', orgId);
+    }
   }
 
   if (filters.ids && filters.ids.length > 0) {
@@ -1423,7 +1437,13 @@ export async function getTracks(filters: {
         .select('*');
 
       if (orgId) {
-        simpleQuery.eq('organization_id', orgId);
+        if (includeSystem) {
+          simpleQuery.or(
+            `organization_id.eq.${orgId},and(is_system_content.eq.true,status.eq.published)`
+          );
+        } else {
+          simpleQuery.eq('organization_id', orgId);
+        }
       }
 
       if (filters.isSystemContent !== undefined) {
