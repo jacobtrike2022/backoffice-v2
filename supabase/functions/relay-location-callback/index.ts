@@ -83,6 +83,10 @@ async function updateOrgCrmFromRelay(
   const updatePayload: Record<string, unknown> = { scraped_data: scrapedDataUpdate };
   if (opts.industryIdToSet != null) (updatePayload as any).industry_id = opts.industryIdToSet;
   if (opts.relayOperatingStates.length > 0) (updatePayload as any).operating_states = opts.relayOperatingStates;
+  // Fallback: set legacy industry string so UI shows something even when industry_id lookup failed or Relay sent name only
+  if (opts.relayIndustry?.name && typeof opts.relayIndustry.name === "string") {
+    (updatePayload as any).industry = opts.relayIndustry.name.trim();
+  }
   await client.from("organizations").update(updatePayload).eq("id", orgId);
 }
 
@@ -131,7 +135,22 @@ serve(async (req) => {
       })();
 
     // Normalize CRM fields from Relay merge step (Notion + AI scrape)
-    const relayIndustry = industry && typeof industry === "object" ? industry : null;
+    // Relay may send industry as object or as JSON string — normalize to object
+    let relayIndustry: { code?: string; name?: string } | null = null;
+    if (industry != null) {
+      if (typeof industry === "object" && industry !== null && !Array.isArray(industry)) {
+        relayIndustry = industry as { code?: string; name?: string };
+      } else if (typeof industry === "string") {
+        try {
+          const parsed = JSON.parse(industry) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "code" in parsed) {
+            relayIndustry = parsed as { code?: string; name?: string };
+          }
+        } catch {
+          // ignore invalid JSON
+        }
+      }
+    }
     const relayOperatingStates = Array.isArray(operating_states)
       ? operating_states.filter((s: unknown) => typeof s === "string" && s.length === 2)
       : [];
@@ -146,6 +165,7 @@ serve(async (req) => {
       hasLocations: !!locations,
       hasStores: !!stores,
       industry: relayIndustry?.code ?? "(none)",
+      industryRawType: industry == null ? "null" : typeof industry,
       operating_states: relayOperatingStates.length,
       co_type: relayCoType ?? "(none)",
     });
@@ -169,13 +189,21 @@ serve(async (req) => {
     // Resolve industry_id from payload industry.code (e.g. { code: 'cstore', name: 'Convenience Stores' })
     let industryIdToSet: string | null = null;
     if (relayIndustry?.code) {
+      const code = String(relayIndustry.code).trim().toLowerCase();
       const { data: ind } = await supabase
         .from("industries")
         .select("id")
-        .ilike("code", String(relayIndustry.code).trim())
+        .ilike("code", code)
         .limit(1)
         .maybeSingle();
       industryIdToSet = ind?.id ?? null;
+      if (industryIdToSet) {
+        console.log(`[Relay] Callback: industry_id resolved for code "${code}" -> ${industryIdToSet}`);
+      } else {
+        console.log(`[Relay] Callback: no industry row for code "${code}" (will set organizations.industry name fallback if provided)`);
+      }
+    } else if (relayIndustry) {
+      console.log("[Relay] Callback: industry object received but no code, using name fallback only");
     }
 
     const hasLocations = storeList.length > 0;

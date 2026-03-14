@@ -7722,7 +7722,22 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
     } = body;
     const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
 
-    const relayIndustry = industry && typeof industry === "object" ? industry : null;
+    // Relay may send industry as object or as JSON string
+    let relayIndustry: { code?: string; name?: string } | null = null;
+    if (industry != null) {
+      if (typeof industry === "object" && industry !== null && !Array.isArray(industry)) {
+        relayIndustry = industry as { code?: string; name?: string };
+      } else if (typeof industry === "string") {
+        try {
+          const parsed = JSON.parse(industry) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "code" in parsed) {
+            relayIndustry = parsed as { code?: string; name?: string };
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     const relayOperatingStates = Array.isArray(operating_states)
       ? operating_states.filter((s: unknown) => typeof s === "string" && s.length === 2)
       : [];
@@ -7749,10 +7764,11 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
 
     let industryIdToSet: string | null = null;
     if (relayIndustry?.code) {
+      const code = String(relayIndustry.code).trim().toLowerCase();
       const { data: ind } = await supabase
         .from("industries")
         .select("id")
-        .ilike("code", String(relayIndustry.code).trim())
+        .ilike("code", code)
         .limit(1)
         .maybeSingle();
       industryIdToSet = ind?.id ?? null;
@@ -7783,6 +7799,9 @@ async function handleRelayLocationCallback(req: Request): Promise<Response> {
       const updatePayload: Record<string, unknown> = { scraped_data: scrapedData };
       if (industryIdToSet != null) (updatePayload as any).industry_id = industryIdToSet;
       if (relayOperatingStates.length > 0) (updatePayload as any).operating_states = relayOperatingStates;
+      if (relayIndustry?.name && typeof relayIndustry.name === "string") {
+        (updatePayload as any).industry = relayIndustry.name.trim();
+      }
       await supabase.from("organizations").update(updatePayload).eq("id", orgId);
     }
 

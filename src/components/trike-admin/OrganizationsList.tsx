@@ -98,6 +98,12 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'live', label: 'Live' },
 ];
 
+/** Industry display: joined industries.name, or singular relation industry.name, or legacy org.industry string */
+function getOrgIndustryDisplay(org: Organization & { industries?: { name: string } | null; industry?: { name: string } | null }): string {
+  const o = org as { industries?: { name: string } | null; industry?: { name: string } | null; industry_id?: string | null };
+  return o.industries?.name ?? (o.industry && typeof o.industry === 'object' && 'name' in o.industry ? (o.industry as { name: string }).name : null) ?? (typeof org.industry === 'string' ? org.industry : '') ?? '';
+}
+
 export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg, darkMode }: OrganizationsListProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,6 +145,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           logo_light_url,
           status,
           industry,
+          industry_id,
           industries(name),
           services_offered,
           operating_states,
@@ -181,7 +188,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const filteredOrgs = organizations.filter((org) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    const industryDisplay = (org as { industries?: { name: string } | null }).industries?.name || org.industry || '';
+    const industryDisplay = getOrgIndustryDisplay(org);
     return (
       org.name.toLowerCase().includes(q) ||
       industryDisplay.toLowerCase().includes(q) ||
@@ -273,12 +280,13 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   // ── Edit org handlers ──
   const openEditSheet = (org: Organization) => {
     setEditingOrg(org);
+    const industryDisplay = getOrgIndustryDisplay(org as Organization & { industries?: { name: string } | null; industry?: { name: string } | null });
     setEditFormData({
       name: org.name || '',
       website: org.website || '',
       subdomain: org.subdomain || '',
       status: org.status || 'demo',
-      industry: org.industry || '',
+      industry: industryDisplay || org.industry || '',
       operating_states: org.operating_states || [],
       next_action: org.next_action || '',
       next_action_date: org.next_action_date || '',
@@ -512,7 +520,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
 
                         {/* Industry */}
                         <TableCell className="text-sm text-muted-foreground">
-                          {(org as { industries?: { name: string } | null }).industries?.name || org.industry || '-'}
+                          {getOrgIndustryDisplay(org) || '-'}
                         </TableCell>
 
                         {/* # Locations */}
