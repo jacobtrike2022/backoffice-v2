@@ -1937,11 +1937,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">{track.scope.scope_level}</Badge>
                   {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
-                  {track.scope.state_id && <Badge variant="outline">State</Badge>}
-                  {track.scope.industry_id && <Badge variant="outline">Industry</Badge>}
-                  {track.scope.company_id && <Badge variant="outline">Company</Badge>}
-                  {track.scope.program_id && <Badge variant="outline">Program</Badge>}
-                  {track.scope.unit_id && <Badge variant="outline">Unit</Badge>}
+                  {track.scope.state_name && <Badge variant="outline">{track.scope.state_name}</Badge>}
+                  {track.scope.industry_name && <Badge variant="outline">{track.scope.industry_name}</Badge>}
+                  {track.scope.company_name && <Badge variant="outline">{track.scope.company_name}</Badge>}
+                  {track.scope.program_name && <Badge variant="outline">{track.scope.program_name}</Badge>}
+                  {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>

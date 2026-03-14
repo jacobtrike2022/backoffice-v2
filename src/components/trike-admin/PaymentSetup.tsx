@@ -16,7 +16,8 @@ import { Button } from '../ui/button';
 import { Loader2, CheckCircle2, CreditCard } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+const stripeKey = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '').trim();
+const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
 
 const TRIKE_SERVER_URL = import.meta.env.VITE_TRIKE_SERVER_URL ||
   `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/trike-server`;
@@ -150,10 +151,14 @@ export function PaymentSetup({ open, onOpenChange, organizationId }: PaymentSetu
               Try Again
             </Button>
           </div>
-        ) : clientSecret ? (
+        ) : clientSecret && stripePromise ? (
           <Elements stripe={stripePromise} options={{ clientSecret }}>
             <PaymentForm onSuccess={() => setSaved(true)} />
           </Elements>
+        ) : clientSecret ? (
+          <p className="py-4 text-sm text-muted-foreground">
+            Payment form is not configured (missing Stripe key).
+          </p>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">
             Unable to initialize payment setup. Please try again.

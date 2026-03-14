@@ -1335,7 +1335,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     </Badge>
                     {track.scope?.scope_level && (
                       <Badge variant="outline" className="text-xs bg-background/80">
-                        {track.scope.scope_level}
+                        {track.scope.state_name ?? track.scope.industry_name ?? track.scope.company_name ?? track.scope.program_name ?? track.scope.unit_name ?? track.scope.sector ?? track.scope.scope_level}
                       </Badge>
                     )}
                   </div>
