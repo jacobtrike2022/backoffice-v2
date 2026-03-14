@@ -25,7 +25,6 @@ import {
   ChevronLeft,
   ArrowUpDown,
   CheckCircle2,
-  Lock,
   Edit,
   Save,
   Trash2,
@@ -1502,11 +1501,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           V{track.version_number}
                         </Badge>
                       )}
-                      {track.is_system_content && (
-                        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
-                          <Lock className="h-3 w-3" />
-                        </Badge>
-                      )}
                     </div>
                   </div>
                   {/* Stats */}
@@ -1641,12 +1635,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         {track.version_number && track.version_number > 1 && (
                           <Badge variant="outline" className="text-xs">
                             V{track.version_number}
-                          </Badge>
-                        )}
-                        {track.is_system_content && (
-                          <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
-                            <Lock className="h-3 w-3 mr-1" />
-                            Trike Library
                           </Badge>
                         )}
                       </div>
