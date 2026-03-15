@@ -1103,7 +1103,7 @@ Deno.serve(async (req: Request) => {
     if (method === "POST" && path === "/admin/assign-seed-people-to-stores") {
       return await handleAssignSeedPeopleToStores(req);
     }
-    // Demo: create "Demo Training" playlist for an existing demo org (e.g. Dodge's) that has no playlists
+    // Demo: create "CORE Playlist" for demo org (clone from Trike account or system tracks)
     if (method === "POST" && path === "/demo/seed-playlist") {
       return await handleDemoSeedPlaylist(req);
     }
@@ -18222,27 +18222,38 @@ async function seedDemoOrgData(
     await supabase.from("user_progress").insert(userProgressRows);
   }
 
-  // Create seed playlist and assignments so Reports (People, Assignments, Units) show demo data
+  // Create CORE Playlist (clone from Trike.co template or use system tracks) and assignments for demo reports
+  const template = await getCorePlaylistTemplate();
+  let playlistMeta: { title: string; description: string | null; type: string; release_type: string | null; release_schedule: any; is_active: boolean } = template
+    ? { title: template.title, description: template.description, type: template.type, release_type: template.release_type, release_schedule: template.release_schedule, is_active: template.is_active }
+    : { title: CORE_PLAYLIST_TITLE, description: "Core training content for demo.", type: "manual", release_type: "immediate", release_schedule: null, is_active: true };
+
   let playlistTrackIds = trackIds;
   if (playlistTrackIds.length === 0 && seedUsers.length > 0) {
-    const { data: systemTracks } = await supabase
-      .from("tracks")
-      .select("id")
-      .eq("is_system_content", true)
-      .eq("status", "published")
-      .limit(5)
-      .order("created_at", { ascending: false });
-    playlistTrackIds = (systemTracks || []).map((t: any) => t.id);
+    if (template && template.trackIds.length > 0) {
+      playlistTrackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      playlistTrackIds = (systemTracks || []).map((t: any) => t.id);
+    }
   }
   if (playlistTrackIds.length > 0 && seedUsers.length > 0) {
     const { data: playlist } = await supabase
       .from("playlists")
       .insert({
         organization_id: orgId,
-        title: "Demo Training",
-        description: "Sample training for demo dashboards",
-        type: "manual",
-        is_active: true,
+        title: playlistMeta.title,
+        description: playlistMeta.description,
+        type: playlistMeta.type,
+        release_type: playlistMeta.release_type ?? "immediate",
+        release_schedule: playlistMeta.release_schedule,
+        is_active: playlistMeta.is_active,
       })
       .select("id")
       .single();
@@ -18298,12 +18309,12 @@ async function removeDemoSeedData(orgId: string): Promise<{ removed: number }> {
     removed += seedUserIds.length;
   }
 
-  // Remove seed playlist "Demo Training" created for reports
+  // Remove seed playlist "CORE Playlist" (and legacy "Demo Training") created for reports
   const { data: seedPlaylists } = await supabase
     .from("playlists")
     .select("id")
     .eq("organization_id", orgId)
-    .eq("title", "Demo Training");
+    .in("title", [CORE_PLAYLIST_TITLE, "Demo Training"]);
   if (seedPlaylists && seedPlaylists.length > 0) {
     const playlistIds = seedPlaylists.map((p: any) => p.id);
     await supabase.from("playlist_tracks").delete().in("playlist_id", playlistIds);
@@ -18401,6 +18412,58 @@ async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> 
 /** Trike.co main org — excluded from bulk seed operations */
 const TRIKE_CO_ORG_ID = "10000000-0000-0000-0000-000000000001";
 
+/** Template playlist in Trike account to clone for demo orgs */
+const CORE_PLAYLIST_TITLE = "CORE Playlist";
+
+/**
+ * Fetch "CORE Playlist" from Trike.co and return template fields + ordered list of track IDs
+ * that are system content (so demo orgs can use them). Returns null if no template or no system tracks.
+ */
+async function getCorePlaylistTemplate(): Promise<{
+  title: string;
+  description: string | null;
+  type: string;
+  release_type: string | null;
+  release_schedule: any;
+  is_active: boolean;
+  trackIds: string[];
+} | null> {
+  const { data: template, error: playlistErr } = await supabase
+    .from("playlists")
+    .select("id, title, description, type, release_type, release_schedule, is_active")
+    .eq("organization_id", TRIKE_CO_ORG_ID)
+    .ilike("title", CORE_PLAYLIST_TITLE)
+    .limit(1)
+    .maybeSingle();
+  if (playlistErr || !template?.id) return null;
+
+  const { data: pts, error: ptsErr } = await supabase
+    .from("playlist_tracks")
+    .select("track_id, display_order")
+    .eq("playlist_id", template.id)
+    .order("display_order", { ascending: true });
+  if (ptsErr || !pts || pts.length === 0) return null;
+
+  const trackIds = pts.map((p: any) => p.track_id);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, is_system_content")
+    .in("id", trackIds);
+  const systemById = new Set((tracks || []).filter((t: any) => t.is_system_content === true).map((t: any) => t.id));
+  const orderedSystemIds = trackIds.filter((id: string) => systemById.has(id));
+  if (orderedSystemIds.length === 0) return null;
+
+  return {
+    title: template.title,
+    description: template.description ?? null,
+    type: template.type ?? "manual",
+    release_type: template.release_type ?? "immediate",
+    release_schedule: template.release_schedule ?? null,
+    is_active: template.is_active !== false,
+    trackIds: orderedSystemIds,
+  };
+}
+
 /**
  * POST /admin/seed-demo-org
  * Seed demo data (people, units, activity) for a single existing org.
@@ -18484,9 +18547,9 @@ async function handleAdminSeedDemoOrg(req: Request): Promise<Response> {
 
 /**
  * POST /demo/seed-playlist
- * Create "Demo Training" playlist for an existing demo org that has no playlists (e.g. created before seed-playlist logic).
+ * Create "CORE Playlist" for a demo org by cloning the Trike account's CORE Playlist (same title, description, type, tracks).
  * Body: { organization_id: string }
- * Uses system published tracks and assigns to org's seed users (or any users if no seed users).
+ * If no CORE Playlist exists in Trike.co, creates one with 5 published system tracks.
  */
 async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
   try {
@@ -18512,7 +18575,7 @@ async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
       .from("playlists")
       .select("id")
       .eq("organization_id", organization_id)
-      .eq("title", "Demo Training")
+      .eq("title", CORE_PLAYLIST_TITLE)
       .limit(1)
       .maybeSingle();
     if (existing?.id) {
@@ -18520,7 +18583,7 @@ async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
         success: true,
         created: false,
         playlist_id: existing.id,
-        message: "Demo Training playlist already exists",
+        message: `"${CORE_PLAYLIST_TITLE}" already exists`,
       });
     }
 
@@ -18534,26 +18597,53 @@ async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
       return jsonResponse({ error: "No users in org to assign playlist" }, 400);
     }
 
-    const { data: systemTracks } = await supabase
-      .from("tracks")
-      .select("id")
-      .eq("is_system_content", true)
-      .eq("status", "published")
-      .limit(5)
-      .order("created_at", { ascending: false });
-    const trackIds = (systemTracks || []).map((t: any) => t.id);
-    if (trackIds.length === 0) {
-      return jsonResponse({ error: "No published system tracks available for playlist" }, 400);
+    const template = await getCorePlaylistTemplate();
+    let title: string;
+    let description: string | null;
+    let type: string;
+    let release_type: string | null;
+    let release_schedule: any;
+    let is_active: boolean;
+    let trackIds: string[];
+
+    if (template && template.trackIds.length > 0) {
+      title = template.title;
+      description = template.description;
+      type = template.type;
+      release_type = template.release_type;
+      release_schedule = template.release_schedule;
+      is_active = template.is_active;
+      trackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      trackIds = (systemTracks || []).map((t: any) => t.id);
+      if (trackIds.length === 0) {
+        return jsonResponse({ error: "No published system tracks available for playlist" }, 400);
+      }
+      title = CORE_PLAYLIST_TITLE;
+      description = "Core training content for demo.";
+      type = "manual";
+      release_type = "immediate";
+      release_schedule = null;
+      is_active = true;
     }
 
     const { data: playlist, error: playlistErr } = await supabase
       .from("playlists")
       .insert({
         organization_id,
-        title: "Demo Training",
-        description: "Sample training for demo dashboards",
-        type: "manual",
-        is_active: true,
+        title,
+        description,
+        type,
+        release_type: release_type ?? "immediate",
+        release_schedule,
+        is_active,
       })
       .select("id")
       .single();
@@ -18587,11 +18677,12 @@ async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
     });
     await supabase.from("assignments").insert(assignmentRows);
 
-    console.log(`[DemoSeedPlaylist] ${org.name} (${organization_id}): created playlist ${playlist.id}, ${users.length} assignments`);
+    console.log(`[DemoSeedPlaylist] ${org.name} (${organization_id}): created "${title}" ${playlist.id}, ${trackIds.length} tracks, ${users.length} assignments`);
     return jsonResponse({
       success: true,
       created: true,
       playlist_id: playlist.id,
+      title,
       tracks: trackIds.length,
       assignments: users.length,
     });

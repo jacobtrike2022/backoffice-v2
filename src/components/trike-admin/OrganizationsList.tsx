@@ -276,9 +276,9 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
         throw new Error(data.error || 'Failed to create demo playlist');
       }
       if (data.created) {
-        toast.success(`Created "Demo Training" playlist for ${orgName} (${data.tracks} tracks, ${data.assignments} assignments)`);
+        toast.success(`Created "CORE Playlist" for ${orgName} (${data.tracks} tracks, ${data.assignments} assignments)`);
       } else {
-        toast.success(`Demo Training playlist already exists for ${orgName}`);
+        toast.success(`CORE Playlist already exists for ${orgName}`);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to create demo playlist');
@@ -724,7 +724,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                   disabled={seedingPlaylistOrgId === org.id}
                                 >
                                   <Plus className="h-4 w-4 mr-2" />
-                                  {seedingPlaylistOrgId === org.id ? 'Creating...' : 'Create demo playlist'}
+                                  {seedingPlaylistOrgId === org.id ? 'Creating...' : 'Create CORE Playlist'}
                                 </DropdownMenuItem>
                               )}
                               {org.website && (
