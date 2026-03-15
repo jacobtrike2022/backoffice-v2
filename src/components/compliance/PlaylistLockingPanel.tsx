@@ -334,7 +334,7 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
                         <div className="flex items-center gap-2">
                           <FileCheck className="h-4 w-4" />
                           <span>{req.requirement_name}</span>
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 font-medium">
                             {req.state_code}
                           </Badge>
                         </div>
@@ -678,7 +678,7 @@ export function PlaylistLockingPanel() {
                         <div>
                           <p className="font-medium">{playlist.requirement.requirement_name}</p>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Badge variant="outline" className="text-xs">
+                            <Badge variant="outline" className="text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 font-medium">
                               {playlist.requirement.state_code}
                             </Badge>
                             {playlist.requirement.topic?.name && (

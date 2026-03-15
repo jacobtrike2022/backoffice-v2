@@ -478,7 +478,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
+                      <Badge variant="outline" className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 font-medium">
                         {requirement.state_code}
                       </Badge>
                     </TableCell>
