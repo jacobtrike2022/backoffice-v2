@@ -271,6 +271,8 @@ export async function deleteComplianceAuthority(id: string): Promise<void> {
 
 export interface ComplianceRequirementFilters {
   stateCode?: string;
+  /** Filter to requirements in any of these state codes (e.g. org's operating states) */
+  stateCodes?: string[];
   topicId?: string;
   status?: string;
   eeTrainingRequired?: string;
@@ -296,6 +298,10 @@ export async function getComplianceRequirements(
   if (filters?.stateCode) {
     query = query.eq('state_code', filters.stateCode.toUpperCase());
   }
+  if (filters?.stateCodes?.length) {
+    const codes = filters.stateCodes.map(c => c.toUpperCase());
+    query = query.in('state_code', codes);
+  }
   if (filters?.topicId) {
     query = query.eq('topic_id', filters.topicId);
   }
@@ -312,6 +318,18 @@ export async function getComplianceRequirements(
   const { data, error } = await query;
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Get compliance requirements relevant to the current org (by operating states / store states).
+ * Returns requirements whose state_code is in the org's states. Empty array if org has no states.
+ */
+export async function getComplianceRequirementsForOrg(
+  filters?: Omit<ComplianceRequirementFilters, 'stateCode' | 'stateCodes'>
+): Promise<ComplianceRequirement[]> {
+  const states = await getOrgStates();
+  if (states.length === 0) return [];
+  return getComplianceRequirementsWithTopics({ ...filters, stateCodes: states });
 }
 
 /**
@@ -1468,14 +1486,26 @@ export async function getOrgRolesForPicker(): Promise<{
 }
 
 /**
- * Get states the organization operates in (based on store locations)
- * Used to filter requirements in the compliance setup UI
+ * Get states the organization operates in.
+ * Uses organizations.operating_states when set; otherwise falls back to store locations.
+ * Used to filter requirements in the compliance tab and setup UI.
  */
 export async function getOrgStates(): Promise<string[]> {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  const { data, error } = await supabase
+  const { data: org, error: orgError } = await supabase
+    .from('organizations')
+    .select('operating_states')
+    .eq('id', orgId)
+    .single();
+
+  if (!orgError && org?.operating_states?.length) {
+    const fromOrg = (org.operating_states as string[]).map(s => String(s).toUpperCase()).filter(Boolean);
+    return [...new Set(fromOrg)].sort();
+  }
+
+  const { data: storeData, error } = await supabase
     .from('stores')
     .select('state')
     .eq('organization_id', orgId)
@@ -1483,8 +1513,7 @@ export async function getOrgStates(): Promise<string[]> {
 
   if (error) throw error;
 
-  // Get unique states
-  const states = [...new Set((data || []).map(s => s.state?.toUpperCase()).filter(Boolean))];
+  const states = [...new Set((storeData || []).map(s => s.state?.toUpperCase()).filter(Boolean))];
   return states.sort();
 }
 

@@ -88,7 +88,7 @@ import {
   type SystemLockedAlbum
 } from '../../lib/crud/albums';
 import {
-  getComplianceRequirements,
+  getComplianceRequirementsForOrg,
   type ComplianceRequirement
 } from '../../lib/crud/compliance';
 import { formatDate, formatDateTime, formatDuration } from '../../lib/utils/dateFormat';
@@ -233,7 +233,7 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
       try {
         const [playlistsData, requirementsData] = await Promise.all([
           getAlbums({ status: 'published' }),
-          getComplianceRequirements()
+          getComplianceRequirementsForOrg()
         ]);
         // Filter out already locked playlists
         const unlockedPlaylists = playlistsData.filter((p: Album) => !p.requirement_id);

@@ -47,6 +47,8 @@ import {
 } from 'lucide-react';
 import {
   getComplianceRequirementsWithTopics,
+  getComplianceRequirementsForOrg,
+  getOrgStates,
   getComplianceTopics,
   getComplianceAuthorities,
   createComplianceRequirement,
@@ -71,15 +73,22 @@ const REQUIREMENT_STATUSES = [
   { value: 'approved', label: 'Approved' }
 ];
 
-export function RequirementsManager() {
+export interface RequirementsManagerProps {
+  /** When true, show only requirements for the org's operating states (Compliance tab). When false, show all (Trike Admin). */
+  useOrgScope?: boolean;
+}
+
+export function RequirementsManager({ useOrgScope = false }: RequirementsManagerProps) {
   const [requirements, setRequirements] = useState<ComplianceRequirement[]>([]);
   const [topics, setTopics] = useState<ComplianceTopic[]>([]);
   const [authorities, setAuthorities] = useState<ComplianceAuthority[]>([]);
+  const [orgStates, setOrgStates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filter state - use 'all' instead of '' for Radix UI Select compatibility
   const [searchTerm, setSearchTerm] = useState('');
+  const [stateFilter, setStateFilter] = useState('all');
   const [topicFilter, setTopicFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -113,14 +122,28 @@ export function RequirementsManager() {
     setLoading(true);
     setError(null);
     try {
-      const [reqData, topicData, authData] = await Promise.all([
-        getComplianceRequirementsWithTopics(),
-        getComplianceTopics(),
-        getComplianceAuthorities()
-      ]);
-      setRequirements(reqData);
-      setTopics(topicData);
-      setAuthorities(authData);
+      if (useOrgScope) {
+        const [reqData, topicData, authData, states] = await Promise.all([
+          getComplianceRequirementsForOrg(),
+          getComplianceTopics(),
+          getComplianceAuthorities(),
+          getOrgStates()
+        ]);
+        setRequirements(reqData);
+        setTopics(topicData);
+        setAuthorities(authData);
+        setOrgStates(states);
+      } else {
+        const [reqData, topicData, authData] = await Promise.all([
+          getComplianceRequirementsWithTopics(),
+          getComplianceTopics(),
+          getComplianceAuthorities()
+        ]);
+        setRequirements(reqData);
+        setTopics(topicData);
+        setAuthorities(authData);
+        setOrgStates([]);
+      }
     } catch (err: any) {
       console.error('Error fetching data:', err);
       setError(err.message || 'Failed to load data');
@@ -131,12 +154,23 @@ export function RequirementsManager() {
 
   async function fetchRequirements() {
     try {
-      const filters: any = {};
-      // Convert 'all' back to undefined for API - Radix UI Select requires non-empty string values
+      const filters: { topicId?: string; status?: string; stateCode?: string; stateCodes?: string[] } = {};
       if (topicFilter && topicFilter !== 'all') filters.topicId = topicFilter;
       if (statusFilter && statusFilter !== 'all') filters.status = statusFilter;
-      const data = await getComplianceRequirementsWithTopics(filters);
-      setRequirements(data);
+
+      if (useOrgScope) {
+        if (stateFilter === 'all') {
+          const data = await getComplianceRequirementsForOrg(filters);
+          setRequirements(data);
+        } else {
+          filters.stateCode = stateFilter;
+          const data = await getComplianceRequirementsWithTopics(filters);
+          setRequirements(data);
+        }
+      } else {
+        const data = await getComplianceRequirementsWithTopics(filters);
+        setRequirements(data);
+      }
     } catch (err: any) {
       console.error('Error fetching requirements:', err);
       setError(err.message || 'Failed to load requirements');
@@ -147,7 +181,7 @@ export function RequirementsManager() {
     if (!loading) {
       fetchRequirements();
     }
-  }, [topicFilter, statusFilter]);
+  }, [topicFilter, statusFilter, stateFilter]);
 
   function openCreateDialog() {
     setEditingRequirement(null);
@@ -337,6 +371,21 @@ export function RequirementsManager() {
                 className="pl-10"
               />
             </div>
+            {useOrgScope && orgStates.length > 0 && (
+              <Select value={stateFilter} onValueChange={setStateFilter}>
+                <SelectTrigger className="w-full md:w-40">
+                  <SelectValue placeholder="State" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All states ({orgStates.join(', ')})</SelectItem>
+                  {orgStates.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={topicFilter} onValueChange={setTopicFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <Filter className="h-4 w-4 mr-2" />
@@ -377,13 +426,17 @@ export function RequirementsManager() {
                 Compliance Requirements
               </CardTitle>
               <CardDescription>
-                Specific compliance requirements linked to topics and authorities
+                {useOrgScope
+                  ? "Requirements for your organization's states of operation"
+                  : 'Specific compliance requirements linked to topics and authorities'}
               </CardDescription>
             </div>
-            <Button onClick={openCreateDialog}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Requirement
-            </Button>
+            {!useOrgScope && (
+              <Button onClick={openCreateDialog}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Requirement
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -460,21 +513,25 @@ export function RequirementsManager() {
                             </a>
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditDialog(requirement)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeletingRequirement(requirement)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {!useOrgScope && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditDialog(requirement)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeletingRequirement(requirement)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

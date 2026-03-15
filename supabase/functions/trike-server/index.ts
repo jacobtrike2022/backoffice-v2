@@ -18976,11 +18976,21 @@ async function handleAssignSeedPeopleToStores(req: Request): Promise<Response> {
       await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
     }
 
-    console.log(`[AssignSeedPeopleToStores] Org ${organization_id}: assigned ${seedPeople.length} people to ${storesForAssignment.length} stores`);
+    // Trigger compliance onboarding assignments for each user (requirements for their store state)
+    let complianceCreated = 0;
+    for (const u of seedPeople) {
+      const { data: count, error: rpcError } = await supabase.rpc("create_onboarding_assignments", {
+        p_user_id: u.id,
+      });
+      if (!rpcError && typeof count === "number") complianceCreated += count;
+    }
+
+    console.log(`[AssignSeedPeopleToStores] Org ${organization_id}: assigned ${seedPeople.length} people to ${storesForAssignment.length} stores; ${complianceCreated} compliance assignments created`);
     return jsonResponse({
       success: true,
       assigned: seedPeople.length,
       stores_used: storesForAssignment.length,
+      compliance_assignments_created: complianceCreated,
     });
   } catch (error: any) {
     console.error("[AssignSeedPeopleToStores] Error:", error);
