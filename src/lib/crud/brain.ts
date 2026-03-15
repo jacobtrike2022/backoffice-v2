@@ -2,7 +2,7 @@
 // COMPANY BRAIN CRUD OPERATIONS - RAG Infrastructure
 // ============================================================================
 
-import { supabase, getCurrentUserOrgId } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { getServerUrl } from '../../utils/supabase/info';
 import { supabaseAnonKey } from '../supabase';
 
@@ -80,13 +80,15 @@ export async function createConversation(input: CreateConversationInput = {}) {
   if (!orgId) throw new Error('User not authenticated');
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
+  const profile = await getCurrentUserProfile();
+  const userId = user?.id ?? (profile as any)?.id;
+  if (!userId) throw new Error('User not authenticated');
 
   const { data: conversation, error } = await supabase
     .from('brain_conversations')
     .insert({
       organization_id: orgId,
-      user_id: user.id,
+      user_id: userId,
       title: input.title || 'New Conversation',
     } as any)
     .select()
@@ -104,13 +106,15 @@ export async function getConversations() {
   if (!orgId) throw new Error('User not authenticated');
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
+  const profile = await getCurrentUserProfile();
+  const userId = user?.id ?? (profile as any)?.id;
+  if (!userId) throw new Error('User not authenticated');
 
   const { data: conversations, error } = await supabase
     .from('brain_conversations')
     .select('*')
     .eq('organization_id', orgId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('updated_at', { ascending: false });
 
   if (error) throw error;
@@ -125,7 +129,9 @@ export async function getConversation(conversationId: string) {
   if (!orgId) throw new Error('User not authenticated');
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
+  const profile = await getCurrentUserProfile();
+  const userId = user?.id ?? (profile as any)?.id;
+  if (!userId) throw new Error('User not authenticated');
 
   // Get conversation
   const { data: conversation, error: convError } = await supabase
@@ -133,7 +139,7 @@ export async function getConversation(conversationId: string) {
     .select('*')
     .eq('id', conversationId)
     .eq('organization_id', orgId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single();
 
   if (convError) throw convError;

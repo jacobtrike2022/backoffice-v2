@@ -18283,6 +18283,29 @@ async function seedDemoOrgData(
         };
       });
       await supabase.from("assignments").insert(assignmentRows);
+
+      // Add 2 in-progress assignments so Assignments tab shows variety (not all completed)
+      const inProgressAssignments = [
+        {
+          organization_id: orgId,
+          user_id: seedUsers[0].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 30,
+          completed_at: null,
+        },
+        {
+          organization_id: orgId,
+          user_id: seedUsers[1].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 50,
+          completed_at: null,
+        },
+      ];
+      await supabase.from("assignments").insert(inProgressAssignments);
     }
   }
 
@@ -19375,6 +19398,7 @@ async function handleDemoProvision(req: Request): Promise<Response> {
       .eq("status", "published")
       .limit(10);
 
+    let clonedTrackIds: string[] = [];
     if (templateTracks && templateTracks.length > 0) {
       // Check if org already has tracks to avoid duplicates
       const { data: existingTracks } = await supabase
@@ -19397,16 +19421,42 @@ async function handleDemoProvision(req: Request): Promise<Response> {
           is_demo_content: true,
         }));
 
-        const { error: tracksError } = await supabase
+        const { data: insertedTracks, error: tracksError } = await supabase
           .from("tracks")
-          .insert(tracksToInsert);
+          .insert(tracksToInsert)
+          .select("id");
 
         if (tracksError) {
           console.error("[DemoProvision] Failed to clone tracks:", tracksError);
-        } else {
-          tracksCloned = tracksToInsert.length;
+        } else if (insertedTracks && insertedTracks.length > 0) {
+          tracksCloned = insertedTracks.length;
+          clonedTrackIds = insertedTracks.map((t: any) => t.id);
           console.log(`[DemoProvision] Cloned ${tracksCloned} sample tracks`);
         }
+      }
+    }
+
+    // Step 4b: Seed people, units, CORE Playlist, and activity (same as new demos) when org has no seed users
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+    if (!existingSeedUsers || existingSeedUsers.length === 0) {
+      const { data: adminRole } = await supabase
+        .from("roles")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .ilike("name", "%admin%")
+        .limit(1)
+        .maybeSingle();
+      try {
+        seedStats = await seedDemoOrgData(organization_id, adminRole?.id ?? null, clonedTrackIds, { skipStores: false });
+        console.log(`[DemoProvision] Seeded: ${seedStats.people}p ${seedStats.units}u ${seedStats.activity}a`);
+      } catch (seedErr: any) {
+        console.error("[DemoProvision] Seed data failed (non-fatal):", seedErr.message);
       }
     }
 
@@ -19443,6 +19493,9 @@ async function handleDemoProvision(req: Request): Promise<Response> {
       provisioned: {
         compliance_topics: topicsCloned,
         sample_tracks: tracksCloned,
+        seed_people: seedStats.people,
+        seed_units: seedStats.units,
+        seed_activity: seedStats.activity,
         deal_updated: !!deal,
       },
     });

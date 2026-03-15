@@ -3,10 +3,11 @@
  *
  * Centralized, reliable file upload handling for Supabase Storage.
  * Uses XMLHttpRequest for maximum reliability and progress tracking.
+ * In demo mode (no session), uses anon key so uploads work for demo orgs.
  */
 
 import { supabase } from '../supabase';
-import { projectId } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 export interface UploadResult {
   success: boolean;
@@ -32,9 +33,10 @@ export async function uploadFile(
   const { bucket, path, contentType, onProgress } = options;
 
   try {
-    // Get fresh auth token
+    // Use session when authenticated; anon key in demo mode so uploads work for demo orgs
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
+    const token = session?.access_token || publicAnonKey;
+    if (!token) {
       return { success: false, error: 'Not authenticated' };
     }
 
@@ -46,7 +48,7 @@ export async function uploadFile(
     const result = await uploadWithXHR(
       uploadUrl,
       file,
-      session.access_token,
+      token,
       fileContentType,
       onProgress
     );

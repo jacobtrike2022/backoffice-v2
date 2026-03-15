@@ -165,10 +165,10 @@ export async function createDistrict(districtData: {
   district_code: string;
 }) {
   try {
-    // Get the current user's session
+    // Use session when authenticated; anon key in demo so districts API works
     const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const token = session?.access_token || publicAnonKey;
+    if (!token) {
       throw new Error('You must be logged in to create a district');
     }
 
@@ -177,7 +177,7 @@ export async function createDistrict(districtData: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
         name: districtData.district_name,

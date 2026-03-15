@@ -303,17 +303,14 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.dismiss(toastId);
-        return;
-      }
+      const authToken = session?.access_token || supabaseAnonKey;
 
       const serverUrl = getServerUrl();
       const response = await fetch(`${serverUrl}/extract-source`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${authToken}`,
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({ source_file_id: fileId }),
@@ -340,16 +337,14 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
     setExtracting(file.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
+      const authToken = session?.access_token || supabaseAnonKey;
 
       const serverUrl = getServerUrl();
       const response = await fetch(`${serverUrl}/extract-source`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${authToken}`,
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({ source_file_id: file.id }),

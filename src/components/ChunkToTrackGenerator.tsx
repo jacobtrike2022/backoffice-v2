@@ -66,9 +66,7 @@ export function ChunkToTrackGenerator({
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
+      const authToken = session?.access_token || supabaseAnonKey;
 
       const serverUrl = getServerUrl();
       const chunkIds = selectedChunks.map(c => c.id);
@@ -80,7 +78,7 @@ export function ChunkToTrackGenerator({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
+            'Authorization': `Bearer ${authToken}`,
             'apikey': supabaseAnonKey,
           },
           body: JSON.stringify({
@@ -98,7 +96,7 @@ export function ChunkToTrackGenerator({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
+            'Authorization': `Bearer ${authToken}`,
             'apikey': supabaseAnonKey,
           },
           body: JSON.stringify({
