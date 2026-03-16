@@ -780,7 +780,12 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   const handleUpdateLearningObjective = (index: number, value: string) => {
     const newObjectives = [...(editFormData.learning_objectives || [])];
-    newObjectives[index] = value;
+    const current = newObjectives[index];
+    if (typeof current === 'object' && current !== null && !Array.isArray(current)) {
+      newObjectives[index] = { ...current, fact: value, content: value };
+    } else {
+      newObjectives[index] = value;
+    }
     setEditFormData({
       ...editFormData,
       learning_objectives: newObjectives
@@ -890,10 +895,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         const updatedFacts = shouldReplace 
@@ -955,10 +961,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         setEditFormData({
@@ -1724,9 +1731,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       }
                     }
                     
-                    // Check if this is an enriched KeyFact object
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'fact' in parsed;
-                    const displayValue = isEnriched ? parsed.fact : parsed;
+                    // Check if this is an enriched KeyFact object (API returns content/title; loaded facts have fact)
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('fact' in parsed || 'content' in parsed || 'title' in parsed);
+                    const displayValue = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     const isProcedure = isEnriched && parsed.type === 'Procedure';
                     
                     return (
@@ -1778,9 +1787,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     }
                     
                     // Check if this is an enriched KeyFact object with type and steps
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('type' in parsed || 'content' in parsed);
                     const isProcedure = isEnriched && parsed.type === 'Procedure' && parsed.steps;
-                    const displayText = isEnriched ? parsed.fact : parsed;
+                    const displayText = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     
                     return (
                       <li key={index} className="flex items-start gap-3 text-sm">
