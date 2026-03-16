@@ -672,13 +672,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       await onUpdate();
       console.log('onUpdate complete, track should be refreshed');
 
-      // Auto-generate key facts if this is the first save and no facts exist
+      // Auto-generate key facts only when: no facts in DB AND none in form (first save, user didn't use bolt)
       try {
         const existingFacts = await factsCrud.getFactsForTrack(track.id);
         const hasContent = editFormData.article_body && editFormData.article_body.trim().length > 150;
+        const hasFactsInForm = (editFormData.learning_objectives?.length ?? 0) > 0;
         
-        // Check if no facts exist and there's content to extract from
-        if (existingFacts.length === 0 && hasContent) {
+        if (existingFacts.length === 0 && !hasFactsInForm && hasContent) {
           console.log('🤖 Auto-generating key facts for first save...');
           
           // Strip HTML from article body to get clean text
@@ -708,34 +708,26 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             
             if (response.ok) {
               const data = await response.json();
-              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
-              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
-              
-              // Reload facts to update the UI
-              const updatedFacts = await factsCrud.getFactsForTrack(track.id);
-              setEditFormData(prev => ({
-                ...prev,
-                learning_objectives: updatedFacts.map((f: any) => ({
-                  title: f.title,
-                  fact: f.content,
-                  content: f.content,
-                  type: f.type,
-                  steps: f.steps || [],
-                  contexts: [f.context?.specificity || 'universal'],
-                  _dbId: f.id,
-                  _extractedBy: f.extracted_by,
-                }))
-              }));
-              setOriginalFacts(updatedFacts.map((f: any) => ({
+              if (data.skipped) {
+                console.log('✅ Key facts already exist for this track (skipped duplicate generation)');
+              } else {
+                console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+                toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
+              }
+              const enriched = data.enriched || [];
+              const normalized = enriched.map((f: any) => ({
+                ...f,
                 title: f.title,
-                fact: f.content,
-                content: f.content,
+                fact: f.content ?? f.fact ?? f.title ?? '',
+                content: f.content ?? f.fact ?? f.title ?? '',
                 type: f.type,
                 steps: f.steps || [],
                 contexts: [f.context?.specificity || 'universal'],
                 _dbId: f.id,
                 _extractedBy: f.extracted_by,
-              })));
+              }));
+              setEditFormData(prev => ({ ...prev, learning_objectives: normalized }));
+              setOriginalFacts(normalized);
             } else {
               console.error('Failed to auto-generate key facts:', await response.json());
             }

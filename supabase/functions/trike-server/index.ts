@@ -4829,12 +4829,14 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
 
     // When trackId provided and replaceExisting is false/undefined: skip if track already has facts (prevents duplicate generation from multiple callers)
     if (trackId && !replaceExisting) {
-      const { count: factCount } = await supabase
+      const { count: factCount, error: countError } = await supabase
         .from("fact_usage")
         .select("*", { count: "exact", head: true })
         .eq("track_id", trackId);
 
-      if (factCount && factCount > 0) {
+      const existingCount = countError ? 0 : (factCount ?? 0);
+      if (existingCount > 0) {
+        console.log(`[generate-key-facts] Skipping: track ${trackId} already has ${existingCount} fact(s)`);
         const { data: existingFacts } = await supabase
           .from("fact_usage")
           .select("fact_id, facts!inner(id, title, content, type, steps, context, extracted_by, extraction_confidence, company_id, created_at, updated_at)")
