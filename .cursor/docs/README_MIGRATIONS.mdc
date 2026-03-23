@@ -74,6 +74,14 @@ ROUND((GREATEST(...) * 100)::numeric, 0)
 
 Otherwise RPCs fail with **42883** (`function round(double precision, integer) does not exist`).
 
+## 3b. Heavy `pg_trgm` RPCs (statement timeout 57014)
+
+Calling `similarity()` / `word_similarity()` for **every row** without index-friendly filters can hit **statement timeout** on hosted Postgres (e.g. Supabase REST).
+
+- Prefer **`%`** (similarity vs `pg_trgm.similarity_threshold`) and **`<%`** (word similarity vs `pg_trgm.word_similarity_threshold`) in `WHERE`, with `SET LOCAL` / `set_config(..., true)` for session thresholds.
+- Add **`GIN` index** on search columns, e.g. `USING gin (lower(title) gin_trgm_ops)` on reference tables.
+- See `search_onet_occupations` in migrations `20260323160000` / `20260323170000`.
+
 ## 3. Branches, shared demos, and live databases
 
 **Never** change the SQL inside a migration file **after** it has been applied to a shared remote (demo, staging, production). Supabase records the version as applied; editing the file locally can cause checksum drift in CI, or teammates will think the remote ran different SQL than the repo.
