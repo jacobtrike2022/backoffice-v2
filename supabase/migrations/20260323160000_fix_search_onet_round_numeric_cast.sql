@@ -1,11 +1,7 @@
--- Smarter O*NET profile ranking: long search strings (role + JD) dilute pg_trgm similarity
--- vs short occupation titles, so generic "supervisor" matches could beat "Sales" roles.
--- Score each row by GREATEST(full, focus window, short window, word_similarity) and alt titles.
---
--- also_called on onet_occupations is TEXT[] (00006_create_onet_tables.sql). Use unnest + to_jsonb;
--- do not COALESCE with jsonb or use jsonb_array_elements_text (42804).
+-- pg_trgm similarity / word_similarity return float8. PostgreSQL has no
+-- round(double precision, integer) — only round(numeric, int). Without a cast:
+--   function round(double precision, integer) does not exist (42883)
 
--- Replace fully: CREATE OR REPLACE cannot change OUT row type if remote drifted from repo.
 DROP FUNCTION IF EXISTS search_onet_occupations(TEXT, INT) CASCADE;
 
 CREATE FUNCTION search_onet_occupations(
@@ -24,9 +20,7 @@ STABLE
 AS $$
 DECLARE
   st_full TEXT := lower(trim(search_term));
-  -- Title + start of JD (typical role words appear early)
   st_focus TEXT := lower(left(trim(search_term), 420));
-  -- Strongly role-title–weighted slice (first ~100 chars ≈ job title line)
   st_short TEXT := lower(left(trim(search_term), 120));
 BEGIN
   IF st_full = '' THEN
@@ -91,4 +85,4 @@ GRANT EXECUTE ON FUNCTION search_onet_occupations(TEXT, INT) TO authenticated;
 GRANT EXECUTE ON FUNCTION search_onet_occupations(TEXT, INT) TO anon;
 
 COMMENT ON FUNCTION search_onet_occupations(TEXT, INT) IS
-  'O*NET occupation search: trigram + word_similarity; also_called TEXT[] via unnest + to_jsonb.';
+  'O*NET occupation search: TEXT[] also_called; match % rounded via round(numeric,int).';

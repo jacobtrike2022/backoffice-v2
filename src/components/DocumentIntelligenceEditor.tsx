@@ -49,7 +49,12 @@ import {
   Scissors,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase, supabaseAnonKey, refreshAuthSession } from '../lib/supabase';
+import {
+  supabase,
+  supabaseAnonKey,
+  refreshAuthSession,
+  getViewingOrgOverride,
+} from '../lib/supabase';
 import { APP_CONFIG } from '../lib/config';
 import { getServerUrl } from '../utils/supabase/info';
 import { cn } from './ui/utils';
@@ -159,6 +164,22 @@ interface DocumentIntelligenceEditorProps {
   onStartPlaybook?: (sourceFileId: string) => void;
   /** Callback to navigate to a track in the content library */
   onNavigateToTrack?: (trackId: string) => void;
+  /**
+   * If set, JD→role wizard navigates in-app (preserves org preview / session) instead of a full-page jump to /roles/:id.
+   */
+  onNavigateToRoleAfterJdExtract?: (roleId: string) => void;
+}
+
+/** Full-page /roles/:id URL — must carry demo_org_id when previewing another org, or rolesApi.get returns 0 rows (PGRST116). */
+function buildRoleDeepLinkUrl(roleId: string): string {
+  const origin = window.location.origin;
+  const next = new URLSearchParams(window.location.search);
+  const previewOrg = getViewingOrgOverride();
+  if (previewOrg && !next.get('demo_org_id')) {
+    next.set('demo_org_id', previewOrg);
+  }
+  const qs = next.toString();
+  return qs ? `${origin}/roles/${roleId}?${qs}` : `${origin}/roles/${roleId}`;
 }
 
 export function DocumentIntelligenceEditor({
@@ -169,6 +190,7 @@ export function DocumentIntelligenceEditor({
   highlightChunkId,
   onStartPlaybook,
   onNavigateToTrack,
+  onNavigateToRoleAfterJdExtract,
 }: DocumentIntelligenceEditorProps) {
 
   // Core state
@@ -1569,12 +1591,12 @@ export function DocumentIntelligenceEditor({
             setSelectedEntityId(null);
             loadChunks(); // Reload to show the linked role
 
-            // Navigate to the role edit page if a role was created/merged
             if (createdRoleId) {
-              // Build the role edit URL
-              const { origin, pathname } = window.location;
-              const rolesUrl = `${origin}/roles/${createdRoleId}`;
-              window.location.href = rolesUrl;
+              if (onNavigateToRoleAfterJdExtract) {
+                onNavigateToRoleAfterJdExtract(createdRoleId);
+              } else {
+                window.location.href = buildRoleDeepLinkUrl(createdRoleId);
+              }
             }
           }}
         />

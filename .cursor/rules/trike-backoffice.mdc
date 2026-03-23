@@ -6,6 +6,13 @@ alwaysApply: true
 
 # Trike Backoffice - Project Context for AI Development
 
+## Before changing the database (for AI assistants)
+
+1. **Only** add or edit SQL under **`supabase/migrations/`** for schema/functions/RLS that ship via `supabase db push`. Do not rely on ad-hoc SQL in chat as the source of truth.
+2. Read **`.cursor/docs/README_MIGRATIONS.mdc`** first: idempotent `DROP`, branch/demo safety, history repair, and PostgreSQL pitfalls (e.g. `round()` + float8).
+3. **Never** rewrite SQL in a migration file that is already applied on a shared remote; add a **new** timestamped migration instead.
+4. **`CLAUDE.md`** (this repo) duplicates key migration commands for Claude Code.
+
 ## Project Overview
 This is an enterprise multi-tenant LMS platform for convenience store and foodservice operations. The system manages a hierarchical structure: Organizations → Districts → Stores → Users. Built for practical operational use in real c-store environments.
 
@@ -153,6 +160,9 @@ supabase migration repair <version> --status applied
 Use the migration version (filename without `.sql`, e.g. `20250101000000` or `20250109`). Then run `supabase db push` again. Do not use `--status applied` for a migration whose SQL has not been applied on the remote.
 
 See `.cursor/docs/README_MIGRATIONS.mdc` for more detail.
+
+**3. Branches and shared remotes (demo / production)**  
+Do not change the SQL inside a migration file after it has been applied to a shared database. Ship fixes as **new** timestamped migrations under `supabase/migrations/`. See `.cursor/docs/README_MIGRATIONS.mdc` (section 3).
 
 ## CRITICAL: Demo Mode - Edge Function Calls
 

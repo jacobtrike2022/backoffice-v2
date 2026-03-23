@@ -64,7 +64,31 @@ supabase migration repair <version> --status applied
 
 **Check status:** `supabase migration list` shows which migrations are applied locally vs on the remote.
 
-## 3. Reference in other docs
+## 3a. PostgreSQL gotcha: `round()` and float8
+
+`similarity()` / `word_similarity()` (pg_trgm) return **double precision**. PostgreSQL **does not** define `round(double precision, integer)` — only `round(numeric, int)`. Use an explicit cast before the second argument:
+
+```sql
+ROUND((GREATEST(...) * 100)::numeric, 0)
+```
+
+Otherwise RPCs fail with **42883** (`function round(double precision, integer) does not exist`).
+
+## 3. Branches, shared demos, and live databases
+
+**Never** change the SQL inside a migration file **after** it has been applied to a shared remote (demo, staging, production). Supabase records the version as applied; editing the file locally can cause checksum drift in CI, or teammates will think the remote ran different SQL than the repo.
+
+**When you need a fix:** add a **new** file under `supabase/migrations/` with a **new timestamp** after the latest remote migration (e.g. `20260323150000_fix_....sql`). Use `DROP ... IF EXISTS` / `DROP FUNCTION ... CASCADE` when replacing functions so the new migration is idempotent.
+
+**If a bad migration already shipped:** keep the old file as-is in git history; ship a follow-up migration that corrects the database. It is OK for two migrations to end up defining the same function (second one wins); that is normal for hotfixes.
+
+**Demo branch / prospect accounts:** merging `main` into `demo` and running `supabase db push` (or your deploy pipeline) applies only **new** migrations. Do not delete migration files that were already applied remotely—`db push` will fail or history will drift.
+
+**“Inserted before” / out-of-order history:** see section 2 above.
+
+**Reference-only SQL:** `src/supabase/migrations/` (older paths) may be used for seed or docs; canonical applied history is **`supabase/migrations/`** only.
+
+## 4. Reference in other docs
 
 - Cursor rules: `.cursor/rules/trike-backoffice.mdc` (Supabase migration best practices)
 - Project rules: `CLAUDE.md` (Migrations, Common Gotchas, Deployment)
