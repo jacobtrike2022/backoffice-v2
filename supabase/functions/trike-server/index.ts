@@ -16790,17 +16790,52 @@ async function handleBatchTrackRelationships(req: Request): Promise<Response> {
       return jsonResponse({ error: "relationships array is required" }, 400);
     }
 
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      const first = relationships[0];
-      const tid = first?.sourceTrackId || first?.derivedTrackId;
-      if (tid) {
-        const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", tid).single();
-        orgId = t?.organization_id ?? null;
+    const first = relationships[0];
+    const firstTid = first?.sourceTrackId || first?.derivedTrackId;
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      if (!firstTid) {
+        return jsonResponse({ error: "Each relationship must include sourceTrackId or derivedTrackId" }, 400);
       }
+      const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", firstTid).maybeSingle();
+      orgId = t?.organization_id ?? null;
+    } else {
+      const tokenOrg = await getOrgIdFromToken(req);
+      let trackOrg: string | null = null;
+      if (firstTid) {
+        const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", firstTid).maybeSingle();
+        trackOrg = t?.organization_id ?? null;
+      }
+      if (tokenOrg && trackOrg && tokenOrg !== trackOrg) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      orgId = tokenOrg || trackOrg;
     }
+
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const trackIds = new Set<string>();
+    for (const r of relationships) {
+      if (r.sourceTrackId) trackIds.add(r.sourceTrackId);
+      if (r.derivedTrackId) trackIds.add(r.derivedTrackId);
+    }
+    const idList = [...trackIds];
+    if (idList.length === 0) {
+      return jsonResponse({ error: "No track IDs in relationships" }, 400);
+    }
+    const { data: tracksCheck } = await supabase
+      .from("tracks")
+      .select("id, organization_id")
+      .in("id", idList);
+    const orgByTrack = new Map((tracksCheck || []).map((tr: any) => [tr.id, tr.organization_id]));
+    for (const id of idList) {
+      const o = orgByTrack.get(id);
+      if (!o || o !== orgId) {
+        return jsonResponse({ error: "All tracks must belong to the same organization" }, 400);
+      }
     }
 
     const rows = relationships.map((r: any) => ({
