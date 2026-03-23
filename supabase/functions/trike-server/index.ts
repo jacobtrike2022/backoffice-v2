@@ -5653,6 +5653,15 @@ async function getOrgIdFromToken(req: Request): Promise<string | null> {
   }
 }
 
+/** True when the caller uses the public anon key (demo / no Supabase Auth session). */
+function isAnonBearer(req: Request): boolean {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return false;
+  const token = authHeader.replace("Bearer ", "").trim();
+  const publicAnonKey = Deno.env.get("PUBLIC_ANON_KEY");
+  return !!token && !!publicAnonKey && token === publicAnonKey;
+}
+
 async function handleGetSourceTrack(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
   try {
     let orgId = await getOrgIdFromToken(req);
@@ -10915,23 +10924,9 @@ async function handleVariantChat(req: Request): Promise<Response> {
       return jsonResponse({ error: validation.error }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
     if (!orgId) {
-      console.log("⚠️ [VariantChat] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
-
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [VariantChat] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [VariantChat] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: track, error: trackError } = await supabase
@@ -11723,23 +11718,9 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
       return jsonResponse({ error: validation.error }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
     if (!orgId) {
-      console.log("⚠️ [VariantGenerate] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
-
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [VariantGenerate] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [VariantGenerate] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: track, error: trackError } = await supabase
@@ -16132,13 +16113,27 @@ async function handleAssignTags(req: Request): Promise<Response> {
 // =============================================================================
 
 /** Resolve org for variant endpoints: JWT first, then track.organization_id (demo / service role). */
+/**
+ * Resolve org for track-scoped API calls. Demo/anon clients must use the track's
+ * organization_id (each prospect demo org), not the single default UUID from getOrgIdFromToken.
+ */
 async function resolveOrgIdForTrack(req: Request, trackId: string): Promise<string | null> {
-  let orgId = await getOrgIdFromToken(req);
-  if (!orgId) {
-    const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", trackId).single();
-    orgId = t?.organization_id ?? null;
+  const { data: t } = await supabase
+    .from("tracks")
+    .select("organization_id")
+    .eq("id", trackId)
+    .maybeSingle();
+  const trackOrgId = t?.organization_id ?? null;
+
+  if (isAnonBearer(req)) {
+    return trackOrgId;
   }
-  return orgId;
+
+  const tokenOrgId = await getOrgIdFromToken(req);
+  if (tokenOrgId && trackOrgId && tokenOrgId !== trackOrgId) {
+    return null;
+  }
+  return tokenOrgId || trackOrgId;
 }
 
 async function enrichDerivedTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
@@ -16188,15 +16183,37 @@ async function handleCreateVariant(req: Request): Promise<Response> {
       return jsonResponse({ error: "Missing required fields: sourceTrackId, derivedTrackId, variantType" }, 400);
     }
 
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      const { data: t1 } = await supabase.from("tracks").select("organization_id").eq("id", sourceTrackId).single();
-      orgId = t1?.organization_id ?? null;
-      if (!orgId) {
-        const { data: t2 } = await supabase.from("tracks").select("organization_id").eq("id", derivedTrackId).single();
-        orgId = t2?.organization_id ?? null;
-      }
+    const { data: srcTr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .maybeSingle();
+    const { data: derTr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", derivedTrackId)
+      .maybeSingle();
+    const sourceOrg = srcTr?.organization_id ?? null;
+    const derivedOrg = derTr?.organization_id ?? null;
+    if (sourceOrg && derivedOrg && sourceOrg !== derivedOrg) {
+      return jsonResponse(
+        { error: "Source and derived tracks must belong to the same organization" },
+        400
+      );
     }
+    const trackOrg = sourceOrg || derivedOrg;
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      orgId = trackOrg;
+    } else {
+      orgId = await getOrgIdFromToken(req);
+      if (orgId && trackOrg && orgId !== trackOrg) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      if (!orgId) orgId = trackOrg;
+    }
+
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
@@ -16653,17 +16670,25 @@ async function handleMarkVariantSynced(req: Request, path: string): Promise<Resp
       return jsonResponse({ error: "Relationship ID is required" }, 400);
     }
 
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      const { data: relOrg } = await supabase
-        .from("track_relationships")
-        .select("organization_id")
-        .eq("id", relationshipId)
-        .maybeSingle();
-      orgId = relOrg?.organization_id ?? null;
+    const { data: relRow } = await supabase
+      .from("track_relationships")
+      .select("organization_id")
+      .eq("id", relationshipId)
+      .maybeSingle();
+    const relOrgId = relRow?.organization_id ?? null;
+    if (!relOrgId) {
+      return jsonResponse({ error: "Relationship not found" }, 404);
     }
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      orgId = relOrgId;
+    } else {
+      const tokenOrgId = await getOrgIdFromToken(req);
+      if (!tokenOrgId || tokenOrgId !== relOrgId) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      orgId = tokenOrgId;
     }
 
     const { data: existing, error: fetchError } = await supabase
