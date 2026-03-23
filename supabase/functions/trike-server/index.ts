@@ -611,13 +611,19 @@ Deno.serve(async (req: Request) => {
 
     // Get Draft
     if (method === "GET" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+$/)) {
-      const draftId = path.split("/")[3];
+      const draftParts = path.split("/");
+      const draftIdx = draftParts.indexOf("draft");
+      const draftId = draftIdx >= 0 ? draftParts[draftIdx + 1] : "";
+      if (!draftId) return jsonResponse({ error: "Draft ID is required" }, 400);
       return await handleGetDraft(draftId, req);
     }
 
     // Apply Instructions to Draft
     if (method === "POST" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/apply-instructions$/)) {
-      const draftId = path.split("/")[3];
+      const draftParts = path.split("/");
+      const draftIdx = draftParts.indexOf("draft");
+      const draftId = draftIdx >= 0 ? draftParts[draftIdx + 1] : "";
+      if (!draftId) return jsonResponse({ error: "Draft ID is required" }, 400);
       return await handleApplyInstructions(draftId, req);
     }
 
@@ -10853,6 +10859,43 @@ async function sendWelcomeEmail(params: {
   }
 }
 
+const VALID_VARIANT_TYPES = new Set(["geographic", "company", "unit"]);
+
+function validateVariantInputs(variantType: string, variantContext: any): { ok: true } | { ok: false; error: string } {
+  if (!VALID_VARIANT_TYPES.has(variantType)) {
+    return { ok: false, error: "variantType must be geographic, company, or unit" };
+  }
+  if (!variantContext || typeof variantContext !== "object") {
+    return { ok: false, error: "variantContext must be an object" };
+  }
+  const ctx = variantContext as Record<string, unknown>;
+  if (variantType === "geographic") {
+    if (!ctx.state_code && !ctx.state_name) {
+      return { ok: false, error: "Geographic variant requires state_code or state_name in variantContext" };
+    }
+  }
+  if (variantType === "company") {
+    if (!ctx.org_name && !ctx.org_id) {
+      return { ok: false, error: "Company variant requires org_name or org_id in variantContext" };
+    }
+  }
+  if (variantType === "unit") {
+    if (!ctx.store_id && !ctx.store_name) {
+      return { ok: false, error: "Unit variant requires store_id or store_name in variantContext" };
+    }
+  }
+  return { ok: true };
+}
+
+/** Primary body text for variant adaptation (articles: transcript first). */
+function getTrackSourceTextForVariant(track: { type?: string | null; transcript?: string | null; content_text?: string | null }): string {
+  const t = (track.type || "").toLowerCase();
+  if (t === "article") {
+    return (track.transcript || track.content_text || "").trim();
+  }
+  return (track.content_text || track.transcript || "").trim();
+}
+
 /**
  * AI-Assisted Variant Generation: Chat
  * Uses OpenAI Responses API with web search for research-first workflow
@@ -10865,6 +10908,11 @@ async function handleVariantChat(req: Request): Promise<Response> {
 
     if (!sourceTrackId || !variantType || !variantContext) {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    const validation = validateVariantInputs(variantType, variantContext);
+    if (!validation.ok) {
+      return jsonResponse({ error: validation.error }, 400);
     }
 
     // Try to get org from token, fallback to track's org
@@ -10895,7 +10943,7 @@ async function handleVariantChat(req: Request): Promise<Response> {
 
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
-    const sourceContent = track.content_text || track.transcript || '';
+    const sourceContent = getTrackSourceTextForVariant(track);
 
     // Derive audience from source content for all phases
     const audience = deriveAudienceFromContent(sourceContent);
@@ -11573,6 +11621,22 @@ function validateResearchQuality(
   };
 }
 
+function formatVariantOpenQuestionsList(variantType: string, targetLabel: string): string {
+  if (variantType === 'geographic') {
+    return `1. **POS Flow** — How does your register handle age-restricted items?\n` +
+      `2. **Escalation Path** — Who should staff call if there's a dispute?\n` +
+      `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
+  }
+  if (variantType === 'company') {
+    return `1. **Policy names** — Which internal SOP or policy title should we reference for "${targetLabel}"?\n` +
+      `2. **Terminology** — Any brand-specific words we must use or avoid?\n` +
+      `3. **Escalation** — Who should learners contact for exceptions?\n`;
+  }
+  return `1. **Local contacts** — Manager or safety lead for this unit?\n` +
+    `2. **Equipment/layout** — Anything location-specific learners must know?\n` +
+    `3. **Neighborhood context** — Any local hazards or customer norms to mention?\n`;
+}
+
 /**
  * Format the research result for display
  */
@@ -11626,11 +11690,9 @@ function formatResearchResult(
     result += '\n';
   }
 
-  // Open Questions
-  result += `---\n### Open Questions (Company-Specific Only)\n\n`;
-  result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
-  result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
-  result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
+  // Open Questions (variant-specific)
+  result += `---\n### Open Questions\n\n`;
+  result += formatVariantOpenQuestionsList(variantType, targetLabel);
   result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
   // Status indicator for UI
@@ -11654,6 +11716,11 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
 
     if (!sourceTrackId || !variantType || !variantContext) {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
+    }
+
+    const validation = validateVariantInputs(variantType, variantContext);
+    if (!validation.ok) {
+      return jsonResponse({ error: validation.error }, 400);
     }
 
     // Try to get org from token, fallback to track's org
@@ -11684,7 +11751,7 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
 
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
-    const sourceContent = track.content_text || track.transcript || '';
+    const sourceContent = getTrackSourceTextForVariant(track);
     const qaContent = clarificationAnswers
       ? clarificationAnswers.map((qa: any) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
       : 'No specific clarifications provided.';
@@ -11693,14 +11760,34 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     const audience = deriveAudienceFromContent(sourceContent);
     const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
     const roleLabelLower = audience.primaryRole.replace('_', ' ');
+    const defaultLearnerActions =
+      variantType === 'geographic'
+        ? 'check id, verify age, refuse sale'
+        : variantType === 'company'
+          ? 'follow company policy, use approved terminology, escalate per SOP'
+          : 'follow store procedures, use local contacts, report issues per SOP';
     const learnerActionsStr = audience.learnerActions.length
       ? audience.learnerActions.join(', ')
-      : 'check id, verify age, refuse sale';
+      : defaultLearnerActions;
     const targetLabel = getVariantTargetLabel(variantType, variantContext);
     const adaptationFocus =
       variantType === 'geographic' ? `${targetLabel} laws/regulations` :
       variantType === 'company' ? `${targetLabel} company policies/terminology` :
       `${targetLabel} store/location procedures`;
+
+    const openQuestionsHint =
+      variantType === 'geographic'
+        ? 'POS flow, escalation path, card-all policy, ID scanning (0-3 max) — not state law questions'
+        : variantType === 'company'
+          ? 'internal policy names, brand terminology, escalation roles, tools/systems (0-3 max)'
+          : 'local manager contacts, store layout/equipment, neighborhood or safety notes (0-3 max)';
+
+    const citationHint =
+      variantType === 'geographic'
+        ? 'Tier-1 government sources (.gov / official regulatory portals) where possible'
+        : variantType === 'company'
+          ? 'cite internal policy doc names/SOP IDs when asserting mandatory rules; otherwise mark [NEEDS REVIEW]'
+          : 'cite store SOP or manager-approved guidance when asserting mandatory rules; otherwise mark [NEEDS REVIEW]';
 
     // Enhanced generation prompt with structured output format
     const generationPrompt = `
@@ -11733,7 +11820,8 @@ For each rule, identify:
 If a rule doesn't modify a SourceAction above, DISCARD it.
 
 ### CITATION REQUIREMENT
-Any "must", "required", "illegal", or "penalty" needs [Source: URL]
+Any "must", "required", "illegal", or "penalty" needs a citation or explicit [NEEDS REVIEW].
+${citationHint}
 
 ### ROLE AWARENESS
 Write for a ${roleLabel} ("you must..."). Use second person.
@@ -11762,7 +11850,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
     }
   ],
   "openQuestions": [
-    "Optional company-specific question (0-3 max, only if truly needed)"
+    "Optional follow-up question (0-3 max, only if truly needed)"
   ],
   "qualityFlags": {
     "needsReview": false,
@@ -11775,8 +11863,8 @@ IMPORTANT:
 - researchFindings should have 3-8 rules MAX, each mapped to a learner action
 - generatedContent should be nearly identical to source, with only target-context-specific swaps
 - adaptations should list EVERY change made, with reason and source action
-- openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
-- Set needsReview: true if any claim lacks Tier-1 citation
+- openQuestions: ${openQuestionsHint}
+- Set needsReview: true if any strong claim lacks an appropriate citation
 - outOfScopeDiscarded should list any topics you found but discarded as out of scope
 `;
 
@@ -11807,19 +11895,44 @@ IMPORTANT:
     const result = await response.json();
     const content = result.choices[0]?.message?.content;
 
+    const fallbackTitle = `${track.title} (${variantType} variant)`;
     try {
-      return jsonResponse(JSON.parse(content));
+      const parsed = content ? JSON.parse(content) : {};
+      return jsonResponse(normalizeVariantGeneratePayload(parsed, fallbackTitle, String(content || ""), false));
     } catch (e) {
-      return jsonResponse({ 
-        generatedTitle: `${track.title} (${variantType} variant)`,
-        generatedContent: content,
-        adaptations: []
-      });
+      return jsonResponse(
+        normalizeVariantGeneratePayload({}, fallbackTitle, String(content || ""), true)
+      );
     }
   } catch (error: any) {
     console.error("Error in handleVariantGenerate:", error);
     return jsonResponse({ error: error.message }, 500);
   }
+}
+
+function normalizeVariantGeneratePayload(
+  raw: Record<string, unknown>,
+  fallbackTitle: string,
+  rawModelText: string,
+  parseError: boolean
+): Record<string, unknown> {
+  const g = (k: string) => raw[k];
+  return {
+    generatedTitle: typeof g("generatedTitle") === "string" ? (g("generatedTitle") as string) : fallbackTitle,
+    generatedContent: typeof g("generatedContent") === "string" ? (g("generatedContent") as string) : rawModelText,
+    researchFindings: Array.isArray(g("researchFindings")) ? g("researchFindings") : [],
+    adaptations: Array.isArray(g("adaptations")) ? g("adaptations") : [],
+    openQuestions: Array.isArray(g("openQuestions")) ? g("openQuestions") : [],
+    qualityFlags:
+      g("qualityFlags") && typeof g("qualityFlags") === "object"
+        ? g("qualityFlags")
+        : {
+            needsReview: true,
+            unresolvedCitations: [] as string[],
+            outOfScopeDiscarded: [] as string[],
+          },
+    parseError,
+  };
 }
 
 // ============================================================================
@@ -11849,9 +11962,15 @@ function getVariantSystemPrompt(
   const roleLabelLower = audience?.primaryRole
     ? audience.primaryRole.replace('_', ' ')
     : 'learner';
+  const defaultLearnerActions =
+    variantType === 'geographic'
+      ? 'check id, verify age, refuse sale'
+      : variantType === 'company'
+        ? 'follow company policy, use approved terminology, escalate per SOP'
+        : 'follow store procedures, use local contacts, report issues per SOP';
   const learnerActionsStr = audience?.learnerActions?.length
     ? audience.learnerActions.join(', ')
-    : 'check id, verify age, refuse sale';
+    : defaultLearnerActions;
 
   switch (variantType) {
     case 'geographic':
@@ -11925,9 +12044,7 @@ Your output should be as close to the source as possible. Only change what MUST 
 - Do not add sections, warnings, or "nice to know" information
 - If unsure whether something should change, leave it as-is
 
-## CITATION REQUIREMENT
-Any claim using "must", "required", "illegal", or "penalty" needs a citation.
-If you cannot cite it to a Tier-1 source (state .gov), mark it [NEEDS REVIEW].
+${getVariantCitationBlock(variantType)}
 
 ## OUTPUT FORMAT
 Structure your variant generation response as:
@@ -11938,11 +12055,39 @@ Structure your variant generation response as:
 2. **${getVariantTargetLabel(variantType, variantContext)}-Specific Draft Script** — Rewritten transcript
    Minimal changes from source. Track what was adapted and why.
 
-3. **Open Questions (Company-Specific Only)** — 0-3 questions max
-   ONLY: POS flow, escalation path, signage template, card-all policy, ID scanning
-   NEVER: state laws, regulations, age requirements (you already have those)
+3. **Open Questions** — 0-3 questions max
+${getVariantOpenQuestionBlock(variantType)}
 
 BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
+}
+
+function getVariantCitationBlock(variantType: string): string {
+  if (variantType === 'geographic') {
+    return `## CITATION REQUIREMENT
+Any claim using "must", "required", "illegal", or "penalty" needs a citation to a Tier-1 government or official regulatory source when possible.
+If you cannot cite it, mark it [NEEDS REVIEW].`;
+  }
+  if (variantType === 'company') {
+    return `## CITATION REQUIREMENT
+For internal "must" rules, cite the policy/SOP name or document ID when possible.
+If you cannot cite an internal source, mark it [NEEDS REVIEW] instead of inventing policy.`;
+  }
+  return `## CITATION REQUIREMENT
+For location-specific "must" rules, cite the store SOP, approved memo, or manager directive when possible.
+If you cannot cite a local source, mark it [NEEDS REVIEW] instead of inventing procedures.`;
+}
+
+function getVariantOpenQuestionBlock(variantType: string): string {
+  if (variantType === 'geographic') {
+    return `   ONLY: POS flow, escalation path, signage template, card-all policy, ID scanning (operational preferences)
+   NEVER: ask the user to supply state law — you handle regulatory research`;
+  }
+  if (variantType === 'company') {
+    return `   ONLY: internal policy names, brand terminology, escalation roles, tools/systems
+   NEVER: invent company policy — ask when truly unknown`;
+  }
+  return `   ONLY: local manager contacts, store layout/equipment, neighborhood or safety context
+   NEVER: invent store facts — ask when truly unknown`;
 }
 
 function getVariantTargetLabel(variantType: string, variantContext: any): string {
@@ -11987,9 +12132,15 @@ function getClarificationPrompt(variantType: string, variantContext: any, source
   // Derive audience from source content
   const audience = deriveAudienceFromContent(sourceContent);
   const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
+  const defaultClarifyActions =
+    variantType === 'geographic'
+      ? 'check id, verify age, refuse sale'
+      : variantType === 'company'
+        ? 'follow company policy, use approved terminology, escalate per SOP'
+        : 'follow store procedures, use local contacts, report issues per SOP';
   const learnerActionsStr = audience.learnerActions.length
     ? audience.learnerActions.join(', ')
-    : 'check id, verify age, refuse sale';
+    : defaultClarifyActions;
 
   switch (variantType) {
     case 'geographic':
@@ -15977,8 +16128,56 @@ async function handleAssignTags(req: Request): Promise<Response> {
 }
 
 // =============================================================================
-// ADDITIONAL VARIANT HANDLERS (STUBS)
+// ADDITIONAL VARIANT HANDLERS
 // =============================================================================
+
+/** Resolve org for variant endpoints: JWT first, then track.organization_id (demo / service role). */
+async function resolveOrgIdForTrack(req: Request, trackId: string): Promise<string | null> {
+  let orgId = await getOrgIdFromToken(req);
+  if (!orgId) {
+    const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", trackId).single();
+    orgId = t?.organization_id ?? null;
+  }
+  return orgId;
+}
+
+async function enrichDerivedTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
+  const rels = relationships || [];
+  const needsFallback = rels.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+  if (!needsFallback || rels.length === 0) return rels;
+  const trackIds = rels.map((r: any) => r.derived_track_id).filter(Boolean);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, title, type, thumbnail_url, status, updated_at")
+    .in("id", trackIds)
+    .eq("organization_id", orgId);
+  const trackMap = new Map((tracks || []).map((t: any) => [t.id, t]));
+  rels.forEach((rel: any) => {
+    if (rel.derived_track_id && !rel.derived_track) {
+      rel.derived_track = trackMap.get(rel.derived_track_id);
+    }
+  });
+  return rels;
+}
+
+async function enrichSourceTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
+  const rels = relationships || [];
+  const needsFallback = rels.some((rel: any) => !rel.source_track && rel.source_track_id);
+  if (!needsFallback || rels.length === 0) return rels;
+  const trackIds = rels.map((r: any) => r.source_track_id).filter(Boolean);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, title, type, thumbnail_url, status, updated_at")
+    .in("id", trackIds)
+    .eq("organization_id", orgId);
+  const trackMap = new Map((tracks || []).map((t: any) => [t.id, t]));
+  rels.forEach((rel: any) => {
+    if (rel.source_track_id && !rel.source_track) {
+      rel.source_track = trackMap.get(rel.source_track_id);
+    }
+  });
+  return rels;
+}
 
 async function handleCreateVariant(req: Request): Promise<Response> {
   try {
@@ -15989,7 +16188,15 @@ async function handleCreateVariant(req: Request): Promise<Response> {
       return jsonResponse({ error: "Missing required fields: sourceTrackId, derivedTrackId, variantType" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    let orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      const { data: t1 } = await supabase.from("tracks").select("organization_id").eq("id", sourceTrackId).single();
+      orgId = t1?.organization_id ?? null;
+      if (!orgId) {
+        const { data: t2 } = await supabase.from("tracks").select("organization_id").eq("id", derivedTrackId).single();
+        orgId = t2?.organization_id ?? null;
+      }
+    }
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
@@ -16020,43 +16227,576 @@ async function handleCreateVariant(req: Request): Promise<Response> {
 }
 
 async function handleGetVariants(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variants: [] });
+  try {
+    const trackId = path.replace(/^\/track-relationships\/variants\//, "").split("?")[0];
+    const url = new URL(req.url);
+    const variantTypeFilter = url.searchParams.get("type");
+
+    const orgId = await resolveOrgIdForTrack(req, trackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    let query = supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    if (variantTypeFilter) {
+      query = query.eq("variant_type", variantTypeFilter);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("handleGetVariants error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const enriched = await enrichDerivedTrackRelationships(orgId, data || []);
+    return jsonResponse({ variants: enriched });
+  } catch (error: any) {
+    console.error("handleGetVariants error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleFindVariant(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variant: null });
+  try {
+    const url = new URL(req.url);
+    const sourceTrackId = url.searchParams.get("sourceTrackId");
+    const variantType = url.searchParams.get("variantType");
+    const contextKey = url.searchParams.get("contextKey");
+    const contextValue = url.searchParams.get("contextValue");
+
+    if (!sourceTrackId || !variantType || !contextKey || contextValue === null) {
+      return jsonResponse({ error: "sourceTrackId, variantType, contextKey, and contextValue are required" }, 400);
+    }
+
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", sourceTrackId)
+      .eq("relationship_type", "variant")
+      .eq("variant_type", variantType);
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const rows = data || [];
+    const match = rows.find((rel: any) => {
+      const ctx = (rel.variant_context || {}) as Record<string, unknown>;
+      const v = ctx[contextKey];
+      return v !== undefined && String(v) === String(contextValue);
+    });
+
+    if (!match) {
+      return jsonResponse({ variant: null });
+    }
+
+    const [enriched] = await enrichDerivedTrackRelationships(orgId, [match]);
+    return jsonResponse({ variant: enriched || null });
+  } catch (error: any) {
+    console.error("handleFindVariant error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetBaseTrack(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ baseTrack: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/base/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        source_track:tracks!source_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", variantTrackId)
+      .eq("relationship_type", "variant")
+      .maybeSingle();
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    if (!data) {
+      return jsonResponse({ baseTrack: null });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [data]);
+    return jsonResponse({ baseTrack: enriched || null });
+  } catch (error: any) {
+    console.error("handleGetBaseTrack error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetStatsWithVariants(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ stats: {} });
+  try {
+    const trackId = path.replace("/track-relationships/stats-with-variants/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, trackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data: derivedData, error: derivedError } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        derived_track:tracks!derived_track_id(type)
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "source");
+
+    if (derivedError) {
+      return jsonResponse({ error: derivedError.message }, 500);
+    }
+
+    const relationships = derivedData || [];
+    const hasDerivedCheckpoints = relationships.some(
+      (rel: any) => rel.derived_track?.type === "checkpoint"
+    );
+
+    const { count: sourceCount, error: sourceError } = await supabase
+      .from("track_relationships")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", trackId);
+
+    if (sourceError) {
+      return jsonResponse({ error: sourceError.message }, 500);
+    }
+
+    const { data: variantRows, error: variantError } = await supabase
+      .from("track_relationships")
+      .select("variant_type")
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    if (variantError) {
+      return jsonResponse({ error: variantError.message }, 500);
+    }
+
+    const variants = { geographic: 0, company: 0, unit: 0 };
+    for (const row of variantRows || []) {
+      const vt = (row as any).variant_type as string | null;
+      if (vt === "geographic") variants.geographic++;
+      else if (vt === "company") variants.company++;
+      else if (vt === "unit") variants.unit++;
+    }
+
+    const { data: baseTrack } = await supabase
+      .from("tracks")
+      .select("updated_at")
+      .eq("id", trackId)
+      .eq("organization_id", orgId)
+      .single();
+
+    const baseUpdated = baseTrack?.updated_at ? new Date(baseTrack.updated_at).getTime() : 0;
+
+    let variantsNeedingReview = 0;
+    const { data: variantRels } = await supabase
+      .from("track_relationships")
+      .select("variant_context")
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    for (const rel of variantRels || []) {
+      const ctx = ((rel as any).variant_context || {}) as Record<string, unknown>;
+      const synced = ctx.base_synced_at ? new Date(String(ctx.base_synced_at)).getTime() : 0;
+      if (!ctx.base_synced_at || baseUpdated > synced) {
+        variantsNeedingReview++;
+      }
+    }
+
+    return jsonResponse({
+      stats: {
+        derivedCount: relationships.length,
+        sourceCount: sourceCount || 0,
+        hasDerivedCheckpoints,
+        variantCount: (variantRows || []).length,
+        variants,
+        variantsNeedingReview,
+      },
+    });
+  } catch (error: any) {
+    console.error("handleGetStatsWithVariants error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariantTree(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ tree: [] });
+  try {
+    const rootTrackId = path.replace("/track-relationships/variant-tree/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, rootTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const tree: any[] = [];
+    const visited = new Set<string>();
+    const queue: string[] = [rootTrackId];
+
+    while (queue.length > 0) {
+      const sourceId = queue.shift()!;
+      if (visited.has(sourceId)) continue;
+      visited.add(sourceId);
+
+      const { data, error } = await supabase
+        .from("track_relationships")
+        .select(`
+          id,
+          source_track_id,
+          derived_track_id,
+          relationship_type,
+          variant_type,
+          variant_context,
+          created_at,
+          derived_track:tracks!derived_track_id(
+            id,
+            title,
+            type,
+            thumbnail_url,
+            status,
+            updated_at
+          )
+        `)
+        .eq("organization_id", orgId)
+        .eq("source_track_id", sourceId)
+        .eq("relationship_type", "variant");
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+
+      const rels = data || [];
+      const enriched = await enrichDerivedTrackRelationships(orgId, rels);
+      for (const rel of enriched) {
+        tree.push(rel);
+        if (rel.derived_track_id && !visited.has(rel.derived_track_id)) {
+          queue.push(rel.derived_track_id);
+        }
+      }
+    }
+
+    return jsonResponse({ tree });
+  } catch (error: any) {
+    console.error("handleGetVariantTree error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetParentVariant(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ parent: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/parent/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        source_track:tracks!source_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", variantTrackId)
+      .eq("relationship_type", "variant")
+      .maybeSingle();
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    if (!data) {
+      return jsonResponse({ parentVariant: null });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [data]);
+    return jsonResponse({ parentVariant: enriched || null });
+  } catch (error: any) {
+    console.error("handleGetParentVariant error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariantsNeedingReview(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variants: [] });
+  try {
+    const baseTrackId = path.replace("/track-relationships/variants/needs-review/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, baseTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data: baseTrack } = await supabase
+      .from("tracks")
+      .select("updated_at")
+      .eq("id", baseTrackId)
+      .eq("organization_id", orgId)
+      .single();
+
+    const baseUpdated = baseTrack?.updated_at ? new Date(baseTrack.updated_at).getTime() : 0;
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", baseTrackId)
+      .eq("relationship_type", "variant");
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const rows = data || [];
+    const needing: any[] = [];
+    for (const rel of rows) {
+      const ctx = ((rel as any).variant_context || {}) as Record<string, unknown>;
+      const synced = ctx.base_synced_at ? new Date(String(ctx.base_synced_at)).getTime() : 0;
+      if (!ctx.base_synced_at || baseUpdated > synced) {
+        needing.push(rel);
+      }
+    }
+
+    const enriched = await enrichDerivedTrackRelationships(orgId, needing);
+    return jsonResponse({ variantsNeedingReview: enriched });
+  } catch (error: any) {
+    console.error("handleGetVariantsNeedingReview error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleMarkVariantSynced(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ success: true });
+  try {
+    const parts = path.split("/");
+    const idx = parts.indexOf("mark-synced");
+    const relationshipId = idx >= 0 ? parts[idx + 1] : "";
+    if (!relationshipId) {
+      return jsonResponse({ error: "Relationship ID is required" }, 400);
+    }
+
+    let orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      const { data: relOrg } = await supabase
+        .from("track_relationships")
+        .select("organization_id")
+        .eq("id", relationshipId)
+        .maybeSingle();
+      orgId = relOrg?.organization_id ?? null;
+    }
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("track_relationships")
+      .select("id, variant_context")
+      .eq("id", relationshipId)
+      .eq("organization_id", orgId)
+      .single();
+
+    if (fetchError || !existing) {
+      return jsonResponse({ error: "Relationship not found" }, 404);
+    }
+
+    const ctx = { ...((existing as any).variant_context as Record<string, unknown> || {}) };
+    ctx.base_synced_at = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from("track_relationships")
+      .update({ variant_context: ctx })
+      .eq("id", relationshipId)
+      .eq("organization_id", orgId);
+
+    if (updateError) {
+      return jsonResponse({ error: updateError.message }, 500);
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error("handleMarkVariantSynced error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetUltimateBaseTrack(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ baseTrack: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/ultimate-base/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    let currentId = variantTrackId;
+    let lastRel: any = null;
+    let depth = 0;
+    const maxDepth = 50;
+
+    while (depth < maxDepth) {
+      const { data, error } = await supabase
+        .from("track_relationships")
+        .select(`
+          id,
+          source_track_id,
+          derived_track_id,
+          relationship_type,
+          variant_type,
+          variant_context,
+          created_at,
+          source_track:tracks!source_track_id(
+            id,
+            title,
+            type,
+            thumbnail_url,
+            status,
+            updated_at
+          )
+        `)
+        .eq("organization_id", orgId)
+        .eq("derived_track_id", currentId)
+        .eq("relationship_type", "variant")
+        .maybeSingle();
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+      if (!data) {
+        break;
+      }
+
+      lastRel = data;
+      currentId = data.source_track_id;
+      depth++;
+    }
+
+    if (!lastRel) {
+      return jsonResponse({ baseTrack: null, depth: 0 });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [lastRel]);
+    return jsonResponse({ baseTrack: enriched || null, depth });
+  } catch (error: any) {
+    console.error("handleGetUltimateBaseTrack error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleBatchTrackRelationships(req: Request): Promise<Response> {
-  return jsonResponse({ relationships: [] });
+  try {
+    const body = await req.json().catch(() => ({}));
+    const relationships = (body as any).relationships;
+    if (!Array.isArray(relationships) || relationships.length === 0) {
+      return jsonResponse({ error: "relationships array is required" }, 400);
+    }
+
+    let orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      const first = relationships[0];
+      const tid = first?.sourceTrackId || first?.derivedTrackId;
+      if (tid) {
+        const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", tid).single();
+        orgId = t?.organization_id ?? null;
+      }
+    }
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const rows = relationships.map((r: any) => ({
+      organization_id: orgId,
+      source_track_id: r.sourceTrackId,
+      derived_track_id: r.derivedTrackId,
+      relationship_type: r.relationshipType || "source",
+      variant_type: r.variantType ?? null,
+      variant_context: r.variantContext ?? null,
+    }));
+
+    const { data, error } = await supabase.from("track_relationships").insert(rows).select();
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ relationships: data || [] });
+  } catch (error: any) {
+    console.error("handleBatchTrackRelationships error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleClassifySource(req: Request): Promise<Response> {

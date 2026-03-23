@@ -1,0 +1,71 @@
+---
+description: "Supabase migration best practices - idempotency and history repair"
+globs: "supabase/migrations/**/*.sql"
+alwaysApply: false
+---
+
+# Supabase migration best practices
+
+Use this when writing or modifying migrations in `supabase/migrations/` or when `supabase db push` fails.
+
+## 1. Idempotent policies and triggers
+
+**Rule:** For new migrations that add RLS policies or triggers, always use `DROP ... IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER`. That way re-runs and partial applies (e.g. after a failed push or when the object already exists on remote) do not fail.
+
+### Policies
+
+```sql
+DROP POLICY IF EXISTS "Policy name" ON table_name;
+CREATE POLICY "Policy name"
+  ON table_name FOR SELECT
+  USING (...);
+```
+
+### Triggers
+
+```sql
+DROP TRIGGER IF EXISTS trigger_name ON table_name;
+CREATE TRIGGER trigger_name
+  BEFORE UPDATE ON table_name
+  FOR EACH ROW
+  EXECUTE FUNCTION some_function();
+```
+
+### Why
+
+- Migrations may be applied more than once (retry after partial failure, or remote already has the object from dashboard/another branch).
+- Plain `CREATE POLICY` / `CREATE TRIGGER` then errors with "already exists".
+- `DROP ... IF EXISTS` then `CREATE` makes the migration safe to re-run.
+
+## 2. "Local migration files to be inserted before" (history repair)
+
+**Symptom:** `supabase db push` fails with a message like:
+
+```text
+Found local migration files to be inserted before the last migration on remote database.
+Rerun the command with --include-all flag to apply these migrations:
+supabase/migrations/20250101000000_initial_schema.sql
+supabase/migrations/20250109_add_source_files.sql
+```
+
+**Cause:** The remote database’s migration history is missing one or more entries that exist locally (e.g. remote was set up without those files, or history was applied in a different order).
+
+**Fix (when the remote already has that schema):** Mark the missing migrations as applied **without** running their SQL:
+
+```bash
+supabase migration repair <version> --status applied
+```
+
+- `<version>` is the migration name without `.sql`, e.g. `20250101000000` or `20250109`.
+- Run once per missing migration (oldest first if multiple).
+- Then run `supabase db push` again.
+
+**When to use:** Only when you are sure the remote database already contains the schema/objects from that migration (e.g. it was applied manually or via another path). Do **not** use `--status applied` for a migration whose SQL has never been applied on the remote; that would record it as applied while leaving the schema unchanged.
+
+**Check status:** `supabase migration list` shows which migrations are applied locally vs on the remote.
+
+## 3. Reference in other docs
+
+- Cursor rules: `.cursor/rules/trike-backoffice.mdc` (Supabase migration best practices)
+- Project rules: `CLAUDE.md` (Migrations, Common Gotchas, Deployment)
+- Root: `README.md` (Supabase migrations section)

@@ -78,6 +78,16 @@ async function getAccessToken(): Promise<string> {
   return session.access_token;
 }
 
+/** Supabase Edge Function headers: bearer + apikey (required for reliable demo/no-session calls). */
+function edgeHeaders(accessToken: string, json = false): HeadersInit {
+  const h: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    apikey: publicAnonKey,
+  };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
 /**
  * Create a relationship between tracks
  */
@@ -90,10 +100,7 @@ export async function createTrackRelationship(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/create`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify({
       sourceTrackId,
       derivedTrackId,
@@ -125,9 +132,7 @@ export async function getDerivedTracks(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -158,9 +163,7 @@ export async function getSourceTrack(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -191,9 +194,7 @@ export async function getSourceTracks(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -218,9 +219,7 @@ export async function getTrackRelationshipStats(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/stats/${trackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -244,9 +243,7 @@ export async function deleteTrackRelationship(relationshipId: string): Promise<v
 
   const response = await fetch(`${getServerUrl()}/track-relationships/${relationshipId}`, {
     method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -272,10 +269,7 @@ export async function createVariantRelationship(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/create`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify({
       sourceTrackId,
       derivedTrackId,
@@ -308,9 +302,7 @@ export async function getTrackVariants(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -345,9 +337,7 @@ export async function findVariantByContext(
   });
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/find?${params}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -372,9 +362,7 @@ export async function getBaseTrackForVariant(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/base/${variantTrackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -399,9 +387,7 @@ export async function getTrackRelationshipStatsWithVariants(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/stats-with-variants/${trackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -426,9 +412,7 @@ export async function getVariantTree(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant-tree/${trackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -453,9 +437,7 @@ export async function getParentVariant(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/parent/${variantTrackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -480,9 +462,7 @@ export async function getVariantsNeedingReview(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variants/needs-review/${baseTrackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -508,9 +488,7 @@ export async function markVariantSynced(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/mark-synced/${relationshipId}`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -532,9 +510,7 @@ export async function getUltimateBaseTrack(
   const accessToken = await getAccessToken();
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/ultimate-base/${variantTrackId}`, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -606,10 +582,7 @@ export async function buildScopeContract(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/scope-contract`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify({
       sourceTrackId,
       variantType,
@@ -641,10 +614,7 @@ export async function freezeScopeContractRoles(
     `${getServerUrl()}/track-relationships/variant/scope-contract/${contractId}/freeze-roles`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken, true),
       body: JSON.stringify({
         primaryRole,
         secondaryRoles,
@@ -671,9 +641,7 @@ export async function getScopeContract(
   const response = await fetch(
     `${getServerUrl()}/track-relationships/variant/scope-contract/${contractId}`,
     {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken),
     }
   );
 
@@ -794,10 +762,7 @@ export async function buildResearchPlan(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/research-plan`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify(body),
   });
 
@@ -839,10 +804,7 @@ export async function retrieveEvidence(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/retrieve-evidence`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify(body),
   });
 
@@ -865,9 +827,7 @@ export async function getResearchPlan(
   const response = await fetch(
     `${getServerUrl()}/track-relationships/variant/research-plan/${planId}`,
     {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken),
     }
   );
 
@@ -889,10 +849,7 @@ export async function classifySourceTier(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/classify-source`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify({ url }),
   });
 
@@ -995,10 +952,7 @@ export async function extractKeyFacts(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/key-facts`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify(body),
   });
 
@@ -1021,9 +975,7 @@ export async function getKeyFactsExtraction(
   const response = await fetch(
     `${getServerUrl()}/track-relationships/variant/key-facts/${extractionId}`,
     {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken),
     }
   );
 
@@ -1050,10 +1002,7 @@ export async function updateKeyFactStatus(
     `${getServerUrl()}/track-relationships/variant/key-facts/${extractionId}/update-status`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken, true),
       body: JSON.stringify({
         factId,
         newStatus,
@@ -1097,9 +1046,7 @@ export async function getKeyFactsByState(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -1129,10 +1076,7 @@ export async function validateFact(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/validate-fact`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify({
       factText,
       scopeContract,
@@ -1256,10 +1200,7 @@ export async function generateDraft(
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/generate-draft`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken, true),
     body: JSON.stringify(input),
   });
 
@@ -1280,9 +1221,7 @@ export async function getDraft(draftId: string): Promise<VariantDraft> {
   const response = await fetch(
     `${getServerUrl()}/track-relationships/variant/draft/${draftId}`,
     {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken),
     }
   );
 
@@ -1306,10 +1245,7 @@ export async function applyInstructions(
     `${getServerUrl()}/track-relationships/variant/draft/${input.draftId}/apply-instructions`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken, true),
       body: JSON.stringify({
         instruction: input.instruction,
         contractId: input.contractId,
@@ -1340,10 +1276,7 @@ export async function updateDraftStatus(
     `${getServerUrl()}/track-relationships/variant/draft/${draftId}/status`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken, true),
       body: JSON.stringify({
         status,
         reviewedBy,
@@ -1379,10 +1312,7 @@ export async function publishDraft(
     `${getServerUrl()}/track-relationships/variant/draft/${draftId}/publish`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken, true),
       body: JSON.stringify(options || {}),
     }
   );
@@ -1410,9 +1340,7 @@ export async function getDraftsForTrack(
   }
 
   const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: edgeHeaders(accessToken),
   });
 
   if (!response.ok) {
@@ -1434,9 +1362,7 @@ export async function deleteDraft(draftId: string): Promise<void> {
     `${getServerUrl()}/track-relationships/variant/draft/${draftId}`,
     {
       method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+      headers: edgeHeaders(accessToken),
     }
   );
 

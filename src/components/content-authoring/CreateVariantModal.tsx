@@ -151,6 +151,7 @@ export function CreateVariantModal({
   const [selectedStore, setSelectedStore] = useState<string>('');
   const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [organizationName, setOrganizationName] = useState<string>('');
+  const [organizationId, setOrganizationId] = useState<string>('');
 
   // Generated title
   const [variantTitle, setVariantTitle] = useState<string>('');
@@ -275,6 +276,9 @@ export function CreateVariantModal({
         if (userProfile?.organizations) {
           setOrganizationName((userProfile.organizations as any).name || '');
         }
+        if (userProfile?.organization_id) {
+          setOrganizationId(userProfile.organization_id as string);
+        }
       }
     } catch (error) {
       console.error('Error loading organization:', error);
@@ -298,11 +302,10 @@ export function CreateVariantModal({
       }
 
       // 2. Create the new track as a draft with AI content
-      const newTrackData = {
+      const t = sourceTrackData.type;
+      const newTrackData: Record<string, unknown> = {
         title: generatedTitle,
         description: sourceTrackData.description,
-        transcript: sourceTrackData.type === 'video' ? sourceTrackData.transcript : null,
-        content_text: sourceTrackData.type !== 'video' ? generatedContent : null,
         type: sourceTrackData.type,
         status: 'draft',
         thumbnail_url: sourceTrackData.thumbnail_url,
@@ -314,17 +317,23 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
-        tags: sourceTrackData.tags || [], // Copy tags from source
+        tags: sourceTrackData.tags || [],
       };
 
-      // If it's a video, we might want to update the transcript instead of content_text
-      if (sourceTrackData.type === 'video') {
+      if (t === 'article') {
         newTrackData.transcript = generatedContent;
+        newTrackData.content_text = sourceTrackData.content_text ?? null;
+      } else if (t === 'video') {
+        newTrackData.transcript = generatedContent;
+        newTrackData.content_text = sourceTrackData.content_text ?? null;
+      } else {
+        newTrackData.content_text = generatedContent;
+        newTrackData.transcript = sourceTrackData.transcript ?? null;
       }
 
       const { data: newTrack, error: createError } = await supabase
         .from('tracks')
-        .insert(newTrackData)
+        .insert(newTrackData as any)
         .select()
         .single();
 
@@ -336,7 +345,6 @@ export function CreateVariantModal({
       if (sourceTrackData.tags && sourceTrackData.tags.length > 0) {
         try {
           await tagsCrud.assignTrackTagsByName(newTrack.id, sourceTrackData.tags, false);
-          console.log(`🏷️ Synced ${sourceTrackData.tags.length} tags to track_tags junction for variant`);
         } catch (tagError) {
           console.warn('Failed to sync tags to junction table:', tagError);
         }
@@ -378,6 +386,7 @@ export function CreateVariantModal({
         break;
       case 'company':
         variantContext.org_name = organizationName;
+        if (organizationId) variantContext.org_id = organizationId;
         break;
       case 'unit':
         const store = stores.find(s => s.id === selectedStore);
@@ -409,6 +418,7 @@ export function CreateVariantModal({
           break;
         case 'company':
           variantContext.org_name = organizationName;
+          if (organizationId) variantContext.org_id = organizationId;
           break;
         case 'unit':
           const store = stores.find(s => s.id === selectedStore);
@@ -433,6 +443,7 @@ export function CreateVariantModal({
         title: variantTitle,
         description: sourceTrackData.description,
         transcript: sourceTrackData.transcript,
+        content_text: sourceTrackData.content_text ?? null,
         type: sourceTrackData.type,
         status: 'draft',
         thumbnail_url: sourceTrackData.thumbnail_url,
@@ -444,7 +455,7 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
-        tags: sourceTrackData.tags || [], // Copy tags from source
+        tags: sourceTrackData.tags || [],
       };
 
       const { data: newTrack, error: createError } = await supabase
@@ -455,6 +466,14 @@ export function CreateVariantModal({
 
       if (createError || !newTrack) {
         throw new Error('Failed to create variant track');
+      }
+
+      if (sourceTrackData.tags && sourceTrackData.tags.length > 0) {
+        try {
+          await tagsCrud.assignTrackTagsByName(newTrack.id, sourceTrackData.tags, false);
+        } catch (tagError) {
+          console.warn('Failed to sync tags to junction table:', tagError);
+        }
       }
 
       // 3. Create the variant relationship
@@ -876,7 +895,8 @@ export function CreateVariantModal({
                       title: selectedTrack!.title,
                       type: selectedTrack!.type as any,
                       transcript: fullSourceTrack?.transcript,
-                      content: fullSourceTrack?.content_text || fullSourceTrack?.content,
+                      content_text: fullSourceTrack?.content_text,
+                      content: fullSourceTrack?.content,
                       thumbnail_url: selectedTrack!.thumbnail_url
                     }}
                     variantType={selectedVariantType!}

@@ -32,6 +32,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getTrackBodyForAdaptation } from '../../utils/variantTrackBody';
 
 import { RolePillsSelector } from './RolePillsSelector';
 import { ResearchPlanPreview } from './ResearchPlanPreview';
@@ -208,8 +209,12 @@ export function StateVariantWizard({
 
   // Get source content from track
   const getSourceContent = useCallback(() => {
-    if (sourceTrack.content_text) return sourceTrack.content_text;
-    if (sourceTrack.transcript) return sourceTrack.transcript;
+    const body = getTrackBodyForAdaptation({
+      type: sourceTrack.type,
+      transcript: sourceTrack.transcript,
+      content_text: sourceTrack.content_text,
+    });
+    if (body) return body;
     if (sourceTrack.description) return sourceTrack.description;
     return '';
   }, [sourceTrack]);

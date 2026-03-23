@@ -19,6 +19,7 @@ import { Card } from '../ui/card';
 import { toast } from 'sonner';
 import { getServerUrl, publicAnonKey } from '../../utils/supabase/info';
 import { getSupabaseClient } from '../../utils/supabase/client';
+import { getTrackBodyForAdaptation } from '../../utils/variantTrackBody';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -31,6 +32,7 @@ interface VariantGenerationChatProps {
     title: string;
     type: 'video' | 'article' | 'story' | 'checkpoint';
     transcript?: string;
+    content_text?: string;
     content?: string;
     thumbnail_url?: string;
   };
@@ -242,7 +244,8 @@ export function VariantGenerationChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({
           sourceTrackId: sourceTrack.id,
@@ -339,7 +342,8 @@ export function VariantGenerationChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({
           sourceTrackId: sourceTrack.id,
@@ -410,14 +414,14 @@ export function VariantGenerationChat({
             dangerouslySetInnerHTML={{ __html: generatedData.generatedContent }}
           />
 
-          {generatedData.adaptations.length > 0 && (
+          {(generatedData.adaptations || []).length > 0 && (
             <div className="mt-8 pt-8 border-t">
               <h4 className="font-semibold mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-orange-500" />
                 Adaptation Summary
               </h4>
               <div className="space-y-4">
-                {generatedData.adaptations.map((a, i) => (
+                {(generatedData.adaptations || []).map((a, i) => (
                   <Card key={i} className="p-4 bg-muted border-border">
                     <h5 className="font-medium text-orange-600 dark:text-orange-400">{a.section}</h5>
                     <p className="text-sm mt-1 text-muted-foreground">{a.reason}</p>
@@ -497,7 +501,11 @@ export function VariantGenerationChat({
         <div className="bg-muted p-4 border-b border-border text-sm max-h-40 overflow-auto">
           <p className="font-semibold mb-1 text-foreground">Source Content ({sourceTrack.type}):</p>
           <p className="text-muted-foreground italic">
-            {sourceTrack.transcript || sourceTrack.content || "No source content available for preview."}
+            {getTrackBodyForAdaptation({
+              type: sourceTrack.type,
+              transcript: sourceTrack.transcript,
+              content_text: sourceTrack.content_text ?? sourceTrack.content,
+            }) || "No source content available for preview."}
           </p>
         </div>
       )}
