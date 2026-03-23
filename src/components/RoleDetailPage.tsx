@@ -77,11 +77,13 @@ import {
 } from './ui/alert-dialog';
 import { X } from 'lucide-react';
 
-const MAX_ONET_SEARCH_LEN = 1800;
+const MAX_ONET_SEARCH_LEN = 1200;
 
 /**
  * Combine role title + job description for O*NET trigram search so "Acme Corp Sales Associate Role"
  * still matches retail/sales occupations when the JD mentions sales floor, customers, etc.
+ * RPC weights st_short (first ~120 chars) heavily — repeat the cleaned title so role words dominate
+ * the window, and cap JD snippet so a long blob does not drown the title in similarity().
  */
 function buildOnetSearchTerm(roleName: string, jobDescription?: string | null): string {
   let base = (roleName || '').trim();
@@ -93,9 +95,9 @@ function buildOnetSearchTerm(roleName: string, jobDescription?: string | null): 
     .trim();
   const jd = (jobDescription || '').trim();
   if (jd.length > 0) {
-    const snippet = jd.slice(0, 700).replace(/\s+/g, ' ');
-    // Repeat title once so trigram scoring is not drowned by a long JD blob
-    const combined = `${base} ${base} ${snippet}`.trim();
+    const snippet = jd.slice(0, 360).replace(/\s+/g, ' ');
+    // Triple title so st_short/st_probe skew to role name (not first 80 chars of JD noise)
+    const combined = `${base} ${base} ${base} ${snippet}`.trim();
     return combined.slice(0, MAX_ONET_SEARCH_LEN);
   }
   return base.slice(0, MAX_ONET_SEARCH_LEN);
