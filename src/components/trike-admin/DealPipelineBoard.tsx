@@ -117,7 +117,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 
 const DEAL_TYPE_OPTIONS: { value: DealType | 'all'; label: string }[] = [
   { value: 'all', label: 'All Types' },
-  { value: 'new', label: 'New Business' },
+  { value: 'new', label: 'New Demo' },
   { value: 'upsell', label: 'Upsell' },
   { value: 'renewal', label: 'Renewal' },
   { value: 'expansion', label: 'Expansion' },
@@ -423,9 +423,9 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold">Pipeline Board</h1>
+            <h1 className="text-2xl font-bold">Demo Board</h1>
             <p className="text-sm text-muted-foreground">
-              Drag deals between stages or click to view details
+              Drag demos between stages or click to view details
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -574,7 +574,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
               }}
             >
               <Plus className="h-4 w-4 mr-2" />
-              New Deal
+              New Demo
             </Button>
           </div>
         </div>
@@ -583,7 +583,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search deals or organizations..."
+            placeholder="Search demos or organizations..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -768,7 +768,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
 
                         {!loading && deals.length === 0 && (
                           <div className="p-4 text-center text-sm text-muted-foreground">
-                            No deals in this stage
+                            No demos in this stage
                           </div>
                         )}
                       </div>
@@ -788,7 +788,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
                       }}
                     >
                       <Plus className="h-4 w-4 mr-2" />
-                      Add deal
+                      Add demo
                     </Button>
                   </div>
                 </div>
@@ -820,7 +820,7 @@ export function DealPipelineBoard({ onViewJourney }: DealPipelineBoardProps) {
               return (
                 <>
                   <div>
-                    <span className="text-muted-foreground">Total Deals:</span>{' '}
+                    <span className="text-muted-foreground">Total Demos:</span>{' '}
                     <span className="font-semibold">{activeDeals.length}</span>
                   </div>
                   <div>

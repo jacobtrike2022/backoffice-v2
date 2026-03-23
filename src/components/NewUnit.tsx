@@ -8,7 +8,7 @@ import { ArrowLeft, Upload, X, Plus } from 'lucide-react';
 import { createStore, updateStore } from '../lib/crud/stores';
 import { addUnitTags, getUnitTags } from '../lib/crud/unitTags';
 import { uploadStorePhoto } from '../lib/storage/uploadStorePhoto';
-import { useDistricts, useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useDistricts, useUsers, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { TagSelectorDialog } from './TagSelectorDialog';
 import { DistrictSelector } from './DistrictSelector';
 import { SimpleAddressForm } from './SimpleAddressForm';
@@ -82,7 +82,8 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
   // Fetch data
   const { user: currentUser } = useCurrentUser();
-  const { districts, loading: districtsLoading, error: districtsError, refetch: refetchDistricts } = useDistricts(currentUser?.organization_id);
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
+  const { districts, loading: districtsLoading, error: districtsError, refetch: refetchDistricts } = useDistricts(effectiveOrgId ?? undefined);
   const { users } = useUsers();
 
   // Pre-fill form if in edit mode
@@ -198,7 +199,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
   };
 
   const handleSave = async () => {
-    if (!currentUser?.organization_id) {
+    if (!effectiveOrgId) {
       toast.error('Organization context required');
       return;
     }

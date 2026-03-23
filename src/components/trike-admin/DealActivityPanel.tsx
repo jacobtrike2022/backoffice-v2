@@ -195,7 +195,7 @@ export function DealActivityPanel({
       <SheetContent className="sm:max-w-lg flex flex-col p-0">
         <SheetHeader className="px-6 pt-6 pb-4">
           <SheetTitle className="text-lg">
-            {deal?.name || 'Deal Activity'}
+            {deal?.name || 'Demo Activity'}
           </SheetTitle>
           <SheetDescription>
             {deal?.organization?.name

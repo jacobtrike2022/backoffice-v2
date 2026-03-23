@@ -24,7 +24,7 @@ END $$;
 -- Update existing industries with codes if they don't have them
 UPDATE industries SET code = LOWER(REPLACE(name, ' ', '_')) WHERE code IS NULL;
 
--- Seed core industries (using ON CONFLICT on name since code might be null for existing rows)
+-- Seed core industries (using ON CONFLICT on code)
 INSERT INTO industries (name, code, description, sort_order) VALUES
   ('Convenience Stores', 'cstore', 'Gas stations, convenience stores, travel centers', 1),
   ('Quick Service Restaurants', 'qsr', 'Fast food, fast casual dining', 2),

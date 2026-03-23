@@ -25,7 +25,6 @@ import {
   ChevronLeft,
   ArrowUpDown,
   CheckCircle2,
-  Lock,
   Edit,
   Save,
   Trash2,
@@ -76,21 +75,20 @@ import {
 } from './ui/dialog';
 import { AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
 import { CreateVariantModal } from './content-authoring/CreateVariantModal';
-
-// Default thumbnail from public folder
-const defaultThumbnail = '/default-thumbnail.png';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   isSuperAdminAuthenticated?: boolean;
-  initialTrackId?: string; // Track ID to open on mount
+  initialTrackId?: string;
   onNavigateToPlaylist?: (playlistId: string) => void;
-  onNavigateToAlbum?: (albumId: string) => void;  // NEW
-  onNavigateToPlaylistsTab?: () => void;  // Navigate to playlists tab (no specific playlist)
-  onNavigateToAlbumsTab?: () => void;     // Navigate to albums tab (no specific album)
-  onBackToLibrary?: () => void; // Callback to notify parent when returning to library
-  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
-  onNavigate?: (view: string, trackId?: string) => void; // Navigation callback for creating/editing content
+  onNavigateToAlbum?: (albumId: string) => void;
+  onNavigateToPlaylistsTab?: () => void;
+  onNavigateToAlbumsTab?: () => void;
+  onBackToLibrary?: () => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void;
+  onNavigate?: (view: string, trackId?: string) => void;
+  isProspectOrg?: boolean;
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -109,9 +107,9 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
-  const isPreviewMode = new URLSearchParams(window.location.search).get('preview') === 'true';
+  const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -203,9 +201,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
-    status: statusFilter, // Use dynamic status filter
+    status: statusFilter,
     type: selectedType !== 'all' ? selectedType as any : undefined,
-    search: searchQuery || undefined
+    search: searchQuery || undefined,
   });
 
   // Debug logging (disabled for performance - enable only when needed)
@@ -737,15 +735,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     });
   }, [tracks, sortBy]);
 
-  // Memoize filtered tracks with Set-based lookups for O(1) performance
+  // Memoize filtered tracks: apply search (title, description, transcript/content, tags) then playlist/album filter
   const filteredTracks = useMemo(() => {
-    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterPlaylistTracksSet.has(track.id));
-    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterAlbumTracksSet.has(track.id));
+    let result = sortedTracks;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (track) =>
+          (track.title || '').toLowerCase().includes(q) ||
+          (track.description || '').toLowerCase().includes(q) ||
+          (track.transcript || '').toLowerCase().includes(q) ||
+          (track.content_text || '').toLowerCase().includes(q) ||
+          ((track.tags || []) as string[]).some((tag: string) => tag.toLowerCase().includes(q))
+      );
     }
-    return sortedTracks;
-  }, [sortedTracks, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
+    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
+      result = result.filter((track) => filterPlaylistTracksSet.has(track.id));
+    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
+      result = result.filter((track) => filterAlbumTracksSet.has(track.id));
+    }
+    return result;
+  }, [sortedTracks, searchQuery, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
 
   const trackIds = useMemo(() => filteredTracks.map(t => t.id), [filteredTracks]);
   const { counts: aiSuggestionCounts } = useAITagSuggestionsCount(trackIds);
@@ -1009,6 +1019,33 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Create Variant Modal - must be in track detail view for ... menu */}
+        <CreateVariantModal
+          isOpen={createVariantModal.open}
+          onClose={() => setCreateVariantModal({ open: false, track: null })}
+          sourceTrack={createVariantModal.track ? {
+            id: createVariantModal.track.id,
+            title: createVariantModal.track.title,
+            type: createVariantModal.track.type,
+            thumbnail_url: createVariantModal.track.thumbnail_url
+          } : undefined}
+          onVariantCreated={(newTrackId) => {
+            setCreateVariantModal({ open: false, track: null });
+            if (onNavigate) {
+              toast.success('Variant created! Opening editor...');
+              onNavigate('authoring', newTrackId);
+            } else {
+              refetch().then(() => {
+                const newTrack = tracks.find((t: any) => t.id === newTrackId);
+                if (newTrack) {
+                  setSelectedTrack(newTrack);
+                }
+              });
+              toast.success('Variant created successfully');
+            }
+          }}
+        />
       </>
     );
   }
@@ -1068,7 +1105,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search tracks by title, description, or tags..."
+                placeholder="Search by title, content, description, or tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1281,21 +1318,26 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-muted overflow-hidden">
                   <img
-                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                     alt={track.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      if (target.src !== defaultThumbnail) {
-                        target.src = defaultThumbnail;
+                      if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                        target.src = DEFAULT_THUMBNAIL_URL;
                       }
                     }}
                   />
-                  <div className="absolute top-2 right-2">
+                  <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
                     <Badge className={getTypeBadgeColor(track.type)}>
                       {getTypeIcon(track.type)}
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
+                    {track.scope?.scope_level && (
+                      <Badge variant="outline" className="text-xs bg-background/80">
+                        {track.scope.state_name ?? track.scope.industry_name ?? track.scope.company_name ?? track.scope.program_name ?? track.scope.unit_name ?? track.scope.sector ?? track.scope.scope_level}
+                      </Badge>
+                    )}
                   </div>
                   {/* AI Suggestions Badge */}
                   {aiSuggestionCounts[track.id] > 0 && (
@@ -1459,11 +1501,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           V{track.version_number}
                         </Badge>
                       )}
-                      {track.is_system_content && (
-                        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
-                          <Lock className="h-3 w-3" />
-                        </Badge>
-                      )}
                     </div>
                   </div>
                   {/* Stats */}
@@ -1578,13 +1615,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   {/* Thumbnail */}
                   <div className="w-48 h-28 flex-shrink-0 bg-muted rounded overflow-hidden">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt={track.title}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        if (target.src !== defaultThumbnail) {
-                          target.src = defaultThumbnail;
+                        if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                          target.src = DEFAULT_THUMBNAIL_URL;
                         }
                       }}
                     />
@@ -1598,12 +1635,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         {track.version_number && track.version_number > 1 && (
                           <Badge variant="outline" className="text-xs">
                             V{track.version_number}
-                          </Badge>
-                        )}
-                        {track.is_system_content && (
-                          <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
-                            <Lock className="h-3 w-3 mr-1" />
-                            Trike Library
                           </Badge>
                         )}
                       </div>

@@ -313,7 +313,9 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
                 </div>
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-muted-foreground">State:</span>
-                  <span>{assignment.requirement.state_code}</span>
+                  <Badge variant="outline" className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 text-xs font-medium">
+                    {assignment.requirement.state_code}
+                  </Badge>
                 </div>
                 {assignment.due_date && (
                   <div className="flex items-center justify-between mt-2">
@@ -721,9 +723,11 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                     <TableCell>
                       <div>
                         <p className="font-medium">{assignment.requirement?.requirement_name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {assignment.requirement?.state_code}
-                          {assignment.requirement?.topic?.name && ` • ${assignment.requirement.topic.name}`}
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Badge variant="outline" className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 text-[10px] font-medium px-1.5 py-0">
+                            {assignment.requirement?.state_code}
+                          </Badge>
+                          {assignment.requirement?.topic?.name && `• ${assignment.requirement.topic.name}`}
                         </p>
                       </div>
                     </TableCell>

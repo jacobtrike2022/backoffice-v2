@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 import { TrendingUp, TrendingDown, Minus, Users, CheckCircle, AlertTriangle, Building, Target, Activity } from 'lucide-react';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { getOrganizationStats, getOrganizationStatsTrends } from '../lib/crud';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -57,17 +57,17 @@ const getTrendColor = (type: 'increase' | 'decrease' | 'neutral', status?: 'good
 };
 
 export function HeroMetrics({ currentRole }: HeroMetricsProps) {
-  const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [metrics, setMetrics] = useState<HeroMetric[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchMetrics() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       try {
-        const stats = await getOrganizationStats(user.organization_id);
-        const trends = await getOrganizationStatsTrends(user.organization_id, 30);
+        const stats = await getOrganizationStats(effectiveOrgId);
+        const trends = await getOrganizationStatsTrends(effectiveOrgId, 30);
 
         // Calculate trend percentages
         const employeeTrend = trends.newEmployees > 0 ? Math.round((trends.newEmployees / stats.employeeCount) * 100) : 0;
@@ -87,7 +87,7 @@ export function HeroMetrics({ currentRole }: HeroMetricsProps) {
     }
 
     fetchMetrics();
-  }, [user?.organization_id, currentRole]);
+  }, [effectiveOrgId, currentRole]);
 
   const getMetricsForRole = (
     role: UserRole, 

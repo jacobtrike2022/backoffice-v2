@@ -20,7 +20,7 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
 import { NewUnit } from './NewUnit';
-import { useStores, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useStores, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -70,15 +70,14 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [selectedPerformance, setSelectedPerformance] = useState<string[]>([]);
 
-  // Fetch current user to get their organization/district/store
+  // Fetch current user and effective org (respects Super Admin preview-as-org)
   const { user, loading: userLoading } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   
-  console.log('🏪 Units - User data:', { user, userLoading });
-  
-  // Fetch stores from Supabase
+  // Fetch stores for the effective org (so previewing Jiffy Trip shows Jiffy Trip's stores, not trike.co's)
   const { stores: rawStores, loading: storesLoading, error: storesError } = useStores(
-    user?.organization_id ? {
-      organization_id: user.organization_id,
+    effectiveOrgId ? {
+      organization_id: effectiveOrgId,
       is_active: true
     } : undefined
   );

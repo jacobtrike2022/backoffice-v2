@@ -6,14 +6,15 @@
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile, supabaseAnonKey } from '../supabase';
 import { getServerUrl } from '../../utils/supabase/info';
 
-// Helper to get auth headers for API calls
+// Helper to get auth headers for API calls (uses anon key in demo when no session)
 async function getAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('User not authenticated');
+  const token = session?.access_token || supabaseAnonKey;
+  if (!token) throw new Error('User not authenticated');
 
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.access_token}`,
+    'Authorization': `Bearer ${token}`,
     'apikey': supabaseAnonKey,
   };
 }

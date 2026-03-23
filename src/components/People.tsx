@@ -32,7 +32,7 @@ import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
 import { EditPeopleDialog } from './EditPeopleDialog';
-import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
+import { useUsers, useCurrentUser, useRoles, useStores, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 import { Edit } from 'lucide-react';
@@ -69,12 +69,13 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     hire_date: new Date().toISOString().split('T')[0]
   });
 
-  // Get current user for organization context
+  // Get current user and effective org (respects demo_org_id and Super Admin preview)
   const { user: currentUser } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
-  // Fetch roles and stores for dropdowns
-  const { roles } = useRoles(currentUser?.organization_id);
-  const { stores } = useStores({ organization_id: currentUser?.organization_id });
+  // Fetch roles and stores for the effective org
+  const { roles } = useRoles(effectiveOrgId ?? undefined);
+  const { stores } = useStores(effectiveOrgId ? { organization_id: effectiveOrgId } : undefined);
 
   // Fetch users from Supabase
   // For Trike Super Admin, don't filter by status unless explicitly selected
@@ -150,7 +151,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   };
 
   const handleCreateUser = async () => {
-    if (!currentUser?.organization_id) {
+    if (!effectiveOrgId) {
       toast.error('Organization context required');
       return;
     }
@@ -164,7 +165,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     try {
       const result = await crud.createUser({
         ...newUser,
-        organization_id: currentUser.organization_id
+        organization_id: effectiveOrgId
       });
       
       toast.success(`User created! Invite link: ${result.inviteUrl}`);

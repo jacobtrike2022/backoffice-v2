@@ -145,12 +145,12 @@ export function ExtractedEntityProcessor({
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+      const authToken = session?.access_token || supabaseAnonKey;
 
       const serverUrl = getServerUrl();
       const response = await fetch(`${serverUrl}/extracted-entity/${entityId}`, {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${authToken}`,
           'apikey': supabaseAnonKey,
         },
       });
@@ -252,44 +252,41 @@ export function ExtractedEntityProcessor({
 
       const newRole = await rolesApi.create(roleInput);
 
-      // Update the entity to link it to the new role
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        await supabase
-          .from('extracted_entities')
-          .update({
-            linked_entity_type: 'roles',
-            linked_entity_id: newRole.id,
-            linked_at: new Date().toISOString(),
-            entity_status: 'completed',
-            link_action: 'created',
-          })
-          .eq('id', entityId);
+      // Update the entity to link it to the new role (works in demo via anon RLS)
+      await supabase
+        .from('extracted_entities')
+        .update({
+          linked_entity_type: 'roles',
+          linked_entity_id: newRole.id,
+          linked_at: new Date().toISOString(),
+          entity_status: 'completed',
+          link_action: 'created'
+        })
+        .eq('id', entityId);
 
-        // Also update the role with source lineage AND extracted JD data
-        await supabase
-          .from('roles')
-          .update({
-            source_entity_id: entityId,
-            source_file_id: entityDetails?.source_file_id,
-            source_chunk_id: entityDetails?.source_chunk_id,
-            // Store the raw extracted data for future enrichment workflows
-            extracted_jd_data: {
-              role_name: editedData.role_name,
-              department: editedData.department,
-              job_family: editedData.job_family,
-              is_manager: editedData.is_manager,
-              is_frontline: editedData.is_frontline,
-              permission_level: editedData.permission_level,
-              responsibilities: editedData.responsibilities,
-              skills: editedData.skills,
-              knowledge: editedData.knowledge,
-              onet_search_keywords: editedData.onet_search_keywords,
-              job_description: editedData.job_description,
-            },
-          })
-          .eq('id', newRole.id);
-      }
+      // Also update the role with source lineage AND extracted JD data
+      await supabase
+        .from('roles')
+        .update({
+          source_entity_id: entityId,
+          source_file_id: entityDetails?.source_file_id,
+          source_chunk_id: entityDetails?.source_chunk_id,
+          // Store the raw extracted data for future enrichment workflows
+          extracted_jd_data: {
+            role_name: editedData.role_name,
+            department: editedData.department,
+            job_family: editedData.job_family,
+            is_manager: editedData.is_manager,
+            is_frontline: editedData.is_frontline,
+            permission_level: editedData.permission_level,
+            responsibilities: editedData.responsibilities,
+            skills: editedData.skills,
+            knowledge: editedData.knowledge,
+            onet_search_keywords: editedData.onet_search_keywords,
+            job_description: editedData.job_description,
+          },
+        })
+        .eq('id', newRole.id);
 
       toast.success('Role created! Opening editor...', {
         description: `Complete the setup for ${newRole.name} by selecting an O*NET profile.`,

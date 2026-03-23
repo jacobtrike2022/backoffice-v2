@@ -7,6 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Switch } from '../ui/switch';
 import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';

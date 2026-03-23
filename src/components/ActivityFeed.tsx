@@ -10,7 +10,7 @@ import {
   Activity
 } from 'lucide-react';
 import { getRecentActivity } from '../lib/crud';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 
 interface ActivityFeedProps {
   currentRole: 'admin' | 'district-manager' | 'store-manager';
@@ -18,16 +18,16 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedProps) {
-  const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchActivities() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
       
       try {
-        const data = await getRecentActivity(user.organization_id, 10);
+        const data = await getRecentActivity(effectiveOrgId, 10);
         setActivities(data || []);
       } catch (error) {
         console.error('Error fetching activities:', error);
@@ -37,7 +37,7 @@ export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedPro
     }
 
     fetchActivities();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   const getJobTitleColor = (jobTitle: string) => {
     switch (jobTitle?.toLowerCase()) {

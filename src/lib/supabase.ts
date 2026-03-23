@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { getSupabaseClient } from '../utils/supabase/client';
-import { APP_CONFIG } from './config';
+import { APP_CONFIG, getDefaultOrgId } from './config';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 // Use singleton Supabase client to avoid multiple GoTrueClient instances
@@ -63,6 +63,18 @@ export async function refreshAuthSession() {
 export const supabaseUrl = `https://${projectId}.supabase.co`;
 export const supabaseAnonKey = publicAnonKey;
 
+// Session-level org override for Super Admin "preview as org" functionality.
+// When set, getCurrentUserOrgId() returns this instead of the user's actual org.
+let _viewingOrgOverride: string | null = null;
+
+export function setViewingOrgOverride(orgId: string | null) {
+  _viewingOrgOverride = orgId;
+}
+
+export function getViewingOrgOverride(): string | null {
+  return _viewingOrgOverride;
+}
+
 /**
  * Get current authenticated user's organization ID
  * 
@@ -75,6 +87,11 @@ export const supabaseAnonKey = publicAnonKey;
  * 3. Use JWT claims to embed org_id in auth token
  */
 export async function getCurrentUserOrgId(): Promise<string | null> {
+  // If a Super Admin has set a viewing override, use that
+  if (_viewingOrgOverride) {
+    return _viewingOrgOverride;
+  }
+
   // Get authenticated user first
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -84,58 +101,84 @@ export async function getCurrentUserOrgId(): Promise<string | null> {
     const demoOrgId = params.get('demo_org_id');
 
     if (demoOrgId) {
-      // SECURITY: In production, we'd verify the user has permission to access this org
-      // or that the org is in 'prospect' status.
-      // For the prototype, we allow the override if:
-      // 1. The user is not logged in (Prospect viewing a demo)
-      // 2. The user is a Super Admin (Admin testing the demo)
-
       if (!user) {
         return demoOrgId;
       }
 
-      // If logged in, we check if they are an admin
-      const profile = await getCurrentUserProfile();
-      const isSuperAdmin = profile?.role?.name === 'Trike Super Admin';
-
-      if (isSuperAdmin) {
+      const userOrgFromMetadata = user.user_metadata?.organization_id;
+      if (userOrgFromMetadata === demoOrgId) {
         return demoOrgId;
       }
 
-      // If they are a regular user, ignore the demo_org_id override for security
-      console.warn('Unauthorized demo_org_id override attempt ignored for non-admin user');
+      const profile = await getCurrentUserProfile();
+      const roleName = profile?.role?.name ?? '';
+      const isSuperAdmin = roleName === 'Trike Super Admin';
+      const canPreviewDemo =
+        isSuperAdmin ||
+        roleName === 'Admin' ||
+        roleName === 'District Manager' ||
+        roleName === 'Store Manager';
+
+      if (canPreviewDemo) {
+        return demoOrgId;
+      }
+
+      const { data: userRecord } = await supabase
+        .from('users')
+        .select('organization_id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (userRecord?.organization_id === demoOrgId) {
+        return demoOrgId;
+      }
+
+      console.warn('Unauthorized demo_org_id override attempt ignored for non-member user');
     }
   }
 
-  // Check if multi-tenancy is enabled
-  if (!APP_CONFIG.ENABLE_MULTI_TENANCY) {
-    // SINGLE-TENANT MODE: All users belong to the same organization
-    return APP_CONFIG.DEFAULT_ORG_ID;
+  // For authenticated users, always check their actual org first
+  if (user) {
+    const orgIdFromMetadata = user.user_metadata?.organization_id;
+    if (orgIdFromMetadata) return orgIdFromMetadata;
+
+    const { data } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('auth_user_id', user.id)
+      .single();
+
+    if (data?.organization_id) return data.organization_id;
   }
-  
-  // MULTI-TENANT MODE: Get organization from authenticated user
+
+  // Fallback: use default org (localhost → trike.co)
+  if (!APP_CONFIG.ENABLE_MULTI_TENANCY || APP_CONFIG.DEMO_MODE) {
+    return getDefaultOrgId();
+  }
+
+  return null;
+}
+
+/**
+ * Get the user's actual/home organization ID (ignores viewing override).
+ * Used to know what the Super Admin's "home" org is.
+ */
+export async function getUserHomeOrgId(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    // No authenticated user
-    if (APP_CONFIG.DEMO_MODE) {
-      // Demo mode: return default org
-      return APP_CONFIG.DEFAULT_ORG_ID;
-    }
-    // Production: require authentication
-    return null;
+    return APP_CONFIG.DEMO_MODE ? getDefaultOrgId() : null;
   }
 
-  // Option 1: Get from user metadata (set during signup)
   const orgIdFromMetadata = user.user_metadata?.organization_id;
   if (orgIdFromMetadata) return orgIdFromMetadata;
 
-  // Option 2: Query users table for organization_id
   const { data } = await supabase
     .from('users')
     .select('organization_id')
     .eq('auth_user_id', user.id)
     .single();
 
-  return data?.organization_id || null;
+  return data?.organization_id || getDefaultOrgId();
 }
 
 /**

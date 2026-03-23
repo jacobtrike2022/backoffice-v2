@@ -21,6 +21,7 @@ dist
 
 # Credentials (never commit)
 .cursor/credentials/
+.cursor/mcp.json
 
 # Logs
 *.log
@@ -28,3 +29,4 @@ npm-debug.log*
 
 # Git worktrees
 .worktrees/
+.vercel

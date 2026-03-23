@@ -14,6 +14,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { TrackScopeModal } from './content-authoring/TrackScopeModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { TTSPlayer } from './content/TTSPlayer';
 import {
@@ -43,7 +44,8 @@ import {
   MoreVertical,
   Copy,
   Archive,
-  GitBranch
+  GitBranch,
+  Shield
 } from 'lucide-react';
 import {
   Popover,
@@ -58,7 +60,7 @@ import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import defaultThumbnail from '../assets/default-thumbnail.jpg';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -104,6 +106,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   // Actions menu popover state
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track scope modal
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
 
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
@@ -319,7 +324,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           learning_objectives: facts,
           tags: tagNames,
           content_url: track.content_url || '',
-          thumbnail_url: (track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png') ? track.thumbnail_url : '',
+          thumbnail_url: getEffectiveThumbnailUrl(track.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (track.thumbnail_url || '') : '',
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
           show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
@@ -667,13 +672,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       await onUpdate();
       console.log('onUpdate complete, track should be refreshed');
 
-      // Auto-generate key facts if this is the first save and no facts exist
+      // Auto-generate key facts only when: no facts in DB AND none in form (first save, user didn't use bolt)
       try {
         const existingFacts = await factsCrud.getFactsForTrack(track.id);
         const hasContent = editFormData.article_body && editFormData.article_body.trim().length > 150;
+        const hasFactsInForm = (editFormData.learning_objectives?.length ?? 0) > 0;
         
-        // Check if no facts exist and there's content to extract from
-        if (existingFacts.length === 0 && hasContent) {
+        if (existingFacts.length === 0 && !hasFactsInForm && hasContent) {
           console.log('🤖 Auto-generating key facts for first save...');
           
           // Strip HTML from article body to get clean text
@@ -703,34 +708,26 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             
             if (response.ok) {
               const data = await response.json();
-              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
-              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
-              
-              // Reload facts to update the UI
-              const updatedFacts = await factsCrud.getFactsForTrack(track.id);
-              setEditFormData(prev => ({
-                ...prev,
-                learning_objectives: updatedFacts.map((f: any) => ({
-                  title: f.title,
-                  fact: f.content,
-                  content: f.content,
-                  type: f.type,
-                  steps: f.steps || [],
-                  contexts: [f.context?.specificity || 'universal'],
-                  _dbId: f.id,
-                  _extractedBy: f.extracted_by,
-                }))
-              }));
-              setOriginalFacts(updatedFacts.map((f: any) => ({
+              if (data.skipped) {
+                console.log('✅ Key facts already exist for this track (skipped duplicate generation)');
+              } else {
+                console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+                toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
+              }
+              const enriched = data.enriched || [];
+              const normalized = enriched.map((f: any) => ({
+                ...f,
                 title: f.title,
-                fact: f.content,
-                content: f.content,
+                fact: f.content ?? f.fact ?? f.title ?? '',
+                content: f.content ?? f.fact ?? f.title ?? '',
                 type: f.type,
                 steps: f.steps || [],
                 contexts: [f.context?.specificity || 'universal'],
                 _dbId: f.id,
                 _extractedBy: f.extracted_by,
-              })));
+              }));
+              setEditFormData(prev => ({ ...prev, learning_objectives: normalized }));
+              setOriginalFacts(normalized);
             } else {
               console.error('Failed to auto-generate key facts:', await response.json());
             }
@@ -775,7 +772,12 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   const handleUpdateLearningObjective = (index: number, value: string) => {
     const newObjectives = [...(editFormData.learning_objectives || [])];
-    newObjectives[index] = value;
+    const current = newObjectives[index];
+    if (typeof current === 'object' && current !== null && !Array.isArray(current)) {
+      newObjectives[index] = { ...current, fact: value, content: value };
+    } else {
+      newObjectives[index] = value;
+    }
     setEditFormData({
       ...editFormData,
       learning_objectives: newObjectives
@@ -885,10 +887,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         const updatedFacts = shouldReplace 
@@ -950,10 +953,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         setEditFormData({
@@ -1719,9 +1723,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       }
                     }
                     
-                    // Check if this is an enriched KeyFact object
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'fact' in parsed;
-                    const displayValue = isEnriched ? parsed.fact : parsed;
+                    // Check if this is an enriched KeyFact object (API returns content/title; loaded facts have fact)
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('fact' in parsed || 'content' in parsed || 'title' in parsed);
+                    const displayValue = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     const isProcedure = isEnriched && parsed.type === 'Procedure';
                     
                     return (
@@ -1773,9 +1779,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     }
                     
                     // Check if this is an enriched KeyFact object with type and steps
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('type' in parsed || 'content' in parsed);
                     const isProcedure = isEnriched && parsed.type === 'Procedure' && parsed.steps;
-                    const displayText = isEnriched ? parsed.fact : parsed;
+                    const displayText = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     
                     return (
                       <li key={index} className="flex items-start gap-3 text-sm">
@@ -1915,7 +1923,38 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               </CardContent>
             </Card>
           )}
-          
+
+          {/* Content scope */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Content scope
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {track.scope ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{track.scope.scope_level}</Badge>
+                  {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
+                  {track.scope.state_name && <Badge variant="outline">{track.scope.state_name}</Badge>}
+                  {track.scope.industry_name && <Badge variant="outline">{track.scope.industry_name}</Badge>}
+                  {track.scope.company_name && <Badge variant="outline">{track.scope.company_name}</Badge>}
+                  {track.scope.program_name && <Badge variant="outline">{track.scope.program_name}</Badge>}
+                  {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
+                {track.scope ? 'Edit scope' : 'Set scope'}
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Super Admin Settings */}
           {isSuperAdminAuthenticated && (
             <Card>
@@ -2023,7 +2062,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <ImageIcon className="h-4 w-4" />
                     Header Image
                   </label>
-                  {editFormData.thumbnail_url && editFormData.thumbnail_url !== '/default-thumbnail.png' ? (
+                  {editFormData.thumbnail_url && getEffectiveThumbnailUrl(editFormData.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
@@ -2046,7 +2085,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '/default-thumbnail.png' })}
+                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '' })}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -2056,7 +2095,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
-                          src={defaultThumbnail}
+                          src={DEFAULT_THUMBNAIL_URL}
                           alt="Default Header"
                           className="w-full h-full object-cover"
                         />
@@ -2112,7 +2151,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </label>
                   <div className="relative aspect-video rounded-lg overflow-hidden border">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt="Header"
                       className="w-full h-full object-cover"
                     />
@@ -2392,6 +2431,16 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+
+      <TrackScopeModal
+        isOpen={isScopeModalOpen}
+        onClose={() => setIsScopeModalOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
+        organizationId={track.organization_id}
+        allowAllOrgs={isSuperAdminAuthenticated}
+        onSaved={onUpdate}
       />
 
       {/* Unsaved Changes Dialog */}

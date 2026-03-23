@@ -88,6 +88,9 @@ SELECT
 
 ## Database Schema
 
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** Body content is stored in the **`transcript`** column (not only `content_text`). For previews, KB viewer, and publish validation, use **`transcript` first, then `content_text`** (e.g. `transcript || content_text || article_body`). For `type === 'article'`, treat `transcript` as the primary body field.
+
 ### Entity Relationship Overview
 
 ```

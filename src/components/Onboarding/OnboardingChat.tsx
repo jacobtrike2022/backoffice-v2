@@ -102,6 +102,7 @@ interface CollectedData {
   operating_states?: string[];
   stores?: any[];
   store_count?: number;
+  relay_run_id?: string;
   employee_count?: number;
   description?: string;
   contact_name?: string;
@@ -117,6 +118,7 @@ type OnboardingStep =
   | 'website'           // Enter website URL
   | 'scraping'          // Loading state while scraping
   | 'confirm'           // Confirm scraped company info
+  | 'company_name'      // Manual company name (when website lookup fails — matches Create Demo flow)
   | 'industry'          // Select industry
   | 'compliance_topics' // Select compliance topics (with industry defaults)
   | 'programs'          // Select programs/vendors (with industry defaults)
@@ -176,6 +178,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactRole, setContactRole] = useState('');
+  const [companyNameManual, setCompanyNameManual] = useState('');
+  const [websiteFailed, setWebsiteFailed] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -346,6 +350,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
         if (data.store_count && data.store_count > 0) {
           responseMsg += ` I found ${data.store_count} store locations.`;
+        } else if (data.relay_run_id) {
+          responseMsg += ` Location data is being fetched (2–3 min).`;
         }
 
         responseMsg += '\n\nDoes this look right?';
@@ -368,7 +374,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           timestamp: new Date(),
         },
       ]);
-      setCurrentStep('industry');
+      setWebsiteFailed(true);
+      setCurrentStep('company_name');
     } finally {
       setIsLoading(false);
     }
@@ -462,6 +469,15 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleNextStep = () => {
     switch (currentStep) {
+      case 'company_name':
+        setCollectedData((prev) => ({ ...prev, company_name: companyNameManual.trim() }));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', content: companyNameManual.trim(), timestamp: new Date() },
+          { role: 'assistant', content: "What industry are you in?", timestamp: new Date() },
+        ]);
+        setCurrentStep('industry');
+        break;
       case 'industry':
         setMessages((prev) => [
           ...prev,
@@ -517,6 +533,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleBackStep = () => {
     switch (currentStep) {
+      case 'company_name':
+        setCurrentStep('website');
+        break;
+      case 'industry':
+        if (websiteFailed) {
+          setCurrentStep('company_name');
+        }
+        break;
       case 'compliance_topics':
         setCurrentStep('industry');
         break;
@@ -650,6 +674,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const canProceed = () => {
     switch (currentStep) {
+      case 'company_name':
+        return !!companyNameManual.trim();
       case 'industry':
         return !!selectedIndustryId;
       case 'compliance_topics':
@@ -681,6 +707,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const currentStepIndex = steps.findIndex(s =>
     s.key === currentStep ||
     (currentStep === 'confirm' && s.key === 'website') ||
+    (currentStep === 'company_name' && s.key === 'website') ||
     (currentStep === 'scraping' && s.key === 'website') ||
     (currentStep === 'review' && s.key === 'contact') ||
     (currentStep === 'creating' && s.key === 'contact') ||
@@ -859,6 +886,12 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                     {collectedData.store_count} locations
                   </Badge>
                 )}
+                {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                  <Badge variant="outline" className="gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Location data fetching (2–3 min)
+                  </Badge>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -876,6 +909,38 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Looks good!
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Company Name (manual entry when website lookup fails — matches Create Demo flow) */}
+        {currentStep === 'company_name' && (
+          <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                What's your company name?
+              </CardTitle>
+              <CardDescription>We'll use this to set up your account.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                placeholder="e.g., Acme Convenience"
+                value={companyNameManual}
+                onChange={(e) => setCompanyNameManual(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && canProceed() && handleNextStep()}
+                className="text-base"
+              />
+              <div className="flex justify-between pt-2">
+                <Button variant="ghost" onClick={handleBackStep}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+                <Button onClick={handleNextStep} disabled={!canProceed()}>
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </CardContent>
@@ -911,7 +976,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </div>
 
               <div className="flex justify-between pt-2">
-                <Button variant="ghost" onClick={handleBackStep} disabled>
+                <Button variant="ghost" onClick={handleBackStep} disabled={!websiteFailed}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
                 </Button>
@@ -1099,8 +1164,16 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Location count - only show if we didn't find any */}
-              {(!collectedData.store_count || collectedData.store_count === 0) && (
+              {/* Location data being fetched via Relay */}
+              {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                  <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
+                  <span className="text-sm">Location data is being fetched (2–3 min)</span>
+                </div>
+              )}
+
+              {/* Location count - only show if we didn't find any and Relay isn't fetching */}
+              {(!collectedData.store_count || collectedData.store_count === 0) && !collectedData.relay_run_id && (
                 <div className="space-y-2">
                   <Label>How many locations do you have?</Label>
                   <Input
@@ -1430,7 +1503,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                       </a>
                     </Button>
                   ) : (
-                    <Button size="lg" onClick={() => window.location.href = '/'}>
+                    <Button size="lg" onClick={() => {
+                      const demoOrgId = createdAccount?.organization?.id;
+                      window.location.href = demoOrgId ? `/?demo_org_id=${demoOrgId}` : '/';
+                    }}>
                       <ArrowRight className="mr-2 h-4 w-4" />
                       Go to Login
                     </Button>

@@ -12,6 +12,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { TrackScopeModal } from './content-authoring/TrackScopeModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import {
   Play,
@@ -39,7 +40,8 @@ import {
   Copy,
   Archive,
   GitBranch,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Shield
 } from 'lucide-react';
 import {
   Popover,
@@ -47,6 +49,7 @@ import {
   PopoverTrigger,
 } from './ui/popover';
 import * as crud from '../lib/crud';
+import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import * as tagsCrud from '../lib/crud/tags';
@@ -98,6 +101,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   // Actions menu popover state
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track scope modal
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
 
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
@@ -1712,7 +1718,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       ref={videoRef}
                       controls
                       className="w-full h-full"
-                      poster={track.thumbnail_url || undefined}
+                      poster={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       src={track.content_url}
                       onTimeUpdate={handleVideoTimeUpdate}
                     >
@@ -1720,13 +1726,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     </video>
                   ) : (track.type === 'audio' || track.content_url.match(/\.(mp3|wav|ogg)$/i)) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
-                      {track.thumbnail_url && (
-                        <img 
-                          src={track.thumbnail_url} 
-                          alt={track.title}
-                          className="w-48 h-48 object-cover rounded-lg mb-4"
-                        />
-                      )}
+                      <img 
+                        src={getEffectiveThumbnailUrl(track.thumbnail_url)} 
+                        alt={track.title}
+                        className="w-48 h-48 object-cover rounded-lg mb-4"
+                      />
                       <audio
                         controls
                         className="w-full max-w-md"
@@ -1748,19 +1752,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 </div>
               ) : (
                 <div className="relative aspect-video bg-muted rounded-t-lg overflow-hidden">
-                  {track.thumbnail_url ? (
-                    <img 
-                      src={track.thumbnail_url} 
-                      alt={track.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
-                      <div className="text-primary opacity-40 scale-150">
-                        {getTypeIcon(track.type)}
-                      </div>
-                    </div>
-                  )}
+                  <img 
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)} 
+                    alt={track.title}
+                    className="w-full h-full object-cover"
+                  />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                     <Button size="lg" className="rounded-full h-16 w-16 hero-primary" disabled>
                       <Play className="h-8 w-8 text-white fill-white ml-1" />
@@ -2178,6 +2174,37 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             </Card>
           )}
           
+          {/* Content scope */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Content scope
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {track.scope ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{track.scope.scope_level}</Badge>
+                  {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
+                  {track.scope.state_name && <Badge variant="outline">{track.scope.state_name}</Badge>}
+                  {track.scope.industry_name && <Badge variant="outline">{track.scope.industry_name}</Badge>}
+                  {track.scope.company_name && <Badge variant="outline">{track.scope.company_name}</Badge>}
+                  {track.scope.program_name && <Badge variant="outline">{track.scope.program_name}</Badge>}
+                  {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
+                {track.scope ? 'Edit scope' : 'Set scope'}
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Super Admin Settings */}
           {isSuperAdminAuthenticated && (
             <Card>
@@ -2628,6 +2655,16 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       />
       
       {/* Unsaved Changes Dialog */}
+      <TrackScopeModal
+        isOpen={isScopeModalOpen}
+        onClose={() => setIsScopeModalOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
+        organizationId={track.organization_id}
+        allowAllOrgs={isSuperAdminAuthenticated}
+        onSaved={onUpdate}
+      />
+
       <UnsavedChangesDialog
         open={showUnsavedDialog}
         onOpenChange={setShowUnsavedDialog}

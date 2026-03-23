@@ -11,7 +11,7 @@ import {
   Building,
   Eye
 } from 'lucide-react';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { getDistricts, getStores } from '../lib/crud/stores';
 import { supabase } from '../lib/supabase';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -33,22 +33,22 @@ interface DistrictData {
 const COLORS = ['#F74A05', '#FF733C', '#10b981', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#06B6D4'];
 
 export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
-  const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [districts, setDistricts] = useState<DistrictData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchDistrictData() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
 
       try {
         setLoading(true);
         
         // Get all districts for the organization
-        const allDistricts = await getDistricts(user.organization_id);
+        const allDistricts = await getDistricts(effectiveOrgId);
         
         // Get all stores with their progress data
-        const allStores = await getStores({ organization_id: user.organization_id });
+        const allStores = await getStores({ organization_id: effectiveOrgId });
         
         // Calculate district-level metrics
         const districtMetrics = await Promise.all(
@@ -152,10 +152,10 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
       }
     }
 
-    if (user?.organization_id) {
+    if (effectiveOrgId) {
       fetchDistrictData();
     }
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {

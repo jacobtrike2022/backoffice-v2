@@ -121,6 +121,72 @@ USING (
 );
 ```
 
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** The main body content is stored in the **`transcript`** column (not only in `content_text`). Legacy and many current articles use `transcript` for the prose.
+- When displaying or validating article content (e.g. previews, KB viewer, publish checks), read body from **`transcript` first, then `content_text`**, e.g. `transcript || content_text || article_body`.
+- Videos use `transcript` for speech-to-text; stories use `transcript` for JSON slide data. For `type === 'article'`, treat `transcript` as the primary body field.
+
+## Supabase migration best practices (idempotency & history)
+
+When adding or editing migrations in `supabase/migrations/`:
+
+**1. Idempotent policies and triggers**  
+For new migrations that add RLS policies or triggers, use `DROP ... IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies do not fail (e.g. after a failed push or when the object already exists on remote).
+
+```sql
+DROP POLICY IF EXISTS "Policy name" ON table_name;
+CREATE POLICY "Policy name" ON table_name ...
+```
+
+```sql
+DROP TRIGGER IF EXISTS trigger_name ON table_name;
+CREATE TRIGGER trigger_name ...
+```
+
+**2. "Local migration files to be inserted before"**  
+If `supabase db push` reports that local migration files must be "inserted before" the last remote migration, the remote history is out of sync. **Only when the remote already has that schema** (e.g. it was applied manually or from another branch), repair history without re-running SQL:
+
+```bash
+supabase migration repair <version> --status applied
+```
+
+Use the migration version (filename without `.sql`, e.g. `20250101000000` or `20250109`). Then run `supabase db push` again. Do not use `--status applied` for a migration whose SQL has not been applied on the remote.
+
+See `.cursor/docs/README_MIGRATIONS.mdc` for more detail.
+
+## CRITICAL: Demo Mode - Edge Function Calls
+
+**While building demo mode**, there is no real Supabase auth session. The app uses a "demo admin user" from the database, but `supabase.auth.getSession()` returns null. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
+
+**ALWAYS** use the anon key as fallback when calling Edge Functions from the frontend:
+
+```typescript
+import { publicAnonKey } from '../../utils/supabase/info';
+// or: import { supabaseAnonKey } from '../lib/supabase';
+
+const { data: { session } } = await supabase.auth.getSession();
+const authToken = session?.access_token || publicAnonKey;
+
+const resp = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${authToken}`,
+    'apikey': publicAnonKey,
+  },
+  body: JSON.stringify(payload),
+});
+```
+
+**WRONG - Will 401 in demo mode:**
+```typescript
+'Authorization': `Bearer ${session?.access_token || ''}`,
+```
+
+**Reference implementations:** `src/lib/crud/brain.ts`, `CreateDemoModal.tsx`, `OrganizationsList.tsx` (handleAssignSeedPeopleToStores)
+
+See `docs/DEMO_MODE_DEVELOPMENT.md` for full details.
+
 ## CRITICAL: Radix UI Select Component Rules
 
 ### Empty String Values are FORBIDDEN
@@ -195,6 +261,9 @@ This token is used for:
 - Database operations via Supabase API
 
 ## Deployment Commands
+
+### Supabase database migrations
+Apply migrations: `npx supabase db push`. If you see "local migration files to be inserted before", use `supabase migration repair <version> --status applied` (only when remote already has that schema); see "Supabase migration best practices" above and `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ### Deploy Supabase Edge Functions
 After modifying any file in `supabase/functions/trike-server/`, deploy with:

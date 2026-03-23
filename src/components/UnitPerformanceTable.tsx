@@ -21,7 +21,7 @@ import {
   Users
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line } from 'recharts';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { getStorePerformanceData } from '../lib/crud/stores';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -105,18 +105,18 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [unitData, setUnitData] = useState<UnitData[]>([]);
 
-  const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
       
-      const data = await getStorePerformanceData(user.organization_id);
+      const data = await getStorePerformanceData(effectiveOrgId);
       setUnitData(data);
     };
 
     fetchData();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   if (currentRole === 'store-manager') {
     return null; // Store managers don't see unit comparisons

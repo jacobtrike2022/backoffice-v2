@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Line, BarChart, Bar } from 'recharts';
-import { useCurrentUser, useAssignments } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useAssignments, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { getActivityAnalytics, getRecentActivity } from '../lib/crud';
 import { getTopPerformingStores } from '../lib/crud/stores';
 import { calculateOrgMetrics } from '../lib/crud/progressCalculations';
@@ -51,6 +51,7 @@ interface DashboardProps {
 export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist, onNavigate }: DashboardProps) {
   const [activeView, setActiveView] = useState('overview');
   const { user, loading: userLoading } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const { assignments, loading: assignmentsLoading } = useAssignments(); // Shows 5 most recent active assignments with live learner counts
   const [activityTrendData, setActivityTrendData] = useState<any[]>([]);
   const [engagementData, setEngagementData] = useState<any[]>([]);
@@ -66,7 +67,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
 
   useEffect(() => {
     async function fetchDashboardData() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
       
       try {
         // Fetch activity analytics for the last 6 weeks
@@ -74,7 +75,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 42); // 6 weeks
 
-        const analytics = await getActivityAnalytics(user.organization_id, {
+        const analytics = await getActivityAnalytics(effectiveOrgId, {
           start: startDate.toISOString(),
           end: endDate.toISOString()
         });
@@ -94,13 +95,13 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
         setEngagementScore(score);
 
         // Fetch top performing units
-        const topUnits = await getTopPerformingStores(user.organization_id, 3);
+        const topUnits = await getTopPerformingStores(effectiveOrgId, 3);
         console.log('[Dashboard] Top performing units:', topUnits);
         setTopPerformers(topUnits);
 
         // Fetch org metrics
         try {
-          const metrics = await calculateOrgMetrics(user.organization_id);
+          const metrics = await calculateOrgMetrics(effectiveOrgId);
           setOrgMetrics(metrics);
         } catch (metricsError) {
           console.error('Error fetching org metrics:', metricsError);
@@ -121,10 +122,10 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
       }
     }
 
-    if (user?.organization_id) {
+    if (effectiveOrgId) {
       fetchDashboardData();
     }
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   const processWeeklyData = (dailyCounts: Record<string, number>) => {
     const weeks = [];

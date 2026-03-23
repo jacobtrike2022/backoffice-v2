@@ -228,16 +228,16 @@ export function RoleModal({
 
       const uploadedFile = uploadResult.file;
 
-      // Extract text from the document
+      // Extract text from the document (use anon key in demo when no session)
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+      const authToken = session?.access_token || supabaseAnonKey;
 
       const serverUrl = getServerUrl();
       const extractResponse = await fetch(`${serverUrl}/extract-source`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${authToken}`,
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({ source_file_id: uploadedFile.id }),
@@ -255,7 +255,7 @@ export function RoleModal({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${authToken}`,
           'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({ source_file_id: uploadedFile.id }),

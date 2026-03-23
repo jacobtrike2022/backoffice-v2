@@ -62,7 +62,7 @@ import {
 } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import * as crud from '../lib/crud';
 import * as albumsCrud from '../lib/crud/albums';
@@ -121,10 +121,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
 
   const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   useEffect(() => {
     fetchPlaylists();
-  }, [user?.organization_id, viewFilter]);
+  }, [effectiveOrgId, viewFilter]);
 
   // Function to fetch and set full playlist details
   const fetchAndSelectPlaylist = async (playlistId: string) => {
@@ -267,7 +268,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   }, [selectedPlaylist?.id, selectedPlaylist?.total_duration_minutes, selectedPlaylist?.totalDuration]);
 
   const fetchPlaylists = async () => {
-    if (!user?.organization_id) return;
+    if (!effectiveOrgId) return;
 
     try {
       setLoading(true);
@@ -370,7 +371,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   // Album action handlers
   const handleCreateAlbum = async () => {
     try {
-      const orgId = user?.organization_id;
+      const orgId = effectiveOrgId;
       if (!orgId) {
         toast.error('Organization not found');
         return;

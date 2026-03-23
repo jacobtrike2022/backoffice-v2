@@ -713,6 +713,11 @@ Deno.serve(async (req: Request) => {
       return await handleOnboardingOptions(req);
     }
 
+    // Relay.app location scraper callback (when playbook completes)
+    if (method === "POST" && path === "/relay/location-callback") {
+      return await handleRelayLocationCallback(req);
+    }
+
     // =========================================================================
     // EMAIL SYSTEM
     // =========================================================================
@@ -1073,6 +1078,36 @@ Deno.serve(async (req: Request) => {
       return await handleDemoProvision(req);
     }
 
+    // Unified demo creation: enrich + create org + provision in one call
+    if (method === "POST" && path === "/demo/create") {
+      return await handleDemoCreate(req);
+    }
+    // Transition prospect → onboarding: remove seed data, update status
+    if (method === "POST" && path === "/org/transition-to-onboarding") {
+      return await handleOrgTransitionToOnboarding(req);
+    }
+
+    // Admin: seed demo data for a single org (existing orgs that weren't provisioned with seed data)
+    if (method === "POST" && path === "/admin/seed-demo-org") {
+      return await handleAdminSeedDemoOrg(req);
+    }
+    // Admin: seed demo data for all orgs except Trike.co main org
+    if (method === "POST" && path === "/admin/seed-demo-org-all") {
+      return await handleAdminSeedDemoOrgAll(req);
+    }
+    // Admin: create seed stores for orgs where Relay was triggered but never returned (call by cron, e.g. every 10 min)
+    if (method === "POST" && path === "/admin/relay-fallback-seed") {
+      return await handleRelayFallbackSeed(req);
+    }
+    // Admin: assign seed people to first 5 stores (fixes orgs where Relay returned but people weren't assigned)
+    if (method === "POST" && path === "/admin/assign-seed-people-to-stores") {
+      return await handleAssignSeedPeopleToStores(req);
+    }
+    // Demo: create "CORE Playlist" for demo org (clone from Trike account or system tracks)
+    if (method === "POST" && path === "/demo/seed-playlist") {
+      return await handleDemoSeedPlaylist(req);
+    }
+
     // Stripe billing endpoints
     if (method === "POST" && path === "/billing/setup-intent") {
       return await handleBillingSetupIntent(req);
@@ -1201,6 +1236,10 @@ Deno.serve(async (req: Request) => {
         "POST /playbook/approve-track",
         "POST /playbook/publish",
         "POST /demo/provision",
+        "POST /admin/seed-demo-org",
+        "POST /admin/seed-demo-org-all",
+        "POST /admin/relay-fallback-seed",
+        "POST /admin/assign-seed-people-to-stores",
         "POST /billing/setup-intent",
         "POST /billing/webhook",
         "POST /contracts/send",
@@ -1258,6 +1297,37 @@ function cleanExtractedText(text: string): string {
     .join('\n')
     // Remove empty lines at start/end but preserve internal structure
     .trim();
+}
+
+/** True if buffer looks like a real PDF (starts with %PDF- after optional BOM/whitespace). */
+function isPdfMagicBytes(buf: Uint8Array): boolean {
+  let i = 0;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    i = 3;
+  }
+  while (
+    i < buf.length &&
+    (buf[i] === 0x20 || buf[i] === 0x09 || buf[i] === 0x0a || buf[i] === 0x0d)
+  ) {
+    i++;
+  }
+  const sig = [0x25, 0x50, 0x44, 0x46]; // %PDF
+  if (i + sig.length > buf.length) return false;
+  for (let j = 0; j < sig.length; j++) {
+    if (buf[i + j] !== sig[j]) return false;
+  }
+  return true;
+}
+
+/** DOCX is a ZIP file (PK\x03\x04). */
+function isDocxMagicBytes(buf: Uint8Array): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
 }
 
 // =============================================================================
@@ -1369,9 +1439,32 @@ async function handleExtractSource(req: Request): Promise<Response> {
         console.log('[extract-source] Extracting text from PDF...');
         extractionMethod = 'pdf-parse';
 
-        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
         const arrayBuffer = await fileData.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isPdfMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid PDF (wrong format or corrupt). It may be HTML or another file renamed to .pdf. Export with Print → Save as PDF, or upload a real PDF.";
+          console.error('[extract-source] Invalid PDF magic bytes (not %PDF-)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_PDF",
+            },
+            400,
+          );
+        }
+
+        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
         const pdfData = await pdfParse(uint8Array);
         extractedText = pdfData.text;
 
@@ -1379,10 +1472,34 @@ async function handleExtractSource(req: Request): Promise<Response> {
         console.log('[extract-source] Extracting text from DOCX...');
         extractionMethod = 'mammoth';
 
-        const mammoth = await import("npm:mammoth@1.8.0");
         const arrayBuffer = await fileData.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isDocxMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid Word document (.docx). It may be an old .doc file or another format—save as .docx from Word or Google Docs, or upload a PDF.";
+          console.error('[extract-source] Invalid DOCX magic bytes (not a ZIP)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_DOCX",
+            },
+            400,
+          );
+        }
+
+        const mammoth = await import("npm:mammoth@1.8.0");
         const result = await mammoth.extractRawText({
-          buffer: new Uint8Array(arrayBuffer)
+          buffer: uint8Array,
         });
         extractedText = result.value;
 
@@ -1395,7 +1512,11 @@ async function handleExtractSource(req: Request): Promise<Response> {
 
       console.log('[extract-source] Raw extracted text length:', extractedText.length, 'characters');
 
-    } catch (extractError) {
+    } catch (extractError: unknown) {
+      const extractMsg =
+        extractError instanceof Error
+          ? extractError.message
+          : String(extractError);
       console.error('[extract-source] Extraction error:', extractError);
 
       // Update the record with the error
@@ -1403,15 +1524,19 @@ async function handleExtractSource(req: Request): Promise<Response> {
         .from("source_files")
         .update({
           is_processed: false,
-          processing_error: `Text extraction failed: ${extractError.message}`
+          processing_error: `Text extraction failed: ${extractMsg}`,
         })
         .eq("id", source_file_id);
 
-      return jsonResponse({
-        success: false,
-        error: `Text extraction failed: ${extractError.message}`,
-        code: "EXTRACTION_FAILED"
-      }, 500);
+      // Bad or unsupported files are client/content issues — avoid 500 so demos don't look "broken"
+      return jsonResponse(
+        {
+          success: false,
+          error: `Could not read this file as ${sourceFile.file_type === "application/pdf" ? "a PDF" : "that document type"}. It may be corrupt, password-protected, or not the format it claims. ${extractMsg}`,
+          code: "EXTRACTION_FAILED",
+        },
+        400,
+      );
     }
 
     // Clean the extracted text
@@ -1496,7 +1621,8 @@ async function handleExtractSource(req: Request): Promise<Response> {
       }
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
     console.error('[extract-source] Unexpected error:', error);
 
     // Try to update the record with the error if we have a source_file_id
@@ -1507,7 +1633,7 @@ async function handleExtractSource(req: Request): Promise<Response> {
           .from("source_files")
           .update({
             is_processed: false,
-            processing_error: `Unexpected error: ${error.message}`
+            processing_error: `Unexpected error: ${errMsg}`,
           })
           .eq("id", body.source_file_id);
       }
@@ -1517,8 +1643,8 @@ async function handleExtractSource(req: Request): Promise<Response> {
 
     return jsonResponse({
       success: false,
-      error: error.message || "An unexpected error occurred",
-      code: "INTERNAL_ERROR"
+      error: errMsg || "An unexpected error occurred",
+      code: "INTERNAL_ERROR",
     }, 500);
   }
 }
@@ -4786,7 +4912,45 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
     }
 
     const body = await req.json();
-    const { title, content, description, transcript, trackType, trackId, companyId } = body;
+    const { title, content, description, transcript, trackType, trackId, companyId, replaceExisting } = body;
+
+    // When trackId provided and replaceExisting is false/undefined: skip if track already has facts (prevents duplicate generation from multiple callers)
+    if (trackId && !replaceExisting) {
+      const { count: factCount, error: countError } = await supabase
+        .from("fact_usage")
+        .select("*", { count: "exact", head: true })
+        .eq("track_id", trackId);
+
+      const existingCount = countError ? 0 : (factCount ?? 0);
+      if (existingCount > 0) {
+        console.log(`[generate-key-facts] Skipping: track ${trackId} already has ${existingCount} fact(s)`);
+        const { data: existingFacts } = await supabase
+          .from("fact_usage")
+          .select("fact_id, facts!inner(id, title, content, type, steps, context, extracted_by, extraction_confidence, company_id, created_at, updated_at)")
+          .eq("track_id", trackId);
+        const facts = (existingFacts || []).map((row: any) => row.facts);
+        return jsonResponse({
+          enriched: facts,
+          factIds: facts.map((f: any) => f.id),
+          skipped: true,
+          reason: "Track already has facts",
+        });
+      }
+    }
+
+    // When replaceExisting: delete existing fact_usage for this track before inserting new facts
+    if (trackId && replaceExisting) {
+      const { error: deleteError } = await supabase
+        .from("fact_usage")
+        .delete()
+        .eq("track_id", trackId);
+
+      if (deleteError) {
+        console.error("Failed to delete existing fact_usage before replace:", deleteError);
+      } else {
+        console.log(`Replaced facts for track ${trackId} (deleted existing fact_usage links)`);
+      }
+    }
 
     // Build the content to analyze
     let textToAnalyze = "";
@@ -7541,6 +7705,349 @@ async function handleMigrateTagsToJunction(req: Request): Promise<Response> {
 }
 
 // =============================================================================
+// RELAY.APP INTEGRATION
+// =============================================================================
+
+const RELAY_LOCATION_SCRAPER_WEBHOOK =
+  "https://hook.relay.app/api/v1/playbook/cmmmltie700p80qkkh1f30u6m/trigger/fkm3uJkE_8uhMgo8sEC7MA";
+
+/**
+ * Trigger Relay.app location scraper automation.
+ * API expects: company_name, company_domain
+ * Response: { status, runId, runLink }
+ * Optional relayDeduplicationKey for run dedup.
+ */
+async function triggerRelayLocationScraper(
+  companyName: string,
+  companyDomain: string,
+  options?: { orgId?: string; deduplicationKey?: string; fullWebsiteUrl?: string }
+): Promise<{ runId: string; runLink: string } | null> {
+  try {
+    // Relay expects company_name and company_domain. Use full URL for domain if provided
+    // (AI step "Go to [Company Domain]" may need full URL to navigate)
+    const domainForRelay = options?.fullWebsiteUrl || companyDomain;
+    const body: Record<string, string> = {
+      company_name: companyName,
+      company_domain: domainForRelay,
+    };
+    if (options?.orgId) {
+      body.org_id = options.orgId;
+    }
+    if (options?.deduplicationKey) {
+      body.relayDeduplicationKey = options.deduplicationKey;
+    }
+    console.log("[Relay] Triggering:", { url: RELAY_LOCATION_SCRAPER_WEBHOOK, body });
+    const resp = await fetch(RELAY_LOCATION_SCRAPER_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const respText = await resp.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(respText);
+    } catch {
+      console.error("[Relay] Non-JSON response:", respText?.slice(0, 500));
+    }
+    if (!resp.ok) {
+      console.error("[Relay] Trigger failed:", resp.status, resp.statusText, data);
+      return null;
+    }
+    const runId = data.runId || data.existingRunId;
+    if (runId && options?.orgId) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", options.orgId)
+        .single();
+      const existing = (org as any)?.scraped_data || {};
+      await supabase
+        .from("organizations")
+        .update({
+          scraped_data: { ...existing, relay_run_id: runId, relay_run_link: data.runLink || null },
+        })
+        .eq("id", options.orgId);
+    }
+    if (runId) {
+      console.log("[Relay] Trigger success:", runId, data.runLink || "(existing run)");
+      return { runId, runLink: data.runLink || "" };
+    }
+    console.warn("[Relay] Trigger response missing runId:", data);
+    return null;
+  } catch (e: any) {
+    console.error("[Relay] triggerRelayLocationScraper error:", e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * Expected Relay callback payload (configure playbook to POST to /relay/location-callback):
+ * {
+ *   org_id: string,
+ *   company_name?: string,
+ *   company_domain?: string,
+ *   industry?: { code?: string, name?: string },
+ *   operating_states?: string[],
+ *   co_type?: string,
+ *   totalLocationCount?: number,
+ *   date_checked?: string,
+ *   stores / locations: Array<{ name?, address?, city?, state?, zip?, ... }>
+ * }
+ *
+ * If stores/locations is empty: leave seed stores as-is (or create seed fallback). CRM fields are still persisted.
+ * If stores/locations has data: replace seed stores with real stores and persist CRM + counts.
+ */
+async function handleRelayLocationCallback(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const {
+      org_id,
+      company_name,
+      company_domain,
+      store_count,
+      totalLocationCount,
+      stores,
+      locations,
+      industry,
+      operating_states,
+      co_type,
+      date_checked,
+    } = body;
+    const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+
+    // Relay may send industry as object or as JSON string
+    let relayIndustry: { code?: string; name?: string } | null = null;
+    if (industry != null) {
+      if (typeof industry === "object" && industry !== null && !Array.isArray(industry)) {
+        relayIndustry = industry as { code?: string; name?: string };
+      } else if (typeof industry === "string") {
+        try {
+          const parsed = JSON.parse(industry) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "code" in parsed) {
+            relayIndustry = parsed as { code?: string; name?: string };
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    const relayOperatingStates = Array.isArray(operating_states)
+      ? operating_states.filter((s: unknown) => typeof s === "string" && s.length === 2)
+      : [];
+    const relayCoType = typeof co_type === "string" && co_type ? co_type : null;
+    const relayDateChecked = typeof date_checked === "string" && date_checked ? date_checked : null;
+    const toNum = (v: unknown) => (typeof v === "number" && !isNaN(v) ? v : typeof v === "string" ? parseInt(v, 10) : NaN);
+    const scrapedTotal = toNum(totalLocationCount) || toNum(store_count) || null;
+
+    let orgId = org_id;
+    if (!orgId && company_domain) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .ilike("website", `%${company_domain}%`)
+        .limit(1)
+        .single();
+      orgId = org?.id;
+    }
+
+    if (!orgId) {
+      console.error("[Relay] Callback: missing org_id and could not resolve from company_domain");
+      return jsonResponse({ error: "org_id or company_domain required" }, 400);
+    }
+
+    let industryIdToSet: string | null = null;
+    if (relayIndustry?.code) {
+      const code = String(relayIndustry.code).trim().toLowerCase();
+      const { data: ind } = await supabase
+        .from("industries")
+        .select("id")
+        .ilike("code", code)
+        .limit(1)
+        .maybeSingle();
+      industryIdToSet = ind?.id ?? null;
+    }
+
+    async function updateOrgCrm(opts: {
+      storeCount: number | null;
+      scrapedTotal: number | null;
+    }) {
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", orgId)
+        .single();
+      const existing = (orgRow as any)?.scraped_data || {};
+      const scrapedData: Record<string, unknown> = {
+        ...existing,
+        relay_industry: relayIndustry,
+        relay_operating_states: relayOperatingStates,
+        relay_co_type: relayCoType,
+        relay_date_checked: relayDateChecked,
+      };
+      if (opts.storeCount != null) {
+        scrapedData.store_count = opts.storeCount;
+        scrapedData.relay_locations_imported_at = new Date().toISOString();
+      }
+      if (opts.scrapedTotal != null) scrapedData.relay_locations_total = opts.scrapedTotal;
+      const updatePayload: Record<string, unknown> = { scraped_data: scrapedData };
+      if (industryIdToSet != null) (updatePayload as any).industry_id = industryIdToSet;
+      if (relayOperatingStates.length > 0) (updatePayload as any).operating_states = relayOperatingStates;
+      if (relayIndustry?.name && typeof relayIndustry.name === "string") {
+        (updatePayload as any).industry = relayIndustry.name.trim();
+      }
+      await supabase.from("organizations").update(updatePayload).eq("id", orgId);
+    }
+
+    const hasLocations = storeList.length > 0;
+
+    if (!hasLocations) {
+      // No locations from Relay. If we have no stores (DemoCreate skipped them), create seed fallback so demo isn't broken.
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log(`[Relay] Callback: no locations for org ${orgId} — creating seed fallback (5 stores)`);
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const firstId = inserted?.[0]?.id;
+        if (firstId) {
+          await supabase.from("users").update({ store_id: firstId }).eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        }
+        await updateOrgCrm({ storeCount: 5, scrapedTotal });
+        return jsonResponse({ success: true, action: "no_locations_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      console.log(`[Relay] Callback: no locations for org ${orgId} — keeping existing seed stores`);
+      await updateOrgCrm({ storeCount: null, scrapedTotal });
+      return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
+    }
+
+    // Map Relay store format to our stores table
+    const mapStore = (s: any, index: number) => {
+      const addr = s.address || s.street_address || [s.street, s.city, s.state, s.zip].filter(Boolean).join(", ") || null;
+      const zip = s.zip || s.postal_code || null;
+      const lat = s.latitude ?? s.lat ?? null;
+      const lng = s.longitude ?? s.lng ?? null;
+      const storeName = s.name ? decodeHtmlEntities(String(s.name)) : `Location ${index + 1}`;
+      return {
+        organization_id: orgId,
+        name: storeName,
+        code: s.code || `S${(index + 1).toString().padStart(2, "0")}`,
+        address: addr,
+        city: s.city || null,
+        state: s.state || null,
+        zip,
+        phone: s.phone || null,
+        latitude: typeof lat === "number" ? lat : (typeof lat === "string" ? parseFloat(lat) : null),
+        longitude: typeof lng === "number" ? lng : (typeof lng === "string" ? parseFloat(lng) : null),
+        is_active: true,
+        is_seed: false,
+      };
+    };
+
+    const storesToInsert = storeList.slice(0, 500).map(mapStore); // Support 5–500 stores
+
+    // Get districts for this org (seed districts or any)
+    const { data: districts } = await supabase
+      .from("districts")
+      .select("id")
+      .eq("organization_id", orgId)
+      .limit(2);
+
+    const districtIds = districts?.map((d: any) => d.id) || [];
+
+    // Delete seed stores and get their IDs for user reassignment
+    const { data: deletedStores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("is_seed", true);
+
+    const deletedStoreIds = new Set((deletedStores || []).map((s: any) => s.id));
+
+    await supabase.from("stores").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+    // Insert real stores with district assignment
+    const storesWithDistrict = storesToInsert.map((s, i) => ({
+      ...s,
+      district_id: districtIds[i % districtIds.length] || null,
+    }));
+
+    const { data: insertedStores, error: insertErr } = await supabase
+      .from("stores")
+      .insert(storesWithDistrict)
+      .select("id");
+
+    if (insertErr) {
+      console.error("[Relay] Callback: failed to insert stores:", insertErr);
+      // Fallback: create seed stores so demo isn't broken
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log("[Relay] Callback: creating seed fallback after insert error");
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const { data: seedPeople } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        if (seedPeople && seedPeople.length > 0 && storeIds.length > 0) {
+          for (let i = 0; i < seedPeople.length; i++) {
+            const storeId = storeIds[i % storeIds.length];
+            await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+          }
+        }
+        return jsonResponse({ success: true, action: "insert_error_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      return jsonResponse({ error: insertErr.message }, 500);
+    }
+
+    const newStoreIds = (insertedStores || []).map((s: any) => s.id);
+    // Distribute seed people across first N stores (N = min(5, storeCount)) — scales to 5 or 500 stores
+    const storesForAssignment = newStoreIds.slice(0, 5);
+    let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+    peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
+    const { data: seedPeople } = await peopleQuery;
+    if (seedPeople && seedPeople.length > 0 && storesForAssignment.length > 0) {
+      for (let i = 0; i < seedPeople.length; i++) {
+        const storeId = storesForAssignment[i % storesForAssignment.length];
+        await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+      }
+      console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
+    }
+
+    await updateOrgCrm({ storeCount: newStoreIds.length, scrapedTotal: scrapedTotal ?? null });
+
+    console.log(`[Relay] Callback: imported ${newStoreIds.length} stores for org ${orgId}`);
+    return jsonResponse({
+      success: true,
+      action: "imported_locations",
+      org_id: orgId,
+      stores_imported: newStoreIds.length,
+    });
+  } catch (e: any) {
+    console.error("[Relay] Callback error:", e);
+    return jsonResponse({ error: e.message || "Callback failed" }, 500);
+  }
+}
+
+// =============================================================================
 // ONBOARDING HANDLERS
 // =============================================================================
 
@@ -7590,10 +8097,13 @@ async function handleOnboardingStart(req: Request): Promise<Response> {
  * Scrape company info from website URL
  */
 async function handleEnrichCompany(req: Request): Promise<Response> {
+  let websiteInput = "";
   try {
-    const { website, session_token } = await req.json();
+    const body = await req.json();
+    const { website, session_token } = body;
+    websiteInput = website || "";
 
-    if (!website) {
+    if (!websiteInput) {
       return jsonResponse({ error: "website URL is required" }, 400);
     }
 
@@ -7636,57 +8146,41 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     // Extract data from HTML
     const scrapedData = await extractCompanyDataFromHTML(html, url, domainName);
 
-    // Try to find store locator page and scrape locations
-    const storeLocatorUrls = [
-      "/locations",
-      "/location",  // singular (WordPress common)
-      "/stores",
-      "/store",
-      "/find-us",
-      "/store-locator",
-      "/our-locations",
-      "/find-a-store",
-      "/all-locations",
-    ];
-
-    let stores: any[] = [];
-    for (const locatorPath of storeLocatorUrls) {
-      try {
-        const locatorUrl = new URL(locatorPath, url).toString();
-        const locatorResponse = await fetch(locatorUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/json",
-          },
-        });
-
-        if (locatorResponse.ok) {
-          const locatorHtml = await locatorResponse.text();
-          stores = extractStoresFromHTML(locatorHtml);
-
-          // If no stores found directly, check for WPSL (WordPress Store Locator) AJAX endpoint
-          if (stores.length === 0 && locatorHtml.includes('wpsl')) {
-            console.log(`[Onboarding] Detected WPSL plugin, trying AJAX endpoint...`);
-            const wpslStores = await tryWPSLAjax(url);
-            if (wpslStores.length > 0) {
-              stores = wpslStores;
-            }
-          }
-
-          if (stores.length > 0) {
-            console.log(`[Onboarding] Found ${stores.length} stores at ${locatorPath}`);
-            break;
-          }
-        }
-      } catch (e) {
-        // Continue to next URL
+    // Phase 1: External logo fallback if HTML scraping didn't find one
+    if (!scrapedData.logo_url) {
+      console.log(`[Onboarding] No logo from HTML scrape, trying external services...`);
+      const externalLogo = await tryExternalLogoFallback(domain);
+      if (externalLogo) {
+        scrapedData.logo_url = externalLogo;
+        console.log(`[Onboarding] External logo found: ${externalLogo}`);
       }
     }
 
-    // Use AI to enhance the scraped data
-    let enrichedData = await enrichWithAI(scrapedData, html, stores);
+    // Location scraping: delegated to Relay.app automation (replaces in-house scraper)
+    // Skip Relay here — no org exists yet (EnrichCompany runs before org creation).
+    // Relay trigger schema requires org_id; we only trigger from DemoCreate and Onboarding (create org).
+    const stores: any[] = [];
+    const bestLocatorHtml = "";
 
-    // If we still don't have a good logo or company name, try Claude Vision
+    // Phase 2: Derive operating states from scraped store addresses (empty when using Relay)
+    const derivedStates = deriveOperatingStatesFromStores(stores);
+    if (derivedStates.length > 0) {
+      console.log(`[Onboarding] Derived ${derivedStates.length} states from store addresses: ${derivedStates.join(", ")}`);
+    }
+
+    // Use AI to enhance the scraped data (Phase 4: now with locations page HTML)
+    let enrichedData = await enrichWithAI(scrapedData, html, stores, bestLocatorHtml);
+
+    // Merge derived states with AI-detected states (deduped)
+    if (derivedStates.length > 0) {
+      const aiStates = (enrichedData.operating_states || []) as string[];
+      const mergedStates = Array.from(new Set([...derivedStates, ...aiStates.map((s: string) => s.toUpperCase())]))
+        .filter(s => US_STATE_CODES.has(s))
+        .sort();
+      enrichedData.operating_states = mergedStates;
+    }
+
+    // Phase 6: If we still don't have a good logo or company name, try Claude with actual HTML
     const needsVisionFallback = !enrichedData.logo_url ||
       !enrichedData.company_name ||
       enrichedData.company_name.length > 40 ||
@@ -7694,10 +8188,30 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       enrichedData.company_name.includes('|');
 
     if (needsVisionFallback) {
-      console.log(`[Onboarding] HTML scrape incomplete, trying Claude Vision fallback...`);
-      const visionData = await enrichWithClaudeVision(url, enrichedData);
+      console.log(`[Onboarding] HTML scrape incomplete, trying Claude fallback with actual HTML...`);
+      const visionData = await enrichWithClaudeVision(url, enrichedData, html, bestLocatorHtml);
       if (visionData) {
         enrichedData = { ...enrichedData, ...visionData };
+      }
+    }
+
+    // Phase 3: Self-QA validation before saving
+    const qaResult = validateEnrichmentResults(enrichedData, stores);
+    if (qaResult.issues.length > 0) {
+      console.log(`[Onboarding] QA found ${qaResult.issues.length} issues: ${qaResult.issues.join("; ")}`);
+    }
+    if (qaResult.fixes) {
+      enrichedData = { ...enrichedData, ...qaResult.fixes };
+    }
+
+    // Post-QA logo fallback: if QA rejected the logo (or it was never found),
+    // retry with external services (Clearbit, Google Favicon)
+    if (!enrichedData.logo_url) {
+      console.log(`[Onboarding] No logo after QA validation, retrying external fallback...`);
+      const postQaLogo = await tryExternalLogoFallback(domain);
+      if (postQaLogo) {
+        enrichedData.logo_url = postQaLogo;
+        console.log(`[Onboarding] Post-QA external logo found: ${postQaLogo}`);
       }
     }
 
@@ -7712,16 +8226,332 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         .eq("session_token", session_token);
     }
 
-    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}`);
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}, stores: ${enrichedData.store_count || 0}, states: ${(enrichedData.operating_states || []).join(",") || 'NONE'}`);
+    if (!enrichedData.logo_url) {
+      console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
+    }
+
+    const responseData: Record<string, any> = { ...enrichedData };
 
     return jsonResponse({
       success: true,
-      data: enrichedData,
+      data: responseData,
     });
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
-    return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    // Fallback: same minimal logic as Create Demo — return domain-derived company name so user can continue
+    try {
+      if (!websiteInput) return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+      const fallbackUrl = websiteInput.startsWith("http") ? websiteInput : "https://" + websiteInput;
+      const domain = new URL(fallbackUrl).hostname.replace("www.", "");
+      const domainName = domain.split(".")[0];
+      return jsonResponse({
+        success: true,
+        data: {
+          website: fallbackUrl,
+          company_name: capitalizeWords(domainName),
+          scraped: false,
+          error: "Could not fully enrich company data",
+        },
+      });
+    } catch (fallbackErr: any) {
+      return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    }
   }
+}
+
+// US state code constants (shared by state derivation and QA validation)
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+  "DC",
+]);
+
+/**
+ * Try external services for company logo when HTML scraping fails.
+ * Clearbit Logo API (free, no key) → Google Favicon (128px fallback)
+ */
+async function tryExternalLogoFallback(domain: string): Promise<string | null> {
+  // 1. Clearbit Logo API — high quality, transparent PNGs
+  const clearbitUrl = `https://logo.clearbit.com/${domain}`;
+  try {
+    const headRes = await fetch(clearbitUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const ct = headRes.headers.get("content-type") || "";
+      if (ct.includes("image/")) {
+        console.log(`[Onboarding] Clearbit logo found for ${domain}`);
+        return clearbitUrl;
+      }
+    }
+  } catch (_e) {
+    // Clearbit unavailable, try next
+  }
+
+  // 2. Google Favicon API — always returns something, 128px max
+  const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  try {
+    const headRes = await fetch(googleFaviconUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const cl = parseInt(headRes.headers.get("content-length") || "0", 10);
+      // Google returns a tiny default globe icon (~600 bytes) for unknown domains
+      // Real favicons are typically 2KB+
+      if (cl > 1000) {
+        console.log(`[Onboarding] Google Favicon found for ${domain} (${cl} bytes)`);
+        return googleFaviconUrl;
+      }
+    }
+  } catch (_e) {
+    // Google API unavailable
+  }
+
+  return null;
+}
+
+/**
+ * Derive operating states from scraped store data.
+ * Extracts unique 2-letter state codes from store address fields.
+ */
+function deriveOperatingStatesFromStores(stores: any[]): string[] {
+  const states = new Set<string>();
+
+  for (const store of stores) {
+    // Skip placeholder count objects
+    if (store._count || store._note) continue;
+
+    // Try state field directly
+    if (store.state) {
+      const code = store.state.trim().toUpperCase();
+      if (US_STATE_CODES.has(code)) {
+        states.add(code);
+      }
+    }
+
+    // Try to extract from address string (e.g. "123 Main St, City, TX 78701")
+    const addr = store.address || store.full_address || "";
+    if (addr) {
+      // Match ", ST " or ", ST\n" or ", STATE ZIP" patterns
+      const stateMatch = addr.match(/,\s*([A-Z]{2})\s+\d{5}/i)
+        || addr.match(/,\s*([A-Z]{2})\s*$/i)
+        || addr.match(/\b([A-Z]{2})\s+\d{5}\b/);
+      if (stateMatch) {
+        const code = stateMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+
+    // Try city_state combined field
+    if (store.city_state) {
+      const csMatch = store.city_state.match(/,\s*([A-Z]{2})\s*$/i)
+        || store.city_state.match(/\b([A-Z]{2})\s*$/i);
+      if (csMatch) {
+        const code = csMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+  }
+
+  return Array.from(states).sort();
+}
+
+/**
+ * Phase 3: Self-QA validation — catch common enrichment mistakes before saving.
+ * Returns { issues: string[], fixes: Record<string, any> | null }
+ */
+function validateEnrichmentResults(data: any, stores: any[]): { issues: string[]; fixes: any | null } {
+  const issues: string[] = [];
+  const fixes: any = {};
+
+  // 1. Store count sanity — align count with actual array length
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  const countPlaceholder = stores.find((s) => s._count);
+  if (realStores.length > 0 && data.store_count !== realStores.length) {
+    issues.push(`store_count mismatch: data says ${data.store_count}, actual array has ${realStores.length}`);
+    fixes.store_count = realStores.length;
+  } else if (realStores.length === 0 && countPlaceholder?._count) {
+    // We only have a count placeholder (e.g. "39 Locations" parsed from text)
+    if (data.store_count !== countPlaceholder._count) {
+      issues.push(`store_count placeholder: using parsed count ${countPlaceholder._count}`);
+      fixes.store_count = countPlaceholder._count;
+    }
+  }
+
+  // 2. Logo URL sanity — reject common false-positive patterns
+  if (data.logo_url) {
+    const logoLower = data.logo_url.toLowerCase();
+    const isBadLogo =
+      /spacer|pixel|blank|1x1|tracking|beacon|clear\.gif/i.test(logoLower) ||
+      /\.gif$/i.test(logoLower) && /spacer|blank|pixel|1x1/i.test(logoLower) ||
+      logoLower.includes("data:image/gif") ||
+      logoLower.includes("data:image/svg") && logoLower.length < 200;
+
+    if (isBadLogo) {
+      issues.push(`logo_url looks like a tracking pixel or spacer: ${data.logo_url.substring(0, 80)}`);
+      fixes.logo_url = null;
+    }
+  }
+
+  // 3. Company name cleanup — strip common suffixes
+  if (data.company_name) {
+    let cleaned = data.company_name
+      .replace(/\s*[|–-]\s*(Home|Homepage|Welcome|Official Site|Official Website)\s*$/i, "")
+      .replace(/\s*(Home|Homepage)\s*$/i, "")
+      .trim();
+
+    // Also strip leading "Welcome to " or "Home | "
+    cleaned = cleaned
+      .replace(/^(?:Welcome\s+to\s+|Home\s*[|–-]\s*)/i, "")
+      .trim();
+
+    if (cleaned !== data.company_name) {
+      issues.push(`company_name cleaned: "${data.company_name}" → "${cleaned}"`);
+      fixes.company_name = cleaned;
+    }
+  }
+
+  // 4. State code validation — filter out invalid codes
+  if (data.operating_states && Array.isArray(data.operating_states)) {
+    const validStates = data.operating_states.filter((s: string) =>
+      typeof s === "string" && US_STATE_CODES.has(s.toUpperCase())
+    );
+    if (validStates.length !== data.operating_states.length) {
+      const invalid = data.operating_states.filter((s: string) =>
+        typeof s !== "string" || !US_STATE_CODES.has(s.toUpperCase())
+      );
+      issues.push(`invalid state codes removed: ${invalid.join(", ")}`);
+      fixes.operating_states = validStates;
+    }
+  }
+
+  // 5. Ensure stores array is clean (no placeholder objects in the stored data)
+  if (data.stores && Array.isArray(data.stores)) {
+    const cleanStores = data.stores.filter((s: any) => !s._count && !s._note);
+    if (cleanStores.length !== data.stores.length) {
+      issues.push(`removed ${data.stores.length - cleanStores.length} placeholder store objects`);
+      fixes.stores = cleanStores;
+    }
+  }
+
+  return {
+    issues,
+    fixes: Object.keys(fixes).length > 0 ? fixes : null,
+  };
+}
+
+/**
+ * Phase 5: AI-powered location extraction when regex fails on JS-rendered pages.
+ * Uses GPT-4o-mini to parse store addresses from HTML that regex couldn't handle.
+ */
+async function extractStoresWithAI(locatorHtml: string, domain: string): Promise<any[]> {
+  if (!OPENAI_API_KEY) {
+    console.warn("[Onboarding] No OpenAI key, skipping AI store extraction");
+    return [];
+  }
+
+  // Pre-check: skip if HTML has no address/location indicators
+  const hasAddressIndicators = /\d{5}|address|location|store|branch/i.test(locatorHtml);
+  if (!hasAddressIndicators) {
+    console.log("[Onboarding] Locations page has no address indicators, skipping AI extraction");
+    return [];
+  }
+
+  try {
+    // Truncate to 20K chars for token limits
+    const truncatedHtml = locatorHtml.substring(0, 20000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You extract store/location addresses from HTML content. Return JSON only.
+
+Look for:
+- Individual store addresses with street, city, state, zip
+- Store names/numbers
+- Phone numbers
+
+If you can identify individual locations, return them. If you can only determine a total count, return that.
+
+Return JSON: { "stores": [...], "estimated_count": number }
+Each store: { "name": string|null, "address": string|null, "city": string|null, "state": string|null, "zip": string|null, "phone": string|null }`
+          },
+          {
+            role: "user",
+            content: `Extract store locations from this ${domain} locations page HTML:
+
+${truncatedHtml}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Onboarding] AI store extraction API error: ${response.status}`);
+      return [];
+    }
+
+    const aiResult = await response.json();
+    const aiData = JSON.parse(aiResult.choices[0].message.content);
+
+    if (aiData.stores && Array.isArray(aiData.stores) && aiData.stores.length > 0) {
+      // Filter out empty/invalid stores
+      const validStores = aiData.stores.filter((s: any) =>
+        s.address || s.city || s.name
+      );
+      console.log(`[Onboarding] AI extracted ${validStores.length} stores (raw: ${aiData.stores.length})`);
+      return validStores;
+    }
+
+    // If AI found a count but no individual stores, return a count placeholder
+    if (aiData.estimated_count && aiData.estimated_count > 0) {
+      console.log(`[Onboarding] AI estimated ${aiData.estimated_count} stores but couldn't parse details`);
+      return [{ _count: aiData.estimated_count, _note: "AI estimated count, details not parseable" }];
+    }
+
+    return [];
+  } catch (error: any) {
+    console.error("[Onboarding] AI store extraction failed:", error.message || error);
+    return [];
+  }
+}
+
+/**
+ * Decode HTML entities in text (e.g. &#039; → ', &amp; → &)
+ */
+function decodeHtmlEntities(str: string): string {
+  if (!str || typeof str !== "string") return str;
+  return str
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
 }
 
 /**
@@ -7747,8 +8577,15 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     const logoAltMatch = html.match(/<img[^>]*(?:class|id)=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']+)["']/i)
       || html.match(/<img[^>]*alt=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*logo[^"']*["']/i)
       || html.match(/<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]*alt=["']([^"']+)["']/i);
-    if (logoAltMatch && logoAltMatch[1].trim().length > 1 && logoAltMatch[1].trim().length < 50) {
-      data.company_name = logoAltMatch[1].trim();
+    if (logoAltMatch) {
+      // Clean the alt text: strip common suffixes like "Logo", "Icon", "Image"
+      let altName = logoAltMatch[1].trim()
+        .replace(/\s*[-–|]\s*(logo|icon|image|banner|brand|img)$/i, '')
+        .replace(/\s+(logo|icon|image|banner|brand|img)$/i, '')
+        .trim();
+      if (altName.length > 1 && altName.length < 50) {
+        data.company_name = altName;
+      }
     }
   }
 
@@ -7807,45 +8644,116 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     data.company_name = capitalizeWords(domainFallback);
   }
 
-  // Extract logo - expanded patterns
-  const logoPatterns = [
-    // Header logo images (most common)
-    /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
-    /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
-    /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
-    // Logo in alt text
-    /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
-    // SVG logos
-    /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    // Fallback to og:image
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-    /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
-    // Apple touch icon (usually a good square logo)
-    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
-    // Favicon as last resort
-    /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
-  ];
+  // Decode HTML entities (e.g. Dak&#039;s Market → Dak's Market)
+  if (data.company_name) {
+    data.company_name = decodeHtmlEntities(data.company_name);
+  }
 
-  for (const pattern of logoPatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      let logoUrl = match[1];
-      // Skip data URIs, tiny images, and tracking pixels
-      if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) continue;
-      // Make relative URLs absolute
-      if (logoUrl.startsWith("//")) {
-        logoUrl = "https:" + logoUrl;
-      } else if (logoUrl.startsWith("/")) {
-        logoUrl = new URL(logoUrl, url).toString();
-      } else if (!logoUrl.startsWith("http")) {
-        logoUrl = new URL(logoUrl, url).toString();
+  // Extract logo - smart selection with domain awareness
+  const siteDomain = new URL(url).hostname.replace("www.", "");
+
+  // Helper: check if a URL belongs to the same domain as the site
+  const isSameDomain = (imgUrl: string): boolean => {
+    try {
+      if (imgUrl.startsWith("/") && !imgUrl.startsWith("//")) return true;
+      if (!imgUrl.startsWith("http") && !imgUrl.startsWith("//")) return true;
+      const imgDomain = new URL(imgUrl.startsWith("//") ? "https:" + imgUrl : imgUrl).hostname.replace("www.", "");
+      return imgDomain === siteDomain;
+    } catch { return true; }
+  };
+
+  // Helper: normalize a logo URL to absolute
+  const normalizeLogoUrl = (logoUrl: string): string | null => {
+    if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) return null;
+    // Resolve Shopify responsive image templates: {width}x → 300x
+    if (logoUrl.includes("{width}")) {
+      logoUrl = logoUrl.replace("{width}", "300");
+    }
+    if (logoUrl.startsWith("//")) return "https:" + logoUrl;
+    if (logoUrl.startsWith("/")) return new URL(logoUrl, url).toString();
+    if (!logoUrl.startsWith("http")) return new URL(logoUrl, url).toString();
+    return logoUrl;
+  };
+
+  // Strategy 1: Find logo inside a link to the site's own homepage (most reliable)
+  // Pattern: <a href="https://site.com/"> ... <img src="logo.png"> ... </a>
+  const homepageLinkLogoMatch = html.match(
+    /<a[^>]*href=["'](?:https?:\/\/(?:www\.)?)?(?:\/|[^"']*?(?:\/|\/index\.html?))["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/i
+  );
+  // Also try: header links that point to the domain root
+  const headerHomeLinkMatches = html.matchAll(
+    /<header[^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/gi
+  );
+  for (const match of headerHomeLinkMatches) {
+    const linkHref = match[1];
+    const imgSrc = match[2];
+    // Check if this link points to the homepage (/, /index, or the full domain URL)
+    const isHomepageLink = linkHref === "/" ||
+      linkHref === url ||
+      linkHref === `https://${siteDomain}/` ||
+      linkHref === `https://www.${siteDomain}/` ||
+      linkHref === `http://${siteDomain}/` ||
+      linkHref === `http://www.${siteDomain}/`;
+    if (isHomepageLink && isSameDomain(imgSrc)) {
+      const normalized = normalizeLogoUrl(imgSrc);
+      if (normalized) {
+        data.logo_url = normalized;
+        break;
       }
-      data.logo_url = logoUrl;
-      break;
+    }
+  }
+
+  // Strategy 2: Use pattern-based matching if homepage link strategy didn't work
+  if (!data.logo_url) {
+    const logoPatterns = [
+      // Logo class/id patterns (very reliable)
+      /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
+      /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+      // Logo in alt text
+      /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
+      // SVG logos
+      /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      // Header logo (fallback - first img in header, but prefer same-domain)
+      /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
+      // Fallback to og:image
+      /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+      // Apple touch icon (usually a good square logo)
+      /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+      // Favicon as last resort
+      /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
+    ];
+
+    for (const pattern of logoPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const logoUrl = match[1];
+        // Prefer same-domain images; skip external domain logos (e.g., rewards program logos)
+        if (!isSameDomain(logoUrl)) continue;
+        const normalized = normalizeLogoUrl(logoUrl);
+        if (normalized) {
+          data.logo_url = normalized;
+          break;
+        }
+      }
+    }
+
+    // If no same-domain logo found, retry without domain filter (some companies host logos on CDNs)
+    if (!data.logo_url) {
+      for (const pattern of logoPatterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          const normalized = normalizeLogoUrl(match[1]);
+          if (normalized) {
+            data.logo_url = normalized;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -8060,7 +8968,42 @@ function extractStoresFromHTML(html: string): any[] {
     }
   }
 
-  return stores.slice(0, 100); // Cap at 100 for performance
+  // Filter out garbage stores whose fields contain HTML fragments
+  // (e.g. Shopify product availability modals, nav menus parsed as stores)
+  const cleanStores = stores.filter((store) => {
+    const fields = [store.name, store.address, store.city, store.state, store.zip, store.phone]
+      .filter(Boolean)
+      .join(" ");
+    // Reject if fields contain HTML tags, class/id attributes, or CSS selectors
+    if (/<[a-z][^>]*>/i.test(fields)) return false;
+    if (/\bclass\s*=\s*["']/i.test(fields)) return false;
+    if (/\bid\s*=\s*["']/i.test(fields)) return false;
+    if (/\bdata-[a-z]+=["']/i.test(fields)) return false;
+    // Reject if address is suspiciously short (< 5 chars) or missing entirely
+    if (!store.address && !store.city && !store.zip && !store.name) return false;
+    return true;
+  });
+
+  // Deduplicate stores - many sites render the same store multiple times
+  // (e.g. accordion expand/collapse, responsive views, summary + detail cards)
+  const seen = new Set<string>();
+  const uniqueStores = cleanStores.filter((store) => {
+    // Build a dedup key from address+zip or name
+    const addrKey = [
+      (store.address || '').replace(/\s+/g, ' ').trim().toLowerCase(),
+      (store.zip || '').trim(),
+    ].join('|');
+    const nameKey = (store.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // Use address+zip as primary key, fall back to name
+    const key = addrKey !== '|' ? addrKey : nameKey;
+    if (!key || key === '|') return true; // Keep stores we can't dedup
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueStores.slice(0, 100); // Cap at 100 for performance
 }
 
 /**
@@ -8119,16 +9062,35 @@ function parseStructuredStore(item: any): any {
 }
 
 /**
- * Use AI to enhance and classify scraped data
+ * Use AI to enhance and classify scraped data.
+ * Phase 4: Now accepts optional locatorHtml for multi-page analysis.
  */
-async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Promise<any> {
+async function enrichWithAI(scrapedData: any, html: string, stores: any[], locatorHtml?: string): Promise<any> {
   if (!OPENAI_API_KEY) {
     console.warn("[Onboarding] No OpenAI key, skipping AI enrichment");
     return { ...scrapedData, stores, services: [], industry: null };
   }
 
-  // Truncate HTML to avoid token limits
-  const truncatedHtml = html.substring(0, 15000);
+  // Phase 4: Reduce homepage slice to make room for locations page content
+  const homepageSlice = html.substring(0, locatorHtml ? 12000 : 15000);
+
+  // Build combined content: homepage + locations page + sample store data
+  let combinedContent = `Homepage content (truncated):\n${homepageSlice}`;
+
+  if (locatorHtml && locatorHtml.length > 100) {
+    combinedContent += `\n\n--- LOCATIONS PAGE (truncated) ---\n${locatorHtml.substring(0, 5000)}`;
+  }
+
+  // Include sample store data if available (first 5 stores for context)
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  if (realStores.length > 0) {
+    const sample = realStores.slice(0, 5).map((s) =>
+      [s.name, s.address, s.city, s.state, s.zip].filter(Boolean).join(", ")
+    );
+    combinedContent += `\n\n--- SAMPLE STORES (${realStores.length} total) ---\n${sample.join("\n")}`;
+  }
+
+  const truncatedHtml = combinedContent;
 
   try {
     // Fetch industries from database to use actual codes in the prompt
@@ -8166,8 +9128,9 @@ Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, ph
 Analyze the website content and determine:
 1. The company's industry (use the industry CODE only, e.g., "cstore" not "Convenience Stores")
 2. What services they likely offer based on the website content
-3. A brief description of the company
-4. Operating states if mentioned`
+3. A brief description of the company (1-2 sentences)
+4. Operating states as 2-letter state codes (e.g. "TX", "FL"). Look for state names in the text like "Texas" → "TX"
+5. Total number of store/location count if mentioned anywhere on the site (e.g. "25 stores" → 25)`
           },
           {
             role: "user",
@@ -8177,7 +9140,7 @@ Website: ${scrapedData.website}
 Website content (truncated):
 ${truncatedHtml}
 
-Return JSON with: { industry, services: [], description, operating_states: [] }`
+Return JSON with: { industry, services: [], description, operating_states: [], store_count: 0 }`
           }
         ],
         response_format: { type: "json_object" },
@@ -8200,7 +9163,7 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
       description: aiData.description || null,
       operating_states: aiData.operating_states || [],
       stores: stores,
-      store_count: stores.length,
+      store_count: stores.length > 0 ? stores.length : (aiData.store_count || 0),
     };
   } catch (error: any) {
     console.error("[Onboarding] AI enrichment failed:", error);
@@ -8209,21 +9172,17 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
 }
 
 /**
- * Use Claude Vision to extract company info from a screenshot of the website
- * This is used as a fallback when HTML parsing doesn't work well
+ * Phase 6: Use Claude to extract company info from actual HTML content.
+ * Enhanced fallback that sends real HTML instead of just a URL.
  */
-async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Promise<any | null> {
+async function enrichWithClaudeVision(websiteUrl: string, existingData: any, homepageHtml?: string, locatorHtml?: string): Promise<any | null> {
   if (!ANTHROPIC_API_KEY) {
-    console.warn("[Onboarding] No Anthropic API key, skipping Claude Vision fallback");
+    console.warn("[Onboarding] No Anthropic API key, skipping Claude fallback");
     return null;
   }
 
   try {
-    // Use a screenshot service or fetch the page and use vision
-    // For now, we'll use the URL directly with Claude's web capabilities
-    // In production, you might use a service like screenshotapi.net or similar
-
-    console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
+    console.log(`[Onboarding] Calling Claude fallback for: ${websiteUrl} (html: ${homepageHtml ? homepageHtml.length : 0} chars, locator: ${locatorHtml ? locatorHtml.length : 0} chars)`);
 
     // Fetch industries from database to use actual codes in the prompt
     const { data: industries } = await supabase
@@ -8236,6 +9195,43 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
       .filter(i => i.code)
       .map(i => `${i.code} (${i.name})`)
       .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
+    // Build content with actual HTML when available
+    let contentParts: string[] = [];
+
+    contentParts.push(`I need to extract company information from this website: ${websiteUrl}`);
+
+    // Include actual HTML for Claude to analyze
+    if (homepageHtml && homepageHtml.length > 200) {
+      contentParts.push(`\n--- HOMEPAGE HTML (truncated) ---\n${homepageHtml.substring(0, 10000)}`);
+    }
+
+    if (locatorHtml && locatorHtml.length > 200) {
+      contentParts.push(`\n--- LOCATIONS PAGE HTML (truncated) ---\n${locatorHtml.substring(0, 5000)}`);
+    }
+
+    contentParts.push(`
+Based on the HTML content above (or the domain if no HTML provided), please:
+1. Find the company's LOGO URL — look for <img> tags with "logo" in class, id, alt, or src. Return the full absolute URL.
+2. Determine the clean company name (just the brand name, no taglines or "Home |" prefixes)
+3. What industry they're in. Use the CODE only from this list: ${industryList}
+4. What services they offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
+
+I already scraped this data but it might be incomplete or wrong:
+- Company name: ${existingData.company_name || "unknown"}
+- Logo: ${existingData.logo_url || "MISSING"}
+- Industry: ${existingData.industry || "unknown"}
+- Services: ${JSON.stringify(existingData.services || [])}
+
+IMPORTANT: Look carefully in the HTML for logo image URLs. Check <img> tags, <link rel="icon">, og:image meta tags, and any image with "logo" in the path or attributes.
+
+Return JSON only:
+{
+  "company_name": "Clean Company Name",
+  "industry": "industry_code",
+  "services": ["service1", "service2"],
+  "logo_url": "absolute URL to the logo image, or null if not found"
+}`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -8250,25 +9246,7 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
         messages: [
           {
             role: "user",
-            content: `I need to extract company information from a website. The URL is: ${websiteUrl}
-
-Based on the domain and what you know, please provide:
-1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
-2. What industry they're likely in. Use the CODE only from this list: ${industryList}
-3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
-
-I already scraped this data but it might be wrong:
-- Company name: ${existingData.company_name || "unknown"}
-- Industry: ${existingData.industry || "unknown"}
-- Services: ${JSON.stringify(existingData.services || [])}
-
-Please correct any issues and return JSON only:
-{
-  "company_name": "Clean Company Name",
-  "industry": "industry_code",
-  "services": ["service1", "service2"],
-  "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
-}`,
+            content: contentParts.join("\n"),
           },
         ],
       }),
@@ -8668,6 +9646,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Validate logo if provided
     let validatedLogoUrl: string | null = null;
     let logoValidation = null;
+    console.log(`[Onboarding] Session collected_data logo_url: ${data.logo_url || 'MISSING'}`);
     if (data.logo_url) {
       console.log(`[Onboarding] Validating logo: ${data.logo_url}`);
       logoValidation = await validateLogoUrl(data.logo_url);
@@ -8687,6 +9666,8 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         subdomain: finalSubdomain,
         website: data.website,
         logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
         status: "demo",
         demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
         industry: data.industry,
@@ -8707,7 +9688,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     console.log(`[Onboarding] Created org: ${org.name} (${org.id})`);
 
-    // Create Admin role for this organization
+    // Create Admin role first (needed for seed people)
     const { data: adminRole, error: roleError } = await supabase
       .from("roles")
       .insert({
@@ -8806,7 +9787,35 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
-    // Import stores if we have them
+    // Seed demo people (and activity) when we have a website — Relay will provide real stores and assign them
+    const hasWebsite = !!(data.website && data.company_name);
+    if (hasWebsite && adminRole?.id) {
+      try {
+        const trackIds: string[] = []; // Onboarding doesn't clone tracks; seed people + structure only
+        await seedDemoOrgData(org.id, adminRole.id, trackIds, { skipStores: true });
+        console.log(`[Onboarding] Seeded demo people for ${org.name} (Relay will assign to stores)`);
+      } catch (seedErr: any) {
+        console.error("[Onboarding] Seed data failed (non-fatal):", seedErr.message);
+      }
+    }
+
+    // Trigger Relay location scraper when we have website (must run AFTER seed people exist)
+    if (hasWebsite) {
+      try {
+        const fullUrl = data.website.startsWith("http") ? data.website : `https://${data.website}`;
+        const domain = new URL(fullUrl).hostname.replace("www.", "");
+        await triggerRelayLocationScraper(data.company_name, domain, {
+          orgId: org.id,
+          deduplicationKey: org.id,
+          fullWebsiteUrl: fullUrl,
+        });
+        console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
+      } catch (relayErr: any) {
+        console.error("[Onboarding] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    // Import stores if we have them (from onboarding chat, not Relay)
     let storesImported = 0;
     if (data.stores && data.stores.length > 0) {
       const storesToInsert = data.stores.slice(0, 50).map((store: any, index: number) => ({
@@ -8879,11 +9888,13 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
+      // Use request origin for dev/staging, fallback to production URL
+      const frontendOrigin = req.headers.get('origin') || 'https://app.trike.app';
       const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
         type: "magiclink",
         email: data.contact_email,
         options: {
-          redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/dashboard`,
+          redirectTo: `${frontendOrigin}/?demo_org_id=${org.id}`,
         },
       });
 
@@ -9974,13 +10985,13 @@ async function handleVariantResearch(
   track: { title: string; type: string },
   sourceContent: string
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
 
   // Build search queries based on content topics
   const topicAnalysis = analyzeContentTopics(sourceContent);
-  const searchQueries = buildSearchQueries(topicAnalysis, stateName, variantType);
+  const searchQueries = buildSearchQueries(topicAnalysis, targetLabel, variantType);
 
-  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${stateName}`);
+  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${targetLabel}`);
   console.log(`📋 [VariantResearch] Topics detected: ${topicAnalysis.join(', ')}`);
   console.log(`🔎 [VariantResearch] Search queries: ${searchQueries.join(' | ')}`);
 
@@ -10053,11 +11064,12 @@ async function handleVariantResearchFallback(
   sourceContent: string,
   topicAnalysis: string[]
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const focusLabel = getVariantFocusLabel(variantType);
 
   const fallbackMessage = `⚠️ **Web research unavailable** - Using knowledge-based adaptation
 
-I was unable to perform live web research for current ${stateName} regulations. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
+I was unable to perform live web research for current ${targetLabel} ${focusLabel}. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
 
 **Topics identified in source content:**
 ${topicAnalysis.map(t => `• ${t}`).join('\n')}
@@ -10356,7 +11368,11 @@ function buildResearchPrompt(
   sourceContent: string,
   topicAnalysis: string[]
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const targetTypeLabel =
+    variantType === 'geographic' ? 'state regulations' :
+    variantType === 'company' ? 'company policies and standards' :
+    'store/location operating procedures';
 
   // Derive audience from source content
   const audience = deriveAudienceFromContent(sourceContent);
@@ -10367,7 +11383,7 @@ function buildResearchPrompt(
       ? '(Medium confidence)'
       : '(Low confidence - minimal adaptation)';
 
-  return `You are researching ${stateName} state regulations to adapt training content.
+  return `You are researching ${targetLabel} ${targetTypeLabel} to adapt training content.
 
 ## AUDIENCE DERIVATION
 **Derived Role:** ${roleLabel} ${confidenceNote}
@@ -10377,7 +11393,7 @@ ${audience.evidence.slice(0, 4).map(e => `- ${e}`).join('\n') || '- No strong ro
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- General compliance actions'}
 
 ## SCOPE LOCK (HARD RULE)
-You may ONLY add state-specific rules that directly modify one of the learner actions above.
+You may ONLY add variant-specific rules that directly modify one of the learner actions above.
 
 For any proposed rule, you MUST identify:
 - **SourceAction:** Which learner action it modifies
@@ -10388,8 +11404,8 @@ If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
 ## SOURCE REQUIREMENTS
 
 **TIER 1 (Required - need at least 2):**
-- State legislature / compiled statutes (.gov domains)
-- State administrative code / regulations
+- Authoritative source(s) appropriate to the variant context
+- Prefer official or first-party sources over summaries/blogs
 
 **DO NOT USE:**
 - SEO blogs, law firm marketing, "compliance checklist" sites
@@ -10418,7 +11434,7 @@ Then list 0-3 COMPANY-SPECIFIC questions only:
 - ID scanning technology in use?
 - "Card everyone" policy beyond legal minimum?
 
-DO NOT ask about state laws, age requirements, or penalties - YOU research those.`;
+DO NOT ask the user to provide legal rules directly - YOU research those.`;
 }
 
 /**
@@ -10568,12 +11584,16 @@ function formatResearchResult(
   variantContext: any,
   sourceContent?: string
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const contextRuleLabel =
+    variantType === 'geographic' ? `${targetLabel}-Specific Rules` :
+    variantType === 'company' ? `${targetLabel} Policy/Standards Adaptations` :
+    `${targetLabel} Unit-Specific Adaptations`;
 
   // Derive audience for display
   const audience = sourceContent ? deriveAudienceFromContent(sourceContent) : null;
 
-  let result = `## Research Findings: ${stateName}\n\n`;
+  let result = `## Research Findings: ${targetLabel}\n\n`;
 
   // Show derived audience
   if (audience) {
@@ -10593,7 +11613,7 @@ function formatResearchResult(
   }
 
   // Main research findings
-  result += `### ${stateName}-Specific Rules\n\n`;
+  result += `### ${contextRuleLabel}\n\n`;
   result += outputText + '\n\n';
 
   // Sources
@@ -10611,7 +11631,7 @@ function formatResearchResult(
   result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
   result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
   result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
-  result += `\n*These are optional. Type "proceed" to generate with standard ${stateName} regulations.*\n\n`;
+  result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
   // Status indicator for UI
   if (!qualityCheck.passed) {
@@ -10676,7 +11696,11 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     const learnerActionsStr = audience.learnerActions.length
       ? audience.learnerActions.join(', ')
       : 'check id, verify age, refuse sale';
-    const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+    const targetLabel = getVariantTargetLabel(variantType, variantContext);
+    const adaptationFocus =
+      variantType === 'geographic' ? `${targetLabel} laws/regulations` :
+      variantType === 'company' ? `${targetLabel} company policies/terminology` :
+      `${targetLabel} store/location procedures`;
 
     // Enhanced generation prompt with structured output format
     const generationPrompt = `
@@ -10685,21 +11709,21 @@ ${sourceContent}
 
 ## VARIANT CONTEXT
 - Type: ${variantType}
-- Target: ${stateName}
+- Target: ${targetLabel}
 - Derived Learner Role: ${roleLabel} (${audience.roleConfidence} confidence)
 - Learner Actions: ${learnerActionsStr}
 
 ## COMPANY-SPECIFIC CONTEXT (from user)
 ${qaContent}
 
-## TASK: Generate ${stateName} State Variant
+## TASK: Generate ${targetLabel} ${variantType} Variant
 
-Apply the MINIMAL-DELTA principle: change ONLY what ${stateName} law requires you to change.
+Apply the MINIMAL-DELTA principle: change ONLY what ${adaptationFocus} requires you to change.
 Do NOT add new topics, warnings, or "nice to know" information not in the source.
 
 ### SCOPE LOCK (HARD RULE)
 
-You may ONLY include state-specific rules that modify one of these learner actions:
+You may ONLY include variant-specific rules that modify one of these learner actions:
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
 
 For each rule, identify:
@@ -10716,7 +11740,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 ### RETURN THIS JSON STRUCTURE:
 {
-  "generatedTitle": "${track.title} - ${stateName}",
+  "generatedTitle": "${track.title} - ${targetLabel}",
   "researchFindings": [
     {
       "rule": "Actionable rule for ${roleLabelLower}",
@@ -10732,7 +11756,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
     {
       "section": "Section name",
       "originalText": "Original text from source",
-      "adaptedText": "New text for ${stateName}",
+      "adaptedText": "New text for ${targetLabel}",
       "reason": "Why this change was needed (cite specific law/regulation)",
       "sourceAction": "Which learner action this adapts"
     }
@@ -10749,7 +11773,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 IMPORTANT:
 - researchFindings should have 3-8 rules MAX, each mapped to a learner action
-- generatedContent should be nearly identical to source, with only ${stateName}-specific swaps
+- generatedContent should be nearly identical to source, with only target-context-specific swaps
 - adaptations should list EVERY change made, with reason and source action
 - openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
 - Set needsReview: true if any claim lacks Tier-1 citation
@@ -10911,7 +11935,7 @@ Structure your variant generation response as:
 1. **Research Findings (Relevant Only)** — 3-8 bullet rules max
    Each rule: maps to learner action, has citation, includes effective date if known
 
-2. **${variantContext.state_name || 'State'}-Specific Draft Script** — Rewritten transcript
+2. **${getVariantTargetLabel(variantType, variantContext)}-Specific Draft Script** — Rewritten transcript
    Minimal changes from source. Track what was adapted and why.
 
 3. **Open Questions (Company-Specific Only)** — 0-3 questions max
@@ -10919,6 +11943,32 @@ Structure your variant generation response as:
    NEVER: state laws, regulations, age requirements (you already have those)
 
 BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
+}
+
+function getVariantTargetLabel(variantType: string, variantContext: any): string {
+  switch (variantType) {
+    case 'geographic':
+      return variantContext?.state_name || variantContext?.state_code || 'the specified state';
+    case 'company':
+      return variantContext?.org_name || 'the target organization';
+    case 'unit':
+      return variantContext?.store_name || variantContext?.store_id || 'the target unit';
+    default:
+      return 'the target context';
+  }
+}
+
+function getVariantFocusLabel(variantType: string): string {
+  switch (variantType) {
+    case 'geographic':
+      return 'regulations';
+    case 'company':
+      return 'company policies and standards';
+    case 'unit':
+      return 'location procedures';
+    default:
+      return 'requirements';
+  }
 }
 
 /**
@@ -17121,6 +18171,1273 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
 }
 
 // =============================================================================
+// DEMO SEED DATA HELPERS
+// =============================================================================
+
+const SEED_PEOPLE = [
+  { first_name: "Jamie", last_name: "Chen", email: "jamie.demo@example.com", employee_id: "E101" },
+  { first_name: "Marcus", last_name: "Rivera", email: "marcus.demo@example.com", employee_id: "E102" },
+  { first_name: "Sofia", last_name: "Kim", email: "sofia.demo@example.com", employee_id: "E103" },
+  { first_name: "Alex", last_name: "Thompson", email: "alex.demo@example.com", employee_id: "E104" },
+  { first_name: "Jordan", last_name: "Williams", email: "jordan.demo@example.com", employee_id: "E105" },
+];
+
+const SEED_UNITS = [
+  { name: "Downtown Store", code: "DT01", city: "Atlanta", state: "GA" },
+  { name: "Airport Location", code: "AP02", city: "Atlanta", state: "GA" },
+  { name: "Highway Stop", code: "HW03", city: "Marietta", state: "GA" },
+  { name: "Campus Store", code: "CP04", city: "Athens", state: "GA" },
+  { name: "Mall Kiosk", code: "MK05", city: "Atlanta", state: "GA" },
+];
+
+/**
+ * Seed demo org with 5 people, 5 units, and dummy activity for dashboards.
+ * All seeded rows get is_seed=true so they can be removed on prospect→onboarding.
+ * When skipStores=true (Relay will provide real locations), create people with store_id=null
+ * so the Relay callback can assign them to real stores when it runs.
+ */
+async function seedDemoOrgData(
+  orgId: string,
+  adminRoleId: string | null,
+  trackIds: string[],
+  options?: { skipStores?: boolean }
+): Promise<{ people: number; units: number; activity: number }> {
+  const stats = { people: 0, units: 0, activity: 0 };
+  const skipStores = options?.skipStores === true;
+
+  // Create Employee role for seed people
+  const { data: employeeRole } = await supabase
+    .from("roles")
+    .insert({
+      organization_id: orgId,
+      name: "Employee",
+      description: "Basic access",
+      level: 0,
+      permissions: JSON.stringify(["view_content"]),
+    })
+    .select("id")
+    .single();
+
+  const roleId = employeeRole?.id || adminRoleId;
+  if (!roleId) return stats;
+
+  // 2 seed districts
+  const { data: districts } = await supabase
+    .from("districts")
+    .insert([
+      { organization_id: orgId, name: "North Region", code: "NORTH", is_seed: true },
+      { organization_id: orgId, name: "South Region", code: "SOUTH", is_seed: true },
+    ])
+    .select("id");
+
+  if (!districts || districts.length < 2) return stats;
+
+  // 5 seed stores (skip when Relay will provide real locations)
+  let stores: { id: string }[] = [];
+  if (!skipStores) {
+    const storesToInsert = SEED_UNITS.map((u, i) => ({
+      organization_id: orgId,
+      district_id: districts[i % 2].id,
+      name: u.name,
+      code: u.code,
+      city: u.city,
+      state: u.state,
+      is_active: true,
+      is_seed: true,
+    }));
+    const { data: insertedStores } = await supabase.from("stores").insert(storesToInsert).select("id");
+    stores = insertedStores || [];
+    if (stores.length > 0) stats.units = stores.length;
+  }
+
+  // 5 seed people (no auth_user_id). store_id=null when skipStores (Relay callback will assign)
+  const usersToInsert = SEED_PEOPLE.map((p, i) => ({
+    organization_id: orgId,
+    role_id: roleId,
+    store_id: stores.length > 0 ? stores[i % stores.length].id : null,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    email: `seed${i + 1}@org-${orgId.slice(0, 8)}.demo`,
+    employee_id: p.employee_id,
+    status: "active",
+    is_seed: true,
+  }));
+
+  const { data: seedUsers } = await supabase.from("users").insert(usersToInsert).select("id");
+  if (!seedUsers || seedUsers.length === 0) return stats;
+  stats.people = seedUsers.length;
+
+  const now = new Date();
+  const activityLogs: any[] = [];
+  const activityEvents: any[] = [];
+  const trackCompletions: any[] = [];
+  const userProgressRows: any[] = [];
+
+  for (let i = 0; i < seedUsers.length; i++) {
+    const uid = seedUsers[i].id;
+    const daysAgo = (days: number) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d.toISOString();
+    };
+
+    // Activity logs (admin-style activity)
+    activityLogs.push({ organization_id: orgId, user_id: uid, action: "login", entity_type: "user", entity_id: uid, details: {}, is_seed: true });
+    if (trackIds.length > 0) {
+      activityLogs.push(
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[0], details: {}, is_seed: true },
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[Math.min(1, trackIds.length - 1)], details: {}, is_seed: true }
+      );
+    }
+
+    // Activity events (learning activity - completions)
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const ts = daysAgo(i + 1);
+      activityEvents.push({
+        user_id: uid,
+        verb: "completed",
+        object_type: "track",
+        object_id: trackId,
+        object_name: "Training",
+        result_completion: true,
+        result_success: true,
+        context_platform: "web",
+        timestamp: ts,
+        stored_at: ts,
+        is_seed: true,
+      });
+    }
+
+    // Track completions
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const completedAt = daysAgo(i + 1);
+      trackCompletions.push({
+        user_id: uid,
+        track_id: trackId,
+        track_version_number: 1,
+        status: "completed",
+        passed: true,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+        metadata: { is_seed: true },
+      });
+      userProgressRows.push({
+        organization_id: orgId,
+        user_id: uid,
+        track_id: trackId,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+      });
+    }
+  }
+
+  if (activityLogs.length > 0) {
+    await supabase.from("activity_logs").insert(activityLogs);
+    stats.activity += activityLogs.length;
+  }
+  if (activityEvents.length > 0) {
+    await supabase.from("activity_events").insert(activityEvents);
+    stats.activity += activityEvents.length;
+  }
+  if (trackCompletions.length > 0) {
+    await supabase.from("track_completions").insert(trackCompletions);
+  }
+  if (userProgressRows.length > 0) {
+    await supabase.from("user_progress").insert(userProgressRows);
+  }
+
+  // Create CORE Playlist (clone from Trike.co template or use system tracks) and assignments for demo reports
+  const template = await getCorePlaylistTemplate();
+  let playlistMeta: { title: string; description: string | null; type: string; release_type: string | null; release_schedule: any; is_active: boolean } = template
+    ? { title: template.title, description: template.description, type: template.type, release_type: template.release_type, release_schedule: template.release_schedule, is_active: template.is_active }
+    : { title: CORE_PLAYLIST_TITLE, description: "Core training content for demo.", type: "manual", release_type: "immediate", release_schedule: null, is_active: true };
+
+  let playlistTrackIds = trackIds;
+  if (playlistTrackIds.length === 0 && seedUsers.length > 0) {
+    if (template && template.trackIds.length > 0) {
+      playlistTrackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      playlistTrackIds = (systemTracks || []).map((t: any) => t.id);
+    }
+  }
+  if (playlistTrackIds.length > 0 && seedUsers.length > 0) {
+    const { data: playlist } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id: orgId,
+        title: playlistMeta.title,
+        description: playlistMeta.description,
+        type: playlistMeta.type,
+        release_type: playlistMeta.release_type ?? "immediate",
+        release_schedule: playlistMeta.release_schedule,
+        is_active: playlistMeta.is_active,
+      })
+      .select("id")
+      .single();
+
+    if (playlist?.id) {
+      const pts = playlistTrackIds.map((tid: string, idx: number) => ({
+        playlist_id: playlist.id,
+        track_id: tid,
+        display_order: idx,
+      }));
+      await supabase.from("playlist_tracks").insert(pts);
+
+      const assignmentRows = seedUsers.map((u: any, i: number) => {
+        const completedAt = (() => {
+          const d = new Date(now);
+          d.setDate(d.getDate() - (i + 1));
+          return d.toISOString();
+        })();
+        return {
+          organization_id: orgId,
+          user_id: u.id,
+          playlist_id: playlist.id,
+          assigned_at: completedAt,
+          status: "completed",
+          progress_percent: 100,
+          completed_at: completedAt,
+        };
+      });
+      await supabase.from("assignments").insert(assignmentRows);
+
+      // Add 2 in-progress assignments so Assignments tab shows variety (not all completed)
+      const inProgressAssignments = [
+        {
+          organization_id: orgId,
+          user_id: seedUsers[0].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 30,
+          completed_at: null,
+        },
+        {
+          organization_id: orgId,
+          user_id: seedUsers[1].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 50,
+          completed_at: null,
+        },
+      ];
+      await supabase.from("assignments").insert(inProgressAssignments);
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * Remove all demo seed data when org transitions prospect→onboarding.
+ * Keeps user-entered data (is_seed=false or null).
+ */
+async function removeDemoSeedData(orgId: string): Promise<{ removed: number }> {
+  let removed = 0;
+
+  const { data: seedUsers } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedUserIds = seedUsers?.map((u: any) => u.id) || [];
+
+  if (seedUserIds.length > 0) {
+    await supabase.from("user_progress").delete().in("user_id", seedUserIds);
+    await supabase.from("track_completions").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_logs").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_events").delete().in("user_id", seedUserIds);
+    await supabase.from("assignments").delete().in("user_id", seedUserIds);
+    await supabase.from("users").delete().in("id", seedUserIds);
+    removed += seedUserIds.length;
+  }
+
+  // Remove seed playlist "CORE Playlist" (and legacy "Demo Training") created for reports
+  const { data: seedPlaylists } = await supabase
+    .from("playlists")
+    .select("id")
+    .eq("organization_id", orgId)
+    .in("title", [CORE_PLAYLIST_TITLE, "Demo Training"]);
+  if (seedPlaylists && seedPlaylists.length > 0) {
+    const playlistIds = seedPlaylists.map((p: any) => p.id);
+    await supabase.from("playlist_tracks").delete().in("playlist_id", playlistIds);
+    await supabase.from("playlists").delete().in("id", playlistIds);
+    removed += seedPlaylists.length;
+  }
+
+  const { data: seedStores } = await supabase.from("stores").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedStoreIds = seedStores?.map((s: any) => s.id) || [];
+
+  if (seedStoreIds.length > 0) {
+    await supabase.from("stores").delete().in("id", seedStoreIds);
+    removed += seedStoreIds.length;
+  }
+
+  await supabase.from("districts").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+  const { data: deletedLogs } = await supabase.from("activity_logs").delete().eq("organization_id", orgId).eq("is_seed", true).select("id");
+  if (deletedLogs) removed += deletedLogs.length;
+
+  await supabase.from("tracks").delete().eq("organization_id", orgId).eq("is_demo_content", true);
+
+  const { data: octTopics } = await supabase.from("organization_compliance_topics").delete().eq("organization_id", orgId).eq("added_during", "admin_demo").select("id");
+  if (octTopics) removed += octTopics.length;
+
+  console.log(`[RemoveDemoSeed] Org ${orgId}: removed ${removed} seed items`);
+  return { removed };
+}
+
+/**
+ * POST /org/transition-to-onboarding
+ * Transition prospect org to onboarding: remove demo seed data, update status.
+ * Call when prospect accepts proposal + billing (e.g. from admin, webhook, or Go Live).
+ */
+async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    if (org.status !== "demo") {
+      return jsonResponse({ error: `Org status must be demo, got: ${org.status}` }, 400);
+    }
+
+    const { removed } = await removeDemoSeedData(organization_id);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "live",
+        converted_at: new Date().toISOString(),
+        demo_expires_at: null,
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[TransitionToOnboarding] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    const { error: dealError } = await supabase
+      .from("deals")
+      .update({ stage: "won" })
+      .eq("organization_id", organization_id);
+
+    if (dealError) console.error("[TransitionToOnboarding] Deal update (non-fatal):", dealError);
+
+    console.log(`[TransitionToOnboarding] ${org.name} → live, removed ${removed} seed items`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      status: "live",
+      seed_data_removed: removed,
+    });
+  } catch (error: any) {
+    console.error("[TransitionToOnboarding] Error:", error);
+    return jsonResponse({ error: error.message || "Transition failed" }, 500);
+  }
+}
+
+/** Trike.co main org — excluded from bulk seed operations */
+const TRIKE_CO_ORG_ID = "10000000-0000-0000-0000-000000000001";
+
+/** Template playlist in Trike account to clone for demo orgs */
+const CORE_PLAYLIST_TITLE = "CORE Playlist";
+
+/**
+ * Fetch "CORE Playlist" from Trike.co and return template fields + ordered list of track IDs
+ * that are system content (so demo orgs can use them). Returns null if no template or no system tracks.
+ */
+async function getCorePlaylistTemplate(): Promise<{
+  title: string;
+  description: string | null;
+  type: string;
+  release_type: string | null;
+  release_schedule: any;
+  is_active: boolean;
+  trackIds: string[];
+} | null> {
+  const { data: template, error: playlistErr } = await supabase
+    .from("playlists")
+    .select("id, title, description, type, release_type, release_schedule, is_active")
+    .eq("organization_id", TRIKE_CO_ORG_ID)
+    .ilike("title", CORE_PLAYLIST_TITLE)
+    .limit(1)
+    .maybeSingle();
+  if (playlistErr || !template?.id) return null;
+
+  const { data: pts, error: ptsErr } = await supabase
+    .from("playlist_tracks")
+    .select("track_id, display_order")
+    .eq("playlist_id", template.id)
+    .order("display_order", { ascending: true });
+  if (ptsErr || !pts || pts.length === 0) return null;
+
+  const trackIds = pts.map((p: any) => p.track_id);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, is_system_content")
+    .in("id", trackIds);
+  const systemById = new Set((tracks || []).filter((t: any) => t.is_system_content === true).map((t: any) => t.id));
+  const orderedSystemIds = trackIds.filter((id: string) => systemById.has(id));
+  if (orderedSystemIds.length === 0) return null;
+
+  return {
+    title: template.title,
+    description: template.description ?? null,
+    type: template.type ?? "manual",
+    release_type: template.release_type ?? "immediate",
+    release_schedule: template.release_schedule ?? null,
+    is_active: template.is_active !== false,
+    trackIds: orderedSystemIds,
+  };
+}
+
+/**
+ * POST /admin/seed-demo-org
+ * Seed demo data (people, units, activity) for a single existing org.
+ * Body: { organization_id: "..." }
+ * Skips Trike.co main org. Guards against double-seeding (skips if seed users exist).
+ */
+async function handleAdminSeedDemoOrg(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    if (organization_id === TRIKE_CO_ORG_ID) {
+      return jsonResponse({ error: "Cannot seed Trike.co main org" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Guard against double-seeding
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+
+    if (existingSeedUsers && existingSeedUsers.length > 0) {
+      return jsonResponse({
+        success: false,
+        skipped: true,
+        reason: "Org already has seed data (seed users exist)",
+        organization_id,
+      }, 200);
+    }
+
+    // Get Admin role for org
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .ilike("name", "%admin%")
+      .limit(1)
+      .maybeSingle();
+
+    // Get org's published tracks for activity/completion data
+    const { data: tracks } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("status", "published")
+      .limit(10);
+
+    const trackIds = (tracks || []).map((t: any) => t.id);
+
+    const stats = await seedDemoOrgData(organization_id, adminRole?.id || null, trackIds);
+
+    console.log(`[AdminSeedDemoOrg] ${org.name} (${organization_id}): ${stats.people}p ${stats.units}u ${stats.activity}a`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      organization_name: org.name,
+      seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrg] Error:", error);
+    return jsonResponse({ error: error.message || "Seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /demo/seed-playlist
+ * Create "CORE Playlist" for a demo org by cloning the Trike account's CORE Playlist (same title, description, type, tracks).
+ * Body: { organization_id: string }
+ * If no CORE Playlist exists in Trike.co, creates one with 5 published system tracks.
+ */
+async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const organization_id = body?.organization_id;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id required" }, 400);
+    }
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+    if (orgErr || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+    if ((org as any).status !== "demo") {
+      return jsonResponse({ error: "Only demo organizations can use this endpoint" }, 400);
+    }
+
+    const { data: existing } = await supabase
+      .from("playlists")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("title", CORE_PLAYLIST_TITLE)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      return jsonResponse({
+        success: true,
+        created: false,
+        playlist_id: existing.id,
+        message: `"${CORE_PLAYLIST_TITLE}" already exists`,
+      });
+    }
+
+    const { data: seedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true);
+    const users = seedUsers && seedUsers.length > 0 ? seedUsers : (await supabase.from("users").select("id").eq("organization_id", organization_id).limit(10)).data;
+    if (!users || users.length === 0) {
+      return jsonResponse({ error: "No users in org to assign playlist" }, 400);
+    }
+
+    const template = await getCorePlaylistTemplate();
+    let title: string;
+    let description: string | null;
+    let type: string;
+    let release_type: string | null;
+    let release_schedule: any;
+    let is_active: boolean;
+    let trackIds: string[];
+
+    if (template && template.trackIds.length > 0) {
+      title = template.title;
+      description = template.description;
+      type = template.type;
+      release_type = template.release_type;
+      release_schedule = template.release_schedule;
+      is_active = template.is_active;
+      trackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      trackIds = (systemTracks || []).map((t: any) => t.id);
+      if (trackIds.length === 0) {
+        return jsonResponse({ error: "No published system tracks available for playlist" }, 400);
+      }
+      title = CORE_PLAYLIST_TITLE;
+      description = "Core training content for demo.";
+      type = "manual";
+      release_type = "immediate";
+      release_schedule = null;
+      is_active = true;
+    }
+
+    const { data: playlist, error: playlistErr } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id,
+        title,
+        description,
+        type,
+        release_type: release_type ?? "immediate",
+        release_schedule,
+        is_active,
+      })
+      .select("id")
+      .single();
+    if (playlistErr || !playlist?.id) {
+      return jsonResponse({ error: playlistErr?.message || "Failed to create playlist" }, 500);
+    }
+
+    const pts = trackIds.map((tid: string, idx: number) => ({
+      playlist_id: playlist.id,
+      track_id: tid,
+      display_order: idx,
+    }));
+    await supabase.from("playlist_tracks").insert(pts);
+
+    const now = new Date();
+    const assignmentRows = users.map((u: any, i: number) => {
+      const completedAt = (() => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - (i + 1));
+        return d.toISOString();
+      })();
+      return {
+        organization_id,
+        user_id: u.id,
+        playlist_id: playlist.id,
+        assigned_at: completedAt,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+      };
+    });
+    await supabase.from("assignments").insert(assignmentRows);
+
+    console.log(`[DemoSeedPlaylist] ${org.name} (${organization_id}): created "${title}" ${playlist.id}, ${trackIds.length} tracks, ${users.length} assignments`);
+    return jsonResponse({
+      success: true,
+      created: true,
+      playlist_id: playlist.id,
+      title,
+      tracks: trackIds.length,
+      assignments: users.length,
+    });
+  } catch (error: any) {
+    console.error("[DemoSeedPlaylist] Error:", error);
+    return jsonResponse({ error: error.message || "Seed playlist failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/seed-demo-org-all
+ * Seed demo data for all orgs except Trike.co main org.
+ * Skips orgs that already have seed users. Returns summary per org.
+ */
+async function handleAdminSeedDemoOrgAll(req: Request): Promise<Response> {
+  try {
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .neq("id", TRIKE_CO_ORG_ID);
+
+    if (orgsError) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    if (!orgs || orgs.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No orgs to seed (excluding Trike.co main org)",
+        results: [],
+      });
+    }
+
+    const results: Array<{
+      organization_id: string;
+      organization_name: string;
+      status: "seeded" | "skipped" | "error";
+      reason?: string;
+      seeded?: { people: number; units: number; activity: number };
+    }> = [];
+
+    for (const org of orgs) {
+      try {
+        // Guard against double-seeding
+        const { data: existingSeedUsers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("is_seed", true)
+          .limit(1);
+
+        if (existingSeedUsers && existingSeedUsers.length > 0) {
+          results.push({
+            organization_id: org.id,
+            organization_name: org.name,
+            status: "skipped",
+            reason: "Already has seed data",
+          });
+          continue;
+        }
+
+        const { data: adminRole } = await supabase
+          .from("roles")
+          .select("id")
+          .eq("organization_id", org.id)
+          .ilike("name", "%admin%")
+          .limit(1)
+          .maybeSingle();
+
+        const { data: tracks } = await supabase
+          .from("tracks")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("status", "published")
+          .limit(10);
+
+        const trackIds = (tracks || []).map((t: any) => t.id);
+        const stats = await seedDemoOrgData(org.id, adminRole?.id || null, trackIds);
+
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "seeded",
+          seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+        });
+
+        console.log(`[AdminSeedDemoOrgAll] ${org.name}: ${stats.people}p ${stats.units}u ${stats.activity}a`);
+      } catch (err: any) {
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "error",
+          reason: err.message || "Unknown error",
+        });
+        console.error(`[AdminSeedDemoOrgAll] ${org.name} failed:`, err.message);
+      }
+    }
+
+    const seeded = results.filter((r) => r.status === "seeded").length;
+    const skipped = results.filter((r) => r.status === "skipped").length;
+    const errors = results.filter((r) => r.status === "error").length;
+
+    return jsonResponse({
+      success: true,
+      summary: { total: orgs.length, seeded, skipped, errors },
+      results,
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrgAll] Error:", error);
+    return jsonResponse({ error: error.message || "Bulk seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/relay-fallback-seed
+ * Create seed stores for orgs where Relay was triggered but never returned.
+ * Call via cron (e.g. every 10 min) to recover demos stuck with 0 stores.
+ * Body: { minutesAgo?: number } — only consider orgs created at least this long ago (default 10).
+ */
+async function handleRelayFallbackSeed(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const minutesAgo = body.minutesAgo ?? 10;
+    const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name, scraped_data, created_at")
+      .lt("created_at", cutoff);
+
+    if (orgsError || !orgs) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    const candidates = orgs.filter(
+      (o: any) =>
+        o.scraped_data?.relay_run_id && !o.scraped_data?.relay_locations_imported_at
+    );
+
+    const results: Array<{ org_id: string; org_name: string; status: string; stores_created?: number }> = [];
+
+    for (const org of candidates) {
+      const { count } = await supabase
+        .from("stores")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", org.id);
+      if ((count ?? 0) > 0) continue;
+
+      try {
+        const { data: districts } = await supabase
+          .from("districts")
+          .select("id")
+          .eq("organization_id", org.id)
+          .limit(2);
+        const districtIds = (districts || []).map((d: any) => d.id);
+
+        const storesToInsert = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: org.id,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+
+        const { data: inserted } = await supabase.from("stores").insert(storesToInsert).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const firstId = storeIds[0];
+
+        if (firstId) {
+          const { data: seedPeople } = await supabase
+            .from("users")
+            .select("id")
+            .eq("organization_id", org.id)
+            .eq("is_seed", true)
+            .is("store_id", null);
+          const storesForAssignment = storeIds.slice(0, 5);
+          if (seedPeople && seedPeople.length > 0) {
+            for (let i = 0; i < seedPeople.length; i++) {
+              const storeId = storesForAssignment[i % storesForAssignment.length];
+              await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+            }
+          }
+        }
+
+        await supabase
+          .from("organizations")
+          .update({
+            scraped_data: { ...(org.scraped_data || {}), relay_fallback_seed_at: new Date().toISOString() },
+          })
+          .eq("id", org.id);
+
+        results.push({ org_id: org.id, org_name: org.name, status: "seeded", stores_created: 5 });
+        console.log(`[RelayFallbackSeed] ${org.name}: created 5 seed stores`);
+      } catch (err: any) {
+        results.push({ org_id: org.id, org_name: org.name, status: "error" });
+        console.error(`[RelayFallbackSeed] ${org.name} failed:`, err.message);
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      message: `Checked ${candidates.length} orgs, seeded ${results.filter((r) => r.status === "seeded").length}`,
+      results,
+    });
+  } catch (error: any) {
+    console.error("[RelayFallbackSeed] Error:", error);
+    return jsonResponse({ error: error.message || "Relay fallback failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/assign-seed-people-to-stores
+ * Assign seed people (store_id=null) to the first 5 stores for an org.
+ * Fixes orgs where Relay returned stores but the callback didn't assign people (e.g. race, callback failure).
+ * Body: { organization_id: string }
+ */
+async function handleAssignSeedPeopleToStores(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: stores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .order("name")
+      .limit(5);
+
+    const storeIds = (stores || []).map((s: any) => s.id);
+    if (storeIds.length === 0) {
+      return jsonResponse({ error: "No stores found for this organization" }, 400);
+    }
+
+    let seedPeople = (await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .is("store_id", null)).data;
+
+    // Fallback: some older demo orgs may have seed people without is_seed set
+    if (!seedPeople || seedPeople.length === 0) {
+      seedPeople = (await supabase
+        .from("users")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .is("store_id", null)
+        .limit(10)).data;
+    }
+
+    if (!seedPeople || seedPeople.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No unassigned people found",
+        assigned: 0,
+      });
+    }
+
+    const storesForAssignment = storeIds.slice(0, 5);
+    for (let i = 0; i < seedPeople.length; i++) {
+      const storeId = storesForAssignment[i % storesForAssignment.length];
+      await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+    }
+
+    // Trigger compliance onboarding assignments for each user (requirements for their store state)
+    let complianceCreated = 0;
+    for (const u of seedPeople) {
+      const { data: count, error: rpcError } = await supabase.rpc("create_onboarding_assignments", {
+        p_user_id: u.id,
+      });
+      if (!rpcError && typeof count === "number") complianceCreated += count;
+    }
+
+    console.log(`[AssignSeedPeopleToStores] Org ${organization_id}: assigned ${seedPeople.length} people to ${storesForAssignment.length} stores; ${complianceCreated} compliance assignments created`);
+    return jsonResponse({
+      success: true,
+      assigned: seedPeople.length,
+      stores_used: storesForAssignment.length,
+      compliance_assignments_created: complianceCreated,
+    });
+  } catch (error: any) {
+    console.error("[AssignSeedPeopleToStores] Error:", error);
+    return jsonResponse({ error: error.message || "Assign failed" }, 500);
+  }
+}
+
+// =============================================================================
+// UNIFIED DEMO CREATION
+// =============================================================================
+
+/**
+ * POST /demo/create
+ * Unified demo creation: optionally enrich from website, create org + auth user,
+ * provision demo content, return magic link. Used by both admin single-create
+ * and batch-create flows.
+ */
+async function handleDemoCreate(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const {
+      url: websiteUrl,
+      organization_name,
+      contact_email,
+      contact_name,
+      demo_days = 14,
+      industry,
+      operating_states,
+      origin: clientOrigin,
+    } = body;
+
+    if (!contact_email) {
+      return jsonResponse({ error: "contact_email is required" }, 400);
+    }
+
+    if (!websiteUrl && !organization_name) {
+      return jsonResponse({ error: "Either url or organization_name is required" }, 400);
+    }
+
+    console.log(`[DemoCreate] Starting for ${websiteUrl || organization_name} (${contact_email})`);
+
+    // Step 1: Enrich from website if URL provided
+    let enrichedData: any = {};
+    if (websiteUrl) {
+      try {
+        let normalizedUrl = websiteUrl.trim().toLowerCase();
+        if (!normalizedUrl.startsWith("http")) {
+          normalizedUrl = "https://" + normalizedUrl;
+        }
+
+        const domain = new URL(normalizedUrl).hostname.replace("www.", "");
+        const domainName = domain.split(".")[0];
+
+        const response = await fetch(normalizedUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          enrichedData = await extractCompanyDataFromHTML(html, normalizedUrl, domainName);
+
+          if (!enrichedData.logo_url) {
+            const externalLogo = await tryExternalLogoFallback(domain);
+            if (externalLogo) enrichedData.logo_url = externalLogo;
+          }
+        } else {
+          enrichedData.company_name = capitalizeWords(domainName);
+        }
+
+        enrichedData.website = normalizedUrl;
+      } catch (enrichErr: any) {
+        console.error(`[DemoCreate] Enrichment failed:`, enrichErr.message);
+        enrichedData.website = normalizedUrl || (websiteUrl.startsWith("http") ? websiteUrl : "https://" + websiteUrl);
+      }
+    }
+
+    const companyName = enrichedData.company_name || organization_name || "Demo Company";
+    const subdomain = companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .substring(0, 30);
+
+    const { data: existing } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .single();
+
+    const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
+
+    // Validate logo
+    let validatedLogoUrl: string | null = null;
+    if (enrichedData.logo_url) {
+      const logoValidation = await validateLogoUrl(enrichedData.logo_url);
+      if (logoValidation.url && logoValidation.quality !== "poor") {
+        validatedLogoUrl = logoValidation.url;
+      }
+    }
+
+    // Step 2: Create organization
+    const demoExpiry = new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .insert({
+        name: companyName,
+        subdomain: finalSubdomain,
+        website: enrichedData.website || null,
+        logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
+        status: "demo",
+        demo_expires_at: demoExpiry,
+        industry: industry || enrichedData.industry || null,
+        operating_states: operating_states || enrichedData.operating_states || [],
+        onboarding_source: "admin",
+        scraped_data: enrichedData,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+    console.log(`[DemoCreate] Created org: ${org.name} (${org.id})`);
+
+    // Step 3: Create admin role
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .insert({
+        organization_id: org.id,
+        name: "Admin",
+        description: "Full administrative access",
+        level: 3,
+        permissions: JSON.stringify([
+          "manage_users", "manage_content", "manage_assignments",
+          "manage_settings", "view_reports", "manage_compliance",
+        ]),
+      })
+      .select()
+      .single();
+
+    // Step 4: Create auth user + user record
+    const tempPassword = crypto.randomUUID().substring(0, 16) + "!Aa1";
+    let magicLink: string | null = null;
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: contact_email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: {
+        organization_id: org.id,
+        full_name: contact_name || "",
+      },
+    });
+
+    if (authError) {
+      console.error("[DemoCreate] Failed to create auth user:", authError);
+      // When email already exists (batch demos with same contact), provide demo URL fallback
+      if (authError.code === "email_exists" || authError.message?.includes("already been registered")) {
+        let base = clientOrigin || req.headers.get("origin");
+        if (!base && req.headers.get("referer")) {
+          try {
+            base = new URL(req.headers.get("referer")!).origin;
+          } catch {}
+        }
+        base = base || "https://trikebackoffice20.vercel.app";
+        magicLink = `${base.replace(/\/$/, "")}/?demo_org_id=${org.id}`;
+      }
+    }
+
+    if (authUser?.user) {
+      const nameParts = (contact_name || "Admin User").trim().split(/\s+/);
+      const firstName = nameParts[0] || "Admin";
+      const lastName = nameParts.slice(1).join(" ") || "User";
+
+      await supabase.from("users").insert({
+        organization_id: org.id,
+        role_id: adminRole?.id || null,
+        auth_user_id: authUser.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        email: contact_email,
+        status: "active",
+        metadata: { onboarded_at: new Date().toISOString(), source: "admin_demo_create" },
+      });
+
+      // Generate magic link
+      const { data: linkData } = await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: contact_email,
+      });
+      if (linkData?.properties?.action_link) {
+        magicLink = linkData.properties.action_link;
+      }
+    }
+
+    // Step 5: Provision demo content (compliance topics + sample tracks)
+    let topicsCloned = 0;
+    let tracksCloned = 0;
+
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      const topicsToInsert = globalTopics.map((t: any, i: number) => ({
+        organization_id: org.id,
+        topic_id: t.id,
+        is_active: true,
+        priority: i,
+        added_during: "admin_demo",
+      }));
+      const { error: topicsErr } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+      if (!topicsErr) topicsCloned = topicsToInsert.length;
+    }
+
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    let clonedTrackIds: string[] = [];
+    if (templateTracks && templateTracks.length > 0) {
+      const tracksToInsert = templateTracks.map((t: any) => ({
+        organization_id: org.id,
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        content_url: t.content_url,
+        thumbnail_url: t.thumbnail_url,
+        duration_minutes: t.duration_minutes,
+        tags: t.tags,
+        status: "published",
+        is_demo_content: true,
+      }));
+      const { data: insertedTracks, error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert).select("id");
+      if (!tracksErr && insertedTracks) {
+        tracksCloned = insertedTracks.length;
+        clonedTrackIds = insertedTracks.map((t: any) => t.id);
+      }
+    }
+
+    // Step 5a: Determine if Relay will run (we need this before seeding)
+    const canTriggerRelay = !!(websiteUrl && enrichedData?.website);
+
+    // Step 5b: Seed demo people, units, and activity. Skip stores when Relay will provide real locations.
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    try {
+      seedStats = await seedDemoOrgData(org.id, adminRole?.id, clonedTrackIds, { skipStores: canTriggerRelay });
+    } catch (seedErr: any) {
+      console.error("[DemoCreate] Seed data failed (non-fatal):", seedErr.message);
+    }
+
+    // Step 6: Create a deal record
+    await supabase.from("deals").insert({
+      organization_id: org.id,
+      name: `${companyName} - Demo`,
+      stage: "evaluating",
+      deal_type: "new",
+      probability: 50,
+    });
+
+    // Step 7: Trigger Relay location scraper when we have website (async, fire-and-forget)
+    let relayRunId: string | null = null;
+    let relayRunLink: string | null = null;
+    if (!canTriggerRelay) {
+      console.log(`[DemoCreate] Skipping Relay trigger: websiteUrl=${!!websiteUrl} enrichedData.website=${!!enrichedData?.website}`);
+    }
+    if (canTriggerRelay) {
+      try {
+        const websiteForUrl = enrichedData.website.startsWith("http") ? enrichedData.website : "https://" + enrichedData.website;
+        const demoDomain = new URL(websiteForUrl).hostname.replace("www.", "");
+        console.log(`[DemoCreate] Triggering Relay for ${companyName} (${websiteForUrl})`);
+        const relayResult = await triggerRelayLocationScraper(companyName, demoDomain, {
+          orgId: org.id,
+          deduplicationKey: org.id,
+          fullWebsiteUrl: enrichedData.website,
+        });
+        if (relayResult) {
+          relayRunId = relayResult.runId;
+          relayRunLink = relayResult.runLink;
+          console.log(`[DemoCreate] Triggered Relay location scraper for ${companyName}`);
+        }
+      } catch (relayErr: any) {
+        console.error("[DemoCreate] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    const enrichedDataOut = enrichedData.company_name
+      ? { ...enrichedData, ...(relayRunId && { relay_run_id: relayRunId, relay_run_link: relayRunLink }) }
+      : undefined;
+
+    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned} seed:${seedStats.people}p/${seedStats.units}u/${seedStats.activity}a`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        demo_expires_at: org.demo_expires_at,
+      },
+      magic_link: magicLink,
+      enriched_data: enrichedDataOut,
+      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned, seed_people: seedStats.people, seed_units: seedStats.units, seed_activity: seedStats.activity },
+    });
+  } catch (error: any) {
+    console.error("[DemoCreate] Error:", error);
+    return jsonResponse({ error: error.message || "Demo creation failed" }, 500);
+  }
+}
+
+// =============================================================================
 // DEMO PROVISIONING
 // =============================================================================
 
@@ -17157,7 +19474,7 @@ async function handleDemoProvision(req: Request): Promise<Response> {
     const { error: updateError } = await supabase
       .from("organizations")
       .update({
-        status: "prospect",
+        status: "demo",
         demo_expires_at: expiryDate.toISOString(),
         onboarding_source: "sales_demo",
       })
@@ -17219,6 +19536,7 @@ async function handleDemoProvision(req: Request): Promise<Response> {
       .eq("status", "published")
       .limit(10);
 
+    let clonedTrackIds: string[] = [];
     if (templateTracks && templateTracks.length > 0) {
       // Check if org already has tracks to avoid duplicates
       const { data: existingTracks } = await supabase
@@ -17241,16 +19559,42 @@ async function handleDemoProvision(req: Request): Promise<Response> {
           is_demo_content: true,
         }));
 
-        const { error: tracksError } = await supabase
+        const { data: insertedTracks, error: tracksError } = await supabase
           .from("tracks")
-          .insert(tracksToInsert);
+          .insert(tracksToInsert)
+          .select("id");
 
         if (tracksError) {
           console.error("[DemoProvision] Failed to clone tracks:", tracksError);
-        } else {
-          tracksCloned = tracksToInsert.length;
+        } else if (insertedTracks && insertedTracks.length > 0) {
+          tracksCloned = insertedTracks.length;
+          clonedTrackIds = insertedTracks.map((t: any) => t.id);
           console.log(`[DemoProvision] Cloned ${tracksCloned} sample tracks`);
         }
+      }
+    }
+
+    // Step 4b: Seed people, units, CORE Playlist, and activity (same as new demos) when org has no seed users
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+    if (!existingSeedUsers || existingSeedUsers.length === 0) {
+      const { data: adminRole } = await supabase
+        .from("roles")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .ilike("name", "%admin%")
+        .limit(1)
+        .maybeSingle();
+      try {
+        seedStats = await seedDemoOrgData(organization_id, adminRole?.id ?? null, clonedTrackIds, { skipStores: false });
+        console.log(`[DemoProvision] Seeded: ${seedStats.people}p ${seedStats.units}u ${seedStats.activity}a`);
+      } catch (seedErr: any) {
+        console.error("[DemoProvision] Seed data failed (non-fatal):", seedErr.message);
       }
     }
 
@@ -17287,6 +19631,9 @@ async function handleDemoProvision(req: Request): Promise<Response> {
       provisioned: {
         compliance_topics: topicsCloned,
         sample_tracks: tracksCloned,
+        seed_people: seedStats.people,
+        seed_units: seedStats.units,
+        seed_activity: seedStats.activity,
         deal_updated: !!deal,
       },
     });

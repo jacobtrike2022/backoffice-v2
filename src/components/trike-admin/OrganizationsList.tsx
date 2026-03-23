@@ -10,6 +10,14 @@ import {
   Calendar,
   AlertCircle,
   RefreshCw,
+  Trash2,
+  MapPin,
+  Pencil,
+  X,
+  Save,
+  Plus,
+  Eye,
+  Users,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -37,55 +45,90 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '../ui/hover-card';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
+import { publicAnonKey } from '../../utils/supabase/info';
+import trikeLogo from '../../assets/trike-logo.png';
+import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
+
+const TRIKE_CO_ORG_ID = '10000000-0000-0000-0000-000000000001';
 
 interface OrganizationsListProps {
   onViewJourney?: (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => void;
   onProvisionDemo?: (orgId: string, orgName: string) => void;
+  onPreviewOrg?: (orgId: string, orgName: string) => void;
+  darkMode?: boolean;
 }
 
 const STATUS_CONFIG: Record<
   OrganizationStatus,
   { label: string; color: string; bgColor: string }
 > = {
-  lead: { label: 'Lead', color: 'text-slate-600 dark:text-slate-400', bgColor: 'bg-slate-100 dark:bg-slate-800' },
-  prospect: { label: 'Prospect', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
-  evaluating: { label: 'Evaluating', color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-950' },
-  closing: { label: 'Closing', color: 'text-amber-600 dark:text-amber-400', bgColor: 'bg-amber-50 dark:bg-amber-950' },
-  onboarding: { label: 'Onboarding', color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-950' },
+  demo: { label: 'Demo', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
   live: { label: 'Live', color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-50 dark:bg-emerald-950' },
-  churned: { label: 'Churned', color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-950' },
-  suspended: { label: 'Suspended', color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-950' },
-  frozen: { label: 'Frozen', color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-50 dark:bg-cyan-950' },
-  renewing: { label: 'Renewing', color: 'text-teal-600 dark:text-teal-400', bgColor: 'bg-teal-50 dark:bg-teal-950' },
 };
 
 const STATUS_FILTER_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'active-pipeline', label: 'Active Pipeline' },
-  { value: 'lead', label: 'Lead' },
-  { value: 'prospect', label: 'Prospect' },
-  { value: 'evaluating', label: 'Evaluating' },
-  { value: 'closing', label: 'Closing' },
-  { value: 'onboarding', label: 'Onboarding' },
+  { value: 'demo', label: 'Demo' },
   { value: 'live', label: 'Live' },
-  { value: 'churned', label: 'Churned' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'frozen', label: 'Frozen' },
-  { value: 'renewing', label: 'Renewing' },
 ];
 
-const ACTIVE_PIPELINE_STATUSES: OrganizationStatus[] = [
-  'lead', 'prospect', 'evaluating', 'closing', 'onboarding',
-];
+/** Industry display: joined industries.name, or singular relation industry.name, or legacy org.industry string */
+function getOrgIndustryDisplay(org: Organization & { industries?: { name: string } | null; industry?: { name: string } | null }): string {
+  const o = org as { industries?: { name: string } | null; industry?: { name: string } | null; industry_id?: string | null };
+  return o.industries?.name ?? (o.industry && typeof o.industry === 'object' && 'name' in o.industry ? (o.industry as { name: string }).name : null) ?? (typeof org.industry === 'string' ? org.industry : '') ?? '';
+}
 
-export function OrganizationsList({ onViewJourney, onProvisionDemo }: OrganizationsListProps) {
+export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg, darkMode }: OrganizationsListProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteOrgId, setDeleteOrgId] = useState<string | null>(null);
+  const [deleteOrgName, setDeleteOrgName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [assigningOrgId, setAssigningOrgId] = useState<string | null>(null);
+  const [seedingPlaylistOrgId, setSeedingPlaylistOrgId] = useState<string | null>(null);
+
+  // Edit sheet state
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    website: '',
+    subdomain: '',
+    status: 'demo' as OrganizationStatus,
+    industry: '',
+    operating_states: [] as string[],
+    next_action: '',
+    next_action_date: '',
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [newStateInput, setNewStateInput] = useState('');
 
   const loadOrganizations = async () => {
     try {
@@ -98,27 +141,28 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           name,
           subdomain,
           website,
+          logo_url,
+          logo_dark_url,
+          logo_light_url,
           status,
           industry,
+          industry_id,
+          industries(name),
           services_offered,
           operating_states,
           demo_expires_at,
           onboarding_source,
           created_at,
-          deal_value,
-          deal_probability,
-          deal_owner_id,
-          deal_close_date,
           last_activity_at,
           next_action,
-          next_action_date
+          next_action_date,
+          scraped_data,
+          stores(count)
         `)
         .order('created_at', { ascending: false });
 
       // Apply status filter
-      if (statusFilter === 'active-pipeline') {
-        query = query.in('status', ACTIVE_PIPELINE_STATUSES);
-      } else if (statusFilter !== 'all') {
+      if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
 
@@ -129,7 +173,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
         return;
       }
 
-      setOrganizations((data as Organization[]) || []);
+      setOrganizations((data as unknown as Organization[]) || []);
     } catch (err) {
       console.error('Error loading organizations:', err);
     } finally {
@@ -145,9 +189,10 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
   const filteredOrgs = organizations.filter((org) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
+    const industryDisplay = getOrgIndustryDisplay(org);
     return (
       org.name.toLowerCase().includes(q) ||
-      (org.industry || '').toLowerCase().includes(q) ||
+      industryDisplay.toLowerCase().includes(q) ||
       (org.subdomain || '').toLowerCase().includes(q) ||
       (org.website || '').toLowerCase().includes(q)
     );
@@ -158,13 +203,6 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
     acc[org.status] = (acc[org.status] || 0) + 1;
     return acc;
   }, {});
-
-  const formatCurrency = (value: number | null | undefined): string => {
-    if (!value) return '-';
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
-    return `$${value.toFixed(0)}`;
-  };
 
   const getDemoStatus = (expiresAt: string | null): { label: string; variant: 'default' | 'destructive' | 'outline' | 'secondary' } | null => {
     if (!expiresAt) return null;
@@ -184,6 +222,164 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+    });
+  };
+
+  const handleAssignSeedPeopleToStores = async (orgId: string, orgName: string) => {
+    setAssigningOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/admin/assign-seed-people-to-stores`;
+      // Use anon key when no session (demo mode) so the request is not rejected with 401
+      const authToken = session?.access_token || publicAnonKey;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to assign seed people');
+      }
+      toast.success(`Assigned ${data.assigned ?? 0} seed people to stores for ${orgName}`);
+      loadOrganizations();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to assign seed people to stores');
+    } finally {
+      setAssigningOrgId(null);
+    }
+  };
+
+  const handleDemoSeedPlaylist = async (orgId: string, orgName: string) => {
+    setSeedingPlaylistOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/demo/seed-playlist`;
+      const authToken = session?.access_token || publicAnonKey;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to create demo playlist');
+      }
+      if (data.created) {
+        toast.success(`Created "CORE Playlist" for ${orgName} (${data.tracks} tracks, ${data.assignments} assignments)`);
+      } else {
+        toast.success(`CORE Playlist already exists for ${orgName}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create demo playlist');
+    } finally {
+      setSeedingPlaylistOrgId(null);
+    }
+  };
+
+  const handleDeleteOrg = async () => {
+    if (!deleteOrgId) return;
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', deleteOrgId);
+
+      if (error) throw error;
+
+      toast.success(`"${deleteOrgName}" deleted`);
+      setDeleteOrgId(null);
+      setDeleteOrgName('');
+      loadOrganizations();
+    } catch (err: any) {
+      console.error('Delete failed:', err);
+      toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // ── Edit org handlers ──
+  const openEditSheet = (org: Organization) => {
+    setEditingOrg(org);
+    const industryDisplay = getOrgIndustryDisplay(org as Organization & { industries?: { name: string } | null; industry?: { name: string } | null });
+    setEditFormData({
+      name: org.name || '',
+      website: org.website || '',
+      subdomain: org.subdomain || '',
+      status: org.status || 'demo',
+      industry: industryDisplay || org.industry || '',
+      operating_states: org.operating_states || [],
+      next_action: org.next_action || '',
+      next_action_date: org.next_action_date || '',
+    });
+    setNewStateInput('');
+  };
+
+  const handleSaveOrg = async () => {
+    if (!editingOrg) return;
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({
+          name: editFormData.name,
+          website: editFormData.website || null,
+          subdomain: editFormData.subdomain || null,
+          status: editFormData.status,
+          industry: editFormData.industry || null,
+          operating_states: editFormData.operating_states,
+          next_action: editFormData.next_action || null,
+          next_action_date: editFormData.next_action_date || null,
+        })
+        .eq('id', editingOrg.id);
+
+      if (error) throw error;
+
+      toast.success(`"${editFormData.name}" updated`);
+      setEditingOrg(null);
+      loadOrganizations();
+    } catch (err: any) {
+      console.error('Save failed:', err);
+      toast.error('Failed to save: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const addOperatingState = () => {
+    const state = newStateInput.trim().toUpperCase();
+    if (!state) return;
+    if (state.length !== 2) {
+      toast.error('Use 2-letter state abbreviation (e.g. TX, FL)');
+      return;
+    }
+    if (editFormData.operating_states.includes(state)) {
+      toast.error(`${state} already added`);
+      return;
+    }
+    setEditFormData({
+      ...editFormData,
+      operating_states: [...editFormData.operating_states, state].sort(),
+    });
+    setNewStateInput('');
+  };
+
+  const removeOperatingState = (state: string) => {
+    setEditFormData({
+      ...editFormData,
+      operating_states: editFormData.operating_states.filter((s) => s !== state),
     });
   };
 
@@ -212,8 +408,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
 
       <div className="p-6 space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-3">
-          {(['lead', 'prospect', 'evaluating', 'closing', 'live'] as OrganizationStatus[]).map(
+        <div className="grid grid-cols-2 gap-3">
+          {(['demo', 'live'] as OrganizationStatus[]).map(
             (status) => {
               const config = STATUS_CONFIG[status];
               return (
@@ -280,10 +476,10 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                   <TableHead className="w-[250px]">Organization</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Industry</TableHead>
-                  <TableHead className="text-right">Deal Value</TableHead>
-                  <TableHead className="text-right">Probability</TableHead>
+                  <TableHead># Locations</TableHead>
+                  <TableHead>States</TableHead>
                   <TableHead>Demo</TableHead>
-                  <TableHead>Close Date</TableHead>
+                  <TableHead>Demo Link</TableHead>
                   <TableHead>Next Action</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
@@ -294,7 +490,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                     .fill(0)
                     .map((_, i) => (
                       <TableRow key={i}>
-                        <TableCell colSpan={9}>
+                        <TableCell colSpan={8}>
                           <div className="h-10 bg-muted animate-pulse rounded" />
                         </TableCell>
                       </TableRow>
@@ -302,7 +498,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                 ) : filteredOrgs.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={8}
                       className="text-center py-12 text-muted-foreground"
                     >
                       <Building2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -311,7 +507,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                   </TableRow>
                 ) : (
                   filteredOrgs.map((org) => {
-                    const statusConfig = STATUS_CONFIG[org.status];
+                    const statusConfig = STATUS_CONFIG[org.status] || { label: org.status || 'Unknown', color: 'text-gray-600 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-800' };
                     const demoStatus = getDemoStatus(org.demo_expires_at);
 
                     return (
@@ -321,13 +517,15 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                           <div className="flex items-center gap-3">
                             <div
                               className={cn(
-                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0',
-                                statusConfig.bgColor
+                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden',
+                                darkMode ? 'bg-muted/50' : statusConfig.bgColor
                               )}
                             >
-                              <Building2
-                                className={cn('h-4 w-4', statusConfig.color)}
-                              />
+                              {(() => {
+                                const logoUrl = (darkMode ? (org.logo_dark_url || org.logo_light_url) : (org.logo_light_url || org.logo_dark_url)) || org.logo_url;
+                                const src = logoUrl || trikeLogo;
+                                return <img src={src} alt="" className="h-9 w-9 object-contain" />;
+                              })()}
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-sm truncate">
@@ -355,32 +553,71 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
 
                         {/* Industry */}
                         <TableCell className="text-sm text-muted-foreground">
-                          {org.industry || '-'}
+                          {getOrgIndustryDisplay(org) || '-'}
                         </TableCell>
 
-                        {/* Deal value */}
-                        <TableCell className="text-right font-medium text-sm">
-                          {formatCurrency(org.deal_value)}
+                        {/* # Locations */}
+                        <TableCell>
+                          {(() => {
+                            const actualStoreCount = (org as any).stores?.[0]?.count || 0;
+                            const estimatedCount = (org as any).scraped_data?.store_count || 0;
+                            const scrapedTotal = (org as any).scraped_data?.relay_locations_total;
+                            const storeCount = actualStoreCount || estimatedCount;
+                            const isEstimated = actualStoreCount === 0 && estimatedCount > 0;
+                            const showScraped = scrapedTotal != null && scrapedTotal > 0 && scrapedTotal !== storeCount;
+                            if (!storeCount && !scrapedTotal) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayCount = storeCount || scrapedTotal;
+                            return (
+                              <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                {`${isEstimated ? '~' : ''}${displayCount} loc${displayCount !== 1 ? 's' : ''}`}
+                                {showScraped && (
+                                  <span className="text-muted-foreground ml-0.5" title={`${storeCount} imported, ${scrapedTotal} scraped by Relay`}>
+                                    ({scrapedTotal} scraped)
+                                  </span>
+                                )}
+                              </Badge>
+                            );
+                          })()}
                         </TableCell>
 
-                        {/* Probability */}
-                        <TableCell className="text-right">
-                          {org.deal_probability != null ? (
-                            <span
-                              className={cn(
-                                'text-sm font-medium',
-                                org.deal_probability >= 75
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : org.deal_probability >= 50
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-muted-foreground'
-                              )}
-                            >
-                              {org.deal_probability}%
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">-</span>
-                          )}
+                        {/* States - pills with hover popup */}
+                        <TableCell>
+                          {(() => {
+                            const states = org.operating_states || [];
+                            const stateCount = states.length;
+                            if (stateCount === 0) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayStates = states.slice(0, 3);
+                            const overflowCount = stateCount - displayStates.length;
+                            return (
+                              <HoverCard openDelay={200}>
+                                <HoverCardTrigger asChild>
+                                  <div className="flex flex-wrap gap-1 cursor-default">
+                                    {displayStates.map((s) => (
+                                      <Badge key={s} variant="secondary" className="text-xs font-normal">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                    {overflowCount > 0 && (
+                                      <Badge variant="outline" className="text-xs font-normal bg-muted">
+                                        +{overflowCount}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-auto p-2" align="start" side="bottom">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">Operating states</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {states.map((s) => (
+                                      <Badge key={s} variant="outline" className="text-xs">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
+                            );
+                          })()}
                         </TableCell>
 
                         {/* Demo status */}
@@ -394,9 +631,21 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                           )}
                         </TableCell>
 
-                        {/* Close date */}
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(org.deal_close_date)}
+                        {/* Demo Link */}
+                        <TableCell>
+                          {org.demo_expires_at ? (
+                            <a
+                              href={`${window.location.origin}/?demo_org_id=${org.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Open Demo
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
                         </TableCell>
 
                         {/* Next action */}
@@ -431,6 +680,14 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {onPreviewOrg && (
+                                <DropdownMenuItem
+                                  onClick={() => onPreviewOrg(org.id, org.name)}
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  {org.id === TRIKE_CO_ORG_ID ? 'Return to main' : 'Preview as this org'}
+                                </DropdownMenuItem>
+                              )}
                               {onViewJourney && (
                                 <DropdownMenuItem
                                   onClick={() =>
@@ -442,7 +699,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                                 </DropdownMenuItem>
                               )}
                               {onProvisionDemo &&
-                                ['prospect', 'evaluating'].includes(org.status) && (
+                                org.status === 'demo' && (
                                   <DropdownMenuItem
                                     onClick={() =>
                                       onProvisionDemo(org.id, org.name)
@@ -452,6 +709,24 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                                     Provision demo
                                   </DropdownMenuItem>
                                 )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleAssignSeedPeopleToStores(org.id, org.name)}
+                                  disabled={assigningOrgId === org.id}
+                                >
+                                  <Users className="h-4 w-4 mr-2" />
+                                  {assigningOrgId === org.id ? 'Assigning...' : 'Fix store assignments'}
+                                </DropdownMenuItem>
+                              )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDemoSeedPlaylist(org.id, org.name)}
+                                  disabled={seedingPlaylistOrgId === org.id}
+                                >
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  {seedingPlaylistOrgId === org.id ? 'Creating...' : 'Create CORE Playlist'}
+                                </DropdownMenuItem>
+                              )}
                               {org.website && (
                                 <DropdownMenuItem asChild>
                                   <a
@@ -468,6 +743,21 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
                                   </a>
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem onClick={() => openEditSheet(org)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Edit organization
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600"
+                                onClick={() => {
+                                  setDeleteOrgId(org.id);
+                                  setDeleteOrgName(org.name);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete organization
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -480,6 +770,194 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo }: Organizati
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteOrgId} onOpenChange={(open) => { if (!open) { setDeleteOrgId(null); setDeleteOrgName(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteOrgName}</strong> and all associated data.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteOrg}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit organization sheet */}
+      <Sheet open={!!editingOrg} onOpenChange={(open) => { if (!open) setEditingOrg(null); }}>
+        <SheetContent className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit Organization</SheetTitle>
+          </SheetHeader>
+
+          <div className="space-y-4 mt-6">
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="org-name">Organization Name</Label>
+              <Input
+                id="org-name"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                placeholder="Organization name"
+              />
+            </div>
+
+            {/* Website */}
+            <div className="space-y-2">
+              <Label htmlFor="org-website">Website</Label>
+              <Input
+                id="org-website"
+                value={editFormData.website}
+                onChange={(e) => setEditFormData({ ...editFormData, website: e.target.value })}
+                placeholder="https://example.com"
+              />
+            </div>
+
+            {/* Subdomain */}
+            <div className="space-y-2">
+              <Label htmlFor="org-subdomain">Subdomain</Label>
+              <Input
+                id="org-subdomain"
+                value={editFormData.subdomain}
+                onChange={(e) => setEditFormData({ ...editFormData, subdomain: e.target.value })}
+                placeholder="company-name"
+              />
+            </div>
+
+            {/* Status */}
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editFormData.status}
+                onValueChange={(value) => setEditFormData({ ...editFormData, status: value as OrganizationStatus })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(STATUS_CONFIG) as [OrganizationStatus, { label: string }][]).map(
+                    ([key, config]) => (
+                      <SelectItem key={key} value={key}>
+                        {config.label}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Industry */}
+            <div className="space-y-2">
+              <Label htmlFor="org-industry">Industry</Label>
+              <Input
+                id="org-industry"
+                value={editFormData.industry}
+                onChange={(e) => setEditFormData({ ...editFormData, industry: e.target.value })}
+                placeholder="e.g. Convenience Store, Foodservice"
+              />
+            </div>
+
+            {/* Operating States */}
+            <div className="space-y-2">
+              <Label>Operating States</Label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {editFormData.operating_states.length === 0 && (
+                  <span className="text-sm text-muted-foreground italic">No states added</span>
+                )}
+                {editFormData.operating_states.map((state) => (
+                  <Badge key={state} variant="secondary" className="gap-1">
+                    {state}
+                    <button
+                      type="button"
+                      onClick={() => removeOperatingState(state)}
+                      className="ml-0.5 hover:text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={newStateInput}
+                  onChange={(e) => setNewStateInput(e.target.value)}
+                  placeholder="TX"
+                  maxLength={2}
+                  className="w-20"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addOperatingState();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addOperatingState}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Next Action */}
+            <div className="space-y-2">
+              <Label htmlFor="org-next-action">Next Action</Label>
+              <Textarea
+                id="org-next-action"
+                value={editFormData.next_action}
+                onChange={(e) => setEditFormData({ ...editFormData, next_action: e.target.value })}
+                placeholder="What's the next step?"
+                rows={2}
+              />
+            </div>
+
+            {/* Next Action Date */}
+            <div className="space-y-2">
+              <Label htmlFor="org-next-action-date">Next Action Date</Label>
+              <Input
+                id="org-next-action-date"
+                type="date"
+                value={editFormData.next_action_date}
+                onChange={(e) => setEditFormData({ ...editFormData, next_action_date: e.target.value })}
+              />
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button
+                onClick={handleSaveOrg}
+                disabled={isSaving || !editFormData.name.trim()}
+                className="flex-1"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setEditingOrg(null)}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
