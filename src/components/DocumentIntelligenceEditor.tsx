@@ -1966,11 +1966,15 @@ function ChunkBlock({
         )}
       </div>
 
-      {/* Margin sidebar - connected content */}
+      {/* Margin sidebar - connected content (JD: always show + Role / linked role — not hover-only) */}
       <div
         className={cn(
           "w-48 pt-2 transition-opacity flex-shrink-0",
-          isHovered || chunk.linkedContent.length > 0 ? "opacity-100" : "opacity-0"
+          isHovered ||
+            chunk.linkedContent.length > 0 ||
+            chunk.content_class === 'job_description'
+            ? "opacity-100"
+            : "opacity-0"
         )}
       >
         <div className="text-sm space-y-2">
@@ -1985,11 +1989,16 @@ function ChunkBlock({
             </button>
           ) : chunk.content_class === 'job_description' ? (
             <button
-              onClick={onCreateRole}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              type="button"
+              title="Extract this job description into a role (JD → role)"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateRole();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/35 bg-primary/5 text-foreground/90 hover:text-foreground hover:bg-primary/10 hover:border-primary/50 transition-colors text-left w-full max-w-full"
             >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Role</span>
+              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">Role</span>
             </button>
           ) : null}
 

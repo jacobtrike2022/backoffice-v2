@@ -94,7 +94,8 @@ function buildOnetSearchTerm(roleName: string, jobDescription?: string | null): 
   const jd = (jobDescription || '').trim();
   if (jd.length > 0) {
     const snippet = jd.slice(0, 700).replace(/\s+/g, ' ');
-    const combined = `${base} ${snippet}`.trim();
+    // Repeat title once so trigram scoring is not drowned by a long JD blob
+    const combined = `${base} ${base} ${snippet}`.trim();
     return combined.slice(0, MAX_ONET_SEARCH_LEN);
   }
   return base.slice(0, MAX_ONET_SEARCH_LEN);
