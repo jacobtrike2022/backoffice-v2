@@ -7,6 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Switch } from '../ui/switch';
 import { TagSelectorDialog } from '../TagSelectorDialog';
 import { VersionHistory } from './VersionHistory';
 import { AssociatedPlaylists } from './AssociatedPlaylists';
@@ -14,10 +15,11 @@ import { TrackRelationships } from './TrackRelationships';
 import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { CheckpointPreviewModal } from './CheckpointPreviewModal';
-import { 
-  ArrowLeft, 
-  Save, 
+import {
+  ArrowLeft,
+  Save,
   Eye,
+  Shield,
   Upload,
   Image as ImageIcon,
   X,
@@ -32,11 +34,21 @@ import {
   Lock,
   History,
   ChevronLeft,
-  Zap
+  Zap,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../ui/popover';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import * as tagsCrud from '../../lib/crud/tags';
 import { AIGenerateCheckpointModal } from './AIGenerateCheckpointModal';
 import { supabase } from '../../lib/supabase';
 
@@ -65,9 +77,12 @@ interface CheckpointEditorProps {
   isSuperAdminAuthenticated?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck }: CheckpointEditorProps) {
+export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: CheckpointEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -81,6 +96,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState('');
+  const [isSystemContentLocal, setIsSystemContentLocal] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([
     {
       id: '1',
@@ -104,9 +120,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   
   // AI Generation modal
   const [showAIModal, setShowAIModal] = useState(false);
-  
-  // Track source relationship (for AI-generated checkpoints)
-  const [sourceTrackId, setSourceTrackId] = useState<string | null>(null);
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track source relationships (for AI-generated checkpoints - supports multiple sources)
+  const [sourceTrackIds, setSourceTrackIds] = useState<string[]>([]);
   
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
@@ -121,14 +140,27 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   // Load existing checkpoint if editing
   useEffect(() => {
-    if (track) {
+    const loadFromTrackObject = async () => {
       // Load directly from passed track object
       setExistingTrack(track);
       setTitle(track.title || '');
       setDescription(track.description || '');
-      setTags(track.tags || []);
+
+      // Load tags from junction table (source of truth)
+      let tagNames: string[] = track.tags || [];
+      if (track.id) {
+        try {
+          tagNames = await tagsCrud.getTrackTagNames(track.id);
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } catch (tagError) {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+          tagNames = track.tags || [];
+        }
+      }
+      setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
-      
+      setIsSystemContentLocal(track.is_system_content || false);
+
       // Parse checkpoint data from transcript field
       let parsedQuestions: any[] = questions;
       let parsedPassingScore = '70';
@@ -155,17 +187,21 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           console.error('Error parsing checkpoint data:', e);
         }
       }
-      
+
       // Save initial state
       setInitialState({
         title: track.title || '',
         description: track.description || '',
-        tags: track.tags || [],
+        tags: tagNames,
         thumbnailUrl: track.thumbnail_url || '',
         questions: parsedQuestions,
         passingScore: parsedPassingScore,
         timeLimit: parsedTimeLimit,
       });
+    };
+
+    if (track) {
+      loadFromTrackObject();
     } else if (trackId) {
       loadCheckpoint();
     } else if (isNewContent) {
@@ -193,16 +229,27 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   const loadCheckpoint = async () => {
     if (!trackId) return;
-    
+
     setIsLoading(true);
     try {
       const track = await crud.getTrackById(trackId);
       setExistingTrack(track);
       setTitle(track.title || '');
       setDescription(track.description || '');
-      setTags(track.tags || []);
+
+      // Load tags from junction table (source of truth)
+      let tagNames: string[] = track.tags || [];
+      try {
+        tagNames = await tagsCrud.getTrackTagNames(trackId);
+        console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+      } catch (tagError) {
+        console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+        tagNames = track.tags || [];
+      }
+      setTags(tagNames);
       setThumbnailUrl(track.thumbnail_url || '');
-      
+      setIsSystemContentLocal(track.is_system_content || false);
+
       // Parse checkpoint data from transcript field (we'll store JSON there)
       let parsedQuestions: any[] = questions;
       let parsedPassingScore = '70';
@@ -229,13 +276,14 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           console.error('Error parsing checkpoint data:', e);
         }
       }
-      
+
       // Save initial state
       setInitialState({
         title: track.title || '',
         description: track.description || '',
-        tags: track.tags || [],
+        tags: tagNames,
         thumbnailUrl: track.thumbnail_url || '',
+        isSystemContent: track.is_system_content || false,
         questions: parsedQuestions,
         passingScore: parsedPassingScore,
         timeLimit: parsedTimeLimit,
@@ -297,6 +345,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       description !== initialState.description ||
       !arraysEqual(tags, initialState.tags) ||
       thumbnailUrl !== initialState.thumbnailUrl ||
+      isSystemContentLocal !== initialState.isSystemContent ||
       passingScore !== initialState.passingScore ||
       timeLimit !== initialState.timeLimit ||
       JSON.stringify(questions) !== JSON.stringify(initialState.questions)
@@ -352,12 +401,26 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     return () => clearTimeout(autoSaveTimer);
   }, [isEditMode, title, description, questions, passingScore, timeLimit, tags, thumbnailUrl]);
 
-  const handleAIGenerate = async (generatedQuestions: any[], sourceInfo: { trackId: string; trackTitle: string; factCount: number; thumbnailUrl?: string; metadata?: { suggestedTitle: string; suggestedDescription: string } }) => {
-    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', sourceInfo.trackTitle);
+  const handleAIGenerate = async (generatedQuestions: any[], sourceInfo: {
+    trackIds: string[];
+    trackTitles: string[];
+    factCount: number;
+    thumbnailUrl?: string;
+    metadata?: { suggestedTitle: string; suggestedDescription: string };
+    trackId: string;
+    trackTitle: string;
+  }) => {
+    const trackCount = sourceInfo.trackIds?.length || 1;
+    const trackDescription = trackCount > 1
+      ? `${trackCount} source tracks`
+      : sourceInfo.trackTitle;
 
-    // Store the source track ID for relationship tracking
-    setSourceTrackId(sourceInfo.trackId);
-    console.log('📎 Source track ID stored for relationship:', sourceInfo.trackId);
+    console.log('🤖 AI generated', generatedQuestions.length, 'questions from', trackDescription);
+
+    // Store the source track IDs for relationship tracking (supports multiple)
+    const trackIdsToStore = sourceInfo.trackIds || [sourceInfo.trackId];
+    setSourceTrackIds(trackIdsToStore);
+    console.log('📎 Source track IDs stored for relationships:', trackIdsToStore);
 
     // Check if there are existing questions with content
     const hasExistingQuestions = questions.some(q => q.question?.trim());
@@ -399,7 +462,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       });
     }
 
-    // Inherit tags from source track (excluding Content Type and KB Category tags)
+    // Inherit tags from source tracks (excluding Content Type and KB Category tags)
     // Only inherit if checkpoint doesn't already have tags
     if (tags.length === 0) {
       try {
@@ -413,52 +476,63 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
         const excludedParentIds = new Set(excludedParents?.map(p => p.id) || []);
 
-        // Fetch source track's tags from tags array column
-        const { data: sourceTrack } = await supabase
+        // Fetch tags from all source tracks
+        const sourceTrackIdsToFetch = sourceInfo.trackIds || [sourceInfo.trackId];
+        const { data: sourceTracks } = await supabase
           .from('tracks')
-          .select('tags')
-          .eq('id', sourceInfo.trackId)
-          .single();
+          .select('id, tags')
+          .in('id', sourceTrackIdsToFetch);
 
-        const inheritedTagNames: string[] = [];
-
-        if (sourceTrack?.tags && Array.isArray(sourceTrack.tags)) {
-          // For each tag, look up its parent to filter out excluded categories
-          for (const tagName of sourceTrack.tags) {
-            // Skip system tags
-            if (tagName.startsWith('system:')) continue;
-
-            // Look up the tag to check its parent
-            const { data: tagData } = await supabase
-              .from('tags')
-              .select('id, name, parent_id')
-              .eq('name', tagName)
-              .maybeSingle();
-
-            if (tagData) {
-              // Exclude if parent is "Content Type" or "KB Category"
-              if (tagData.parent_id && excludedParentIds.has(tagData.parent_id)) {
-                console.log(`🚫 Excluding tag (Content Type/KB Category): ${tagName}`);
-                continue;
-              }
-              inheritedTagNames.push(tagName);
-            } else {
-              // Tag not found in tags table, include it anyway (might be a custom tag)
-              inheritedTagNames.push(tagName);
+        // Collect unique tags from all source tracks
+        const allTagNames = new Set<string>();
+        for (const sourceTrack of sourceTracks || []) {
+          if (sourceTrack?.tags && Array.isArray(sourceTrack.tags)) {
+            for (const tagName of sourceTrack.tags) {
+              allTagNames.add(tagName);
             }
           }
         }
 
+        const inheritedTagNames: string[] = [];
+
+        // For each unique tag, look up its parent to filter out excluded categories
+        for (const tagName of allTagNames) {
+          // Skip system tags
+          if (tagName.startsWith('system:')) continue;
+
+          // Look up the tag to check its parent
+          const { data: tagData } = await supabase
+            .from('tags')
+            .select('id, name, parent_id')
+            .eq('name', tagName)
+            .maybeSingle();
+
+          if (tagData) {
+            // Exclude if parent is "Content Type" or "KB Category"
+            if (tagData.parent_id && excludedParentIds.has(tagData.parent_id)) {
+              console.log(`🚫 Excluding tag (Content Type/KB Category): ${tagName}`);
+              continue;
+            }
+            inheritedTagNames.push(tagName);
+          } else {
+            // Tag not found in tags table, include it anyway (might be a custom tag)
+            inheritedTagNames.push(tagName);
+          }
+        }
+
         if (inheritedTagNames.length > 0) {
-          console.log('🏷️ Inheriting tags from source track:', inheritedTagNames);
+          const trackCountDesc = sourceTrackIdsToFetch.length > 1
+            ? `${sourceTrackIdsToFetch.length} source tracks`
+            : 'source content';
+          console.log('🏷️ Inheriting tags from source tracks:', inheritedTagNames);
           setTags(inheritedTagNames);
-          toast.success(`Inherited ${inheritedTagNames.length} tag(s) from source content`, {
+          toast.success(`Inherited ${inheritedTagNames.length} tag(s) from ${trackCountDesc}`, {
             description: 'Content Type and KB Category tags were excluded.',
             duration: 3000
           });
         }
       } catch (error) {
-        console.error('Error inheriting tags from source track:', error);
+        console.error('Error inheriting tags from source tracks:', error);
         // Non-blocking - continue without tags if fetch fails
       }
     }
@@ -616,11 +690,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -629,7 +703,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         transcript: JSON.stringify(checkpointData),
         duration_minutes: calculatedDuration,
         tags,
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -724,11 +799,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -737,7 +812,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         transcript: JSON.stringify(checkpointData),
         duration_minutes: calculatedDuration,
         tags,
-        thumbnail_url: thumbnailUrl
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -797,16 +873,20 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         // Mark that we've created a track to prevent double-save
         setHasCreatedTrack(true);
         
-        // Create track relationship if this checkpoint was AI-generated from a source
-        if (sourceTrackId) {
-          try {
-            console.log('📎 Creating track relationship: source=' + sourceTrackId + ', derived=' + newTrack.id);
-            await trackRelCrud.createTrackRelationship(sourceTrackId, newTrack.id, 'source');
-            console.log('✅ Track relationship created successfully');
-          } catch (relError: any) {
-            console.error('❌ Failed to create track relationship:', relError);
-            // Don't block the save - relationship is nice-to-have
+        // Create track relationships if this checkpoint was AI-generated from source(s)
+        if (sourceTrackIds.length > 0) {
+          console.log('📎 Creating track relationships for', sourceTrackIds.length, 'source track(s)');
+          for (const srcTrackId of sourceTrackIds) {
+            try {
+              console.log('📎 Creating track relationship: source=' + srcTrackId + ', derived=' + newTrack.id);
+              await trackRelCrud.createTrackRelationship(srcTrackId, newTrack.id, 'source');
+              console.log('✅ Track relationship created successfully for source:', srcTrackId);
+            } catch (relError: any) {
+              console.error('❌ Failed to create track relationship for source ' + srcTrackId + ':', relError);
+              // Don't block the save - relationship is nice-to-have
+            }
           }
+          console.log('✅ All track relationships created');
         }
         
         // Mark that we just saved (before state updates) to bypass unsaved changes check
@@ -909,11 +989,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         timeLimit: timeLimit ? parseInt(timeLimit) : null
       };
 
-      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (1 min per question)
+      // Calculate duration: use timeLimit if set (not empty/null), otherwise question count (0.5 min per question)
       const hasTimeLimit = timeLimit && typeof timeLimit === 'string' && timeLimit.trim() !== '';
-      const calculatedDuration = hasTimeLimit 
-        ? parseInt(timeLimit) 
-        : questions.length;
+      const calculatedDuration = hasTimeLimit
+        ? parseInt(timeLimit)
+        : Math.ceil(questions.length * 0.5);
 
       const trackData = {
         title,
@@ -923,6 +1003,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         duration_minutes: calculatedDuration,
         tags,
         thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal,
         status: 'published' as const
       };
 
@@ -1104,15 +1185,76 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             
             {/* Edit Button */}
             {(!isSystemContent || isSuperAdmin) && (
-              <Button onClick={() => setIsEditMode(true)} className="hero-primary">
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Track
-                {isSystemContent && isSuperAdmin && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button onClick={() => setIsEditMode(true)} className="hero-primary">
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Track
+                  {isSystemContent && isSuperAdmin && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(existingTrack || track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(existingTrack || track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(existingTrack || track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         </div>
@@ -1228,6 +1370,43 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Super Admin Settings */}
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-orange-500" />
+                    Super Admin Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Mark as Trike Library content
+                      </p>
+                    </div>
+                    <Switch
+                      id="system-content"
+                      checked={isEditMode ? isSystemContentLocal : existingTrack?.is_system_content}
+                      onCheckedChange={(checked) => {
+                        if (isEditMode) {
+                          setIsSystemContentLocal(checked);
+                        } else if (currentTrackId) {
+                          crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                            .then(() => {
+                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              if (onUpdate) onUpdate();
+                            });
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Publishing Status */}
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
@@ -1284,9 +1463,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 <div>
                   <p className="text-muted-foreground">Est. Duration</p>
                   <p className="font-medium text-foreground">
-                    {timeLimit && timeLimit.trim() !== '' 
+                    {timeLimit && timeLimit.trim() !== ''
                       ? `${timeLimit} ${parseInt(timeLimit) === 1 ? 'min' : 'mins'}`
-                      : `${questions.length} ${questions.length === 1 ? 'min' : 'mins'}`
+                      : `${Math.ceil(questions.length * 0.5)} ${Math.ceil(questions.length * 0.5) === 1 ? 'min' : 'mins'}`
                     }
                   </p>
                 </div>
@@ -1383,6 +1562,57 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           passingScore={passingScore}
           timeLimit={timeLimit}
           title={title}
+        />
+
+        {/* Tag Selector Dialog (View Mode) */}
+        <TagSelectorDialog
+          isOpen={isTagSelectorOpen}
+          onClose={() => setIsTagSelectorOpen(false)}
+          selectedTags={tags}
+          onTagsChange={async (newTags) => {
+            // In view mode, save directly to database
+            try {
+              if (!currentTrackId) return;
+
+              await crud.updateTrack({
+                id: currentTrackId,
+                tags: newTags
+              });
+              setTags(newTags); // Update local state
+              toast.success('Tags updated');
+              if (onUpdate) {
+                onUpdate(); // Refresh track data
+              }
+            } catch (error: any) {
+              console.error('Error updating tags:', error);
+              toast.error('Failed to update tags', {
+                description: error.message || 'Please try again'
+              });
+            }
+          }}
+          systemCategory="content"
+          showAISuggest={true}
+          contentContext={{
+            title: existingTrack?.title || '',
+            description: existingTrack?.description || '',
+            transcript: (() => {
+              // For checkpoints, extract question text as transcript-like content
+              if (existingTrack?.transcript) {
+                try {
+                  const checkpointData = JSON.parse(existingTrack.transcript);
+                  if (checkpointData.questions) {
+                    return checkpointData.questions.map((q: any, idx: number) => `Question ${idx + 1}: ${q.question}`).join('\n\n');
+                  }
+                } catch (e) {
+                  return '';
+                }
+              }
+              return '';
+            })(),
+            keyFacts: [],
+            trackId: currentTrackId,
+            organizationId: existingTrack?.organization_id,
+          }}
         />
       </div>
     );

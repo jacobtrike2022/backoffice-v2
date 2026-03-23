@@ -36,7 +36,9 @@ import {
   Settings as SettingsIcon,
   Target,
   LayoutGrid,
-  List
+  List,
+  Download,
+  History
 } from 'lucide-react';
 import {
   Select,
@@ -60,12 +62,18 @@ import {
 } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import * as crud from '../lib/crud';
 import * as albumsCrud from '../lib/crud/albums';
+import {
+  getPlaylistAssignmentHistory,
+  getPlaylistAssignmentHistoryForExport,
+  type AssignmentHistoryEntry
+} from '../lib/crud/assignments';
 import type { Album } from '../lib/crud/albums';
 import { AlbumDetailView } from './AlbumDetailView';
+import { ArchivePlaylistModal } from './ArchivePlaylistModal';
 import { toast } from 'sonner@2.0.3';
 
 interface PlaylistsProps {
@@ -100,20 +108,45 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   // Main view tab (playlists vs albums)
   const [mainTab, setMainTab] = useState<'playlists' | 'albums'>(initialTab || 'playlists');
 
+  // Archive modal state
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [playlistToArchive, setPlaylistToArchive] = useState<{ id: string; title: string } | null>(null);
+
+  // Expanded albums state for view mode
+  const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
+  const [loadingPlaylistDetails, setLoadingPlaylistDetails] = useState(false);
+
+  // Assignment history state for auto playlists
+  const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([]);
+  const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
+
   const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   useEffect(() => {
     fetchPlaylists();
-  }, [user?.organization_id, viewFilter]);
+  }, [effectiveOrgId, viewFilter]);
+
+  // Function to fetch and set full playlist details
+  const fetchAndSelectPlaylist = async (playlistId: string) => {
+    setLoadingPlaylistDetails(true);
+    try {
+      const fullPlaylist = await crud.getPlaylistById(playlistId);
+      console.log('🎵 Fetched full playlist details:', fullPlaylist);
+      setSelectedPlaylist(fullPlaylist);
+      setExpandedAlbums(new Set()); // Reset expanded albums
+    } catch (error) {
+      console.error('Error fetching playlist details:', error);
+      toast.error('Failed to load playlist details');
+    } finally {
+      setLoadingPlaylistDetails(false);
+    }
+  };
 
   // Auto-select playlist if selectedPlaylistId is provided
   useEffect(() => {
     if (selectedPlaylistId && playlists.length > 0 && !selectedPlaylist) {
-      const playlist = playlists.find(p => p.id === selectedPlaylistId);
-      if (playlist) {
-        console.log('🎵 Auto-selecting playlist:', playlist.title);
-        setSelectedPlaylist(playlist);
-      }
+      fetchAndSelectPlaylist(selectedPlaylistId);
     }
   }, [selectedPlaylistId, playlists.length, selectedPlaylist]);
 
@@ -160,36 +193,82 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     }
   }, [mainTab, albumStatusFilter]);
 
-  // Calculate total duration when a playlist is selected
+  // Fetch assignment history when an auto playlist is selected
   useEffect(() => {
-    const calculateTotalDuration = async () => {
-      if (!selectedPlaylist || !selectedPlaylist.track_ids || selectedPlaylist.track_ids.length === 0) {
-        setTotalDuration(0);
+    const fetchAssignmentHistory = async () => {
+      if (!selectedPlaylist?.id || selectedPlaylist.type !== 'auto') {
+        setAssignmentHistory([]);
         return;
       }
 
+      setAssignmentHistoryLoading(true);
       try {
-        // Fetch all tracks in this playlist
-        const tracks = await crud.getTracks({ ids: selectedPlaylist.track_ids });
-        
-        // Sum up all durations
-        const totalMinutes = tracks.reduce((sum: number, track: any) => {
-          return sum + (track.duration_minutes || 0);
-        }, 0);
-        
-        setTotalDuration(totalMinutes);
-        console.log(`⏱️ Total playlist duration: ${totalMinutes} minutes`);
+        const history = await getPlaylistAssignmentHistory(selectedPlaylist.id, 20);
+        setAssignmentHistory(history);
       } catch (error) {
-        console.error('Error calculating playlist duration:', error);
-        setTotalDuration(0);
+        console.error('Error fetching assignment history:', error);
+      } finally {
+        setAssignmentHistoryLoading(false);
       }
     };
 
-    calculateTotalDuration();
-  }, [selectedPlaylist?.id, selectedPlaylist?.track_ids]);
+    fetchAssignmentHistory();
+  }, [selectedPlaylist?.id, selectedPlaylist?.type]);
+
+  // Export assignment history to CSV
+  const handleExportAssignmentHistoryCSV = async () => {
+    if (!selectedPlaylist?.id) return;
+
+    try {
+      const history = await getPlaylistAssignmentHistoryForExport(selectedPlaylist.id);
+
+      // Build CSV content
+      const headers = ['Name', 'Email', 'Role', 'Location', 'Hire Date', 'Assigned Date', 'Progress %', 'Status', 'Completed Date'];
+      const rows = history.map(h => [
+        `${h.first_name} ${h.last_name}`,
+        h.email,
+        h.role_name || '',
+        h.store_name || '',
+        h.hire_date || '',
+        h.assigned_at ? new Date(h.assigned_at).toLocaleDateString() : '',
+        h.progress_percent?.toString() || '0',
+        h.status,
+        h.completed_at ? new Date(h.completed_at).toLocaleDateString() : ''
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${selectedPlaylist.title}-assignments-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+
+      toast.success(`Exported ${history.length} assignments to CSV`);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      toast.error('Failed to export CSV');
+    }
+  };
+
+  // Set total duration when a playlist is selected (now comes from CRUD layer)
+  useEffect(() => {
+    if (selectedPlaylist) {
+      // Use pre-calculated duration from CRUD layer, or totalDuration from list
+      const duration = selectedPlaylist.total_duration_minutes || selectedPlaylist.totalDuration || 0;
+      setTotalDuration(duration);
+      console.log(`⏱️ Playlist "${selectedPlaylist.title}" duration: ${duration} minutes`);
+    } else {
+      setTotalDuration(0);
+    }
+  }, [selectedPlaylist?.id, selectedPlaylist?.total_duration_minutes, selectedPlaylist?.totalDuration]);
 
   const fetchPlaylists = async () => {
-    if (!user?.organization_id) return;
+    if (!effectiveOrgId) return;
 
     try {
       setLoading(true);
@@ -208,41 +287,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
 
       const data = await crud.getPlaylists(filters);
 
-      // Calculate durations for each playlist
-      const playlistsWithDurations = await Promise.all(
-        data.map(async (playlist: any) => {
-          let totalDuration = 0;
-          
-          // Fetch tracks if playlist has track_ids
-          if (playlist.track_ids && playlist.track_ids.length > 0) {
-            try {
-              console.log(`🔍 Calculating duration for playlist "${playlist.title}":`, {
-                trackIds: playlist.track_ids,
-                trackCount: playlist.track_ids.length
-              });
-              
-              const tracks = await crud.getTracks({ ids: playlist.track_ids });
-              
-              console.log(`📦 Fetched ${tracks.length} tracks for "${playlist.title}":`, 
-                tracks.map((t: any) => ({ title: t.title, duration: t.duration_minutes }))
-              );
-              
-              totalDuration = tracks.reduce((sum: number, track: any) => sum + (track.duration_minutes || 0), 0);
-              
-              console.log(`⏱️ Total duration for "${playlist.title}": ${totalDuration} minutes`);
-            } catch (error) {
-              console.error(`❌ Error calculating duration for playlist ${playlist.id}:`, error);
-            }
-          } else {
-            console.log(`⚠️ Playlist "${playlist.title}" has no track_ids:`, playlist.track_ids);
-          }
-          
-          return { ...playlist, totalDuration };
-        })
-      );
-
-      // Transform data for display
-      const transformedPlaylists = playlistsWithDurations.map((playlist: any) => ({
+      // Transform data for display - duration is now calculated in CRUD layer
+      const transformedPlaylists = data.map((playlist: any) => ({
         ...playlist,
         albumCount: playlist.album_count || 0,
         totalTracks: playlist.track_count || 0,
@@ -255,7 +301,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         createdDate: playlist.created_at,
         trigger: playlist.trigger_rules ? 'Auto-assignment enabled' : undefined,
         status: playlist.is_active ? 'active' : 'archived',
-        totalDuration: playlist.totalDuration || 0
+        totalDuration: playlist.total_duration_minutes || 0,
       }));
 
       setPlaylists(transformedPlaylists);
@@ -281,10 +327,17 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     }
   };
 
-  const handleArchivePlaylist = async (playlistId: string, e: React.MouseEvent) => {
+  // Open archive modal instead of immediately archiving
+  const handleOpenArchiveModal = (playlistId: string, playlistTitle: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setPlaylistToArchive({ id: playlistId, title: playlistTitle });
+    setArchiveModalOpen(true);
+  };
+
+  // Actually perform the archive (called from modal)
+  const handleArchivePlaylist = async (playlistId: string, archiveAssignments: boolean) => {
     try {
-      await crud.archivePlaylist(playlistId);
+      await crud.archivePlaylist(playlistId, archiveAssignments);
       toast.success('Playlist archived successfully');
       fetchPlaylists();
       if (selectedPlaylist?.id === playlistId) {
@@ -293,6 +346,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     } catch (err) {
       console.error('Error archiving playlist:', err);
       toast.error('Failed to archive playlist');
+      throw err; // Re-throw so modal knows it failed
     }
   };
 
@@ -317,7 +371,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   // Album action handlers
   const handleCreateAlbum = async () => {
     try {
-      const orgId = user?.organization_id;
+      const orgId = effectiveOrgId;
       if (!orgId) {
         toast.error('Organization not found');
         return;
@@ -497,7 +551,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   )}
                 </Badge>
                 <span>•</span>
-                <span>Created {new Date(selectedPlaylist.createdDate).toLocaleDateString()}</span>
+                <span>Created {selectedPlaylist.created_at ? new Date(selectedPlaylist.created_at).toLocaleDateString() : 'Unknown'}</span>
               </div>
             </div>
           </div>
@@ -517,7 +571,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <Copy className="h-4 w-4 mr-2" />
                   Duplicate
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={(e) => handleArchivePlaylist(selectedPlaylist.id, e)}>
+                <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(selectedPlaylist.id, selectedPlaylist.title, e)}>
                   <Archive className="h-4 w-4 mr-2" />
                   Archive
                 </DropdownMenuItem>
@@ -560,8 +614,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Content</p>
-                  <p className="text-2xl font-bold">{selectedPlaylist.totalTracks}</p>
-                  <p className="text-xs text-muted-foreground">tracks</p>
+                  <p className="text-2xl font-bold">{selectedPlaylist.total_track_count || selectedPlaylist.totalTracks || selectedPlaylist.track_ids?.length || 0}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedPlaylist.albumCount > 0 ? `${selectedPlaylist.albumCount} albums • ` : ''}tracks
+                  </p>
                 </div>
                 <Library className="h-8 w-8 text-primary" />
               </div>
@@ -605,43 +661,118 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <CardTitle>Content Structure</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground mb-4">{selectedPlaylist.description}</p>
-                  
-                  {selectedPlaylist.releaseType === 'progressive' && selectedPlaylist.stages?.length > 0 && (
-                    <div className="space-y-3">
-                      {selectedPlaylist.stages.map((stage: any, index: number) => (
-                        <div key={stage.id} className={`flex items-center space-x-2 p-3 rounded-lg border ${
-                          index === 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/30' :
-                          index === 1 ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-900/30' :
-                          'bg-muted'
-                        }`}>
-                          {index === 0 ? (
-                            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-                          ) : index === 1 ? (
-                            <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          ) : (
-                            <Lock className="h-5 w-5 text-muted-foreground" />
-                          )}
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{stage.name || `Stage ${index + 1}`} - {stage.unlock_description || `Day ${stage.unlock_days || index + 1}`}</p>
-                            <p className="text-xs text-muted-foreground">{stage.content_summary || 'Content details'}</p>
+                  {selectedPlaylist.description && (
+                    <p className="text-sm text-muted-foreground mb-4">{selectedPlaylist.description}</p>
+                  )}
+
+                  {/* Loading state */}
+                  {loadingPlaylistDetails && (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                    </div>
+                  )}
+
+                  {/* Show albums with expandable track list */}
+                  {!loadingPlaylistDetails && selectedPlaylist.playlist_albums?.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground mb-2">
+                        Albums ({selectedPlaylist.playlist_albums.length})
+                      </p>
+                      {selectedPlaylist.playlist_albums?.map((pa: any) => {
+                        const albumId = pa.album?.id || pa.id;
+                        const isExpanded = expandedAlbums.has(albumId);
+                        const trackCount = pa.album?.track_count || pa.album?.tracks?.length || 0;
+
+                        return (
+                          <div key={pa.id} className="border rounded-lg overflow-hidden">
+                            {/* Album header - clickable to expand */}
+                            <button
+                              onClick={() => {
+                                const newExpanded = new Set(expandedAlbums);
+                                if (isExpanded) {
+                                  newExpanded.delete(albumId);
+                                } else {
+                                  newExpanded.add(albumId);
+                                }
+                                setExpandedAlbums(newExpanded);
+                              }}
+                              className="w-full flex items-center space-x-3 p-3 bg-muted hover:bg-muted/80 transition-colors text-left"
+                            >
+                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-0' : '-rotate-90'}`} />
+                              <AlbumIcon className="h-5 w-5 text-primary" />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{pa.album?.title || 'Unnamed Album'}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {trackCount} tracks
+                                  {pa.album?.duration_minutes ? ` • ${pa.album.duration_minutes} min` : ''}
+                                </p>
+                              </div>
+                            </button>
+
+                            {/* Expanded track list */}
+                            {isExpanded && pa.album?.tracks?.length > 0 && (
+                              <div className="border-t bg-background">
+                                {pa.album.tracks.map((track: any, idx: number) => (
+                                  <div
+                                    key={track.id || idx}
+                                    className="flex items-center space-x-3 px-4 py-2 border-b last:border-b-0 hover:bg-muted/30"
+                                  >
+                                    <span className="w-6 text-xs text-muted-foreground text-center">{idx + 1}</span>
+                                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                                      <Library className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm truncate">{track.title}</p>
+                                      <p className="text-xs text-muted-foreground">{track.type}</p>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                                      {track.duration_minutes || 0} min
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Empty album state */}
+                            {isExpanded && (!pa.album?.tracks || pa.album.tracks.length === 0) && (
+                              <div className="border-t bg-background p-4 text-center text-sm text-muted-foreground">
+                                No tracks in this album
+                              </div>
+                            )}
                           </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Show standalone tracks if any */}
+                  {!loadingPlaylistDetails && selectedPlaylist.tracks?.length > 0 && (
+                    <div className="space-y-2 mt-4">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Standalone Tracks ({selectedPlaylist.tracks.length})
+                      </p>
+                      {selectedPlaylist.tracks.map((pt: any) => (
+                        <div key={pt.id} className="flex items-center space-x-3 p-3 bg-muted/50 rounded-lg border">
+                          <div className="h-8 w-8 rounded bg-muted flex items-center justify-center">
+                            <Library className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm truncate">{pt.track?.title || 'Unnamed Track'}</p>
+                            <p className="text-xs text-muted-foreground">{pt.track?.type}</p>
+                          </div>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            {pt.track?.duration_minutes || 0} min
+                          </span>
                         </div>
                       ))}
                     </div>
                   )}
-                  
-                  {selectedPlaylist.releaseType === 'immediate' && (
-                    <div className="space-y-3">
-                      {selectedPlaylist.playlist_albums?.map((pa: any) => (
-                        <div key={pa.id} className="flex items-center space-x-3 p-3 bg-muted rounded-lg">
-                          <AlbumIcon className="h-5 w-5 text-primary" />
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{pa.album?.title || 'Unnamed Album'}</p>
-                            <p className="text-xs text-muted-foreground">{pa.album?.tracks?.length || 0} tracks</p>
-                          </div>
-                        </div>
-                      ))}
+
+                  {/* Empty state */}
+                  {(!selectedPlaylist.playlist_albums?.length && !selectedPlaylist.tracks?.length) && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Library className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No content added to this playlist yet</p>
                     </div>
                   )}
                 </CardContent>
@@ -653,7 +784,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <CardTitle>Assignment Rules</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_config && (
+                  {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_rules && (
                     <>
                       <div>
                         <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
@@ -733,30 +864,156 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
           </TabsContent>
 
           <TabsContent value="triggers" className="space-y-6 mt-6">
+            {/* Trigger Rules Card */}
             <Card>
               <CardHeader>
                 <CardTitle>Assignment Logic</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_config && (
+                {selectedPlaylist.type === 'auto' && (
                   <>
                     <div>
                       <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
                       <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">This playlist automatically assigns when:</p>
-                        <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1 ml-4">
-                          <li>→ {selectedPlaylist.trigger || 'Trigger conditions configured'}</li>
-                        </ul>
+                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">This playlist automatically assigns when:</p>
+                        {selectedPlaylist.trigger_rules?.role_ids?.length > 0 ? (
+                          <div className="space-y-3">
+                            <p className="text-sm text-orange-800 dark:text-orange-200">
+                              <span className="font-medium">Role equals:</span>
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {selectedPlaylist.trigger_rules.role_ids.map((role: string, idx: number) => (
+                                <Badge key={idx} variant="secondary" className="px-3 py-1">
+                                  {role}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-orange-800 dark:text-orange-200">
+                            No trigger conditions configured
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <Separator />
                   </>
                 )}
-                
+
                 {selectedPlaylist.type === 'manual' && (
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
                     <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Manual Assignment</p>
                     <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">This playlist is assigned manually by administrators</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Assignment Activity Feed */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle className="text-base">Assignment Activity</CardTitle>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      {selectedPlaylist.active_learners || assignmentHistory.length} total
+                    </Badge>
+                    {assignmentHistory.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportAssignmentHistoryCSV}
+                        className="h-8"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Export CSV
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {assignmentHistoryLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                  </div>
+                ) : assignmentHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm font-medium">No assignments yet</p>
+                    <p className="text-xs mt-1">
+                      {selectedPlaylist.type === 'auto'
+                        ? 'Employees matching the trigger criteria will appear here when assigned'
+                        : 'Manually assigned employees will appear here'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Employee</th>
+                          <th className="text-left px-3 py-2 font-medium">Role</th>
+                          <th className="text-left px-3 py-2 font-medium">Location</th>
+                          <th className="text-left px-3 py-2 font-medium">Assigned</th>
+                          <th className="text-left px-3 py-2 font-medium">Progress</th>
+                          <th className="text-left px-3 py-2 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {assignmentHistory.map((entry) => (
+                          <tr key={entry.assignment_id} className="hover:bg-muted/50">
+                            <td className="px-3 py-2">
+                              <div>
+                                <p className="font-medium">{entry.first_name} {entry.last_name}</p>
+                                <p className="text-xs text-muted-foreground">{entry.email}</p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.role_name || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.store_name || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {entry.assigned_at ? new Date(entry.assigned_at).toLocaleDateString() : '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <Progress value={entry.progress_percent || 0} className="h-2 w-16" />
+                                <span className="text-xs text-muted-foreground">{entry.progress_percent || 0}%</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge
+                                variant={
+                                  entry.status === 'completed' ? 'default' :
+                                  entry.status === 'in_progress' ? 'secondary' :
+                                  'outline'
+                                }
+                                className={
+                                  entry.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+                                  entry.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
+                                  ''
+                                }
+                              >
+                                {entry.status === 'in_progress' ? 'In Progress' :
+                                 entry.status === 'completed' ? 'Completed' :
+                                 entry.status === 'assigned' ? 'Not Started' :
+                                 entry.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {assignmentHistory.length >= 20 && (
+                      <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
+                        Showing 20 most recent assignments • Download CSV for full history
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -769,32 +1026,137 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <CardTitle>Stage Delivery</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedPlaylist.releaseType === 'progressive' && selectedPlaylist.stages?.length > 0 ? (
-                  <div className="space-y-3">
-                    {selectedPlaylist.stages.map((stage: any, index: number) => (
-                      <div key={stage.id} className={`flex items-center space-x-2 p-3 rounded-lg border ${
-                        index === 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/30' :
-                        index === 1 ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-900/30' :
-                        'bg-muted'
-                      }`}>
-                        {index === 0 ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-                        ) : index === 1 ? (
-                          <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                        ) : (
-                          <Lock className="h-5 w-5 text-muted-foreground" />
-                        )}
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{stage.name || `Stage ${index + 1}`} - {stage.unlock_description || `Unlocks: Day ${stage.unlock_days || index + 1}`}</p>
-                          <p className="text-xs text-muted-foreground">{stage.content_summary || 'Content details'}</p>
+                {selectedPlaylist.release_schedule?.stages?.length > 0 ? (
+                  <div className="space-y-4">
+                    {/* Progressive stages visualization using new stages array */}
+                    {selectedPlaylist.release_schedule.stages.map((stage: any, index: number) => {
+                      const stageNum = index + 1;
+                      const isFirst = index === 0;
+
+                      // Get albums and tracks for this stage based on release_stage field
+                      const stageAlbums = selectedPlaylist.playlist_albums?.filter((pa: any) =>
+                        pa.release_stage === stageNum || (isFirst && (!pa.release_stage || pa.release_stage === 1))
+                      ) || [];
+                      const stageTracks = selectedPlaylist.tracks?.filter((pt: any) =>
+                        pt.release_stage === stageNum || (isFirst && (!pt.release_stage || pt.release_stage === 1))
+                      ) || [];
+
+                      return (
+                        <div key={stage.id || index} className="relative">
+                          {/* Connector line */}
+                          {index > 0 && (
+                            <div className="absolute left-6 -top-4 h-4 w-0.5 bg-border" />
+                          )}
+
+                          <div className={`rounded-lg border overflow-hidden ${
+                            isFirst ? 'border-green-200 dark:border-green-900/50' : 'border-border'
+                          }`}>
+                            {/* Stage header */}
+                            <div className={`flex items-center space-x-3 p-4 ${
+                              isFirst
+                                ? 'bg-green-50 dark:bg-green-900/20'
+                                : 'bg-muted/50'
+                            }`}>
+                              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                                isFirst
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-muted-foreground/20 text-muted-foreground'
+                              }`}>
+                                {isFirst ? (
+                                  <CheckCircle2 className="h-5 w-5" />
+                                ) : (
+                                  <Lock className="h-5 w-5" />
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-medium">{stage.name || `Stage ${stageNum}`}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {isFirst || stage.unlockDays === 0
+                                    ? 'Available immediately'
+                                    : `Unlocks after ${stage.unlockDays} days`}
+                                </p>
+                              </div>
+                              <div className="text-right text-sm text-muted-foreground">
+                                {stageAlbums.length > 0 && <span>{stageAlbums.length} album{stageAlbums.length !== 1 ? 's' : ''}</span>}
+                                {stageAlbums.length > 0 && stageTracks.length > 0 && <span> • </span>}
+                                {stageTracks.length > 0 && <span>{stageTracks.length} track{stageTracks.length !== 1 ? 's' : ''}</span>}
+                              </div>
+                            </div>
+
+                            {/* Stage content preview */}
+                            {(stageAlbums.length > 0 || stageTracks.length > 0) && (
+                              <div className="p-3 space-y-2 bg-background">
+                                {stageAlbums.map((pa: any) => (
+                                  <div key={pa.id} className="flex items-center space-x-2 text-sm">
+                                    <AlbumIcon className="h-4 w-4 text-primary" />
+                                    <span>{pa.album?.title}</span>
+                                    <span className="text-muted-foreground">({pa.album?.track_count || pa.album?.tracks?.length || 0} tracks)</span>
+                                  </div>
+                                ))}
+                                {stageTracks.map((pt: any) => (
+                                  <div key={pt.id} className="flex items-center space-x-2 text-sm">
+                                    <Library className="h-4 w-4 text-muted-foreground" />
+                                    <span>{pt.track?.title}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Empty stage state */}
+                            {stageAlbums.length === 0 && stageTracks.length === 0 && (
+                              <div className="p-3 bg-background text-sm text-muted-foreground text-center">
+                                No content assigned to this stage
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Unlock condition connector */}
+                          {index < selectedPlaylist.release_schedule.stages.length - 1 && (
+                            <div className="flex items-center justify-center py-2">
+                              <div className="flex items-center space-x-2 text-xs text-muted-foreground bg-muted px-3 py-1 rounded-full">
+                                <Clock className="h-3 w-3" />
+                                <span>
+                                  {selectedPlaylist.release_schedule.stages[index + 1]?.unlockDays > 0
+                                    ? `Wait ${selectedPlaylist.release_schedule.stages[index + 1].unlockDays} days`
+                                    : 'Unlocks immediately after completion'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Immediate Access</p>
-                    <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">All content is available immediately upon assignment</p>
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
+                    <div className="flex items-center space-x-3">
+                      <div className="h-10 w-10 rounded-full bg-blue-500 text-white flex items-center justify-center">
+                        <CheckCircle2 className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-blue-900 dark:text-blue-100">Immediate Access</p>
+                        <p className="text-sm text-blue-800 dark:text-blue-200">All content is available immediately upon assignment</p>
+                      </div>
+                    </div>
+
+                    {/* Show all content in one stage */}
+                    {(selectedPlaylist.playlist_albums?.length > 0 || selectedPlaylist.tracks?.length > 0) && (
+                      <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-900/30 space-y-2">
+                        {selectedPlaylist.playlist_albums?.map((pa: any) => (
+                          <div key={pa.id} className="flex items-center space-x-2 text-sm text-blue-800 dark:text-blue-200">
+                            <AlbumIcon className="h-4 w-4" />
+                            <span>{pa.album?.title}</span>
+                            <span className="opacity-75">({pa.album?.track_count || 0} tracks)</span>
+                          </div>
+                        ))}
+                        {selectedPlaylist.tracks?.map((pt: any) => (
+                          <div key={pt.id} className="flex items-center space-x-2 text-sm text-blue-800 dark:text-blue-200">
+                            <Library className="h-4 w-4" />
+                            <span>{pt.track?.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -1074,10 +1436,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       {!loading && (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'space-y-4'}>
           {filteredPlaylists.map((playlist) => (
-            <Card 
-              key={playlist.id} 
+            <Card
+              key={playlist.id}
               className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => setSelectedPlaylist(playlist)}
+              onClick={() => fetchAndSelectPlaylist(playlist.id)}
             >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -1099,10 +1461,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedPlaylist(playlist);
+                        fetchAndSelectPlaylist(playlist.id);
                       }}>
                         <Edit className="h-4 w-4 mr-2" />
-                        Edit
+                        View
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => handleDuplicatePlaylist(playlist.id, e)}>
                         <Copy className="h-4 w-4 mr-2" />
@@ -1117,7 +1479,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         View Analytics
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={(e) => handleArchivePlaylist(playlist.id, e)}>
+                      <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(playlist.id, playlist.title, e)}>
                         <Archive className="h-4 w-4 mr-2" />
                         Archive
                       </DropdownMenuItem>
@@ -1397,6 +1759,18 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       )}
       
       <Footer />
+
+      {/* Archive Playlist Modal */}
+      <ArchivePlaylistModal
+        isOpen={archiveModalOpen}
+        onClose={() => {
+          setArchiveModalOpen(false);
+          setPlaylistToArchive(null);
+        }}
+        playlistId={playlistToArchive?.id || ''}
+        playlistTitle={playlistToArchive?.title || ''}
+        onArchive={handleArchivePlaylist}
+      />
     </div>
   );
 }

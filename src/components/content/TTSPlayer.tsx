@@ -39,19 +39,24 @@ export function TTSPlayer({
   const speedButtonRef = useRef<HTMLButtonElement>(null);
   const voiceButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Generate TTS if no audio URL exists
+  // Always verify TTS with backend on mount/refresh
+  // The backend uses content hashing to determine if regeneration is needed
   useEffect(() => {
     // Reset state when trackId changes
-    setAudioUrl(initialAudioUrl || null);
     setVoice(initialVoice);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
-    
-    // Always call generate - it will use cached audio if content hasn't changed
+
+    // ALWAYS call backend to verify/generate TTS
+    // The backend compares content hash and returns cached audio if unchanged,
+    // or regenerates if the article body has been modified.
+    // This ensures edits to article content trigger proper regeneration
+    // while metadata-only changes (tags, thumbnail) use cached audio.
+    setAudioUrl(null); // Clear to show loading state
     generateTTS(initialVoice);
-  }, [trackId]); // Re-run when trackId changes
+  }, [trackId, initialVoice]); // Re-run when trackId or voice changes (not initialAudioUrl)
 
   // Close menus when clicking outside
   useEffect(() => {

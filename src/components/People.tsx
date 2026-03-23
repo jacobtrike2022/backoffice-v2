@@ -32,7 +32,7 @@ import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
 import { EditPeopleDialog } from './EditPeopleDialog';
-import { useUsers, useCurrentUser, useRoles, useStores } from '../lib/hooks/useSupabase';
+import { useUsers, useCurrentUser, useRoles, useStores, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 import { Edit } from 'lucide-react';
@@ -69,12 +69,13 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     hire_date: new Date().toISOString().split('T')[0]
   });
 
-  // Get current user for organization context
+  // Get current user and effective org (respects demo_org_id and Super Admin preview)
   const { user: currentUser } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
-  // Fetch roles and stores for dropdowns
-  const { roles } = useRoles(currentUser?.organization_id);
-  const { stores } = useStores({ organization_id: currentUser?.organization_id });
+  // Fetch roles and stores for the effective org
+  const { roles } = useRoles(effectiveOrgId ?? undefined);
+  const { stores } = useStores(effectiveOrgId ? { organization_id: effectiveOrgId } : undefined);
 
   // Fetch users from Supabase
   // For Trike Super Admin, don't filter by status unless explicitly selected
@@ -150,7 +151,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   };
 
   const handleCreateUser = async () => {
-    if (!currentUser?.organization_id) {
+    if (!effectiveOrgId) {
       toast.error('Organization context required');
       return;
     }
@@ -164,7 +165,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     try {
       const result = await crud.createUser({
         ...newUser,
-        organization_id: currentUser.organization_id
+        organization_id: effectiveOrgId
       });
       
       toast.success(`User created! Invite link: ${result.inviteUrl}`);
@@ -459,6 +460,20 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
+          {/* Table Header */}
+          <div
+            className="grid gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground"
+            style={{ gridTemplateColumns: 'auto 1fr 120px 120px 140px 100px 80px 32px' }}
+          >
+            <div className="w-10"></div>
+            <div>Employee</div>
+            <div>Unit</div>
+            <div>District</div>
+            <div>Progress</div>
+            <div className="text-center">Tracks</div>
+            <div className="text-center">Certs</div>
+            <div></div>
+          </div>
           <div className="divide-y divide-border">
             {loading ? (
               <div className="p-4 space-y-4">
@@ -481,22 +496,22 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
               users.map((employee) => {
                 const fullName = `${employee.first_name} ${employee.last_name}`;
                 const initials = `${employee.first_name[0]}${employee.last_name[0]}`.toUpperCase();
-                const progress = employee.training_progress || 0;
                 const completedTracks = employee.completed_tracks || 0;
                 const totalTracks = employee.total_tracks || 0;
                 const certifications = employee.certifications_count || 0;
-                
+
                 return (
                   <div
                     key={employee.id}
-                    className="p-4 hover:bg-accent/50 cursor-pointer transition-colors relative group"
+                    className="grid gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center relative group"
+                    style={{ gridTemplateColumns: 'auto 1fr 120px 120px 140px 100px 80px 32px' }}
                     onClick={() => setSelectedEmployee(employee)}
                   >
                     {(currentRole === 'admin' || currentRole === 'district-manager') && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                        className="absolute top-2 right-10 opacity-0 group-hover:opacity-100 transition-opacity z-10"
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditingEmployee(employee);
@@ -505,67 +520,62 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                         <Edit className="h-4 w-4" />
                       </Button>
                     )}
-                    <div className="flex items-center space-x-4">
-                      <Avatar className="h-10 w-10 ring-2 ring-primary/20">
-                        <AvatarImage src={employee.avatar_url || undefined} alt={fullName} />
-                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold text-sm">
-                          {initials}
-                        </AvatarFallback>
-                      </Avatar>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2 mb-0.5">
-                          <h3 className="font-semibold text-foreground text-sm">{fullName}</h3>
-                          <Badge variant="outline" className={`${getStatusColor(employee.status)} text-xs py-0 h-5`}>
-                            {employee.status}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center space-x-3 text-xs text-muted-foreground">
-                          <span>{employee.role?.name || 'No Role'}</span>
-                          <span>•</span>
-                          <span>{employee.store?.name || 'No Store'}</span>
-                          {currentRole === 'admin' && employee.store?.district?.name && (
-                            <>
-                              <span>•</span>
-                              <span>{employee.store.district.name} District</span>
-                            </>
-                          )}
-                          {(employee.last_active_at || employee.last_login) && (
-                            <>
-                              <span>•</span>
-                              <span>Last active {new Date(employee.last_active_at || employee.last_login).toLocaleDateString()}</span>
-                            </>
-                          )}
-                        </div>
+                    <Avatar className="h-10 w-10 ring-2 ring-primary/20">
+                      <AvatarImage src={employee.avatar_url || undefined} alt={fullName} />
+                      <AvatarFallback className="bg-primary text-primary-foreground font-semibold text-sm">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-2 mb-0.5">
+                        <h3 className="font-semibold text-foreground text-sm truncate">{fullName}</h3>
+                        <Badge variant="outline" className={`${getStatusColor(employee.status)} text-xs py-0 h-5 flex-shrink-0`}>
+                          {employee.status}
+                        </Badge>
                       </div>
-
-                      <div className="flex items-center space-x-6">
-                        <div className="text-right">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Overall Progress</p>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-medium">{employee.overallProgress || 0}%</span>
-                            <div className="w-24 h-2 bg-accent rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-primary transition-all"
-                                style={{ width: `${employee.overallProgress || 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-center border-l border-border pl-4">
-                          <p className="text-xl font-bold text-foreground">{completedTracks}</p>
-                          <p className="text-xs text-muted-foreground">of {totalTracks} tracks</p>
-                        </div>
-
-                        <div className="text-center border-l border-border pl-4">
-                          <p className="text-xl font-bold text-foreground">{certifications}</p>
-                          <p className="text-xs text-muted-foreground">certifications</p>
-                        </div>
-
-                        <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90" />
+                      <div className="flex items-center space-x-3 text-xs text-muted-foreground">
+                        <span className="truncate">{employee.role?.name || 'No Role'}</span>
+                        {(employee.last_active_at || employee.last_login) && (
+                          <>
+                            <span>•</span>
+                            <span className="flex-shrink-0">Last active {new Date(employee.last_active_at || employee.last_login).toLocaleDateString()}</span>
+                          </>
+                        )}
                       </div>
                     </div>
+
+                    <div className="text-sm text-foreground truncate">
+                      {employee.store?.name || 'No Store'}
+                    </div>
+
+                    <div className="text-sm text-foreground truncate">
+                      {employee.store?.district?.name || 'No District'}
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <div className="w-16 h-2 bg-accent rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all"
+                          style={{ width: `${employee.overallProgress || 0}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-foreground w-10 text-right">
+                        {employee.overallProgress || 0}%
+                      </span>
+                    </div>
+
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-foreground">{completedTracks}</p>
+                      <p className="text-xs text-muted-foreground">of {totalTracks}</p>
+                    </div>
+
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-foreground">{certifications}</p>
+                    </div>
+
+                    <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90" />
                   </div>
                 );
               })

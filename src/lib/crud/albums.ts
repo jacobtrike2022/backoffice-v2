@@ -64,8 +64,9 @@ export interface UpdateAlbumInput {
 // ============================================================================
 
 /**
- * Get all albums for organization with filtering options
- * Returns albums with track_count and total_duration_minutes
+ * Get all albums visible to the organization: own albums + scoped albums
+ * (UNIVERSAL, STATE in org's operating_states, COMPANY = org).
+ * Returns albums with track_count and total_duration_minutes.
  */
 export async function getAlbums(options: {
   status?: 'draft' | 'published' | 'archived';
@@ -75,38 +76,92 @@ export async function getAlbums(options: {
   const orgId = options.organizationId || await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  let query = supabase
-    .from('albums')
-    .select(`
-      *,
-      album_tracks (
-        track_id,
-        display_order,
-        is_required,
-        unlock_previous,
-        track:tracks (
-          id,
-          title,
-          type,
-          duration_minutes,
-          thumbnail_url,
-          status
-        )
+  // 1) Album IDs visible by scope: UNIVERSAL, STATE (org's operating_states), COMPANY = orgId
+  const { data: orgRow } = await supabase
+    .from('organizations')
+    .select('operating_states')
+    .eq('id', orgId)
+    .single();
+  const operatingStates: string[] = Array.isArray(orgRow?.operating_states)
+    ? (orgRow.operating_states as string[]).map((s: string) => String(s).toUpperCase())
+    : [];
+
+  const { data: scopeRows } = await supabase
+    .from('album_scopes')
+    .select('album_id, scope_level, state_id, company_id');
+  const scopes = scopeRows || [];
+
+  const stateIdsToCode: Record<string, string> = {};
+  const stateIdsNeeded = [...new Set(scopes.map((s: any) => s.state_id).filter(Boolean))];
+  if (stateIdsNeeded.length > 0) {
+    const { data: states } = await supabase
+      .from('us_states')
+      .select('id, code')
+      .in('id', stateIdsNeeded);
+    (states || []).forEach((s: any) => { stateIdsToCode[s.id] = String(s.code).toUpperCase(); });
+  }
+
+  const scopedAlbumIds = new Set<string>();
+  for (const s of scopes) {
+    if (s.scope_level === 'UNIVERSAL') {
+      scopedAlbumIds.add(s.album_id);
+    } else if (s.scope_level === 'STATE' && s.state_id) {
+      const code = stateIdsToCode[s.state_id];
+      if (code && operatingStates.includes(code)) scopedAlbumIds.add(s.album_id);
+    } else if (s.scope_level === 'COMPANY' && s.company_id === orgId) {
+      scopedAlbumIds.add(s.album_id);
+    }
+  }
+
+  const albumSelect = `
+    *,
+    album_tracks (
+      track_id,
+      display_order,
+      is_required,
+      unlock_previous,
+      track:tracks (
+        id,
+        title,
+        type,
+        duration_minutes,
+        thumbnail_url,
+        status
       )
-    `)
+    )
+  `;
+
+  // Two-query approach so universal/scoped albums from other orgs reliably return (avoids .or() syntax/RLS edge cases)
+  let ownQuery = supabase
+    .from('albums')
+    .select(albumSelect)
     .eq('organization_id', orgId);
+  if (options.status) ownQuery = ownQuery.eq('status', options.status);
+  if (options.search) ownQuery = ownQuery.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
+  const { data: ownAlbums, error: errOwn } = await ownQuery.order('updated_at', { ascending: false });
+  if (errOwn) throw errOwn;
 
-  if (options.status) {
-    query = query.eq('status', options.status);
+  let albums: any[] = ownAlbums || [];
+  const seenIds = new Set(albums.map((a: any) => a.id));
+
+  if (scopedAlbumIds.size > 0) {
+    const scopedIdsList = [...scopedAlbumIds].filter(id => !seenIds.has(id));
+    if (scopedIdsList.length > 0) {
+      let scopeQuery = supabase.from('albums').select(albumSelect).in('id', scopedIdsList);
+      if (options.status) scopeQuery = scopeQuery.eq('status', options.status);
+      if (options.search) scopeQuery = scopeQuery.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
+      const { data: scopedAlbums, error: errScoped } = await scopeQuery.order('updated_at', { ascending: false });
+      if (!errScoped && scopedAlbums?.length) {
+        for (const a of scopedAlbums) {
+          if (!seenIds.has(a.id)) {
+            seenIds.add(a.id);
+            albums.push(a);
+          }
+        }
+        albums.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      }
+    }
   }
-
-  if (options.search) {
-    query = query.or(`title.ilike.%${options.search}%,description.ilike.%${options.search}%`);
-  }
-
-  const { data: albums, error } = await query.order('updated_at', { ascending: false });
-
-  if (error) throw error;
 
   // Enrich with computed fields and transform album_tracks to tracks
   const enrichedAlbums = (albums || []).map((album: any) => {
@@ -114,14 +169,17 @@ export async function getAlbums(options: {
     // Sort tracks by display_order
     const sortedTracks = albumTracks
       .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0));
-    const trackCount = sortedTracks.length;
-    const totalDurationMinutes = sortedTracks.reduce((sum: number, at: any) => 
+
+    // Filter out archived tracks for counts and duration calculations
+    const publishedTracks = sortedTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
       sum + (at.track?.duration_minutes || 0), 0
     );
 
     return {
       ...album,
-      tracks: sortedTracks as AlbumTrack[],
+      tracks: sortedTracks as AlbumTrack[],  // Keep all tracks for display with status info
       track_count: trackCount,
       total_duration_minutes: totalDurationMinutes,
     };
@@ -168,15 +226,18 @@ export async function getAlbumById(albumId: string): Promise<Album | null> {
   const sortedTracks = (album.album_tracks || [])
     .sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0));
 
-  // Calculate total duration
-  const totalDurationMinutes = sortedTracks.reduce((sum: number, at: any) => 
+  // Filter out archived tracks for counts and duration calculations
+  const publishedTracks = sortedTracks.filter((at: any) => at.track?.status !== 'archived');
+
+  // Calculate total duration (only from non-archived tracks)
+  const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
     sum + (at.track?.duration_minutes || 0), 0
   );
 
   const result = {
     ...album,
-    tracks: sortedTracks as AlbumTrack[],
-    track_count: sortedTracks.length,
+    tracks: sortedTracks as AlbumTrack[],  // Keep all tracks for display with status info
+    track_count: publishedTracks.length,
     total_duration_minutes: totalDurationMinutes,
   } as Album;
 
@@ -457,6 +518,52 @@ export async function removeTrackFromAlbum(
 }
 
 /**
+ * Bulk remove multiple tracks from an album (e.g. for System Content Manager).
+ * Reorders remaining tracks to close gaps. Phase 2: wire a "Remove from album" bulk action in UI.
+ */
+export async function bulkRemoveTracksFromAlbum(
+  albumId: string,
+  trackIds: string[]
+): Promise<{ removed: number }> {
+  if (!albumId || typeof albumId !== 'string') throw new Error('Invalid albumId');
+  if (!Array.isArray(trackIds) || trackIds.length === 0) return { removed: 0 };
+
+  const { error } = await supabase
+    .from('album_tracks')
+    .delete()
+    .eq('album_id', albumId)
+    .in('track_id', trackIds);
+
+  if (error) throw error;
+
+  const { data: remainingTracks } = await supabase
+    .from('album_tracks')
+    .select('track_id, display_order')
+    .eq('album_id', albumId)
+    .order('display_order', { ascending: true });
+
+  if (remainingTracks?.length) {
+    for (let i = 0; i < remainingTracks.length; i++) {
+      const newOrder = i + 1;
+      if (remainingTracks[i].display_order !== newOrder) {
+        await supabase
+          .from('album_tracks')
+          .update({ display_order: newOrder })
+          .eq('album_id', albumId)
+          .eq('track_id', remainingTracks[i].track_id);
+      }
+    }
+  }
+
+  await supabase
+    .from('albums')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', albumId);
+
+  return { removed: trackIds.length };
+}
+
+/**
  * Reorder tracks in an album
  * Accepts array of track IDs in desired order
  */
@@ -535,45 +642,12 @@ export async function updateAlbumTrack(
 // ============================================================================
 
 /**
- * Get most recently updated albums (for sidebar "Active Albums" section)
+ * Get most recently updated albums (for sidebar "Active Albums" section).
+ * Uses same visibility as getAlbums (own + universal + state/company scoped) so demo orgs see universal albums.
  */
 export async function getRecentAlbums(limit: number = 4): Promise<Album[]> {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
-
-  const { data: albums, error } = await supabase
-    .from('albums')
-    .select(`
-      *,
-      album_tracks (
-        track_id,
-        track:tracks (
-          duration_minutes
-        )
-      )
-    `)
-    .eq('organization_id', orgId)
-    .order('updated_at', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  // Enrich with computed fields
-  const enrichedAlbums = (albums || []).map((album: any) => {
-    const albumTracks = album.album_tracks || [];
-    const trackCount = albumTracks.length;
-    const totalDurationMinutes = albumTracks.reduce((sum: number, at: any) => 
-      sum + (at.track?.duration_minutes || 0), 0
-    );
-
-    return {
-      ...album,
-      track_count: trackCount,
-      total_duration_minutes: totalDurationMinutes,
-    };
-  });
-
-  return enrichedAlbums as Album[];
+  const all = await getAlbums({});
+  return all.slice(0, limit);
 }
 
 /**
@@ -657,5 +731,249 @@ export async function publishAlbum(albumId: string): Promise<Album> {
  */
 export async function unarchiveAlbum(albumId: string): Promise<Album> {
   return updateAlbum({ id: albumId, status: 'draft' });
+}
+
+// ============================================================================
+// COMPLIANCE - SYSTEM LOCKED PLAYLISTS
+// ============================================================================
+
+export interface AlbumVersion {
+  id: string;
+  album_id: string;
+  version: number;
+  track_ids: string[];
+  track_order: Record<string, number> | null;
+  change_notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface SystemLockedAlbum extends Album {
+  requirement_id: string | null;
+  is_system_locked: boolean;
+  version: number;
+  locked_at: string | null;
+  locked_by: string | null;
+  requirement?: {
+    id: string;
+    requirement_name: string;
+    state_code: string;
+    topic?: { name: string; icon: string | null };
+  };
+}
+
+/**
+ * Lock a playlist/album for compliance requirement
+ * This links the album to a compliance requirement and creates a version snapshot
+ */
+export async function lockPlaylist(
+  albumId: string,
+  requirementId: string,
+  changeNotes?: string
+): Promise<void> {
+  const userProfile = await getCurrentUserProfile();
+
+  // First link to requirement and set lock flags
+  const { error: linkError } = await supabase
+    .from('albums')
+    .update({
+      requirement_id: requirementId,
+      is_system_locked: true,
+      locked_at: new Date().toISOString(),
+      locked_by: userProfile?.id || null
+    })
+    .eq('id', albumId);
+
+  if (linkError) throw linkError;
+
+  // Then call lock function (creates version snapshot)
+  const { error } = await supabase.rpc('lock_album', {
+    p_album_id: albumId,
+    p_change_notes: changeNotes || 'Initial lock for compliance requirement'
+  });
+
+  if (error) {
+    // Rollback the lock flags if version snapshot fails
+    await supabase
+      .from('albums')
+      .update({
+        requirement_id: null,
+        is_system_locked: false,
+        locked_at: null,
+        locked_by: null
+      })
+      .eq('id', albumId);
+    throw error;
+  }
+}
+
+/**
+ * Unlock a playlist (remove compliance lock)
+ * Note: This should be used with caution as it affects compliance tracking
+ */
+export async function unlockPlaylist(albumId: string): Promise<void> {
+  const { error } = await supabase
+    .from('albums')
+    .update({
+      is_system_locked: false,
+      requirement_id: null,
+      locked_at: null,
+      locked_by: null
+    })
+    .eq('id', albumId);
+
+  if (error) throw error;
+}
+
+/**
+ * Get version history for a playlist/album
+ */
+export async function getPlaylistVersions(albumId: string): Promise<AlbumVersion[]> {
+  const { data, error } = await supabase
+    .from('album_versions')
+    .select('*')
+    .eq('album_id', albumId)
+    .order('version', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get a specific version of a playlist
+ */
+export async function getPlaylistVersion(
+  albumId: string,
+  version: number
+): Promise<AlbumVersion | null> {
+  const { data, error } = await supabase
+    .from('album_versions')
+    .select('*')
+    .eq('album_id', albumId)
+    .eq('version', version)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get all system-locked playlists for the organization
+ */
+export async function getSystemLockedPlaylists(): Promise<SystemLockedAlbum[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`
+      *,
+      requirement:compliance_requirements(
+        id,
+        requirement_name,
+        state_code,
+        topic:compliance_topics(name, icon)
+      ),
+      album_tracks (
+        track_id,
+        track:tracks (
+          duration_minutes,
+          status
+        )
+      )
+    `)
+    .eq('organization_id', orgId)
+    .eq('is_system_locked', true)
+    .order('locked_at', { ascending: false });
+
+  if (error) throw error;
+
+  // Enrich with computed fields
+  const enrichedAlbums = (data || []).map((album: any) => {
+    const albumTracks = album.album_tracks || [];
+    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
+      sum + (at.track?.duration_minutes || 0), 0
+    );
+
+    return {
+      ...album,
+      track_count: trackCount,
+      total_duration_minutes: totalDurationMinutes,
+    };
+  });
+
+  return enrichedAlbums as SystemLockedAlbum[];
+}
+
+/**
+ * Get playlists linked to a specific compliance requirement
+ */
+export async function getPlaylistsForRequirement(requirementId: string): Promise<Album[]> {
+  const orgId = await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`
+      *,
+      album_tracks (
+        track_id,
+        track:tracks (
+          duration_minutes,
+          status
+        )
+      )
+    `)
+    .eq('organization_id', orgId)
+    .eq('requirement_id', requirementId)
+    .order('title');
+
+  if (error) throw error;
+
+  // Enrich with computed fields
+  const enrichedAlbums = (data || []).map((album: any) => {
+    const albumTracks = album.album_tracks || [];
+    const publishedTracks = albumTracks.filter((at: any) => at.track?.status !== 'archived');
+    const trackCount = publishedTracks.length;
+    const totalDurationMinutes = publishedTracks.reduce((sum: number, at: any) =>
+      sum + (at.track?.duration_minutes || 0), 0
+    );
+
+    return {
+      ...album,
+      track_count: trackCount,
+      total_duration_minutes: totalDurationMinutes,
+    };
+  });
+
+  return enrichedAlbums as Album[];
+}
+
+/**
+ * Update a locked playlist (creates new version automatically via trigger)
+ * Use this instead of regular updateAlbum for locked playlists
+ */
+export async function updateLockedPlaylist(
+  albumId: string,
+  data: UpdateAlbumInput,
+  changeNotes: string
+): Promise<Album> {
+  // First update the album
+  const album = await updateAlbum(data);
+
+  // Then create a new version with the changes
+  const { error } = await supabase.rpc('lock_album', {
+    p_album_id: albumId,
+    p_change_notes: changeNotes
+  });
+
+  if (error) throw error;
+
+  return getAlbumById(albumId) as Promise<Album>;
 }
 

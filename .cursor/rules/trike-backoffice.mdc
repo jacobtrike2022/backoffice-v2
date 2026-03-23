@@ -43,7 +43,8 @@ This is an enterprise multi-tenant LMS platform for convenience store and foodse
 - Row Level Security policies are active - ensure queries include proper user context
 
 ## CRITICAL: Database Schema Notes
-**User table is `users` - NOT `user_profiles` or `profiles`**
+
+### User table is `users` - NOT `user_profiles` or `profiles`
 - Many Supabase tutorials use `user_profiles` or `profiles` tables - WE DO NOT
 - Our user data is in the `users` table with these key columns:
   - `id` (UUID primary key)
@@ -55,6 +56,178 @@ This is an enterprise multi-tenant LMS platform for convenience store and foodse
 - To get current user profile, use `getCurrentUserProfile()` from `src/lib/supabase.ts`
 - To get org ID, use `getCurrentUserOrgId()` from `src/lib/supabase.ts`
 - NEVER query a table called `user_profiles` - it does not exist!
+
+### Role Names - NEVER use `role_name` on `users` table
+The `users` table does NOT have a `role_name` column. Role information is stored in the related `roles` table.
+
+**WRONG - Will cause SQL error:**
+```typescript
+// This will fail with: "column 'role_name' does not exist"
+await supabase
+  .from('users')
+  .select('*')
+  .eq('role_name', 'Admin');
+
+await supabase
+  .from('users')
+  .select('*')
+  .ilike('role_name', '%manager%');
+```
+
+**CORRECT - Join with roles table:**
+```typescript
+// Option 1: Select with join, filter in JavaScript
+const { data: users } = await supabase
+  .from('users')
+  .select('id, first_name, last_name, role:roles(name)')
+  .eq('organization_id', orgId);
+
+const admins = users?.filter(user => {
+  const roleName = (user.role as any)?.name?.toLowerCase() || '';
+  return roleName.includes('admin');
+});
+
+// Option 2: In SQL migrations/RLS policies, use JOIN
+SELECT u.* FROM users u
+JOIN roles r ON u.role_id = r.id
+WHERE r.name = 'Admin';
+```
+
+### SQL Migrations - RLS Policy Pattern
+When writing RLS policies that check role names, ALWAYS join with the roles table:
+
+**WRONG:**
+```sql
+CREATE POLICY "admins_only" ON some_table FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM users
+    WHERE auth_user_id = auth.uid()
+    AND role_name = 'Admin'  -- FAILS: no role_name column
+  )
+);
+```
+
+**CORRECT:**
+```sql
+CREATE POLICY "admins_only" ON some_table FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM users u
+    JOIN roles r ON u.role_id = r.id
+    WHERE u.auth_user_id = auth.uid()
+    AND r.name = 'Admin'
+  )
+);
+```
+
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** The main body content is stored in the **`transcript`** column (not only in `content_text`). Legacy and many current articles use `transcript` for the prose.
+- When displaying or validating article content (e.g. previews, KB viewer, publish checks), read body from **`transcript` first, then `content_text`**, e.g. `transcript || content_text || article_body`.
+- Videos use `transcript` for speech-to-text; stories use `transcript` for JSON slide data. For `type === 'article'`, treat `transcript` as the primary body field.
+
+## Supabase migration best practices (idempotency & history)
+
+When adding or editing migrations in `supabase/migrations/`:
+
+**1. Idempotent policies and triggers**  
+For new migrations that add RLS policies or triggers, use `DROP ... IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies do not fail (e.g. after a failed push or when the object already exists on remote).
+
+```sql
+DROP POLICY IF EXISTS "Policy name" ON table_name;
+CREATE POLICY "Policy name" ON table_name ...
+```
+
+```sql
+DROP TRIGGER IF EXISTS trigger_name ON table_name;
+CREATE TRIGGER trigger_name ...
+```
+
+**2. "Local migration files to be inserted before"**  
+If `supabase db push` reports that local migration files must be "inserted before" the last remote migration, the remote history is out of sync. **Only when the remote already has that schema** (e.g. it was applied manually or from another branch), repair history without re-running SQL:
+
+```bash
+supabase migration repair <version> --status applied
+```
+
+Use the migration version (filename without `.sql`, e.g. `20250101000000` or `20250109`). Then run `supabase db push` again. Do not use `--status applied` for a migration whose SQL has not been applied on the remote.
+
+See `.cursor/docs/README_MIGRATIONS.mdc` for more detail.
+
+## CRITICAL: Demo Mode - Edge Function Calls
+
+**While building demo mode**, there is no real Supabase auth session. The app uses a "demo admin user" from the database, but `supabase.auth.getSession()` returns null. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
+
+**ALWAYS** use the anon key as fallback when calling Edge Functions from the frontend:
+
+```typescript
+import { publicAnonKey } from '../../utils/supabase/info';
+// or: import { supabaseAnonKey } from '../lib/supabase';
+
+const { data: { session } } = await supabase.auth.getSession();
+const authToken = session?.access_token || publicAnonKey;
+
+const resp = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${authToken}`,
+    'apikey': publicAnonKey,
+  },
+  body: JSON.stringify(payload),
+});
+```
+
+**WRONG - Will 401 in demo mode:**
+```typescript
+'Authorization': `Bearer ${session?.access_token || ''}`,
+```
+
+**Reference implementations:** `src/lib/crud/brain.ts`, `CreateDemoModal.tsx`, `OrganizationsList.tsx` (handleAssignSeedPeopleToStores)
+
+See `docs/DEMO_MODE_DEVELOPMENT.md` for full details.
+
+## CRITICAL: Radix UI Select Component Rules
+
+### Empty String Values are FORBIDDEN
+Radix UI's `<SelectItem>` component does NOT allow empty strings as values. This causes a runtime error:
+
+```
+Error: A <Select.Item /> must have a value prop that is not an empty string.
+```
+
+**WRONG - Will crash:**
+```tsx
+const OPTIONS = [
+  { value: '', label: 'All Items' },  // FORBIDDEN
+  { value: 'option1', label: 'Option 1' },
+];
+
+<SelectItem value="">None</SelectItem>  // FORBIDDEN
+```
+
+**CORRECT - Use placeholder values:**
+```tsx
+const OPTIONS = [
+  { value: 'all', label: 'All Items' },  // Use 'all' instead of ''
+  { value: 'option1', label: 'Option 1' },
+];
+
+// For "none/empty" options, use 'none' and convert in handler
+<Select
+  value={formData.field || 'none'}
+  onValueChange={(value) => setFormData({
+    ...formData,
+    field: value === 'none' ? '' : value
+  })}
+>
+  <SelectItem value="none">None / Not Selected</SelectItem>
+  <SelectItem value="option1">Option 1</SelectItem>
+</Select>
+
+// When calling API, convert back
+const apiValue = stateFilter === 'all' ? undefined : stateFilter;
+```
 
 ## Project Structure
 - `/src/components/` - React components for UI
@@ -73,7 +246,24 @@ This is an enterprise multi-tenant LMS platform for convenience store and foodse
 - GitHub repository updates trigger automatic Vercel deployments
 - Local development environment is fully operational and tested
 
+## Supabase Credentials
+
+**IMPORTANT FOR AI AGENTS**: Supabase service token is stored in `.cursor/credentials/SUPABASE_TOKEN.md`
+
+- **Project ID**: `kgzhlvxzdlexsrozbbxs`
+- **Project URL**: `https://kgzhlvxzdlexsrozbbxs.supabase.co`
+- **Token**: See `.cursor/credentials/SUPABASE_TOKEN.md` (read this file when you need database access)
+
+This token is used for:
+- Running SQL queries and migrations
+- Checking database schema
+- Verifying RLS policies
+- Database operations via Supabase API
+
 ## Deployment Commands
+
+### Supabase database migrations
+Apply migrations: `npx supabase db push`. If you see "local migration files to be inserted before", use `supabase migration repair <version> --status applied` (only when remote already has that schema); see "Supabase migration best practices" above and `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ### Deploy Supabase Edge Functions
 After modifying any file in `supabase/functions/trike-server/`, deploy with:

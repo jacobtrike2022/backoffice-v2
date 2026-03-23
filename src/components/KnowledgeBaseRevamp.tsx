@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -82,7 +83,7 @@ import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { StoryPreview } from './content-authoring/StoryPreview';
 import { StoryTranscript } from './content-authoring/StoryTranscript';
 import BrainChatDrawer from './BrainChat/BrainChatDrawer';
-import defaultThumbnail from '../assets/default-thumbnail.jpg';
+import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -490,6 +491,20 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Update dropdown position when showing
+  useEffect(() => {
+    if (showSearchDropdown && searchContainerRef.current) {
+      const rect = searchContainerRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, [showSearchDropdown]);
 
   // Dynamic suggested prompts from indexed content - with word count for sizing
   interface PromptWithSize {
@@ -784,28 +799,33 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
 
       // 2. Keyword/Tag matches
       if (results.length < 3) {
-        const { data: tagTracks } = await supabase
-          .from('tracks')
-          .select('id, title, type, description, tags')
-          .eq('organization_id', orgId)
-          .eq('status', 'published')
-          .eq('show_in_knowledge_base', true)
-          .contains('tags', [query.toLowerCase()])
-          .limit(3 - results.length);
+        try {
+          const { data: tagTracks } = await supabase
+            .from('tracks')
+            .select('id, title, type, description, tags')
+            .eq('organization_id', orgId)
+            .eq('status', 'published')
+            .eq('show_in_knowledge_base', true)
+            .contains('tags', [query.toLowerCase()])
+            .limit(3 - results.length);
 
-        if (tagTracks) {
-          tagTracks.forEach(t => {
-            if (!results.find(r => r.id === t.id)) {
-              results.push({
-                id: t.id,
-                title: t.title,
-                type: 'track',
-                trackType: t.type as any,
-                excerpt: t.description,
-                matchType: 'keyword'
-              });
-            }
-          });
+          if (tagTracks) {
+            tagTracks.forEach(t => {
+              if (!results.find(r => r.id === t.id)) {
+                results.push({
+                  id: t.id,
+                  title: t.title,
+                  type: 'track',
+                  trackType: t.type as any,
+                  excerpt: t.description,
+                  matchType: 'keyword'
+                });
+              }
+            });
+          }
+        } catch (tagError) {
+          // Silently fail tag search - semantic search will handle it
+          console.debug("Tag search failed (non-critical):", tagError);
         }
       }
 
@@ -1046,7 +1066,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
     : [];
 
   return (
-    <div className="relative mb-8">
+    <div className={`relative mb-8 ${showSearchDropdown ? 'z-[9999]' : ''}`}>
       {/* Background glow effects - boosted */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <div 
@@ -1121,7 +1141,8 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               </div>
 
               {/* Search Input Bar - full width */}
-              <div 
+              <div
+                ref={searchContainerRef}
                 className="relative w-full max-w-2xl"
                 style={{ marginTop: '30px' }}
                 data-search-container="true"
@@ -1158,15 +1179,21 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                   )}
                 </div>
 
-                {/* Search Dropdown */}
+              </div>
+
+              {/* Search Dropdown - rendered via portal to escape stacking context */}
+              {typeof document !== 'undefined' && createPortal(
                 <AnimatePresence>
-                  {showSearchDropdown && input.trim() && (
+                  {showSearchDropdown && input.trim() && dropdownPosition && (
                     <motion.div
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
-                      className="absolute z-50 left-0 right-0 mt-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                      className="fixed z-[9999] p-2 rounded-xl border border-white/10 overflow-hidden"
                       style={{
+                        top: dropdownPosition.top,
+                        left: dropdownPosition.left,
+                        width: dropdownPosition.width,
                         background: 'rgba(25, 25, 28, 0.95)',
                         backdropFilter: 'blur(16px)',
                         boxShadow: '0 10px 40px -10px rgba(0,0,0,0.5), 0 0 20px rgba(255,107,0,0.1)'
@@ -1191,7 +1218,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           <div className="px-4 py-2 mt-2">
                             <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
                           </div>
-                          
+
                           <div className="space-y-1">
                             {searchResults.map((result) => (
                               <button
@@ -1240,12 +1267,14 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                       )}
                     </motion.div>
                   )}
-                </AnimatePresence>
-              </div>
+                </AnimatePresence>,
+                document.body
+              )}
 
               {/* Suggested Prompts - auto-sizing buttons, 3 top + 2 bottom */}
-              {suggestedPrompts.length > 0 && (
-                <motion.div 
+              {/* Hide when search dropdown is active to prevent overlap */}
+              {suggestedPrompts.length > 0 && !showSearchDropdown && (
+                <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="w-full flex flex-col items-center"
@@ -1375,10 +1404,10 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
               </div>
 
               {/* Input bar - DOCKED AT BOTTOM when in conversation */}
-              <div className="px-6 pb-4 pt-2 border-t border-white/5">
+              <div className={`px-6 pb-4 pt-2 border-t border-white/5 ${showSearchDropdown ? 'z-[9999] relative' : ''}`}>
                 <div className="max-w-2xl mx-auto">
-                  <div 
-                    className="relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30"
+                  <div
+                    className={`relative flex items-center gap-3 pl-5 pr-4 py-3 rounded-xl border border-white/10 bg-black/40 transition-all focus-within:border-orange-500/30 ${showSearchDropdown ? 'z-[9999]' : ''}`}
                     data-search-container="true"
                   >
                     <Search className="w-4 h-4 text-white/30 flex-shrink-0" />
@@ -1414,7 +1443,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
-                          className="absolute z-50 left-0 right-0 bottom-full mb-2 p-2 rounded-xl border border-white/10 overflow-hidden"
+                          className="absolute z-[9999] left-0 right-0 bottom-full mb-2 p-2 rounded-xl border border-white/10 overflow-hidden"
                           style={{
                             background: 'rgba(25, 25, 28, 0.95)',
                             backdropFilter: 'blur(16px)',
@@ -1802,6 +1831,64 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       .slice(0, 5);
   }, [displayTracks]);
 
+  // Simple Markdown to HTML converter for content that isn't already HTML
+  const convertMarkdownToHtml = (markdown: string): string => {
+    let html = markdown;
+
+    // Escape HTML entities first (but preserve existing HTML)
+    // Check if content already has HTML tags
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(markdown);
+    if (!hasHtmlTags) {
+      // Convert Markdown to HTML only if there are no existing HTML tags
+
+      // Code blocks (```) - with inline styles for word wrapping
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>');
+
+      // Inline code (`) - with inline styles for word wrapping
+      html = html.replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>');
+
+      // Headers (# ## ### etc.)
+      html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
+      html = html.replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>');
+      html = html.replace(/^####\s+(.*)$/gm, '<h4>$1</h4>');
+      html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+
+      // Bold (**text** or __text__)
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+      // Italic (*text* or _text_)
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      // Blockquotes (> text)
+      html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+
+      // Unordered lists (- item or * item)
+      html = html.replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+      // Ordered lists (1. item)
+      html = html.replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>');
+
+      // Links [text](url)
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+      // Line breaks (double newline = paragraph)
+      html = html.replace(/\n\n+/g, '</p><p>');
+      html = html.replace(/\n/g, '<br/>');
+
+      // Wrap in paragraph if not already wrapped
+      if (!html.startsWith('<')) {
+        html = '<p>' + html + '</p>';
+      }
+    }
+
+    return html;
+  };
+
   // Process content for TOC and inject IDs
   const { processedContent, tocSections } = useMemo(() => {
     // Try content_text first (database field), then content (possible alias)
@@ -1812,9 +1899,12 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     if (!rawContent) return { processedContent: '', tocSections: [] };
 
     try {
+      // Convert Markdown to HTML if needed
+      const htmlContent = convertMarkdownToHtml(rawContent);
+
       const parser = new DOMParser();
-      const doc = parser.parseFromString(rawContent, 'text/html');
-      const headers = doc.querySelectorAll('h2, h3');
+      const doc = parser.parseFromString(htmlContent, 'text/html');
+      const headers = doc.querySelectorAll('h1, h2, h3');
       const sections: { id: string; title: string; level: number }[] = [];
 
       headers.forEach((header, index) => {
@@ -1824,12 +1914,12 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/(^-|-$)/g, '') || `section-${index}`;
-        
+
         header.id = id;
         sections.push({
           id,
           title: text,
-          level: header.tagName === 'H2' ? 1 : 2
+          level: header.tagName === 'H1' ? 0 : header.tagName === 'H2' ? 1 : 2
         });
       });
 
@@ -2685,29 +2775,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                     {selectedTrack.title}
                   </h1>
                   
-                  <div className="flex items-center justify-between pb-4 border-b-0">
-                     <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                           <AvatarImage src={selectedTrack.created_by?.avatar_url} />
-                           <AvatarFallback>{(selectedTrack.created_by?.name || 'U').charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                           <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                              {selectedTrack.created_by?.name || 'Unknown Author'}
-                           </p>
-                           <p className="text-xs text-slate-500">
-                              Author
-                           </p>
-                        </div>
-                     </div>
-                     
+                  <div className="flex items-center justify-end pb-4 border-b-0">
                      <div className="flex items-center gap-4 text-slate-500 text-sm">
                         <div className="flex items-center gap-1" title="Views">
                            <Eye className="h-4 w-4" />
                            {selectedTrack.view_count || 0}
                         </div>
-                        <button 
-                          className="flex items-center gap-1 hover:text-[#F64A05] transition-colors" 
+                        <button
+                          className="flex items-center gap-1 hover:text-[#F64A05] transition-colors"
                           title="Like this article"
                           onClick={handleLike}
                         >
@@ -2777,13 +2852,13 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                           src={selectedTrack.content_url} 
                           controls 
                           className="w-full h-full object-contain" 
-                          poster={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail}
+                          poster={getEffectiveThumbnailUrl(selectedTrack.thumbnail_url)}
                         />
                       ) : selectedTrack.content_url.match(/\.(mp3|wav|ogg)$/i) ? (
                         // Audio file with visual wrapper
                         <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
                           <img 
-                            src={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail} 
+                            src={getEffectiveThumbnailUrl(selectedTrack.thumbnail_url)} 
                             alt={selectedTrack.title}
                             className="w-48 h-48 object-cover rounded-lg mb-4"
                           />
@@ -2801,7 +2876,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                           src={selectedTrack.content_url} 
                           controls 
                           className="w-full h-full object-contain" 
-                          poster={selectedTrack.thumbnail_url && selectedTrack.thumbnail_url !== '/default-thumbnail.png' ? selectedTrack.thumbnail_url : defaultThumbnail}
+                          poster={getEffectiveThumbnailUrl(selectedTrack.thumbnail_url)}
                         />
                       )}
                     </div>
@@ -2816,10 +2891,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
                   {/* TTS Player for Articles */}
                   {selectedTrack.type === 'article' && (
-                    <TTSPlayer 
+                    <TTSPlayer
                       trackId={selectedTrack.id}
-                      initialAudioUrl={undefined}
-                      initialVoice="alloy"
+                      initialAudioUrl={(selectedTrack as any).tts_audio_url || undefined}
+                      initialVoice={(selectedTrack as any).tts_voice || 'alloy'}
                       showVoiceSelector={false}
                     />
                   )}
@@ -2871,9 +2946,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   {/* Main Body Content - Only show if there's actual content */}
                   {processedContent && processedContent.trim() && (
                     <div className="space-y-6 text-slate-800 dark:text-slate-200 leading-7">
-                      <div 
-                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ol:list-decimal prose-li:text-base prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:p-4 prose-pre:rounded-lg prose-strong:font-bold"
-                        dangerouslySetInnerHTML={{ __html: processedContent }} 
+                      <div
+                        className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ul:pl-6 prose-ul:my-3 prose-ol:list-decimal prose-ol:pl-6 prose-ol:my-3 prose-li:text-base prose-li:my-0.5 prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:whitespace-pre-wrap prose-code:break-words prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:p-4 prose-pre:rounded-lg prose-pre:whitespace-pre-wrap prose-pre:break-words prose-strong:font-bold [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_li]:my-0.5 [&_li>p]:my-0.5"
+                        dangerouslySetInnerHTML={{ __html: processedContent }}
                       />
                     </div>
                   )}

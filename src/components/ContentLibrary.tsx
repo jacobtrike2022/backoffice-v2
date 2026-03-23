@@ -25,7 +25,6 @@ import {
   ChevronLeft,
   ArrowUpDown,
   CheckCircle2,
-  Lock,
   Edit,
   Save,
   Trash2,
@@ -76,19 +75,20 @@ import {
 } from './ui/dialog';
 import { AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
 import { CreateVariantModal } from './content-authoring/CreateVariantModal';
-
-// Default thumbnail from public folder
-const defaultThumbnail = '/default-thumbnail.png';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ContentLibraryProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   isSuperAdminAuthenticated?: boolean;
-  initialTrackId?: string; // Track ID to open on mount
+  initialTrackId?: string;
   onNavigateToPlaylist?: (playlistId: string) => void;
-  onNavigateToAlbum?: (albumId: string) => void;  // NEW
-  onBackToLibrary?: () => void; // Callback to notify parent when returning to library
-  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register with App for global navigation
-  onNavigate?: (view: string, trackId?: string) => void; // Navigation callback for creating/editing content
+  onNavigateToAlbum?: (albumId: string) => void;
+  onNavigateToPlaylistsTab?: () => void;
+  onNavigateToAlbumsTab?: () => void;
+  onBackToLibrary?: () => void;
+  registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void;
+  onNavigate?: (view: string, trackId?: string) => void;
+  isProspectOrg?: boolean;
 }
 
 // Calculate reading time based on word count (200 words per minute)
@@ -107,9 +107,10 @@ const calculateReadingTime = (htmlContent: string): number => {
   return readingTime || 1; // Minimum 1 minute
 };
 
-export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onBackToLibrary, registerUnsavedChangesCheck, onNavigate }: ContentLibraryProps) {
+export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedTrack, setSelectedTrack] = useState<any | null>(null);
@@ -200,9 +201,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Fetch tracks from Supabase
   const { tracks, loading, error, refetch } = useTracks({
-    status: statusFilter, // Use dynamic status filter
+    status: statusFilter,
     type: selectedType !== 'all' ? selectedType as any : undefined,
-    search: searchQuery || undefined
+    search: searchQuery || undefined,
   });
 
   // Debug logging (disabled for performance - enable only when needed)
@@ -316,81 +317,62 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   const handleArchiveTrack = async (track: any, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    
+
     console.log('🔍 [Archive] Checking relationships for track:', track.id, track.title);
-    
+
     try {
-      // Check for related tracks before archiving (optional check - don't fail if endpoint unavailable)
-      // We check both directions independently so if one fails, we still check the other
+      // Check for related tracks before archiving - run ALL checks in parallel for speed
       const allRelationships: trackRelCrud.TrackRelationship[] = [];
       const sourceRelationships: trackRelCrud.TrackRelationship[] = [];
-      
-      // Check 1: Fetch relationships where this track is the source (tracks derived FROM this track)
-      try {
-        console.log('🔍 [Archive] Fetching all derived tracks for:', track.id);
-        const derived = await trackRelCrud.getDerivedTracks(track.id);
-        if (derived && Array.isArray(derived)) {
-          allRelationships.push(...derived);
-        }
-        console.log('📊 [Archive] Found derived relationships:', derived?.length || 0);
-      } catch (derivedError: any) {
-        console.warn('⚠️ [Archive] Could not fetch derived tracks, trying stats endpoint:', derivedError?.message);
-        // Fallback: Try using getTrackRelationshipStats which might have better auth
-        try {
-          const stats = await trackRelCrud.getTrackRelationshipStats(track.id) as any;
-          if (stats?.derived && Array.isArray(stats.derived)) {
-            allRelationships.push(...stats.derived);
-            console.log('📊 [Archive] Found relationships via stats endpoint:', stats.derived.length);
-          }
-        } catch (statsError: any) {
-          console.warn('⚠️ [Archive] Stats endpoint also failed:', statsError?.message);
-        }
+
+      // Run all relationship checks in parallel
+      const sourceTypes: Array<'source' | 'prerequisite' | 'related'> = ['source', 'prerequisite', 'related'];
+
+      const [derivedResult, ...sourceResults] = await Promise.allSettled([
+        // Check 1: Fetch relationships where this track is the source (tracks derived FROM this track)
+        trackRelCrud.getDerivedTracks(track.id),
+        // Check 2: Fetch source relationships in parallel (all 3 types at once)
+        ...sourceTypes.map(relType => trackRelCrud.getSourceTrack(track.id, relType))
+      ]);
+
+      // Process derived tracks result
+      if (derivedResult.status === 'fulfilled' && derivedResult.value && Array.isArray(derivedResult.value)) {
+        allRelationships.push(...derivedResult.value);
+        console.log('📊 [Archive] Found derived relationships:', derivedResult.value.length);
+      } else if (derivedResult.status === 'rejected') {
+        console.warn('⚠️ [Archive] Could not fetch derived tracks:', derivedResult.reason?.message);
       }
-      
-      // Check 2: Fetch relationships where this track is derived FROM another track
-      try {
-        console.log('🔍 [Archive] Checking if track has a source...');
-        const sourceTypes: Array<'source' | 'prerequisite' | 'related'> = ['source', 'prerequisite', 'related'];
-        for (const relType of sourceTypes) {
-          try {
-            const source = await trackRelCrud.getSourceTrack(track.id, relType);
-            if (source && source.source_track) {
-              // Convert source relationship to the same format as derived relationships for display
-              // The source relationship shows this track is derived FROM source_track
-              // For the dialog, we want to show source_track as the "related" track
-              sourceRelationships.push({
-                id: source.id,
-                source_track_id: source.source_track_id,
-                derived_track_id: source.derived_track_id,
-                relationship_type: source.relationship_type,
-                created_at: source.created_at,
-                // Show the source track (parent) as the "derived_track" for display purposes
-                derived_track: {
-                  id: source.source_track.id,
-                  title: source.source_track.title,
-                  type: source.source_track.type,
-                  thumbnail_url: source.source_track.thumbnail_url,
-                  status: source.source_track.status
-                }
-              } as trackRelCrud.TrackRelationship);
-              break; // Found one, no need to check other types
+
+      // Process source relationship results
+      for (let i = 0; i < sourceResults.length; i++) {
+        const result = sourceResults[i];
+        if (result.status === 'fulfilled' && result.value && result.value.source_track) {
+          const source = result.value;
+          sourceRelationships.push({
+            id: source.id,
+            source_track_id: source.source_track_id,
+            derived_track_id: source.derived_track_id,
+            relationship_type: source.relationship_type,
+            created_at: source.created_at,
+            derived_track: {
+              id: source.source_track.id,
+              title: source.source_track.title,
+              type: source.source_track.type,
+              thumbnail_url: source.source_track.thumbnail_url,
+              status: source.source_track.status
             }
-          } catch (err) {
-            // Continue checking other types
-          }
+          } as trackRelCrud.TrackRelationship);
+          break; // Found one source, no need to add duplicates
         }
-        console.log('📊 [Archive] Found source relationships:', sourceRelationships.length);
-      } catch (sourceError: any) {
-        console.warn('⚠️ [Archive] Could not fetch source track:', sourceError?.message);
-        // Continue even if this fails
       }
-      
+      console.log('📊 [Archive] Found source relationships:', sourceRelationships.length);
+
       // Combine both directions: tracks derived FROM this track, and tracks this track is derived FROM
       const allCombinedRelationships = [
         ...allRelationships,
         ...sourceRelationships
       ];
-      
+
       console.log('📊 [Archive] Total relationships found:', allCombinedRelationships.length);
       
       // Show warning if this track has ANY relationships (either direction)
@@ -536,8 +518,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       // Fetch fresh track data and redirect to latest version if needed
       try {
         const { track: freshTrack, isLatest, latestTrackId } = await crud.getTrackByIdOrLatest(track.id);
-        setSelectedTrack(freshTrack);
         console.log('Loaded fresh track data:', freshTrack);
+        console.log('Fresh track transcript_data keys:', freshTrack.transcript_data ? Object.keys(freshTrack.transcript_data) : 'null');
+        setSelectedTrack(freshTrack);
         
         // Update URL without page reload
         const trackType = freshTrack.type;
@@ -752,15 +735,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     });
   }, [tracks, sortBy]);
 
-  // Memoize filtered tracks with Set-based lookups for O(1) performance
+  // Memoize filtered tracks: apply search (title, description, transcript/content, tags) then playlist/album filter
   const filteredTracks = useMemo(() => {
-    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterPlaylistTracksSet.has(track.id));
-    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
-      return sortedTracks.filter(track => filterAlbumTracksSet.has(track.id));
+    let result = sortedTracks;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (track) =>
+          (track.title || '').toLowerCase().includes(q) ||
+          (track.description || '').toLowerCase().includes(q) ||
+          (track.transcript || '').toLowerCase().includes(q) ||
+          (track.content_text || '').toLowerCase().includes(q) ||
+          ((track.tags || []) as string[]).some((tag: string) => tag.toLowerCase().includes(q))
+      );
     }
-    return sortedTracks;
-  }, [sortedTracks, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
+    if (filterByPlaylistId && filterPlaylistTracksSet.size > 0) {
+      result = result.filter((track) => filterPlaylistTracksSet.has(track.id));
+    } else if (filterByAlbumId && filterAlbumTracksSet.size > 0) {
+      result = result.filter((track) => filterAlbumTracksSet.has(track.id));
+    }
+    return result;
+  }, [sortedTracks, searchQuery, filterByPlaylistId, filterPlaylistTracksSet, filterByAlbumId, filterAlbumTracksSet]);
 
   const trackIds = useMemo(() => filteredTracks.map(t => t.id), [filteredTracks]);
   const { counts: aiSuggestionCounts } = useAITagSuggestionsCount(trackIds);
@@ -809,8 +804,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // Then update the selected track
       const updatedTrack = await crud.getTrackById(trackIdToFetch) as any;
-      setSelectedTrack(updatedTrack);
       console.log('ContentLibrary - updated track:', updatedTrack);
+      console.log('ContentLibrary - updated track transcript_data keys:', updatedTrack?.transcript_data ? Object.keys(updatedTrack.transcript_data) : 'null');
+      setSelectedTrack(updatedTrack);
       
       // If we're loading a new version, update the URL
       if (newTrackId && updatedTrack) {
@@ -839,6 +835,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
+            onArchive={async (track) => {
+              await handleArchiveTrack(track);
+            }}
+            onDuplicate={async (track) => {
+              await handleDuplicateTrack(track);
+            }}
+            onCreateVariant={(track) => {
+              setCreateVariantModal({ open: true, track });
+            }}
           />
         ) : selectedTrack.type === 'checkpoint' ? (
           <CheckpointEditor
@@ -849,6 +854,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
+            onArchive={async (track) => {
+              await handleArchiveTrack(track);
+            }}
+            onDuplicate={async (track) => {
+              await handleDuplicateTrack(track);
+            }}
+            onCreateVariant={(track) => {
+              setCreateVariantModal({ open: true, track });
+            }}
           />
         ) : selectedTrack.type === 'story' ? (
           <StoryEditor
@@ -859,6 +873,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
+            onArchive={async (track) => {
+              await handleArchiveTrack(track);
+            }}
+            onDuplicate={async (track) => {
+              await handleDuplicateTrack(track);
+            }}
+            onCreateVariant={(track) => {
+              setCreateVariantModal({ open: true, track });
+            }}
           />
         ) : (
           <TrackDetailEdit
@@ -869,6 +892,18 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
+            onArchive={async (track) => {
+              await handleArchiveTrack(track);
+              // Note: handleArchiveTrack may show a dialog, so we only navigate back
+              // if no dialog was shown (no relationships). The dialog handles navigation itself.
+            }}
+            onDuplicate={async (track) => {
+              await handleDuplicateTrack(track);
+              // handleDuplicateTrack navigates to the new track automatically
+            }}
+            onCreateVariant={(track) => {
+              setCreateVariantModal({ open: true, track });
+            }}
           />
         )}
         
@@ -984,6 +1019,33 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Create Variant Modal - must be in track detail view for ... menu */}
+        <CreateVariantModal
+          isOpen={createVariantModal.open}
+          onClose={() => setCreateVariantModal({ open: false, track: null })}
+          sourceTrack={createVariantModal.track ? {
+            id: createVariantModal.track.id,
+            title: createVariantModal.track.title,
+            type: createVariantModal.track.type,
+            thumbnail_url: createVariantModal.track.thumbnail_url
+          } : undefined}
+          onVariantCreated={(newTrackId) => {
+            setCreateVariantModal({ open: false, track: null });
+            if (onNavigate) {
+              toast.success('Variant created! Opening editor...');
+              onNavigate('authoring', newTrackId);
+            } else {
+              refetch().then(() => {
+                const newTrack = tracks.find((t: any) => t.id === newTrackId);
+                if (newTrack) {
+                  setSelectedTrack(newTrack);
+                }
+              });
+              toast.success('Variant created successfully');
+            }
+          }}
+        />
       </>
     );
   }
@@ -993,6 +1055,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     <div className="flex gap-6">
       {/* Main content area */}
       <div className="flex-1 space-y-6 min-w-0">
+        {/* Preview Mode Banner */}
+        {isPreviewMode && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200">
+            <Eye className="h-4 w-4 shrink-0" />
+            <span>You are previewing the Content Library. Editing is disabled in preview mode.</span>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
         <div>
@@ -1002,9 +1071,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           </p>
         </div>
         <div className="flex items-center space-x-2">
-          {onNavigate && (
-            <Button 
-              className="bg-brand-gradient" 
+          {onNavigate && !isPreviewMode && (
+            <Button
+              className="bg-brand-gradient"
               onClick={() => onNavigate('authoring')}
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -1036,7 +1105,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search tracks by title, description, or tags..."
+                placeholder="Search by title, content, description, or tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1249,21 +1318,26 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-muted overflow-hidden">
                   <img
-                    src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                     alt={track.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      if (target.src !== defaultThumbnail) {
-                        target.src = defaultThumbnail;
+                      if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                        target.src = DEFAULT_THUMBNAIL_URL;
                       }
                     }}
                   />
-                  <div className="absolute top-2 right-2">
+                  <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
                     <Badge className={getTypeBadgeColor(track.type)}>
                       {getTypeIcon(track.type)}
                       <span className="ml-1 capitalize">{track.type}</span>
                     </Badge>
+                    {track.scope?.scope_level && (
+                      <Badge variant="outline" className="text-xs bg-background/80">
+                        {track.scope.state_name ?? track.scope.industry_name ?? track.scope.company_name ?? track.scope.program_name ?? track.scope.unit_name ?? track.scope.sector ?? track.scope.scope_level}
+                      </Badge>
+                    )}
                   </div>
                   {/* AI Suggestions Badge */}
                   {aiSuggestionCounts[track.id] > 0 && (
@@ -1274,10 +1348,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </Badge>
                     </div>
                   )}
-                  {/* Actions Menu (shows on hover) */}
+                  {/* Actions Menu (shows on hover) - hidden in preview mode */}
+                  {!isPreviewMode && (
                   <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Popover 
-                      open={openPopoverId === track.id} 
+                    <Popover
+                      open={openPopoverId === track.id}
                       onOpenChange={(open) => {
                         setOpenPopoverId(open ? track.id : null);
                       }}
@@ -1404,6 +1479,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </PopoverContent>
                     </Popover>
                   </div>
+                  )}
                   {/* Duration/Reading Time Badge */}
                   {(track.duration_minutes || (track.type === 'article' && track.transcript) || (track.type === 'checkpoint' && track.transcript)) && (
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
@@ -1423,11 +1499,6 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       {track.version_number && track.version_number > 1 && (
                         <Badge variant="outline" className="text-xs">
                           V{track.version_number}
-                        </Badge>
-                      )}
-                      {track.is_system_content && (
-                        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
-                          <Lock className="h-3 w-3" />
                         </Badge>
                       )}
                     </div>
@@ -1544,13 +1615,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   {/* Thumbnail */}
                   <div className="w-48 h-28 flex-shrink-0 bg-muted rounded overflow-hidden">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt={track.title}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        if (target.src !== defaultThumbnail) {
-                          target.src = defaultThumbnail;
+                        if (target.src !== DEFAULT_THUMBNAIL_URL) {
+                          target.src = DEFAULT_THUMBNAIL_URL;
                         }
                       }}
                     />
@@ -1566,17 +1637,141 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             V{track.version_number}
                           </Badge>
                         )}
-                        {track.is_system_content && (
-                          <Badge className="bg-amber-100 text-amber-800 border-amber-200 flex-shrink-0">
-                            <Lock className="h-3 w-3 mr-1" />
-                            Trike Library
-                          </Badge>
-                        )}
                       </div>
                       <Badge className={getTypeBadgeColor(track.type)}>
                         {getTypeIcon(track.type)}
                         <span className="ml-1 capitalize">{track.type}</span>
                       </Badge>
+                      {/* Actions Menu for List View - hidden in preview mode */}
+                      {!isPreviewMode && (
+                      <Popover
+                        open={openPopoverId === `list-${track.id}`}
+                        onOpenChange={(open) => {
+                          setOpenPopoverId(open ? `list-${track.id}` : null);
+                        }}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => e.stopPropagation()}
+                            title="More actions"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-48 p-1" align="end">
+                          <div className="flex flex-col">
+                            <Button
+                              variant="ghost"
+                              className="justify-start h-9"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenPopoverId(null);
+                                handleEditTrack(track);
+                              }}
+                            >
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="justify-start h-9"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenPopoverId(null);
+                                handleDuplicateTrack(track);
+                              }}
+                            >
+                              <Copy className="h-4 w-4 mr-2" />
+                              Duplicate
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="justify-start h-9"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenPopoverId(null);
+                                setCreateVariantModal({ open: true, track });
+                              }}
+                            >
+                              <GitBranch className="h-4 w-4 mr-2" />
+                              Create Variant
+                            </Button>
+                            <Separator className="my-1" />
+                            {statusFilter === 'archived' ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  className="justify-start h-9"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenPopoverId(null);
+                                    handleMoveToDrafts(track);
+                                  }}
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Move to Drafts
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  className="justify-start h-9"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenPopoverId(null);
+                                    handleMoveToPublished(track);
+                                  }}
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  Move to Published
+                                </Button>
+                                <Separator className="my-1" />
+                                <Button
+                                  variant="ghost"
+                                  className="justify-start h-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenPopoverId(null);
+                                    handleDeletePermanently(track);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete Permanently
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  className="justify-start h-9"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenPopoverId(null);
+                                    handleMoveToDrafts(track);
+                                  }}
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Move to Drafts
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  className="justify-start h-9"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenPopoverId(null);
+                                    handleArchiveTrack(track);
+                                  }}
+                                >
+                                  <Archive className="h-4 w-4 mr-2" />
+                                  Archive
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      )}
                     </div>
                     {track.description && (
                       <p className="text-sm text-muted-foreground line-clamp-2">
@@ -1831,12 +2026,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
       {/* Sidebar wrapper for sticky positioning */}
       <div className="hidden lg:block w-64 flex-shrink-0 relative">
-        <div className="sticky top-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
+        <div className="sticky top-0">
           <ContentLibrarySidebar
             onPlaylistClick={handlePlaylistClick}
             onAlbumClick={handleAlbumClick}
             onEditPlaylist={onNavigateToPlaylist ? handleEditPlaylist : undefined}
             onEditAlbum={onNavigateToAlbum ? handleEditAlbum : undefined}
+            onPlaylistsHeaderClick={onNavigateToPlaylistsTab}
+            onAlbumsHeaderClick={onNavigateToAlbumsTab}
             activePlaylistFilter={filterByPlaylistId}
             activeAlbumFilter={filterByAlbumId}
           />

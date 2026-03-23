@@ -7,6 +7,7 @@ import { Zap, Check, X, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import * as crud from '../lib/crud';
+import * as tagsCrud from '../lib/crud/tags';
 
 interface AISuggestion {
   id: string;
@@ -65,29 +66,20 @@ export function AIReview({ onBack }: AIReviewProps) {
   const handleAccept = async (suggestion: AISuggestion) => {
     try {
       setProcessingId(suggestion.id);
-      
-      // 1. Get track current tags
-      const { data: track } = await supabase
-        .from('tracks')
-        .select('tags')
-        .eq('id', suggestion.track_id)
-        .single();
-        
-      const currentTags = track?.tags || [];
+
+      // 1. Get track current tags from junction table (source of truth)
+      const currentTags = await tagsCrud.getTrackTagNames(suggestion.track_id);
+
       if (!currentTags.includes(suggestion.suggested_tag_name)) {
-        // 2. Update track tags
-        const { error: updateError } = await supabase
-          .from('tracks')
-          .update({ tags: [...currentTags, suggestion.suggested_tag_name] })
-          .eq('id', suggestion.track_id);
-          
-        if (updateError) throw updateError;
+        // 2. Add the new tag using assignTrackTagsByName (writes to junction + syncs legacy column)
+        const newTags = [...currentTags, suggestion.suggested_tag_name];
+        await tagsCrud.assignTrackTagsByName(suggestion.track_id, newTags, true);
       }
 
       // 3. Mark suggestion as accepted
       const { error: suggestionError } = await supabase
         .from('ai_tag_suggestions')
-        .update({ 
+        .update({
           status: 'accepted',
           reviewed_at: new Date().toISOString()
         })

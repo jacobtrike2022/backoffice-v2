@@ -482,6 +482,63 @@ export function PublicKBViewer() {
     }
   }, [track?.id]);
 
+  // Simple Markdown to HTML converter for content that isn't already HTML
+  function convertMarkdownToHtml(markdown: string): string {
+    let html = markdown;
+
+    // Check if content already has HTML tags
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(markdown);
+    if (!hasHtmlTags) {
+      // Convert Markdown to HTML only if there are no existing HTML tags
+
+      // Code blocks (```) - with inline styles for word wrapping
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>');
+
+      // Inline code (`) - with inline styles for word wrapping
+      html = html.replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>');
+
+      // Headers (# ## ### etc.)
+      html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>');
+      html = html.replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>');
+      html = html.replace(/^####\s+(.*)$/gm, '<h4>$1</h4>');
+      html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+
+      // Bold (**text** or __text__)
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+      // Italic (*text* or _text_)
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      // Blockquotes (> text)
+      html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+
+      // Unordered lists (- item or * item)
+      html = html.replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+      // Ordered lists (1. item)
+      html = html.replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>');
+
+      // Links [text](url)
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+      // Line breaks (double newline = paragraph)
+      html = html.replace(/\n\n+/g, '</p><p>');
+      html = html.replace(/\n/g, '<br/>');
+
+      // Wrap in paragraph if not already wrapped
+      if (!html.startsWith('<')) {
+        html = '<p>' + html + '</p>';
+      }
+    }
+
+    return html;
+  }
+
   function getTagColor(tag: Tag) {
     const colorMap: Record<string, string> = {
       red: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
@@ -805,8 +862,8 @@ export function PublicKBViewer() {
             <div className="px-6 sm:px-8 pt-4">
               <TTSPlayer
                 trackId={track.id}
-                initialAudioUrl={undefined}
-                initialVoice={undefined}
+                initialAudioUrl={(track as any).tts_audio_url || undefined}
+                initialVoice={(track as any).tts_voice || 'alloy'}
                 showVoiceSelector={false}
               />
             </div>
@@ -829,10 +886,11 @@ export function PublicKBViewer() {
 
           {/* Article Body (article type only) */}
           {track.type === 'article' && (track.article_body || track.transcript) && (
-            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
+            <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800 overflow-hidden">
               <div
-                className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-p:leading-relaxed prose-a:text-[#FF6B35] prose-img:rounded-lg"
-                dangerouslySetInnerHTML={{ __html: track.article_body || track.transcript || '' }}
+                className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-relaxed prose-ul:list-disc prose-ul:pl-6 prose-ul:my-3 prose-ol:list-decimal prose-ol:pl-6 prose-ol:my-3 prose-li:text-base prose-li:my-0.5 prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-pre:bg-gray-100 dark:prose-pre:bg-gray-800 prose-pre:p-4 prose-pre:rounded-lg prose-blockquote:border-l-4 prose-blockquote:border-[#FF6B35] prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-[#FF6B35] prose-img:rounded-lg [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_li]:my-0.5 [&_li>p]:my-0.5"
+                style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                dangerouslySetInnerHTML={{ __html: convertMarkdownToHtml(track.article_body || track.transcript || '') }}
               />
             </div>
           )}

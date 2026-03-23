@@ -20,7 +20,7 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
 import { NewUnit } from './NewUnit';
-import { useStores, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useStores, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -70,15 +70,14 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [selectedPerformance, setSelectedPerformance] = useState<string[]>([]);
 
-  // Fetch current user to get their organization/district/store
+  // Fetch current user and effective org (respects Super Admin preview-as-org)
   const { user, loading: userLoading } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   
-  console.log('🏪 Units - User data:', { user, userLoading });
-  
-  // Fetch stores from Supabase
+  // Fetch stores for the effective org (so previewing Jiffy Trip shows Jiffy Trip's stores, not trike.co's)
   const { stores: rawStores, loading: storesLoading, error: storesError } = useStores(
-    user?.organization_id ? {
-      organization_id: user.organization_id,
+    effectiveOrgId ? {
+      organization_id: effectiveOrgId,
       is_active: true
     } : undefined
   );
@@ -451,6 +450,19 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
+          {/* Table Header */}
+          <div
+            className="grid gap-4 px-4 py-3 border-b bg-muted/30 text-xs font-medium text-muted-foreground"
+            style={{ gridTemplateColumns: 'auto 1fr 150px 120px 140px 100px 32px' }}
+          >
+            <div className="w-12"></div>
+            <div>Unit</div>
+            <div>District</div>
+            <div>Employees</div>
+            <div>Avg. Progress</div>
+            <div className="text-center">Compliance</div>
+            <div></div>
+          </div>
           <div className="divide-y divide-border">
             {filteredStores.length === 0 ? (
               <div className="p-12 text-center">
@@ -461,65 +473,58 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
               filteredStores.map((store) => (
                 <div
                   key={store.id}
-                  className="p-4 hover:bg-accent/50 cursor-pointer transition-colors"
+                  className="grid gap-4 px-4 py-4 hover:bg-accent/50 cursor-pointer transition-colors items-center"
+                  style={{ gridTemplateColumns: 'auto 1fr 150px 120px 140px 100px 32px' }}
                   onClick={() => setSelectedStore(store)}
                 >
-                  <div className="flex items-center space-x-4">
-                    <div className="h-12 w-12 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                      <Building className="h-6 w-6 text-primary" />
+                  <div className="h-12 w-12 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Building className="h-6 w-6 text-primary" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-2 mb-0.5">
+                      <h3 className="font-semibold text-foreground text-sm truncate">{store.name}</h3>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">{store.storeNumber}</span>
+                      <Badge variant="outline" className={`${getPerformanceColor(store.performance)} text-xs py-0 h-5 flex-shrink-0`}>
+                        {store.performance.replace('-', ' ')}
+                      </Badge>
                     </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-0.5">
-                        <h3 className="font-semibold text-foreground text-sm">{store.name}</h3>
-                        <span className="text-xs text-muted-foreground">{store.storeNumber}</span>
-                        <Badge variant="outline" className={`${getPerformanceColor(store.performance)} text-xs py-0 h-5`}>
-                          {store.performance.replace('-', ' ')}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center space-x-3 text-xs text-muted-foreground">
-                        <span>Manager: {store.manager}</span>
-                        <span>•</span>
-                        <span>{store.employees} employees</span>
-                        {currentRole === 'admin' && (
-                          <>
-                            <span>•</span>
-                            <span>{store.district} District</span>
-                          </>
-                        )}
-                        <span>•</span>
-                        <span className="flex items-center">
-                          <MapPin className="h-3 w-3 mr-1" />
-                          {store.city}, {store.state}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-6">
-                      <div className="text-right">
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Avg. Training Progress</p>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-24">
-                            <Progress 
-                              value={store.avgProgress} 
-                              className="h-1.5"
-                              indicatorClassName={getProgressColor(store.avgProgress)}
-                            />
-                          </div>
-                          <span className="text-xs font-semibold text-foreground w-10 text-right">
-                            {store.avgProgress}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-center border-l border-border pl-4">
-                        <p className="text-xl font-bold text-foreground">{store.compliance}%</p>
-                        <p className="text-xs text-muted-foreground">compliance</p>
-                      </div>
-
-                      <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90" />
+                    <div className="flex items-center space-x-3 text-xs text-muted-foreground">
+                      <span className="truncate">Manager: {store.manager}</span>
+                      <span>•</span>
+                      <span className="flex items-center flex-shrink-0">
+                        <MapPin className="h-3 w-3 mr-1" />
+                        {store.city}, {store.state}
+                      </span>
                     </div>
                   </div>
+
+                  <div className="text-sm text-foreground truncate">
+                    {store.district}
+                  </div>
+
+                  <div className="text-sm text-foreground">
+                    {store.employees}
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <div className="w-16">
+                      <Progress
+                        value={store.avgProgress}
+                        className="h-1.5"
+                        indicatorClassName={getProgressColor(store.avgProgress)}
+                      />
+                    </div>
+                    <span className="text-xs font-semibold text-foreground w-10 text-right">
+                      {store.avgProgress}%
+                    </span>
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-foreground">{store.compliance}%</p>
+                  </div>
+
+                  <ChevronDown className="h-4 w-4 text-muted-foreground -rotate-90" />
                 </div>
               ))
             )}

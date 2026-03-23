@@ -321,9 +321,10 @@ CREATE POLICY "Trike admins can manage compliance topics"
   ON compliance_topics FOR ALL
   USING (
     EXISTS (
-      SELECT 1 FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name = 'Trike Super Admin'
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name = 'Trike Super Admin'
     )
   );
 
@@ -331,9 +332,10 @@ CREATE POLICY "Trike admins can manage compliance authorities"
   ON compliance_authorities FOR ALL
   USING (
     EXISTS (
-      SELECT 1 FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name = 'Trike Super Admin'
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name = 'Trike Super Admin'
     )
   );
 
@@ -341,9 +343,10 @@ CREATE POLICY "Trike admins can manage compliance requirements"
   ON compliance_requirements FOR ALL
   USING (
     EXISTS (
-      SELECT 1 FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name = 'Trike Super Admin'
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name = 'Trike Super Admin'
     )
   );
 
@@ -364,8 +367,9 @@ CREATE POLICY "Admins can manage store compliance in their org"
     store_id IN (
       SELECT s.id FROM stores s
       JOIN users u ON s.organization_id = u.organization_id
+      JOIN roles r ON u.role_id = r.id
       WHERE u.auth_user_id = auth.uid()
-      AND u.role_name IN ('Admin', 'Trike Super Admin')
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 
@@ -384,10 +388,11 @@ CREATE POLICY "Admins can manage role compliance in their org"
   ON role_compliance_requirements FOR ALL
   USING (
     role_id IN (
-      SELECT r.id FROM roles r
-      JOIN users u ON r.organization_id = u.organization_id
+      SELECT rl.id FROM roles rl
+      JOIN users u ON rl.organization_id = u.organization_id
+      JOIN roles r ON u.role_id = r.id
       WHERE u.auth_user_id = auth.uid()
-      AND u.role_name IN ('Admin', 'Trike Super Admin')
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 

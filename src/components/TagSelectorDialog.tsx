@@ -54,7 +54,7 @@ export function TagSelectorDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [tagToEdit, setTagToEdit] = useState<Tag | null>(null);
-  const [prefilledTagData, setPrefilledTagData] = useState<{ name: string; description: string; parentName?: string } | null>(null);
+  const [prefilledTagData, setPrefilledTagData] = useState<{ name: string; description: string; parentId?: string; parentName?: string } | null>(null);
   const [localSelectedTags, setLocalSelectedTags] = useState<string[]>(selectedTags); // Local state for tag selection
   const [rawHierarchy, setRawHierarchy] = useState<Tag[]>([]);
 
@@ -156,12 +156,17 @@ export function TagSelectorDialog({
       }
 
       // 2. No pending suggestions or error, call OpenAI API
+      // Use session token or anon key (demo mode has no auth session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || publicAnonKey;
+
       const response = await fetch(
         `${getServerUrl()}/recommend-tags`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${authToken}`,
+            'apikey': publicAnonKey,
             'Content-Type': 'application/json',
           },
         body: JSON.stringify({
@@ -217,10 +222,24 @@ export function TagSelectorDialog({
 
   const handleCreateNewTag = async (suggestion: any) => {
     setTagToEdit(null);
-    setPrefilledTagData({ 
-      name: suggestion.suggested_name, 
-      description: suggestion.reasoning,
-      parentName: suggestion.suggested_parent 
+    // Use suggested_description for the tag description (not reasoning)
+    // Use suggested_parent_id if available (resolved subcategory ID from backend)
+
+    // Try to find the parent by name if ID is not provided
+    let resolvedParentId = suggestion.suggested_parent_id;
+    if (!resolvedParentId && suggestion.suggested_parent) {
+      const foundParent = findTagByNameInHierarchy(rawHierarchy, suggestion.suggested_parent);
+      resolvedParentId = foundParent?.id;
+      console.log('[handleCreateNewTag] Found parent by name:', suggestion.suggested_parent, '→', foundParent);
+    }
+
+    console.log('[handleCreateNewTag] suggestion:', suggestion, 'resolvedParentId:', resolvedParentId);
+
+    setPrefilledTagData({
+      name: suggestion.suggested_name,
+      description: suggestion.description || suggestion.suggested_description || '',
+      parentId: resolvedParentId || undefined,
+      parentName: suggestion.suggested_parent
     });
     setShowCreateModal(true);
   };
@@ -279,6 +298,24 @@ export function TagSelectorDialog({
     }
   };
 
+  // Recursively search for a tag by name in the hierarchy (case-insensitive)
+  const findTagByNameInHierarchy = (tags: Tag[], name: string, depth = 0): Tag | undefined => {
+    for (const tag of tags) {
+      if (tag.name.toLowerCase() === name.toLowerCase()) {
+        console.log(`[findTagByNameInHierarchy] Found "${name}" at depth ${depth}:`, tag);
+        return tag;
+      }
+      if (tag.children && tag.children.length > 0) {
+        const found = findTagByNameInHierarchy(tag.children, name, depth + 1);
+        if (found) return found;
+      }
+    }
+    if (depth === 0) {
+      console.log(`[findTagByNameInHierarchy] NOT found: "${name}". Available top-level tags:`, tags.map(t => t.name));
+    }
+    return undefined;
+  };
+
   const handleToggleTag = (tag: Tag) => {
     const tagName = tag.name;
     if (localSelectedTags.includes(tagName)) {
@@ -306,10 +343,19 @@ export function TagSelectorDialog({
     }
   };
 
-  const handleCreateSuccess = () => {
+  const handleCreateSuccess = (createdTagName?: string) => {
     loadTags();
+
+    // If a new tag was created (not edited) and we have the name, auto-select it
+    if (!tagToEdit && createdTagName && !localSelectedTags.includes(createdTagName)) {
+      setLocalSelectedTags(prev => [...prev, createdTagName]);
+      toast.success(`New tag "${createdTagName}" created and selected`);
+    } else {
+      toast.success(tagToEdit ? 'Tag updated' : 'New tag created');
+    }
+
     setTagToEdit(null);
-    toast.success(tagToEdit ? 'Tag updated' : 'New tag created');
+    setPrefilledTagData(null);
   };
 
   const handleEditTag = (e: React.MouseEvent, tag: Tag) => {
@@ -625,12 +671,16 @@ export function TagSelectorDialog({
           tagToEdit={tagToEdit}
           initialTagName={prefilledTagData?.name}
           initialDescription={prefilledTagData?.description}
-          // If restricted, we preselect the parent
-          preselectedParentId={prefilledTagData?.parentName 
-            ? rawHierarchy.find(t => t.name.toLowerCase() === prefilledTagData.parentName?.toLowerCase())?.id
-            : restrictToParentName 
-              ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id 
-              : undefined}
+          // parentId is already resolved in handleCreateNewTag, use it directly
+          preselectedParentId={
+            prefilledTagData?.parentId
+              ? prefilledTagData.parentId
+              : restrictToParentName
+                ? displayCategories.find(c => c.tag.name.toLowerCase().trim() === restrictToParentName.toLowerCase().trim())?.tag.id
+                : undefined
+          }
+          // When creating from AI suggestion with a parent, default to child type
+          defaultType={prefilledTagData?.parentId ? 'child' : undefined}
         />
       )}
     </>

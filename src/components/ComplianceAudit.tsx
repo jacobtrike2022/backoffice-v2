@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,7 +26,8 @@ import {
   Building2,
   Mail,
   Phone,
-  Users
+  Users,
+  Loader2
 } from 'lucide-react';
 import {
   Select,
@@ -36,91 +37,69 @@ import {
   SelectValue,
 } from './ui/select';
 import { Progress } from './ui/progress';
+import {
+  getAuditLearners,
+  getAuditTracks,
+  getAuditTrackCompletions,
+  type AuditLearner,
+  type AuditTrack,
+  type TrackCompletionDetail
+} from '../lib/crud/compliance';
 
 interface ComplianceAuditProps {
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
 }
 
-// Mock learner data
-const mockLearners = [
-  {
-    id: '1',
-    name: 'Jason Martinez',
-    email: 'jason.martinez@trike.com',
-    role: 'Customer Service Representative',
-    department: 'Front of House',
-    hireDate: '2024-08-15',
-    location: 'Store #4523 - Downtown',
-    manager: 'Sarah Johnson',
-    employeeId: 'EMP-4523-102'
-  },
-  {
-    id: '2',
-    name: 'Emily Chen',
-    email: 'emily.chen@trike.com',
-    role: 'Store Manager',
-    department: 'Management',
-    hireDate: '2022-03-10',
-    location: 'Store #4523 - Downtown',
-    manager: 'Michael Rodriguez (District Manager)',
-    employeeId: 'EMP-4523-001'
-  }
-];
-
-// Mock tracks related to alcohol sales
-const mockTracks = [
-  {
-    id: 'track-1',
-    title: 'Responsible Alcohol Sales - Legal Requirements',
-    album: 'Alcohol Safety Certification',
-    type: 'Video',
-    duration: '18 min',
-    category: 'Compliance'
-  },
-  {
-    id: 'track-2',
-    title: 'Age Verification & ID Checking Procedures',
-    album: 'Alcohol Safety Certification',
-    type: 'Interactive',
-    duration: '12 min',
-    category: 'Compliance'
-  },
-  {
-    id: 'track-3',
-    title: 'Signs of Intoxication & Refusal Protocols',
-    album: 'Alcohol Safety Certification',
-    type: 'Video + Quiz',
-    duration: '22 min',
-    category: 'Compliance'
-  },
-  {
-    id: 'track-4',
-    title: 'Point of Sale System Basics',
-    album: 'POS Training',
-    type: 'Interactive',
-    duration: '15 min',
-    category: 'Operations'
-  },
-  {
-    id: 'track-5',
-    title: 'Customer Service Excellence',
-    album: 'Customer Service Fundamentals',
-    type: 'Article',
-    duration: '8 min',
-    category: 'Customer Service'
-  }
-];
-
 export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps) {
-  const [selectedLearner, setSelectedLearner] = useState<typeof mockLearners[0] | null>(null);
+  const [learners, setLearners] = useState<AuditLearner[]>([]);
+  const [tracks, setTracks] = useState<AuditTrack[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [selectedLearner, setSelectedLearner] = useState<AuditLearner | null>(null);
   const [selectedTracks, setSelectedTracks] = useState<string[]>([]);
   const [showReport, setShowReport] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [trackSearchQuery, setTrackSearchQuery] = useState('');
 
-  const filteredLearners = mockLearners.filter(learner =>
+  // Report data
+  const [trackCompletions, setTrackCompletions] = useState<TrackCompletionDetail[]>([]);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  // Fetch learners and tracks on mount
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [learnersData, tracksData] = await Promise.all([
+          getAuditLearners(),
+          getAuditTracks()
+        ]);
+        setLearners(learnersData);
+        setTracks(tracksData);
+      } catch (err: any) {
+        console.error('Error fetching audit data:', err);
+        setError(err.message || 'Failed to load data');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  // Filter learners based on search
+  const filteredLearners = learners.filter(learner =>
     learner.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     learner.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
     learner.employeeId.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Filter tracks based on search
+  const filteredTracks = tracks.filter(track =>
+    track.title.toLowerCase().includes(trackSearchQuery.toLowerCase()) ||
+    track.album.toLowerCase().includes(trackSearchQuery.toLowerCase()) ||
+    track.category.toLowerCase().includes(trackSearchQuery.toLowerCase())
   );
 
   const toggleTrack = (trackId: string) => {
@@ -131,9 +110,19 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
     }
   };
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
     if (selectedLearner && selectedTracks.length > 0) {
-      setShowReport(true);
+      setLoadingReport(true);
+      try {
+        const completions = await getAuditTrackCompletions(selectedLearner.id, selectedTracks);
+        setTrackCompletions(completions);
+        setShowReport(true);
+      } catch (err: any) {
+        console.error('Error generating report:', err);
+        setError(err.message || 'Failed to generate report');
+      } finally {
+        setLoadingReport(false);
+      }
     }
   };
 
@@ -142,7 +131,32 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
     setSelectedTracks([]);
     setShowReport(false);
     setSearchQuery('');
+    setTrackSearchQuery('');
+    setTrackCompletions([]);
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+            <AlertCircle className="h-5 w-5" />
+            <span>{error}</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Report view
   if (showReport && selectedLearner) {
@@ -263,619 +277,224 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
-                <p className="text-2xl font-bold text-green-700 dark:text-green-400">3 / 3</p>
-                <Progress value={100} className="h-2 mt-2" />
-              </div>
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                <p className="text-sm text-muted-foreground mb-1">Total Learning Time</p>
-                <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">52 min</p>
-                <p className="text-xs text-muted-foreground mt-1">Across selected content</p>
-              </div>
-              <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-900/30">
-                <p className="text-sm text-muted-foreground mb-1">Average Score</p>
-                <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">94%</p>
-                <p className="text-xs text-muted-foreground mt-1">On assessments</p>
-              </div>
-            </div>
+            {(() => {
+              const completedCount = trackCompletions.filter(tc => tc.status === 'completed' || tc.status === 'passed').length;
+              const totalTracks = trackCompletions.length;
+              const completionRate = totalTracks > 0 ? Math.round((completedCount / totalTracks) * 100) : 0;
+              const totalTime = trackCompletions.reduce((sum, tc) => sum + (tc.timeSpentMinutes || 0), 0);
+              const scores = trackCompletions.filter(tc => tc.score !== null).map(tc => tc.score as number);
+              const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+
+              return (
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
+                    <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
+                    <p className="text-2xl font-bold text-green-700 dark:text-green-400">{completedCount} / {totalTracks}</p>
+                    <Progress value={completionRate} className="h-2 mt-2" />
+                  </div>
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
+                    <p className="text-sm text-muted-foreground mb-1">Total Learning Time</p>
+                    <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{totalTime} min</p>
+                    <p className="text-xs text-muted-foreground mt-1">Across selected content</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-900/30">
+                    <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+                    <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">{avgScore > 0 ? `${avgScore}%` : 'N/A'}</p>
+                    <p className="text-xs text-muted-foreground mt-1">On assessments</p>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
         {/* Detailed Track Reports */}
         <div className="space-y-6">
-          {/* Track 1: Legal Requirements */}
-          <Card className="border-2">
-            <CardHeader className="bg-accent/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center">
-                    <Play className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Track 1: Responsible Alcohol Sales - Legal Requirements</CardTitle>
-                    <p className="text-sm text-muted-foreground">Album: Alcohol Safety Certification • Video • 18 min</p>
-                  </div>
-                </div>
-                <Badge className="bg-green-100 text-green-700 border-green-200">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Completed
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              {/* Activity Timeline */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Clock className="h-4 w-4 mr-2 text-primary" />
-                  {selectedLearner.name} Activity Timeline
-                </h3>
-                <p className="text-xs text-muted-foreground text-center mb-2 uppercase tracking-wide">Session Started: Sep 12, 2024 at 2:26 PM</p>
-                <div className="space-y-2 ml-6 border-l-2 border-border pl-4">
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-green-500" />
-                      <p className="text-sm font-medium">Track Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 2:47 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Jason completed all content and passed checkpoint assessment</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Checkpoint Assessment Submitted</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 2:45 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Score: 95% (19/20 questions correct) • Passing threshold: 80%</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Video Watched</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 2:27 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Watched 18:32 of 18:32 (100%) • Replay count: 0</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-gray-400" />
-                      <p className="text-sm font-medium">Track Opened</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 2:26 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Initial access from Desktop (Chrome)</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground text-center mt-2 uppercase tracking-wide">Session Ended: Sep 12, 2024 at 2:47 PM</p>
-              </div>
+          {trackCompletions.map((track, index) => {
+            const isCompleted = track.status === 'completed' || track.status === 'passed';
+            const statusBadge = track.status === 'not_started' ? (
+              <Badge variant="outline" className="text-muted-foreground">
+                <Clock className="h-3 w-3 mr-1" />
+                Not Started
+              </Badge>
+            ) : track.status === 'failed' ? (
+              <Badge className="bg-red-100 text-red-700 border-red-200">
+                <AlertCircle className="h-3 w-3 mr-1" />
+                Failed
+              </Badge>
+            ) : (
+              <Badge className="bg-green-100 text-green-700 border-green-200">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                {track.status === 'passed' ? 'Passed' : 'Completed'}
+              </Badge>
+            );
 
-              <Separator />
-
-              {/* Learning Objectives */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Key Facts
-                </h3>
-                <div className="bg-accent/30 p-4 rounded-lg space-y-2">
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Understand federal, state, and local laws governing alcohol sales</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Identify legal age requirements and acceptable forms of identification</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Recognize legal penalties for non-compliance with alcohol sales regulations</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Apply company policies for responsible alcohol sales</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Video Transcript */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Video Content Transcript
-                </h3>
-                <div className="bg-muted/50 p-4 rounded-lg max-h-60 overflow-y-auto text-sm space-y-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">[00:00 - 00:42]</p>
-                    <p className="text-sm">Welcome to Responsible Alcohol Sales Training. This course covers the critical legal requirements you must understand as a team member authorized to sell alcohol products. Compliance with these regulations protects you, our company, and our customers.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">[00:43 - 01:28]</p>
-                    <p className="text-sm">Federal law prohibits the sale of alcohol to anyone under 21 years of age. The National Minimum Drinking Age Act of 1984 established this standard nationwide. Individual states may have additional restrictions, and some localities impose further requirements.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">[01:29 - 02:15]</p>
-                    <p className="text-sm">In our operating regions, you must check valid government-issued photo identification for any customer who appears to be under 40 years of age. Acceptable forms include driver's licenses, state ID cards, military IDs, and passports.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">[02:16 - 03:45]</p>
-                    <p className="text-sm">Legal penalties for selling alcohol to minors are severe. You personally can face criminal charges, fines up to $10,000, and potential jail time. Our company can lose its liquor license, face civil liability, and incur substantial financial penalties. These consequences underscore why compliance is non-negotiable.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">[03:46 - End]</p>
-                    <p className="text-sm">Our company policy is strict: when in doubt, check ID. If you have any concern about a customer's age or the validity of their identification, politely decline the sale and immediately notify your manager. Remember, it's always better to refuse a sale than to risk legal consequences.</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Checkpoint Results */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Award className="h-4 w-4 mr-2 text-primary" />
-                  Checkpoint Assessment Results
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                    <div>
-                      <p className="font-medium text-green-900 dark:text-green-100">Assessment Score: 95%</p>
-                      <p className="text-sm text-muted-foreground">19 out of 20 questions correct</p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Passed</Badge>
-                  </div>
-                  
-                  <div className="bg-accent/30 p-4 rounded-lg space-y-3 text-sm">
-                    <div>
-                      <p className="font-medium mb-1">Question 1: What is the minimum legal drinking age in the United States?</p>
-                      <p className="text-muted-foreground mb-1">Answer: 21 years old ✓ Correct</p>
-                    </div>
-                    <Separator />
-                    <div>
-                      <p className="font-medium mb-1">Question 5: Which forms of ID are acceptable for age verification?</p>
-                      <p className="text-muted-foreground mb-1">Answer: Valid driver's license, state ID, military ID, or passport ✓ Correct</p>
-                    </div>
-                    <Separator />
-                    <div>
-                      <p className="font-medium mb-1">Question 12: What is the maximum fine for selling alcohol to a minor?</p>
-                      <p className="text-muted-foreground mb-1">Answer: Up to $10,000 ✓ Correct</p>
-                    </div>
-                    <Separator />
-                    <div>
-                      <p className="font-medium mb-1">Question 18: When should you check ID according to company policy?</p>
-                      <p className="text-muted-foreground mb-1">Answer: For any customer appearing under 40 years of age ✓ Correct</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Electronic Acknowledgement */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileSignature className="h-4 w-4 mr-2 text-primary" />
-                  Electronic Acknowledgement
-                </h3>
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                  <div className="flex items-start space-x-3 mb-3">
-                    <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Learner Acknowledgement Signed</p>
-                      <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                        "I acknowledge that I have completed the Responsible Alcohol Sales - Legal Requirements training. I understand the federal, state, and local laws governing alcohol sales, and I agree to comply with all policies and procedures related to age verification and responsible alcohol sales. I understand the legal consequences of non-compliance."
-                      </p>
-                      <div className="flex items-center justify-between text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Digital Signature:</p>
-                          <p className="font-semibold">Jason Martinez</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">Date & Time:</p>
-                          <p className="font-semibold">Sep 12, 2024 at 2:47 PM PST</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">IP Address:</p>
-                          <p className="font-semibold">192.168.1.45</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Track 2: Age Verification */}
-          <Card className="border-2">
-            <CardHeader className="bg-accent/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center">
-                    <Play className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Track 2: Age Verification & ID Checking Procedures</CardTitle>
-                    <p className="text-sm text-muted-foreground">Album: Alcohol Safety Certification • Interactive • 12 min</p>
-                  </div>
-                </div>
-                <Badge className="bg-green-100 text-green-700 border-green-200">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Completed
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              {/* Activity Timeline */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Clock className="h-4 w-4 mr-2 text-primary" />
-                  {selectedLearner.name} Activity Timeline
-                </h3>
-                <p className="text-xs text-muted-foreground text-center mb-2 uppercase tracking-wide">Session Started: Sep 12, 2024 at 3:02 PM</p>
-                <div className="space-y-2 ml-6 border-l-2 border-border pl-4">
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-green-500" />
-                      <p className="text-sm font-medium">Track Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:15 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Jason completed all interactive scenarios</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Interactive Scenario 3 Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:12 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Scenario: Expired ID • Correct response: Decline sale</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Interactive Scenario 2 Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:08 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Scenario: Suspicious ID features • Correct response: Request manager verification</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Interactive Scenario 1 Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:04 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Scenario: Valid driver's license • Correct response: Accept and complete sale</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-gray-400" />
-                      <p className="text-sm font-medium">Track Opened</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:02 PM</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground text-center mt-2 uppercase tracking-wide">Session Ended: Sep 12, 2024 at 3:15 PM</p>
-              </div>
-
-              <Separator />
-
-              {/* Learning Objectives */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Key Facts
-                </h3>
-                <div className="bg-accent/30 p-4 rounded-lg space-y-2">
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Properly identify valid government-issued photo identification</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Recognize common security features on driver's licenses and state IDs</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Identify signs of fake or altered identification</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Apply proper procedures when ID validity is questionable</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Interactive Scenario Results */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Award className="h-4 w-4 mr-2 text-primary" />
-                  Interactive Scenario Performance
-                </h3>
-                <div className="space-y-3">
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-green-900 dark:text-green-100">Scenario 1: Valid Driver's License</p>
-                      <Badge className="bg-green-100 text-green-700 border-green-200">Correct</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">Customer presents valid driver's license, DOB shows age 24</p>
-                    <p className="text-sm font-medium mt-2">Response: Accept ID and complete sale ✓</p>
-                  </div>
-
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-green-900 dark:text-green-100">Scenario 2: Suspicious ID Features</p>
-                      <Badge className="bg-green-100 text-green-700 border-green-200">Correct</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">Customer presents ID with peeling lamination and mismatched photo quality</p>
-                    <p className="text-sm font-medium mt-2">Response: Politely request manager verification ✓</p>
-                  </div>
-
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-green-900 dark:text-green-100">Scenario 3: Expired Identification</p>
-                      <Badge className="bg-green-100 text-green-700 border-green-200">Correct</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">Customer presents driver's license expired 6 months ago</p>
-                    <p className="text-sm font-medium mt-2">Response: Politely decline the sale, explain policy ✓</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Electronic Acknowledgement */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileSignature className="h-4 w-4 mr-2 text-primary" />
-                  Electronic Acknowledgement
-                </h3>
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                  <div className="flex items-start space-x-3">
-                    <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Learner Acknowledgement Signed</p>
-                      <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                        "I acknowledge that I have completed the Age Verification & ID Checking Procedures training. I can identify valid government-issued IDs, recognize security features and signs of alteration, and know when to decline a sale or request manager assistance."
-                      </p>
-                      <div className="flex items-center justify-between text-xs">
-                        <div>
-                          <p className="text-muted-foreground">Digital Signature:</p>
-                          <p className="font-semibold">Jason Martinez</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">Date & Time:</p>
-                          <p className="font-semibold">Sep 12, 2024 at 3:15 PM PST</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">IP Address:</p>
-                          <p className="font-semibold">192.168.1.45</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Track 3: Signs of Intoxication */}
-          <Card className="border-2">
-            <CardHeader className="bg-accent/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center">
-                    <Play className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Track 3: Signs of Intoxication & Refusal Protocols</CardTitle>
-                    <p className="text-sm text-muted-foreground">Album: Alcohol Safety Certification • Video + Quiz • 22 min</p>
-                  </div>
-                </div>
-                <Badge className="bg-green-100 text-green-700 border-green-200">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Completed
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              {/* Activity Timeline */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Clock className="h-4 w-4 mr-2 text-primary" />
-                  {selectedLearner.name} Activity Timeline
-                </h3>
-                <p className="text-xs text-muted-foreground text-center mb-2 uppercase tracking-wide">Session Started: Sep 12, 2024 at 3:24 PM</p>
-                <div className="space-y-2 ml-6 border-l-2 border-border pl-4">
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-green-500" />
-                      <p className="text-sm font-medium">Track Completed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:48 PM</span>
-                    </div>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Checkpoint Quiz Passed</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:47 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Score: 92% (23/25 questions) • Passing: 80%</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      <p className="text-sm font-medium">Video Watched</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:25 PM</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Watched 22:14 of 22:14 (100%)</p>
-                  </div>
-                  <div className="pb-3">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="h-2 w-2 rounded-full bg-gray-400" />
-                      <p className="text-sm font-medium">Track Opened</p>
-                      <span className="text-xs text-muted-foreground">Sep 12, 2024 at 3:24 PM</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground text-center mt-2 uppercase tracking-wide">Session Ended: Sep 12, 2024 at 3:48 PM</p>
-              </div>
-
-              <Separator />
-
-              {/* Learning Objectives */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileText className="h-4 w-4 mr-2 text-primary" />
-                  Content Key Facts
-                </h3>
-                <div className="bg-accent/30 p-4 rounded-lg space-y-2">
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Identify physical and behavioral signs of intoxication</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Apply proper protocols for refusing alcohol sales to intoxicated individuals</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Communicate refusals professionally while de-escalating potential conflicts</p>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm">Document incidents according to company policy</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Quiz Results */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Award className="h-4 w-4 mr-2 text-primary" />
-                  Assessment Results
-                </h3>
-                <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30 mb-4">
+            return (
+              <Card key={track.trackId} className="border-2">
+                <CardHeader className="bg-accent/30">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-green-900 dark:text-green-100">Final Score: 92%</p>
-                      <p className="text-sm text-muted-foreground">23 out of 25 questions correct</p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Passed</Badge>
-                  </div>
-                </div>
-
-                <div className="bg-accent/30 p-4 rounded-lg space-y-3 text-sm">
-                  <p className="font-medium mb-2">Sample Questions & Responses:</p>
-                  <div>
-                    <p className="font-medium mb-1">Q: Which of the following are signs of intoxication?</p>
-                    <p className="text-muted-foreground">Answer: Slurred speech, bloodshot eyes, impaired coordination, loud or aggressive behavior ✓ Correct</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="font-medium mb-1">Q: What should you do if a customer becomes hostile when you refuse service?</p>
-                    <p className="text-muted-foreground">Answer: Remain calm, avoid arguing, immediately notify manager for assistance ✓ Correct</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <p className="font-medium mb-1">Q: Are you legally required to serve alcohol to every customer who requests it?</p>
-                    <p className="text-muted-foreground">Answer: No, I have the right and responsibility to refuse service to intoxicated individuals ✓ Correct</p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Manager Sign-off / OJT Verification */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <Users className="h-4 w-4 mr-2 text-primary" />
-                  Manager OJT Verification
-                </h3>
-                <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-900/30">
-                  <div className="flex items-start space-x-3 mb-4">
-                    <CheckCircle2 className="h-5 w-5 text-purple-600 dark:text-purple-400 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-purple-900 dark:text-purple-100 mb-2">On-the-Job Training Verification Completed</p>
-                      <p className="text-sm text-purple-800 dark:text-purple-200 mb-3">
-                        Manager observed and verified Jason's ability to recognize signs of intoxication and properly refuse alcohol sales in a real store environment.
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white dark:bg-gray-800 p-3 rounded border">
-                    <p className="text-sm font-medium mb-2">Verified Skills:</p>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>Correctly identified intoxication signs in role-play scenario</span>
+                    <div className="flex items-center space-x-3">
+                      <div className="h-10 w-10 rounded-lg bg-brand-gradient flex items-center justify-center">
+                        <Play className="h-5 w-5 text-white" />
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>Demonstrated professional refusal communication</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>Properly documented incident on refusal log</span>
+                      <div>
+                        <CardTitle className="text-lg">Track {index + 1}: {track.trackTitle}</CardTitle>
+                        <p className="text-sm text-muted-foreground">Album: {track.album} • {track.trackType}</p>
                       </div>
                     </div>
+                    {statusBadge}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                  {/* Completion Details */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-3 bg-accent/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Status</p>
+                      <p className="font-semibold capitalize">{track.status.replace('_', ' ')}</p>
+                    </div>
+                    <div className="p-3 bg-accent/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Time Spent</p>
+                      <p className="font-semibold">{track.timeSpentMinutes > 0 ? `${track.timeSpentMinutes} min` : 'N/A'}</p>
+                    </div>
+                    <div className="p-3 bg-accent/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Score</p>
+                      <p className="font-semibold">{track.score !== null ? `${track.score}%` : 'N/A'}</p>
+                    </div>
+                    <div className="p-3 bg-accent/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Attempts</p>
+                      <p className="font-semibold">{track.attempts || 0}</p>
+                    </div>
                   </div>
 
-                  <Separator className="my-3" />
+                  {isCompleted && track.completedAt && (
+                    <>
+                      <Separator />
 
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <p className="text-muted-foreground">Verified By:</p>
-                      <p className="font-semibold">Sarah Johnson, Store Manager</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-muted-foreground">Date & Time:</p>
-                      <p className="font-semibold">Sep 13, 2024 at 10:15 AM PST</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                      {/* Activity Timeline */}
+                      <div>
+                        <h3 className="font-semibold mb-3 flex items-center">
+                          <Clock className="h-4 w-4 mr-2 text-primary" />
+                          {selectedLearner.name} Activity Timeline
+                        </h3>
+                        <div className="space-y-2 ml-6 border-l-2 border-border pl-4">
+                          <div className="pb-3">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <div className="h-2 w-2 rounded-full bg-green-500" />
+                              <p className="text-sm font-medium">Track Completed</p>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(track.completedAt).toLocaleDateString('en-US', {
+                                  month: 'short', day: 'numeric', year: 'numeric'
+                                })} at {new Date(track.completedAt).toLocaleTimeString('en-US', {
+                                  hour: '2-digit', minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {selectedLearner.name} completed all content
+                              {track.score !== null && ` with a score of ${track.score}%`}
+                            </p>
+                          </div>
+                          {track.score !== null && (
+                            <div className="pb-3">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                <p className="text-sm font-medium">Assessment Submitted</p>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Score: {track.score}% • {track.passed ? 'Passed' : 'Did not pass'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-              <Separator />
+                      <Separator />
 
-              {/* Electronic Acknowledgement */}
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center">
-                  <FileSignature className="h-4 w-4 mr-2 text-primary" />
-                  Electronic Acknowledgement
-                </h3>
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                  <div className="flex items-start space-x-3">
-                    <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Learner Acknowledgement Signed</p>
-                      <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                        "I acknowledge that I have completed the Signs of Intoxication & Refusal Protocols training. I understand how to identify intoxicated customers, refuse sales professionally, and document incidents. I commit to upholding these standards in my daily work."
-                      </p>
-                      <div className="flex items-center justify-between text-xs">
+                      {/* Assessment Results (if score exists) */}
+                      {track.score !== null && (
                         <div>
-                          <p className="text-muted-foreground">Digital Signature:</p>
-                          <p className="font-semibold">Jason Martinez</p>
+                          <h3 className="font-semibold mb-3 flex items-center">
+                            <Award className="h-4 w-4 mr-2 text-primary" />
+                            Assessment Results
+                          </h3>
+                          <div className={`flex items-center justify-between p-3 rounded-lg border ${
+                            track.passed
+                              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/30'
+                              : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900/30'
+                          }`}>
+                            <div>
+                              <p className={`font-medium ${track.passed ? 'text-green-900 dark:text-green-100' : 'text-red-900 dark:text-red-100'}`}>
+                                Assessment Score: {track.score}%
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                {track.attempts} attempt{track.attempts !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <Badge className={track.passed
+                              ? 'bg-green-100 text-green-700 border-green-200'
+                              : 'bg-red-100 text-red-700 border-red-200'
+                            }>
+                              {track.passed ? 'Passed' : 'Did Not Pass'}
+                            </Badge>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">Date & Time:</p>
-                          <p className="font-semibold">Sep 12, 2024 at 3:48 PM PST</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground">IP Address:</p>
-                          <p className="font-semibold">192.168.1.45</p>
+                      )}
+
+                      <Separator />
+
+                      {/* Electronic Acknowledgement */}
+                      <div>
+                        <h3 className="font-semibold mb-3 flex items-center">
+                          <FileSignature className="h-4 w-4 mr-2 text-primary" />
+                          Electronic Acknowledgement
+                        </h3>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-900/30">
+                          <div className="flex items-start space-x-3">
+                            <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Learner Acknowledgement Signed</p>
+                              <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+                                "I acknowledge that I have completed the {track.trackTitle} training and understand the content covered."
+                              </p>
+                              <div className="flex items-center justify-between text-xs">
+                                <div>
+                                  <p className="text-muted-foreground">Digital Signature:</p>
+                                  <p className="font-semibold">{selectedLearner.name}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-muted-foreground">Date & Time:</p>
+                                  <p className="font-semibold">
+                                    {new Date(track.completedAt).toLocaleDateString('en-US', {
+                                      month: 'short', day: 'numeric', year: 'numeric'
+                                    })} at {new Date(track.completedAt).toLocaleTimeString('en-US', {
+                                      hour: '2-digit', minute: '2-digit'
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    </>
+                  )}
+
+                  {!isCompleted && (
+                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-900/30">
+                      <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-sm font-medium">
+                          {track.status === 'not_started'
+                            ? 'This track has not been started by the learner.'
+                            : 'This track was not successfully completed.'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {/* Report Footer */}
@@ -991,8 +610,23 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               Select one or more tracks to include in the compliance report
             </p>
 
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search tracks by title, album, or category..."
+                value={trackSearchQuery}
+                onChange={(e) => setTrackSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {mockTracks.map((track) => (
+              {filteredTracks.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No tracks found</p>
+                </div>
+              ) : filteredTracks.map((track) => (
                 <div
                   key={track.id}
                   className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
@@ -1049,11 +683,20 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
             </div>
             <Button
               className="bg-brand-gradient"
-              disabled={!selectedLearner || selectedTracks.length === 0}
+              disabled={!selectedLearner || selectedTracks.length === 0 || loadingReport}
               onClick={handleGenerateReport}
             >
-              <FileText className="h-4 w-4 mr-2" />
-              Generate Report
+              {loadingReport ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Generate Report
+                </>
+              )}
             </Button>
           </div>
         </CardContent>

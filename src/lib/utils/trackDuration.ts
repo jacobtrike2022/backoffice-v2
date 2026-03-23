@@ -56,11 +56,11 @@ export function calculateStoryDuration(storyData: any): number {
 
 /**
  * Calculate checkpoint duration based on timeLimit or number of questions
- * Priority: timeLimit (if set) > questionCount * 1 minute per question
+ * Priority: timeLimit (if set) > questionCount * 0.5 minutes per question
  */
 export function calculateCheckpointDuration(checkpointData: any): number {
   if (!checkpointData) return 0;
-  
+
   // Parse checkpoint data if it's a string
   let parsed: any = {};
   if (typeof checkpointData === 'string') {
@@ -72,22 +72,22 @@ export function calculateCheckpointDuration(checkpointData: any): number {
   } else {
     parsed = checkpointData;
   }
-  
+
   // If timeLimit is set (not null/undefined), use it
   if (parsed.timeLimit != null && parsed.timeLimit !== '') {
-    const timeLimit = typeof parsed.timeLimit === 'string' 
-      ? parseInt(parsed.timeLimit) 
+    const timeLimit = typeof parsed.timeLimit === 'string'
+      ? parseInt(parsed.timeLimit)
       : parsed.timeLimit;
     if (!isNaN(timeLimit) && timeLimit > 0) {
       return timeLimit;
     }
   }
-  
-  // Fall back to question count calculation (1 min per question)
+
+  // Fall back to question count calculation (0.5 min per question, rounded up)
   const questions = parsed.questions || [];
   if (questions.length === 0) return 0;
-  
-  return questions.length;
+
+  return Math.ceil(questions.length * 0.5);
 }
 
 /**

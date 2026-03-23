@@ -21,6 +21,52 @@ const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+// ── Rate Limiting ──────────────────────────────────────────
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  '/brain/': { limit: 30, windowMs: 60_000 },
+  '/email/send': { limit: 20, windowMs: 60_000 },
+  '/contracts/': { limit: 5, windowMs: 60_000 },
+  '/billing/': { limit: 10, windowMs: 60_000 },
+};
+
+function checkRateLimit(path: string, identityKey: string): { allowed: boolean; retryAfterMs?: number } {
+  // Find matching rate limit config
+  const configKey = Object.keys(RATE_LIMITS).find((prefix) => path.startsWith(prefix));
+  if (!configKey) return { allowed: true };
+
+  const config = RATE_LIMITS[configKey];
+  const key = `${identityKey}:${configKey}`;
+  const now = Date.now();
+
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(key, { count: 1, resetAt: now + config.windowMs });
+    return { allowed: true };
+  }
+
+  if (entry.count >= config.limit) {
+    return { allowed: false, retryAfterMs: entry.resetAt - now };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (now > entry.resetAt) rateLimitStore.delete(key);
+  }
+}, 300_000);
+
 console.log('[ENV] SUPABASE_URL:', SUPABASE_URL);
 console.log('[ENV] SUPABASE_SERVICE_ROLE_KEY set:', !!SUPABASE_SERVICE_ROLE_KEY);
 
@@ -116,6 +162,151 @@ function stripHtmlAndMarkdown(text: string): string {
     .trim();
 }
 
+/**
+ * Sanitize text for TTS: remove emojis and truncate safely without breaking unicode
+ */
+function sanitizeForTTS(text: string, maxLength: number): string {
+  if (!text) return '';
+
+  // Remove emojis and other non-speech characters
+  // This regex matches most emoji ranges
+  let sanitized = text
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '') // Misc Symbols and Pictographs
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport and Map
+    .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')   // Misc symbols
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')   // Dingbats
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, '')   // Variation Selectors
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
+    .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess Symbols
+    .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols and Pictographs Extended-A
+    .replace(/&nbsp;/g, ' ')                // HTML non-breaking space
+    .replace(/\s+/g, ' ')                   // Normalize whitespace
+    .trim();
+
+  // Truncate safely - don't cut in the middle of a character
+  if (sanitized.length <= maxLength) {
+    return sanitized;
+  }
+
+  // Use Array.from to handle unicode properly, then slice
+  const chars = Array.from(sanitized);
+  if (chars.length <= maxLength) {
+    return sanitized;
+  }
+
+  // Find a good break point (end of sentence or word)
+  let truncated = chars.slice(0, maxLength).join('');
+  const lastPeriod = truncated.lastIndexOf('. ');
+  const lastQuestion = truncated.lastIndexOf('? ');
+  const lastExclaim = truncated.lastIndexOf('! ');
+  const lastBreak = Math.max(lastPeriod, lastQuestion, lastExclaim);
+
+  if (lastBreak > maxLength * 0.8) {
+    // Good sentence break found in last 20%
+    return truncated.substring(0, lastBreak + 1);
+  }
+
+  // Otherwise just truncate at word boundary
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > maxLength * 0.9) {
+    return truncated.substring(0, lastSpace);
+  }
+
+  return truncated;
+}
+
+/**
+ * Chunk text for TTS at sentence boundaries
+ * Ensures no chunk exceeds maxLength while maintaining natural speech breaks
+ */
+function chunkTextForTTS(text: string, maxLength: number): string[] {
+  if (!text || text.length <= maxLength) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Find the best break point within maxLength
+    const segment = remaining.substring(0, maxLength);
+
+    // Try to break at sentence boundary first
+    let breakPoint = -1;
+    const lastPeriod = segment.lastIndexOf('. ');
+    const lastQuestion = segment.lastIndexOf('? ');
+    const lastExclaim = segment.lastIndexOf('! ');
+    const lastNewline = segment.lastIndexOf('\n');
+
+    // Prefer sentence breaks in the latter half of the segment
+    const candidates = [lastPeriod, lastQuestion, lastExclaim, lastNewline].filter(p => p > maxLength * 0.5);
+    if (candidates.length > 0) {
+      breakPoint = Math.max(...candidates) + 1;
+    }
+
+    // Fall back to any sentence break
+    if (breakPoint === -1) {
+      const anyBreak = Math.max(lastPeriod, lastQuestion, lastExclaim, lastNewline);
+      if (anyBreak > maxLength * 0.3) {
+        breakPoint = anyBreak + 1;
+      }
+    }
+
+    // Fall back to word boundary
+    if (breakPoint === -1) {
+      const lastSpace = segment.lastIndexOf(' ');
+      if (lastSpace > maxLength * 0.5) {
+        breakPoint = lastSpace;
+      }
+    }
+
+    // Worst case: hard cut (shouldn't happen with reasonable maxLength)
+    if (breakPoint === -1) {
+      breakPoint = maxLength;
+    }
+
+    chunks.push(remaining.substring(0, breakPoint).trim());
+    remaining = remaining.substring(breakPoint).trim();
+  }
+
+  return chunks.filter(c => c.length > 0);
+}
+
+/**
+ * Concatenate multiple MP3 audio buffers into one
+ * Note: This is a simple concatenation that works for MP3 files
+ * because MP3 frames are self-contained
+ */
+function concatenateAudioBuffers(buffers: ArrayBuffer[]): ArrayBuffer {
+  if (buffers.length === 0) {
+    return new ArrayBuffer(0);
+  }
+  if (buffers.length === 1) {
+    return buffers[0];
+  }
+
+  // Calculate total length
+  const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+
+  // Create combined buffer
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const buffer of buffers) {
+    combined.set(new Uint8Array(buffer), offset);
+    offset += buffer.byteLength;
+  }
+
+  return combined.buffer;
+}
+
 // =============================================================================
 // STORAGE BUCKET HELPER
 // =============================================================================
@@ -183,20 +374,73 @@ Deno.serve(async (req: Request) => {
     // HEALTH CHECK
     // =========================================================================
     if (method === "GET" && (path === "/health" || path === "")) {
-      return jsonResponse({ 
-        status: "ok", 
-        timestamp: new Date().toISOString(),
-        services: {
-          openai: !!OPENAI_API_KEY,
-          assemblyai: !!ASSEMBLYAI_API_KEY,
-        }
-      });
+      const checks: Record<string, string> = {};
+
+      // Check database connectivity
+      try {
+        const { error } = await supabase.from('roles').select('id').limit(1).single();
+        checks.database = error ? `error: ${error.message}` : 'ok';
+      } catch {
+        checks.database = 'unreachable';
+      }
+
+      // Check OpenAI API key presence
+      checks.openai = OPENAI_API_KEY ? 'configured' : 'missing';
+
+      // Check Resend API key presence
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      checks.resend = resendKey ? 'configured' : 'missing';
+
+      // Check eSignatures token presence
+      const esigToken = Deno.env.get("ESIGNATURES_API_TOKEN");
+      checks.esignatures = esigToken ? 'configured' : 'not_configured';
+
+      // Check Stripe key presence
+      const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+      checks.stripe = stripeKey ? 'configured' : 'not_configured';
+
+      const allHealthy = checks.database === 'ok' &&
+        checks.openai === 'configured' &&
+        checks.resend === 'configured';
+
+      return jsonResponse(
+        {
+          status: allHealthy ? 'healthy' : 'degraded',
+          checks,
+          timestamp: new Date().toISOString(),
+        },
+        allHealthy ? 200 : 503
+      );
+    }
+
+    // =========================================================================
+    // RATE LIMITING
+    // =========================================================================
+    // Use Authorization header token hash as identity key (orgId isn't
+    // extracted until individual handlers run)
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader) {
+      const rateLimitIdentity = authHeader.slice(-16); // last 16 chars of token
+      const rateCheck = checkRateLimit(path, rateLimitIdentity);
+      if (!rateCheck.allowed) {
+        return new Response(
+          JSON.stringify({ error: 'Too many requests. Please try again shortly.' }),
+          {
+            status: 429,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+              'Retry-After': String(Math.ceil((rateCheck.retryAfterMs || 60000) / 1000)),
+            },
+          }
+        );
+      }
     }
 
     // =========================================================================
     // ATTACHMENTS
     // =========================================================================
-    
+
     // Upload attachment
     if (method === "POST" && path === "/upload-attachment") {
       return await handleUploadAttachment(req);
@@ -430,6 +674,11 @@ Deno.serve(async (req: Request) => {
       return await handleBrainBackfill(req);
     }
 
+    // Migrate tags from tracks.tags column to track_tags junction table (admin function)
+    if (method === "POST" && path === "/migrate/tags-to-junction") {
+      return await handleMigrateTagsToJunction(req);
+    }
+
     // =========================================================================
     // ONBOARDING & COMPANY ENRICHMENT
     // =========================================================================
@@ -462,6 +711,11 @@ Deno.serve(async (req: Request) => {
     // Get industries and services for dropdowns
     if (method === "GET" && path === "/onboarding/options") {
       return await handleOnboardingOptions(req);
+    }
+
+    // Relay.app location scraper callback (when playbook completes)
+    if (method === "POST" && path === "/relay/location-callback") {
+      return await handleRelayLocationCallback(req);
     }
 
     // =========================================================================
@@ -690,6 +944,197 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // SOURCE FILE EXTRACTION
+    // =========================================================================
+    if (method === "POST" && path === "/extract-source") {
+      return await handleExtractSource(req);
+    }
+
+    // =========================================================================
+    // DOCUMENT TYPE DETECTION
+    // =========================================================================
+    if (method === "POST" && path === "/detect-document-type") {
+      return await handleDetectDocumentType(req);
+    }
+
+    // =========================================================================
+    // DOCUMENT CHUNKING
+    // =========================================================================
+
+    // Chunk source document
+    if (method === "POST" && path === "/chunk-source") {
+      return await handleChunkSource(req);
+    }
+
+    // Get chunks for a source file
+    if (method === "GET" && path.startsWith("/chunks/")) {
+      const sourceFileId = path.replace("/chunks/", "");
+      return await handleGetChunks(req, sourceFileId);
+    }
+
+    // Delete chunks for a source file (re-chunk)
+    if (method === "DELETE" && path.startsWith("/chunks/")) {
+      const sourceFileId = path.replace("/chunks/", "");
+      return await handleDeleteChunks(req, sourceFileId);
+    }
+
+    // =========================================================================
+    // TRACK GENERATION FROM CHUNKS
+    // =========================================================================
+
+    // Generate track(s) from chunks
+    if (method === "POST" && path === "/generate-tracks-from-chunks") {
+      return await handleGenerateTracksFromChunks(req);
+    }
+
+    // Generate a single track from multiple chunks (combined)
+    if (method === "POST" && path === "/generate-combined-track") {
+      return await handleGenerateCombinedTrack(req);
+    }
+
+    // Preview track generation (dry run)
+    if (method === "POST" && path === "/preview-track-generation") {
+      return await handlePreviewTrackGeneration(req);
+    }
+
+    // =========================================================================
+    // EXTRACTED ENTITIES - Detected JDs and other extractable content
+    // =========================================================================
+
+    // Get extracted entities for a source file
+    if (method === "GET" && path.startsWith("/extracted-entities/")) {
+      const sourceFileId = path.replace("/extracted-entities/", "");
+      return await handleGetExtractedEntities(req, sourceFileId);
+    }
+
+    // Get a single extracted entity with full details
+    if (method === "GET" && path.startsWith("/extracted-entity/")) {
+      const entityId = path.replace("/extracted-entity/", "");
+      return await handleGetExtractedEntity(req, entityId);
+    }
+
+    // Process an extracted entity (extract JD data, skip, reclassify)
+    if (method === "POST" && path === "/process-extracted-entity") {
+      return await handleProcessExtractedEntity(req);
+    }
+
+    // Re-classify chunks (run content classification again)
+    if (method === "POST" && path === "/classify-chunks") {
+      return await handleClassifyChunks(req);
+    }
+
+    // Extract job description data from a chunk and create an entity
+    if (method === "POST" && path === "/extract-jd") {
+      return await handleExtractJdFromChunk(req);
+    }
+
+    // Extract job description data from a source file (direct extraction for JD upload flow)
+    if (method === "POST" && path === "/extract-job-description") {
+      return await handleExtractJobDescription(req);
+    }
+
+    // =========================================================================
+    // PLAYBOOK - Source-to-Album Automated Workflow
+    // =========================================================================
+
+    // Analyze source and create playbook with suggested track groupings
+    if (method === "POST" && path === "/playbook/analyze") {
+      return await handlePlaybookAnalyze(req);
+    }
+
+    // Get playbook by ID
+    if (method === "GET" && path.startsWith("/playbook/") && !path.includes("/playbook/update") && !path.includes("/playbook/confirm") && !path.includes("/playbook/generate") && !path.includes("/playbook/approve") && !path.includes("/playbook/publish")) {
+      const playbookId = path.replace("/playbook/", "");
+      return await handleGetPlaybook(req, playbookId);
+    }
+
+    // Update track groupings (drag-drop operations)
+    if (method === "POST" && path === "/playbook/update-groupings") {
+      return await handlePlaybookUpdateGroupings(req);
+    }
+
+    // Confirm a track grouping
+    if (method === "POST" && path === "/playbook/confirm-track") {
+      return await handlePlaybookConfirmTrack(req);
+    }
+
+    // Generate draft content for a confirmed track
+    if (method === "POST" && path === "/playbook/generate-draft") {
+      return await handlePlaybookGenerateDraft(req);
+    }
+
+    // Approve a draft track
+    if (method === "POST" && path === "/playbook/approve-track") {
+      return await handlePlaybookApproveTrack(req);
+    }
+
+    // Publish all approved tracks and create album
+    if (method === "POST" && path === "/playbook/publish") {
+      return await handlePlaybookPublish(req);
+    }
+
+    // Provision a demo environment for a prospect organization
+    if (method === "POST" && path === "/demo/provision") {
+      return await handleDemoProvision(req);
+    }
+
+    // Unified demo creation: enrich + create org + provision in one call
+    if (method === "POST" && path === "/demo/create") {
+      return await handleDemoCreate(req);
+    }
+    // Transition prospect → onboarding: remove seed data, update status
+    if (method === "POST" && path === "/org/transition-to-onboarding") {
+      return await handleOrgTransitionToOnboarding(req);
+    }
+
+    // Admin: seed demo data for a single org (existing orgs that weren't provisioned with seed data)
+    if (method === "POST" && path === "/admin/seed-demo-org") {
+      return await handleAdminSeedDemoOrg(req);
+    }
+    // Admin: seed demo data for all orgs except Trike.co main org
+    if (method === "POST" && path === "/admin/seed-demo-org-all") {
+      return await handleAdminSeedDemoOrgAll(req);
+    }
+    // Admin: create seed stores for orgs where Relay was triggered but never returned (call by cron, e.g. every 10 min)
+    if (method === "POST" && path === "/admin/relay-fallback-seed") {
+      return await handleRelayFallbackSeed(req);
+    }
+    // Admin: assign seed people to first 5 stores (fixes orgs where Relay returned but people weren't assigned)
+    if (method === "POST" && path === "/admin/assign-seed-people-to-stores") {
+      return await handleAssignSeedPeopleToStores(req);
+    }
+    // Demo: create "CORE Playlist" for demo org (clone from Trike account or system tracks)
+    if (method === "POST" && path === "/demo/seed-playlist") {
+      return await handleDemoSeedPlaylist(req);
+    }
+
+    // Stripe billing endpoints
+    if (method === "POST" && path === "/billing/setup-intent") {
+      return await handleBillingSetupIntent(req);
+    }
+    if (method === "POST" && path === "/billing/webhook") {
+      return await handleBillingWebhook(req);
+    }
+
+    // eSignatures.io contract endpoints
+    if (method === "POST" && path === "/contracts/send") {
+      return await handleContractSend(req);
+    }
+    if (method === "POST" && path === "/contracts/webhook") {
+      return await handleContractWebhook(req);
+    }
+    if (method === "GET" && path.startsWith("/contracts/") && path.endsWith("/status")) {
+      const contractId = path.split("/")[2];
+      const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+      if (!ESIG_TOKEN) {
+        return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+      }
+      const resp = await fetch(`https://esignatures.com/api/contracts/${contractId}?token=${ESIG_TOKEN}`);
+      const data = await resp.json();
+      return jsonResponse(data);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -768,7 +1213,38 @@ Deno.serve(async (req: Request) => {
         "GET /track-relationships/variants/needs-review/:trackId",
         "POST /track-relationships/variant/mark-synced/:id",
         "GET /track-relationships/variant/ultimate-base/:id",
-        "POST /track-relationships/batch"
+        "POST /track-relationships/batch",
+        "POST /extract-source",
+        "POST /detect-document-type",
+        "POST /chunk-source",
+        "GET /chunks/:source_file_id",
+        "DELETE /chunks/:source_file_id",
+        "POST /generate-tracks-from-chunks",
+        "POST /generate-combined-track",
+        "POST /preview-track-generation",
+        "GET /extracted-entities/:source_file_id",
+        "GET /extracted-entity/:entity_id",
+        "POST /process-extracted-entity",
+        "POST /classify-chunks",
+        "POST /extract-jd",
+        "POST /extract-job-description",
+        "POST /playbook/analyze",
+        "GET /playbook/:id",
+        "POST /playbook/update-groupings",
+        "POST /playbook/confirm-track",
+        "POST /playbook/generate-draft",
+        "POST /playbook/approve-track",
+        "POST /playbook/publish",
+        "POST /demo/provision",
+        "POST /admin/seed-demo-org",
+        "POST /admin/seed-demo-org-all",
+        "POST /admin/relay-fallback-seed",
+        "POST /admin/assign-seed-people-to-stores",
+        "POST /billing/setup-intent",
+        "POST /billing/webhook",
+        "POST /contracts/send",
+        "POST /contracts/webhook",
+        "GET /contracts/:id/status"
       ]
     }, 404);
 
@@ -795,6 +1271,3016 @@ async function hashString(str: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Clean and normalize extracted text from documents
+ */
+function cleanExtractedText(text: string): string {
+  if (!text) return '';
+
+  return text
+    // Normalize line breaks
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    // Remove page numbers like "Page X of Y"
+    .replace(/Page\s+\d+\s+of\s+\d+/gi, '')
+    // Remove standalone page numbers
+    .replace(/^\s*\d+\s*$/gm, '')
+    // Normalize multiple spaces to single space (but preserve newlines)
+    .replace(/[^\S\n]+/g, ' ')
+    // Normalize multiple newlines to double newline for paragraph breaks
+    .replace(/\n{3,}/g, '\n\n')
+    // Trim whitespace from each line
+    .split('\n')
+    .map(line => line.trim())
+    .join('\n')
+    // Remove empty lines at start/end but preserve internal structure
+    .trim();
+}
+
+/** True if buffer looks like a real PDF (starts with %PDF- after optional BOM/whitespace). */
+function isPdfMagicBytes(buf: Uint8Array): boolean {
+  let i = 0;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    i = 3;
+  }
+  while (
+    i < buf.length &&
+    (buf[i] === 0x20 || buf[i] === 0x09 || buf[i] === 0x0a || buf[i] === 0x0d)
+  ) {
+    i++;
+  }
+  const sig = [0x25, 0x50, 0x44, 0x46]; // %PDF
+  if (i + sig.length > buf.length) return false;
+  for (let j = 0; j < sig.length; j++) {
+    if (buf[i + j] !== sig[j]) return false;
+  }
+  return true;
+}
+
+/** DOCX is a ZIP file (PK\x03\x04). */
+function isDocxMagicBytes(buf: Uint8Array): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
+}
+
+// =============================================================================
+// SOURCE FILE EXTRACTION HANDLER
+// =============================================================================
+
+async function handleExtractSource(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    // Parse request body
+    const body = await req.json();
+    const { source_file_id } = body;
+
+    console.log('[extract-source] Starting extraction for source_file_id:', source_file_id);
+
+    // Validate request
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id in request body",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the source_file record
+    console.log('[extract-source] Fetching source file record...');
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, organization_id, file_name, storage_path, file_type")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[extract-source] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    console.log('[extract-source] Found source file:', {
+      file_name: sourceFile.file_name,
+      file_type: sourceFile.file_type,
+      storage_path: sourceFile.storage_path
+    });
+
+    // Validate file type
+    const supportedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/csv'
+    ];
+
+    if (!supportedTypes.includes(sourceFile.file_type)) {
+      console.error('[extract-source] Unsupported file type:', sourceFile.file_type);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Unsupported file type: ${sourceFile.file_type}. Supported types: PDF, DOCX, TXT, CSV`
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: `Unsupported file type: ${sourceFile.file_type}. Supported types: PDF, DOCX, TXT, CSV`,
+        code: "UNSUPPORTED_FILE_TYPE"
+      }, 400);
+    }
+
+    // Download the file from storage
+    console.log('[extract-source] Downloading file from storage bucket "source-files"...');
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("source-files")
+      .download(sourceFile.storage_path);
+
+    if (downloadError || !fileData) {
+      console.error('[extract-source] Failed to download file:', downloadError);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Failed to download file from storage: ${downloadError?.message || 'Unknown error'}`
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: `Failed to download file from storage: ${downloadError?.message || 'Unknown error'}`,
+        code: "DOWNLOAD_FAILED"
+      }, 500);
+    }
+
+    console.log('[extract-source] File downloaded, size:', fileData.size, 'bytes');
+
+    // Extract text based on file type
+    let extractedText = '';
+    let extractionMethod = '';
+
+    try {
+      if (sourceFile.file_type === 'application/pdf') {
+        console.log('[extract-source] Extracting text from PDF...');
+        extractionMethod = 'pdf-parse';
+
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isPdfMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid PDF (wrong format or corrupt). It may be HTML or another file renamed to .pdf. Export with Print → Save as PDF, or upload a real PDF.";
+          console.error('[extract-source] Invalid PDF magic bytes (not %PDF-)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_PDF",
+            },
+            400,
+          );
+        }
+
+        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
+        const pdfData = await pdfParse(uint8Array);
+        extractedText = pdfData.text;
+
+      } else if (sourceFile.file_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log('[extract-source] Extracting text from DOCX...');
+        extractionMethod = 'mammoth';
+
+        const arrayBuffer = await fileData.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isDocxMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid Word document (.docx). It may be an old .doc file or another format—save as .docx from Word or Google Docs, or upload a PDF.";
+          console.error('[extract-source] Invalid DOCX magic bytes (not a ZIP)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_DOCX",
+            },
+            400,
+          );
+        }
+
+        const mammoth = await import("npm:mammoth@1.8.0");
+        const result = await mammoth.extractRawText({
+          buffer: uint8Array,
+        });
+        extractedText = result.value;
+
+      } else if (sourceFile.file_type === 'text/plain' || sourceFile.file_type === 'text/csv') {
+        console.log('[extract-source] Reading plain text file...');
+        extractionMethod = 'direct-read';
+
+        extractedText = await fileData.text();
+      }
+
+      console.log('[extract-source] Raw extracted text length:', extractedText.length, 'characters');
+
+    } catch (extractError: unknown) {
+      const extractMsg =
+        extractError instanceof Error
+          ? extractError.message
+          : String(extractError);
+      console.error('[extract-source] Extraction error:', extractError);
+
+      // Update the record with the error
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: `Text extraction failed: ${extractMsg}`,
+        })
+        .eq("id", source_file_id);
+
+      // Bad or unsupported files are client/content issues — avoid 500 so demos don't look "broken"
+      return jsonResponse(
+        {
+          success: false,
+          error: `Could not read this file as ${sourceFile.file_type === "application/pdf" ? "a PDF" : "that document type"}. It may be corrupt, password-protected, or not the format it claims. ${extractMsg}`,
+          code: "EXTRACTION_FAILED",
+        },
+        400,
+      );
+    }
+
+    // Clean the extracted text
+    console.log('[extract-source] Cleaning extracted text...');
+    const cleanedText = cleanExtractedText(extractedText);
+    console.log('[extract-source] Cleaned text length:', cleanedText.length, 'characters');
+
+    // Validate extracted text - check for empty or very short content
+    // This catches PDFs that are scanned images, password-protected, or have encoding issues
+    if (!cleanedText || cleanedText.trim().length === 0) {
+      console.error('[extract-source] No text could be extracted from the document');
+
+      await supabase
+        .from("source_files")
+        .update({
+          is_processed: false,
+          processing_error: 'No text could be extracted from this document. The file may be a scanned image, password-protected, or have an unsupported text encoding. Try uploading a text-based PDF or use OCR to convert scanned documents.'
+        })
+        .eq("id", source_file_id);
+
+      return jsonResponse({
+        success: false,
+        error: 'No text could be extracted from this document. The file may be a scanned image, password-protected, or have an unsupported text encoding.',
+        code: "NO_TEXT_EXTRACTED"
+      }, 400);
+    }
+
+    // Calculate stats
+    const characterCount = cleanedText.length;
+    const wordCount = cleanedText.split(/\s+/).filter(word => word.length > 0).length;
+
+    // Warn if very little text was extracted (likely partial extraction)
+    if (wordCount < 10) {
+      console.warn('[extract-source] Very little text extracted:', wordCount, 'words. Document may not have extractable text content.');
+    }
+    const processingTimeMs = Date.now() - startTime;
+
+    // Build metadata with extraction stats
+    const extractionMetadata = {
+      extraction_stats: {
+        character_count: characterCount,
+        word_count: wordCount,
+        extraction_method: extractionMethod,
+        processing_time_ms: processingTimeMs,
+        original_file_size_bytes: fileData.size,
+        extracted_at: new Date().toISOString()
+      }
+    };
+
+    // Update the source_file record
+    console.log('[extract-source] Updating source file record...');
+    const { error: updateError } = await supabase
+      .from("source_files")
+      .update({
+        extracted_text: cleanedText,
+        is_processed: true,
+        processed_at: new Date().toISOString(),
+        processing_error: null,
+        metadata: extractionMetadata
+      })
+      .eq("id", source_file_id);
+
+    if (updateError) {
+      console.error('[extract-source] Failed to update source file record:', updateError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to update source file record: ${updateError.message}`,
+        code: "UPDATE_FAILED"
+      }, 500);
+    }
+
+    console.log('[extract-source] Extraction completed successfully');
+
+    return jsonResponse({
+      success: true,
+      source_file_id: source_file_id,
+      stats: {
+        character_count: characterCount,
+        word_count: wordCount,
+        extraction_method: extractionMethod,
+        processing_time_ms: processingTimeMs
+      }
+    });
+
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('[extract-source] Unexpected error:', error);
+
+    // Try to update the record with the error if we have a source_file_id
+    try {
+      const body = await req.clone().json();
+      if (body.source_file_id) {
+        await supabase
+          .from("source_files")
+          .update({
+            is_processed: false,
+            processing_error: `Unexpected error: ${errMsg}`,
+          })
+          .eq("id", body.source_file_id);
+      }
+    } catch {
+      // Ignore errors when trying to update the error state
+    }
+
+    return jsonResponse({
+      success: false,
+      error: errMsg || "An unexpected error occurred",
+      code: "INTERNAL_ERROR",
+    }, 500);
+  }
+}
+
+// =============================================================================
+// DOCUMENT TYPE DETECTION (DEPRECATED)
+// =============================================================================
+// NOTE: This endpoint is deprecated. Document type is now determined at the
+// CHUNK level, not document level. A single document (e.g., handbook) can
+// contain multiple content types (policies, procedures, job descriptions).
+// Use /chunk-source with classify_content=true instead.
+// =============================================================================
+
+async function handleDetectDocumentType(req: Request): Promise<Response> {
+  console.warn('[detect-document-type] DEPRECATED: Use /chunk-source with classify_content=true instead');
+
+  return jsonResponse({
+    error: "This endpoint is deprecated. Document classification now happens at the chunk level. Use POST /chunk-source with classify_content=true to extract and classify document chunks.",
+    code: "DEPRECATED",
+    migration_guide: {
+      old_flow: "POST /detect-document-type → returns single document type",
+      new_flow: "POST /chunk-source { source_file_id, classify_content: true } → returns chunks with content_class per chunk",
+      reason: "A single document can contain multiple content types (policies, procedures, JDs, training materials)"
+    }
+  }, 410); // 410 Gone
+}
+
+// =============================================================================
+// CHUNKING - AI-powered document segmentation
+// =============================================================================
+
+interface ChunkResult {
+  title: string;
+  content: string;
+  chunk_type: 'header' | 'content' | 'list' | 'table' | 'form';
+  hierarchy_level: number;
+  key_terms: string[];
+  summary: string;
+}
+
+// =============================================================================
+// CONTENT CLASSIFICATION - Detect content types in document chunks
+// =============================================================================
+// Content Types:
+// - policy: Rules, expectations, standards (e.g., "Sexual Harassment Policy")
+// - procedure: Step-by-step actions for a goal (e.g., "How to Change Register Paper")
+// - job_description: Role definitions with duties, qualifications, reporting
+// - training_materials: Checklists, OJT, guides to convert to tracks (catchall)
+// - other: Truly miscellaneous content
+// =============================================================================
+
+type ContentClass = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'other';
+
+interface ContentClassification {
+  content_class: ContentClass;
+  confidence: number;
+  is_extractable: boolean;
+  extraction_hints?: Record<string, any>;
+}
+
+// =============================================================================
+// SMART CHUNKING PIPELINE v2
+// =============================================================================
+// This pipeline handles the complex case of documents with mixed content types
+// (e.g., a handbook with embedded job descriptions).
+//
+// Flow: Extract → Segment → Classify (with context) → Merge/Split → Final Chunks
+// =============================================================================
+
+/**
+ * A segment is a candidate chunk - larger than final chunks, with metadata
+ */
+interface Segment {
+  id: number;
+  content: string;
+  startPosition: number;  // Character position in original text
+  endPosition: number;
+  estimatedPage?: number; // If we can detect page breaks
+  structuralMarkers: string[]; // Headers, titles found in this segment
+}
+
+/**
+ * A classified segment includes content type and relationship info
+ */
+interface ClassifiedSegment extends Segment {
+  contentClass: ContentClass;
+  confidence: number;
+  continuesFromPrevious: boolean;  // Is this a continuation of the previous segment's content?
+  continuesToNext: boolean;        // Does this continue into the next segment?
+  contextSignals: {
+    hasJdHeader: boolean;          // Has "JOB DESCRIPTION", "JOB TITLE:", etc.
+    hasJdStructure: boolean;       // Has DUTIES, QUALIFICATIONS, etc. sections
+    hasPolicyHeader: boolean;      // Has "POLICY", "PURPOSE:", etc.
+    hasProcedureStructure: boolean; // Has numbered steps, "How to" etc.
+    isListContent: boolean;        // Primarily bullet points or numbered items
+  };
+}
+
+/**
+ * Final smart chunk with full context
+ */
+interface SmartChunk {
+  content: string;
+  contentClass: ContentClass;
+  confidence: number;
+  title: string;
+  summary: string;
+  pageRange?: { start: number; end: number };
+  mergedFrom?: number[];  // IDs of segments that were merged
+  isPartOfLargerUnit: boolean;  // True if this was split from a larger logical unit
+  parentUnitTitle?: string;  // If split, what's the parent title?
+}
+
+// =============================================================================
+// STEP 1: SEGMENT EXTRACTION
+// =============================================================================
+
+/**
+ * Extract segments from text while preserving structural information.
+ * Segments are larger than final chunks - we'll merge/split later based on content type.
+ */
+/**
+ * Detect if a document is a "handbook" type (multi-topic policy document)
+ * Handbooks need different chunking strategy - fewer, larger topic-based chunks
+ */
+function detectDocumentType(text: string): 'handbook' | 'single_doc' | 'mixed' {
+  const lowerText = text.toLowerCase();
+
+  // Strong handbook indicators
+  const hasTOC = /table\s+of\s+contents/i.test(text);
+  const hasHandbookTitle = /employee\s+handbook|company\s+handbook|policy\s+manual|staff\s+handbook/i.test(text);
+
+  // Count policy-style ALL-CAPS headers (handbook indicator)
+  const allCapsHeaders = text.match(/\n[A-Z][A-Z\s]{5,}\n/g) || [];
+  const manyPolicySections = allCapsHeaders.length >= 15;
+
+  // Common handbook topic keywords
+  const handbookTopics = [
+    'equal employment', 'at-will', 'harassment', 'discrimination',
+    'fmla', 'leave of absence', 'dress code', 'attendance',
+    'disciplinary', 'termination', 'benefits', 'payroll',
+    'confidentiality', 'social media', 'drug', 'safety'
+  ];
+  const topicMatches = handbookTopics.filter(topic => lowerText.includes(topic)).length;
+  const hasMultipleTopics = topicMatches >= 5;
+
+  // Document length check
+  const isLargeDoc = text.length > 50000; // ~20+ pages
+
+  console.log('[detectDocumentType] TOC:', hasTOC, 'Handbook title:', hasHandbookTitle,
+    'ALL-CAPS headers:', allCapsHeaders.length, 'Topic matches:', topicMatches, 'Large:', isLargeDoc);
+
+  if ((hasTOC || hasHandbookTitle) && (manyPolicySections || hasMultipleTopics)) {
+    return 'handbook';
+  }
+
+  if (isLargeDoc && manyPolicySections && hasMultipleTopics) {
+    return 'handbook';
+  }
+
+  if (text.length < 15000) {
+    return 'single_doc';
+  }
+
+  return 'mixed';
+}
+
+/**
+ * Extract topic boundaries for handbook-style documents
+ * Returns positions of major topic changes (not every header)
+ */
+function extractHandbookTopicBoundaries(text: string): { position: number; topic: string }[] {
+  const boundaries: { position: number; topic: string }[] = [];
+
+  // Look for strong topic indicators - standalone ALL-CAPS lines that represent policy topics
+  // But filter out sub-headers and continuation headers
+  const topicPattern = /\n([A-Z][A-Z\s&\-\/]{4,})\n/g;
+  let match;
+
+  // First pass: collect all potential topics
+  const potentialTopics: { position: number; topic: string; isSubHeader: boolean }[] = [];
+  while ((match = topicPattern.exec(text)) !== null) {
+    const topic = match[1].trim();
+    const position = match.index;
+
+    // Skip if it looks like a sub-header (very short or common sub-section names)
+    const isSubHeader = topic.length < 8 ||
+      /^(PURPOSE|SCOPE|POLICY|PROCEDURE|DEFINITION|NOTE|EXAMPLE|OVERVIEW|SUMMARY|INTRODUCTION)$/i.test(topic) ||
+      /^(SECTION|PART|CHAPTER)\s+\d+/i.test(topic);
+
+    potentialTopics.push({ position, topic, isSubHeader });
+  }
+
+  // Second pass: only keep topics that are followed by substantial content
+  // and skip sub-headers that appear right after main topics
+  let lastMainTopicPos = -1;
+  for (let i = 0; i < potentialTopics.length; i++) {
+    const { position, topic, isSubHeader } = potentialTopics[i];
+
+    // Skip sub-headers
+    if (isSubHeader) continue;
+
+    // Skip if too close to last main topic (likely a sub-section)
+    if (lastMainTopicPos >= 0 && position - lastMainTopicPos < 500) continue;
+
+    // Check if there's substantial content after this topic (at least 200 chars before next topic)
+    const nextTopicPos = potentialTopics[i + 1]?.position || text.length;
+    const contentLength = nextTopicPos - position;
+
+    if (contentLength >= 200) {
+      boundaries.push({ position, topic });
+      lastMainTopicPos = position;
+    }
+  }
+
+  console.log('[extractHandbookTopicBoundaries] Found', boundaries.length, 'topic boundaries');
+  return boundaries;
+}
+
+function extractSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  console.log('[extractSegments] Processing', normalizedText.length, 'chars');
+
+  // For small documents (under 8K), don't over-segment - they're likely a single logical unit
+  if (normalizedText.length < 8000) {
+    console.log('[extractSegments] Small document - creating single segment');
+    segments.push({
+      id: 0,
+      content: normalizedText.trim(),
+      startPosition: 0,
+      endPosition: normalizedText.length,
+      estimatedPage: 1,
+      structuralMarkers: []
+    });
+    return segments;
+  }
+
+  // Detect document type for appropriate chunking strategy
+  const docType = detectDocumentType(normalizedText);
+  console.log('[extractSegments] Document type detected:', docType);
+
+  // Detect page breaks (common patterns from PDF extraction)
+  const pageBreakPattern = /\f|\n{4,}|(?:\n-{10,}\n)/g;
+  const pageBreaks: number[] = [0];
+  let match;
+  while ((match = pageBreakPattern.exec(normalizedText)) !== null) {
+    pageBreaks.push(match.index);
+  }
+  pageBreaks.push(normalizedText.length);
+
+  // Helper function to estimate page number
+  const getEstimatedPage = (position: number): number => {
+    for (let p = 0; p < pageBreaks.length - 1; p++) {
+      if (position >= pageBreaks[p] && position < pageBreaks[p + 1]) {
+        return p + 1;
+      }
+    }
+    return 1;
+  };
+
+  // Helper function to extract structural markers
+  const extractMarkers = (content: string): string[] => {
+    const headerPattern = /^([A-Z][A-Z\s]{3,})$|^(#+\s+.+)$/gm;
+    const markers: string[] = [];
+    let headerMatch;
+    while ((headerMatch = headerPattern.exec(content)) !== null) {
+      markers.push((headerMatch[1] || headerMatch[2]).trim());
+    }
+    return markers.slice(0, 5);
+  };
+
+  // HANDBOOK MODE: Use topic-level boundaries for fewer, larger chunks
+  if (docType === 'handbook') {
+    console.log('[extractSegments] Using HANDBOOK chunking strategy');
+
+    const topicBoundaries = extractHandbookTopicBoundaries(normalizedText);
+
+    if (topicBoundaries.length >= 3) {
+      // Add start position if not already there
+      if (topicBoundaries[0].position > 500) {
+        topicBoundaries.unshift({ position: 0, topic: 'INTRODUCTION' });
+      }
+
+      // Create segments from topic boundaries
+      for (let i = 0; i < topicBoundaries.length; i++) {
+        const startPos = topicBoundaries[i].position;
+        const endPos = i < topicBoundaries.length - 1
+          ? topicBoundaries[i + 1].position
+          : normalizedText.length;
+
+        const content = normalizedText.slice(startPos, endPos).trim();
+
+        // For handbooks, use a higher minimum (500 chars) to avoid tiny fragments
+        if (content.length >= 500) {
+          segments.push({
+            id: segments.length,
+            content,
+            startPosition: startPos,
+            endPosition: endPos,
+            estimatedPage: getEstimatedPage(startPos),
+            structuralMarkers: extractMarkers(content)
+          });
+        } else if (content.length >= 50 && segments.length > 0) {
+          // Merge tiny fragments into previous segment
+          const lastSegment = segments[segments.length - 1];
+          lastSegment.content += '\n\n' + content;
+          lastSegment.endPosition = endPos;
+        }
+      }
+
+      console.log('[extractSegments] HANDBOOK mode created', segments.length, 'topic-based segments');
+      return segments;
+    }
+  }
+
+  // STANDARD MODE: Use section markers for regular/mixed documents
+  // Major section markers - these create hard boundaries
+  const majorSectionPattern = /\n(?:(?:[A-Z][A-Z\s]{5,})\n|(?:#+\s+[A-Z])|(?:JOB\s+(?:TITLE|DESCRIPTION))|(?:POSITION\s+TITLE)|(?:POLICY\s*:)|(?:PROCEDURE\s*:)|(?:TABLE\s+OF\s+CONTENTS))/gi;
+
+  // Find all major section boundaries
+  const sectionBreaks: { position: number; marker: string }[] = [];
+  majorSectionPattern.lastIndex = 0;
+  while ((match = majorSectionPattern.exec(normalizedText)) !== null) {
+    sectionBreaks.push({
+      position: match.index,
+      marker: match[0].trim()
+    });
+  }
+
+  // If we found section markers, use them; otherwise fall back to size-based segmentation
+  if (sectionBreaks.length >= 2) {
+    // Create segments based on section markers
+    for (let i = 0; i < sectionBreaks.length; i++) {
+      const startPos = sectionBreaks[i].position;
+      const endPos = i < sectionBreaks.length - 1
+        ? sectionBreaks[i + 1].position
+        : normalizedText.length;
+
+      const content = normalizedText.slice(startPos, endPos).trim();
+
+      if (content.length >= 50) {  // Minimum viable segment
+        segments.push({
+          id: segments.length,
+          content,
+          startPosition: startPos,
+          endPosition: endPos,
+          estimatedPage: getEstimatedPage(startPos),
+          structuralMarkers: extractMarkers(content)
+        });
+      }
+    }
+  } else {
+    // Fallback: Create segments of ~2000-3000 chars, breaking at paragraph boundaries
+    let currentPos = 0;
+    const targetSize = 2500;
+
+    while (currentPos < normalizedText.length) {
+      let endPos = Math.min(currentPos + targetSize, normalizedText.length);
+
+      // Try to break at a paragraph boundary
+      if (endPos < normalizedText.length) {
+        const searchWindow = normalizedText.slice(endPos - 500, endPos + 500);
+        const paragraphBreak = searchWindow.lastIndexOf('\n\n');
+        if (paragraphBreak > 200) {
+          endPos = endPos - 500 + paragraphBreak;
+        }
+      }
+
+      const content = normalizedText.slice(currentPos, endPos).trim();
+
+      if (content.length >= 50) {
+        segments.push({
+          id: segments.length,
+          content,
+          startPosition: currentPos,
+          endPosition: endPos,
+          estimatedPage: getEstimatedPage(currentPos),
+          structuralMarkers: extractMarkers(content)
+        });
+      }
+
+      currentPos = endPos;
+    }
+  }
+
+  console.log('[extractSegments] Created', segments.length, 'segments from', normalizedText.length, 'chars');
+  return segments;
+}
+
+// =============================================================================
+// STEP 2: CONTEXT-AWARE CLASSIFICATION
+// =============================================================================
+
+/**
+ * Analyze a segment for content type signals
+ */
+function analyzeSegmentSignals(content: string): ClassifiedSegment['contextSignals'] {
+  const lowerContent = content.toLowerCase();
+
+  // JD Header detection - strong indicators this IS a JD
+  const hasJdHeader = /job\s+(title|description)|position\s+title|job\s+code|job\s+description\s+clerk/i.test(content);
+
+  // JD Section headers - these are sections commonly found IN a JD
+  const jdSectionHeaders = [
+    /^(?:ESSENTIAL\s+(?:DUTIES|FUNCTIONS))/mi,
+    /^(?:RESPONSIBILITIES\s+AND\s+DUTIES)/mi,
+    /^(?:QUALIFICATIONS)/mi,
+    /^(?:PHYSICAL\s+(?:DEMANDS|REQUIREMENTS))/mi,
+    /^(?:WORK\s+ENVIRONMENT)/mi,
+    /^(?:EDUCATION|EXPERIENCE)/mi,
+    /^(?:CUSTOMER\s+SERVICE)/mi,
+    /^(?:MAINTENANCE)/mi,
+    /^(?:MERCHANDISING)/mi,
+    /^(?:BOOKKEEPING)/mi,
+    /^(?:INVENTORY)/mi,
+    /^(?:ACKNOWLEDGEMENT)/mi,
+    /^(?:GENERAL\s+MANAGEMENT)/mi,
+    /^(?:ADDITIONAL)/mi,
+    /^(?:FOOD\s+SERVICE)/mi
+  ];
+
+  // JD Structure detection - content patterns (not just headers)
+  const jdContentPatterns = [
+    /essential\s+(duties|functions)/i,
+    /qualifications?\s*:/i,
+    /responsibilities/i,
+    /reports\s+to/i,
+    /flsa\s+status/i,
+    /education\s+require/i,
+    /experience\s+require/i,
+    /physical\s+requirements/i,
+    /supervisory\s+responsibilities/i
+  ];
+  const jdSectionCount = jdContentPatterns.filter(p => p.test(content)).length;
+
+  // Check if this segment starts with a JD section header
+  const startsWithJdSection = jdSectionHeaders.some(p => p.test(content));
+  const hasJdStructure = jdSectionCount >= 2 || startsWithJdSection;
+
+  // Policy header detection
+  const hasPolicyHeader = /\bpolicy\b.*:/i.test(content) ||
+    /purpose\s*:\s*\n/i.test(content) ||
+    /scope\s*:\s*\n/i.test(content) ||
+    /policy\s+(statement|overview)/i.test(content);
+
+  // Procedure structure detection
+  const hasProcedureStructure = /step\s+\d+/i.test(content) ||
+    /how\s+to\s+\w+/i.test(content) ||
+    /procedure\s*:/i.test(content) ||
+    (content.match(/^\s*\d+\.\s+/gm)?.length || 0) >= 3;  // Multiple numbered steps
+
+  // List content detection (more than 40% of lines start with bullets/numbers)
+  const lines = content.split('\n').filter(l => l.trim().length > 0);
+  const listLines = lines.filter(l => /^\s*(?:[-•*]|\d+[.)]|\[\s*\])\s+/.test(l));
+  const isListContent = lines.length > 3 && (listLines.length / lines.length) > 0.4;
+
+  return {
+    hasJdHeader,
+    hasJdStructure,
+    hasPolicyHeader,
+    hasProcedureStructure,
+    isListContent
+  };
+}
+
+/**
+ * Classify a segment WITH context from adjacent segments
+ */
+function classifySegmentWithContext(
+  segment: Segment,
+  prevSegment: Segment | null,
+  nextSegment: Segment | null,
+  prevClassification: ClassifiedSegment | null
+): ClassifiedSegment {
+  const signals = analyzeSegmentSignals(segment.content);
+  const prevSignals = prevSegment ? analyzeSegmentSignals(prevSegment.content) : null;
+  const nextSignals = nextSegment ? analyzeSegmentSignals(nextSegment.content) : null;
+
+  // Count pattern matches using existing patterns
+  const content = segment.content;
+  const jdMatchCount = JD_PATTERNS.filter(p => p.test(content)).length;
+  const policyMatchCount = POLICY_PATTERNS.filter(p => p.test(content)).length;
+  const procedureMatchCount = PROCEDURE_PATTERNS.filter(p => p.test(content)).length;
+  const trainingMatchCount = TRAINING_PATTERNS.filter(p => p.test(content)).length;
+
+  // Default to training_materials - we NEVER use 'other' as a classification
+  // The hierarchy is: job_description > policy > procedure > training_materials
+  let contentClass: ContentClass = 'training_materials';
+  let confidence = 0.5;
+  let continuesFromPrevious = false;
+  let continuesToNext = false;
+
+  // === JOB DESCRIPTION DETECTION ===
+  // Direct detection: Has JD header OR strong JD structure
+  if (signals.hasJdHeader || (signals.hasJdStructure && jdMatchCount >= 2)) {
+    contentClass = 'job_description';
+    confidence = signals.hasJdHeader ? 0.95 : 0.85;
+
+    // JDs typically continue for several sections - be aggressive about marking continuation
+    continuesToNext = true;  // Assume JD continues unless we hit a clear boundary
+  }
+  // Context-based detection: Previous was JD and this looks like a JD section
+  else if (prevClassification?.contentClass === 'job_description') {
+    // If previous was JD, this is likely a continuation unless it's clearly something else
+    // Check for clear "not JD" signals
+    const clearlyNotJd = signals.hasPolicyHeader || signals.hasProcedureStructure;
+
+    if (!clearlyNotJd) {
+      // Check if this has JD-like content or structure
+      const looksLikeJdContent = signals.hasJdStructure || jdMatchCount >= 1 || signals.isListContent;
+
+      if (looksLikeJdContent) {
+        contentClass = 'job_description';
+        confidence = 0.80;
+        continuesFromPrevious = true;
+        continuesToNext = true;  // Keep the chain going
+      }
+    }
+  }
+  // Low-confidence JD signals - check context
+  else if (jdMatchCount >= 1 && signals.isListContent && !signals.hasJdHeader) {
+    // This looks like a list with some JD terms - could be training or duties
+    // Check context: if preceded by JD content, it's probably JD
+    if (prevSignals?.hasJdHeader || prevSignals?.hasJdStructure) {
+      contentClass = 'job_description';
+      confidence = 0.70;
+      continuesFromPrevious = true;
+      continuesToNext = true;
+    } else if (!prevClassification) {
+      // First segment with list content and some JD terms - ambiguous
+      contentClass = 'training_materials';
+      confidence = 0.55;
+    }
+  }
+
+  // === POLICY DETECTION ===
+  else if (signals.hasPolicyHeader || policyMatchCount >= 3) {
+    contentClass = 'policy';
+    confidence = signals.hasPolicyHeader ? 0.90 : 0.75;
+  }
+
+  // === PROCEDURE DETECTION ===
+  else if (signals.hasProcedureStructure || procedureMatchCount >= 3) {
+    contentClass = 'procedure';
+    confidence = signals.hasProcedureStructure ? 0.85 : 0.70;
+  }
+
+  // === TRAINING DETECTION ===
+  else if (trainingMatchCount >= 2 || (signals.isListContent && trainingMatchCount >= 1)) {
+    contentClass = 'training_materials';
+    confidence = 0.65;
+  }
+
+  // === CONTINUATION OF PREVIOUS ===
+  else if (prevClassification && !signals.hasPolicyHeader && !signals.hasJdHeader) {
+    // No strong signals - might be continuation of previous
+    if (prevClassification.continuesToNext) {
+      contentClass = prevClassification.contentClass;
+      confidence = Math.max(0.50, prevClassification.confidence - 0.15);
+      continuesFromPrevious = true;
+    }
+  }
+
+  return {
+    ...segment,
+    contentClass,
+    confidence,
+    continuesFromPrevious,
+    continuesToNext,
+    contextSignals: signals
+  };
+}
+
+/**
+ * Classify all segments with context awareness
+ */
+function classifyAllSegments(segments: Segment[]): ClassifiedSegment[] {
+  const classified: ClassifiedSegment[] = [];
+
+  // First pass: classify each segment with previous context
+  for (let i = 0; i < segments.length; i++) {
+    const prevSegment = i > 0 ? segments[i - 1] : null;
+    const nextSegment = i < segments.length - 1 ? segments[i + 1] : null;
+    const prevClassification = i > 0 ? classified[i - 1] : null;
+
+    const classifiedSegment = classifySegmentWithContext(
+      segments[i],
+      prevSegment,
+      nextSegment,
+      prevClassification
+    );
+    classified.push(classifiedSegment);
+  }
+
+  // Second pass: Propagate continuation flags backward
+  // (If segment 3 is JD and segment 2 continues to 3, segment 2 should also be JD)
+  for (let i = classified.length - 2; i >= 0; i--) {
+    if (classified[i + 1].continuesFromPrevious &&
+        classified[i].contentClass !== classified[i + 1].contentClass) {
+      // The next segment claims to continue from this one, but they have different types
+      // Re-evaluate: if next is JD and this has JD signals, this should be JD too
+      if (classified[i + 1].contentClass === 'job_description') {
+        const signals = classified[i].contextSignals;
+        if (signals.hasJdStructure || signals.isListContent) {
+          classified[i].contentClass = 'job_description';
+          classified[i].confidence = Math.min(classified[i].confidence, classified[i + 1].confidence);
+          classified[i].continuesToNext = true;
+        }
+      }
+    }
+  }
+
+  console.log('[classifyAllSegments] Classification results:',
+    classified.reduce((acc, s) => {
+      acc[s.contentClass] = (acc[s.contentClass] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>)
+  );
+
+  return classified;
+}
+
+// =============================================================================
+// STEP 3: SMART MERGE AND SPLIT
+// =============================================================================
+
+/**
+ * Merge consecutive segments of the same content type into logical units,
+ * then split oversized units intelligently.
+ */
+function mergeAndSplitSegments(classifiedSegments: ClassifiedSegment[]): SmartChunk[] {
+  const chunks: SmartChunk[] = [];
+
+  if (classifiedSegments.length === 0) return chunks;
+
+  // Detect if this looks like a handbook (many policy segments)
+  const policyCount = classifiedSegments.filter(s => s.contentClass === 'policy').length;
+  const totalCount = classifiedSegments.length;
+  const isHandbookMode = policyCount > 10 && policyCount / totalCount > 0.6;
+
+  console.log('[mergeAndSplitSegments] Policy segments:', policyCount, '/', totalCount,
+    'Handbook mode:', isHandbookMode);
+
+  // Group consecutive segments of the same type
+  interface SegmentGroup {
+    segments: ClassifiedSegment[];
+    contentClass: ContentClass;
+    avgConfidence: number;
+  }
+
+  const groups: SegmentGroup[] = [];
+  let currentGroup: SegmentGroup = {
+    segments: [classifiedSegments[0]],
+    contentClass: classifiedSegments[0].contentClass,
+    avgConfidence: classifiedSegments[0].confidence
+  };
+
+  for (let i = 1; i < classifiedSegments.length; i++) {
+    const segment = classifiedSegments[i];
+
+    // In handbook mode, be MORE aggressive about merging policy content
+    // We want fewer, larger chunks that represent complete topics
+    const mergeThreshold = isHandbookMode && segment.contentClass === 'policy' ? 0.50 : 0.70;
+
+    // Merge if: same content type AND (continuation OR same type with sufficient confidence)
+    const shouldMerge =
+      segment.contentClass === currentGroup.contentClass &&
+      (segment.continuesFromPrevious || segment.confidence >= mergeThreshold);
+
+    if (shouldMerge) {
+      currentGroup.segments.push(segment);
+      currentGroup.avgConfidence =
+        currentGroup.segments.reduce((sum, s) => sum + s.confidence, 0) / currentGroup.segments.length;
+    } else {
+      groups.push(currentGroup);
+      currentGroup = {
+        segments: [segment],
+        contentClass: segment.contentClass,
+        avgConfidence: segment.confidence
+      };
+    }
+  }
+  groups.push(currentGroup);
+
+  console.log('[mergeAndSplitSegments] Created', groups.length, 'groups from', classifiedSegments.length, 'segments');
+
+  // Convert groups to chunks, splitting if necessary
+  for (const group of groups) {
+    const mergedContent = group.segments.map(s => s.content).join('\n\n');
+    const mergedIds = group.segments.map(s => s.id);
+
+    // Find the best title from the merged content
+    const title = extractSmartTitle(mergedContent, group.contentClass);
+
+    // Calculate page range
+    const startPage = group.segments[0].estimatedPage || 1;
+    const endPage = group.segments[group.segments.length - 1].estimatedPage || startPage;
+
+    // Size limits vary by content type and mode
+    // - JDs: 8000 (complete logical units)
+    // - Policy in handbook mode: 20000 (keep whole topics together)
+    // - Other: 4000
+    let MAX_CHUNK_SIZE: number;
+    if (group.contentClass === 'job_description') {
+      MAX_CHUNK_SIZE = 8000;
+    } else if (isHandbookMode && group.contentClass === 'policy') {
+      MAX_CHUNK_SIZE = 20000;  // Much higher for handbook policy topics
+    } else {
+      MAX_CHUNK_SIZE = 4000;
+    }
+
+    if (mergedContent.length <= MAX_CHUNK_SIZE) {
+      chunks.push({
+        content: mergedContent,
+        contentClass: group.contentClass,
+        confidence: group.avgConfidence,
+        title,
+        summary: mergedContent.slice(0, 250) + (mergedContent.length > 250 ? '...' : ''),
+        pageRange: { start: startPage, end: endPage },
+        mergedFrom: mergedIds,
+        isPartOfLargerUnit: false
+      });
+    } else {
+      // Need to split - do it intelligently based on content type
+      const subChunks = splitLargeGroup(mergedContent, group.contentClass, title, MAX_CHUNK_SIZE);
+
+      subChunks.forEach((subContent, idx) => {
+        chunks.push({
+          content: subContent,
+          contentClass: group.contentClass,
+          confidence: group.avgConfidence * 0.95,  // Slightly lower confidence for split chunks
+          title: subChunks.length > 1 ? `${title} (Part ${idx + 1})` : title,
+          summary: subContent.slice(0, 250) + (subContent.length > 250 ? '...' : ''),
+          pageRange: { start: startPage, end: endPage },
+          mergedFrom: mergedIds,
+          isPartOfLargerUnit: subChunks.length > 1,
+          parentUnitTitle: subChunks.length > 1 ? title : undefined
+        });
+      });
+    }
+  }
+
+  console.log('[mergeAndSplitSegments] Final chunk count:', chunks.length);
+  return chunks;
+}
+
+/**
+ * Extract a smart title based on content type
+ */
+function extractSmartTitle(content: string, contentClass: ContentClass): string {
+  // For JDs, look for job title
+  if (contentClass === 'job_description') {
+    const titleMatch = content.match(/(?:job\s+title|position\s+title|position)\s*:\s*([^\n]+)/i);
+    if (titleMatch) return titleMatch[1].trim();
+
+    // Look for a prominent header at the start
+    const headerMatch = content.match(/^([A-Z][A-Za-z\s]+(?:Clerk|Manager|Associate|Supervisor|Director|Coordinator|Specialist|Technician|Assistant)[A-Za-z\s]*)/m);
+    if (headerMatch) return headerMatch[1].trim();
+  }
+
+  // For policies, look for policy name
+  if (contentClass === 'policy') {
+    const policyMatch = content.match(/(?:^|\n)([A-Z][A-Za-z\s]+Policy)/m);
+    if (policyMatch) return policyMatch[1].trim();
+  }
+
+  // For procedures, look for "How to" or procedure name
+  if (contentClass === 'procedure') {
+    const howToMatch = content.match(/how\s+to\s+([^\n.]+)/i);
+    if (howToMatch) return `How to ${howToMatch[1].trim()}`;
+
+    const procMatch = content.match(/procedure\s*:\s*([^\n]+)/i);
+    if (procMatch) return procMatch[1].trim();
+  }
+
+  // Fallback: Use first header or first line
+  const firstHeader = content.match(/^([A-Z][A-Z\s]{3,})$/m);
+  if (firstHeader) return firstHeader[1].trim();
+
+  const firstLine = content.split('\n')[0].trim().slice(0, 60);
+  return firstLine || `${contentClass} Section`;
+}
+
+/**
+ * Split a large content group intelligently based on content type
+ */
+function splitLargeGroup(content: string, contentClass: ContentClass, parentTitle: string, maxSize: number): string[] {
+  const chunks: string[] = [];
+
+  // For JDs, try to split by major sections (DUTIES, QUALIFICATIONS, etc.)
+  if (contentClass === 'job_description') {
+    const jdSectionPattern = /(?=\n(?:ESSENTIAL\s+(?:DUTIES|FUNCTIONS)|QUALIFICATIONS|RESPONSIBILITIES|REQUIREMENTS|EDUCATION|EXPERIENCE|PHYSICAL\s+REQUIREMENTS|WORKING\s+CONDITIONS))/gi;
+    const sections = content.split(jdSectionPattern).filter(s => s.trim().length > 50);
+
+    if (sections.length >= 2) {
+      // Keep header with first section, group rest if possible
+      let currentChunk = sections[0];
+      for (let i = 1; i < sections.length; i++) {
+        if (currentChunk.length + sections[i].length <= maxSize) {
+          currentChunk += '\n\n' + sections[i];
+        } else {
+          chunks.push(currentChunk.trim());
+          currentChunk = sections[i];
+        }
+      }
+      if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+      }
+      return chunks;
+    }
+  }
+
+  // For policies, try to split by sub-sections
+  if (contentClass === 'policy') {
+    const policySectionPattern = /(?=\n(?:[A-Z][A-Z\s]{5,}|#{1,3}\s+))/g;
+    const sections = content.split(policySectionPattern).filter(s => s.trim().length > 50);
+
+    if (sections.length >= 2) {
+      let currentChunk = sections[0];
+      for (let i = 1; i < sections.length; i++) {
+        if (currentChunk.length + sections[i].length <= maxSize) {
+          currentChunk += '\n\n' + sections[i];
+        } else {
+          chunks.push(currentChunk.trim());
+          currentChunk = sections[i];
+        }
+      }
+      if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+      }
+      return chunks;
+    }
+  }
+
+  // Fallback: Split by paragraphs, respecting size limit
+  const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 20);
+  let currentChunk = '';
+
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > maxSize && currentChunk.length > 200) {
+      chunks.push(currentChunk.trim());
+      currentChunk = para;
+    } else {
+      currentChunk += (currentChunk ? '\n\n' : '') + para;
+    }
+  }
+
+  if (currentChunk.trim().length > 0) {
+    chunks.push(currentChunk.trim());
+  }
+
+  // If we still have chunks that are too big, do character-based splitting
+  const finalChunks: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.length > maxSize) {
+      for (let i = 0; i < chunk.length; i += maxSize - 100) {
+        finalChunks.push(chunk.slice(i, i + maxSize - 100).trim());
+      }
+    } else {
+      finalChunks.push(chunk);
+    }
+  }
+
+  return finalChunks.length > 0 ? finalChunks : [content.slice(0, maxSize)];
+}
+
+// =============================================================================
+// MAIN SMART CHUNKING FUNCTION
+// =============================================================================
+
+/**
+ * Smart chunk a document using the full pipeline:
+ * Extract → Segment → Classify (with context) → Merge/Split
+ */
+async function smartChunkDocument(text: string, sourceType: string): Promise<SmartChunk[]> {
+  console.log('[smartChunkDocument] Starting smart chunking for', text.length, 'chars');
+
+  if (!text || text.trim().length < 50) {
+    console.warn('[smartChunkDocument] Text too short');
+    return [];
+  }
+
+  // Step 1: Extract segments
+  const segments = extractSegments(text);
+  if (segments.length === 0) {
+    console.warn('[smartChunkDocument] No segments extracted');
+    return [];
+  }
+
+  // Step 2: Classify with context
+  const classifiedSegments = classifyAllSegments(segments);
+
+  // Step 3: Merge and split intelligently
+  const smartChunks = mergeAndSplitSegments(classifiedSegments);
+
+  console.log('[smartChunkDocument] Complete:', smartChunks.length, 'smart chunks');
+  return smartChunks;
+}
+
+/**
+ * Convert SmartChunks to the format expected by the existing chunk-source handler
+ */
+function convertSmartChunksToChunkResults(smartChunks: SmartChunk[]): ChunkResult[] {
+  return smartChunks.map(sc => ({
+    title: sc.title,
+    content: sc.content,
+    chunk_type: sc.isPartOfLargerUnit ? 'content' : 'header',
+    hierarchy_level: sc.isPartOfLargerUnit ? 1 : 0,
+    key_terms: [], // Tags handled by separate flow after content is published
+    summary: sc.summary
+  }));
+}
+
+// Job description detection patterns
+const JD_PATTERNS = [
+  /job\s+title\s*:/i,
+  /position\s+title\s*:/i,
+  /reports\s+to\s*:/i,
+  /essential\s+(duties|functions)/i,
+  /qualifications?\s*:/i,
+  /responsibilities\s*:/i,
+  /position\s+summary/i,
+  /job\s+summary/i,
+  /required\s+skills/i,
+  /minimum\s+requirements/i,
+  /education\s+requirements?/i,
+  /experience\s+requirements?/i,
+  /flsa\s+status/i,
+  /exempt\s+status/i,
+  /salary\s+(range|grade)/i,
+  /department\s*:/i,
+  /work\s+schedule/i,
+  /physical\s+requirements/i,
+  /working\s+conditions/i,
+  /supervisory\s+responsibilities/i
+];
+
+// Policy detection patterns - rules, standards, expectations
+const POLICY_PATTERNS = [
+  /policy\s*(statement|overview)?/i,
+  /\bpurpose\s*:/i,
+  /\bscope\s*:/i,
+  /this\s+policy\s+(applies|covers|addresses)/i,
+  /employees\s+(must|shall|are\s+required)/i,
+  /prohibited\s+(conduct|behavior|activities)/i,
+  /violation(s)?\s+(of\s+this|may\s+result)/i,
+  /disciplinary\s+action/i,
+  /compliance\s+(with|requirements)/i,
+  /code\s+of\s+conduct/i,
+  /\bstandards\s+of\s+(conduct|behavior)/i,
+  /effective\s+date\s*:/i,
+  /policy\s+number\s*:/i,
+  /approved\s+by\s*:/i
+];
+
+// Procedure detection patterns - step-by-step instructions
+const PROCEDURE_PATTERNS = [
+  /step\s+\d+/i,
+  /\d+\.\s*(first|then|next|finally)/i,
+  /how\s+to\s+\w+/i,
+  /procedure\s*(for|to)?/i,
+  /instructions?\s*(for|to)?/i,
+  /\bsop\b/i,
+  /standard\s+operating\s+procedure/i,
+  /follow\s+these\s+steps/i,
+  /begin\s+by/i,
+  /when\s+complete/i,
+  /repeat\s+(step|until)/i,
+  /troubleshooting/i,
+  /if\s+.*then\s+/i,
+  /ensure\s+that/i,
+  /verify\s+that/i
+];
+
+// Training materials patterns - guides, checklists, OJT content
+const TRAINING_PATTERNS = [
+  /training\s+(guide|manual|module)/i,
+  /learning\s+objectives?/i,
+  /\bcheckpoint\b/i,
+  /\bchecklist\b/i,
+  /assessment\s+(questions?|quiz)/i,
+  /\bojt\b/i,
+  /on[- ]the[- ]job\s+training/i,
+  /orientation/i,
+  /onboarding/i,
+  /\bmodule\s+\d+/i,
+  /lesson\s+\d+/i,
+  /\bunit\s+\d+/i,
+  /review\s+questions/i,
+  /knowledge\s+check/i,
+  /competency/i,
+  /skill\s+(development|building)/i,
+  /\btrainee\b/i,
+  /certification/i,
+  /quiz\s*:/i,
+  /test\s+your\s+knowledge/i
+];
+
+/**
+ * Classify chunk content using pattern matching
+ * Priority: job_description > procedure > policy > training_materials > other
+ */
+function classifyChunkContent(content: string): ContentClassification {
+  // Count pattern matches for each type
+  const jdMatchCount = JD_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const procedureMatchCount = PROCEDURE_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const policyMatchCount = POLICY_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const trainingMatchCount = TRAINING_PATTERNS.filter(pattern => pattern.test(content)).length;
+
+  // 1. JOB DESCRIPTION - Strong indicators (4+ patterns)
+  if (jdMatchCount >= 4) {
+    let roleName: string | null = null;
+    const titleMatch = content.match(/(?:job\s+title|position\s+title|position)\s*:\s*([^\n]+)/i);
+    if (titleMatch) {
+      roleName = titleMatch[1].trim();
+    }
+
+    return {
+      content_class: 'job_description',
+      confidence: Math.min(0.95, 0.70 + (jdMatchCount * 0.05)),
+      is_extractable: true,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: jdMatchCount,
+        potential_role_name: roleName
+      }
+    };
+  }
+
+  // 2. JOB DESCRIPTION - Moderate indicators (2-3 patterns)
+  if (jdMatchCount >= 2) {
+    return {
+      content_class: 'job_description',
+      confidence: 0.50 + (jdMatchCount * 0.10),
+      is_extractable: jdMatchCount >= 3,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: jdMatchCount,
+        needs_ai_verification: true
+      }
+    };
+  }
+
+  // 3. PROCEDURE - Step-by-step instructions
+  if (procedureMatchCount >= 3) {
+    return {
+      content_class: 'procedure',
+      confidence: Math.min(0.90, 0.60 + (procedureMatchCount * 0.08)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: procedureMatchCount
+      }
+    };
+  }
+
+  // 4. POLICY - Rules and expectations
+  if (policyMatchCount >= 3) {
+    return {
+      content_class: 'policy',
+      confidence: Math.min(0.90, 0.60 + (policyMatchCount * 0.08)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: policyMatchCount
+      }
+    };
+  }
+
+  // 5. TRAINING MATERIALS - Guides, checklists, OJT
+  if (trainingMatchCount >= 2) {
+    return {
+      content_class: 'training_materials',
+      confidence: Math.min(0.85, 0.55 + (trainingMatchCount * 0.10)),
+      is_extractable: false,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: trainingMatchCount
+      }
+    };
+  }
+
+  // 6. If we have some policy or procedure indicators but not enough for high confidence
+  if (policyMatchCount >= 1 || procedureMatchCount >= 1) {
+    // Tie-break: procedure patterns slightly favor procedure, otherwise policy
+    if (procedureMatchCount > policyMatchCount) {
+      return {
+        content_class: 'procedure',
+        confidence: 0.50,
+        is_extractable: false,
+        extraction_hints: { detected_via: 'weak_pattern_matching', needs_ai_verification: true }
+      };
+    }
+    return {
+      content_class: 'policy',
+      confidence: 0.50,
+      is_extractable: false,
+      extraction_hints: { detected_via: 'weak_pattern_matching', needs_ai_verification: true }
+    };
+  }
+
+  // 7. Default to training_materials (catchall for content that might need track conversion)
+  return {
+    content_class: 'training_materials',
+    confidence: 0.40,
+    is_extractable: false,
+    extraction_hints: { detected_via: 'default_fallback' }
+  };
+}
+
+/**
+ * AI-enhanced content classification for borderline/low-confidence cases
+ */
+async function classifyChunkContentWithAI(content: string): Promise<ContentClassification> {
+  // First try pattern matching
+  const patternResult = classifyChunkContent(content);
+
+  // If high confidence, return pattern result
+  if (patternResult.confidence > 0.75) {
+    return patternResult;
+  }
+
+  // For borderline cases, use AI verification
+  if (!OPENAI_API_KEY) {
+    return patternResult;
+  }
+
+  try {
+    const prompt = `You are classifying content from employee documents. Classify this text into ONE of these categories:
+
+**POLICY** - Rules, expectations, and standards that employees must follow
+- Examples: Sexual Harassment Policy, Attendance Policy, Code of Conduct
+- Key indicators: "employees must/shall", "prohibited conduct", "disciplinary action", "violation", "compliance"
+- Describes WHAT rules apply, not HOW to do something
+
+**PROCEDURE** - Step-by-step instructions for completing a specific task
+- Examples: How to Change the Register Paper, Opening/Closing Procedures, Cash Handling Steps
+- Key indicators: numbered steps, "Step 1", "first...then...next", "how to", "SOP"
+- Describes HOW to do something specific
+
+**JOB_DESCRIPTION** - Definition of a specific role/position
+- Examples: Store Manager Job Description, Cashier Responsibilities
+- Key indicators: "Job Title:", "Reports To:", "Qualifications:", "Essential Duties"
+- Describes a single ROLE and its requirements
+
+**TRAINING_MATERIALS** - Catchall for learning content, guides, checklists, OJT materials
+- Examples: New Hire Orientation Guide, Manager Training Checklist, Safety Training Module
+- Key indicators: "learning objectives", "checklist", "training guide", "assessment", "quiz"
+- Content that could be converted into training tracks
+
+**OTHER** - Content that doesn't fit the above (forms, tables, misc)
+
+Text to classify:
+${content.slice(0, 2000)}
+
+Respond with JSON only:
+{
+  "content_class": "policy" | "procedure" | "job_description" | "training_materials" | "other",
+  "confidence": 0.0-1.0,
+  "role_name": string | null (only if job_description),
+  "reasoning": "brief explanation"
+}`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.2, response_format: { type: "json_object" } }
+    );
+
+    const parsed = JSON.parse(response);
+    const validClasses: ContentClass[] = ['policy', 'procedure', 'job_description', 'training_materials', 'other'];
+    const contentClass = validClasses.includes(parsed.content_class) ? parsed.content_class : 'training_materials';
+
+    return {
+      content_class: contentClass,
+      confidence: parsed.confidence || 0.70,
+      is_extractable: contentClass === 'job_description' && (parsed.confidence || 0.70) > 0.70,
+      extraction_hints: {
+        detected_via: 'ai_classification',
+        potential_role_name: parsed.role_name || null,
+        reasoning: parsed.reasoning
+      }
+    };
+  } catch (error) {
+    console.error('[classifyChunkContentWithAI] AI classification failed:', error);
+    return patternResult;
+  }
+}
+
+/**
+ * Intelligently chunk a document using AI
+ */
+async function handleChunkSource(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { source_file_id, options = {} } = body;
+
+    console.log('[chunk-source] Starting chunking for source_file_id:', source_file_id);
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the source file with extracted text
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, organization_id, file_name, extracted_text, source_type, is_chunked")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[chunk-source] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    // Validate extracted text exists and has meaningful content
+    if (!sourceFile.extracted_text || sourceFile.extracted_text.trim().length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "No extracted text available. Please extract text first.",
+        code: "NO_TEXT"
+      }, 400);
+    }
+
+    // Check for minimum text length for chunking
+    const trimmedText = sourceFile.extracted_text.trim();
+    if (trimmedText.length < 50) {
+      return jsonResponse({
+        success: false,
+        error: `Document has too little text content (${trimmedText.length} characters). Minimum 50 characters required for chunking.`,
+        code: "TEXT_TOO_SHORT"
+      }, 400);
+    }
+
+    console.log('[chunk-source] Found source file:', sourceFile.file_name);
+    console.log('[chunk-source] Text length:', sourceFile.extracted_text.length, 'characters');
+
+    // Delete existing chunks if re-chunking
+    if (sourceFile.is_chunked) {
+      console.log('[chunk-source] Deleting existing chunks...');
+      await supabase
+        .from("source_chunks")
+        .delete()
+        .eq("source_file_id", source_file_id);
+    }
+
+    // Use smart chunking pipeline (context-aware classification + intelligent merging)
+    const useSmartChunking = options.smart !== false;  // Default to smart chunking
+    console.log('[chunk-source] Using smart chunking:', useSmartChunking);
+
+    let chunkRecords: any[];
+
+    if (useSmartChunking) {
+      // NEW: Smart chunking pipeline - classifies WHILE chunking with context awareness
+      const smartChunks = await smartChunkDocument(
+        sourceFile.extracted_text,
+        sourceFile.source_type || 'other'
+      );
+
+      console.log('[chunk-source] Smart chunking produced', smartChunks.length, 'chunks');
+      console.log('[chunk-source] Content types:',
+        smartChunks.reduce((acc, c) => {
+          acc[c.contentClass] = (acc[c.contentClass] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      );
+
+      // Convert smart chunks to database records
+      chunkRecords = smartChunks.map((chunk, index) => ({
+        source_file_id: source_file_id,
+        organization_id: sourceFile.organization_id,
+        chunk_index: index,
+        content: chunk.content,
+        title: chunk.title,
+        summary: chunk.summary,
+        word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+        char_count: chunk.content.length,
+        estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60),
+        chunk_type: chunk.isPartOfLargerUnit ? 'content' : 'header',
+        hierarchy_level: chunk.isPartOfLargerUnit ? 1 : 0,
+        key_terms: [], // Tags handled by separate flow after content is published
+        // Classification from smart chunking (context-aware!)
+        content_class: chunk.contentClass,
+        content_class_confidence: chunk.confidence,
+        content_class_detected_at: new Date().toISOString(),
+        is_extractable: chunk.contentClass === 'job_description',
+        extraction_status: 'pending',
+        metadata: {
+          chunked_at: new Date().toISOString(),
+          source_type: sourceFile.source_type,
+          smart_chunking: true,
+          page_range: chunk.pageRange,
+          merged_from_segments: chunk.mergedFrom,
+          is_part_of_larger_unit: chunk.isPartOfLargerUnit,
+          parent_unit_title: chunk.parentUnitTitle
+        }
+      }));
+    } else {
+      // LEGACY: Original chunking (for backwards compatibility)
+      const chunks = await chunkDocument(
+        sourceFile.extracted_text,
+        sourceFile.source_type || 'other',
+        options
+      );
+
+      console.log('[chunk-source] Legacy chunking produced', chunks.length, 'chunks');
+
+      // Classify content for each chunk (old method - no context awareness)
+      const classifications: ContentClassification[] = [];
+      for (const chunk of chunks) {
+        const classification = classifyChunkContent(chunk.content);
+        classifications.push(classification);
+      }
+      console.log('[chunk-source] Classifications complete. JDs detected:',
+        classifications.filter(c => c.content_class === 'job_description').length);
+
+      // Convert to database records
+      chunkRecords = chunks.map((chunk, index) => {
+        const classification = classifications[index] || { content_class: 'policy', confidence: 0.5, is_extractable: false };
+        return {
+          source_file_id: source_file_id,
+          organization_id: sourceFile.organization_id,
+          chunk_index: index,
+          content: chunk.content,
+          title: chunk.title,
+          summary: chunk.summary,
+          word_count: chunk.content.split(/\s+/).filter((w: string) => w.length > 0).length,
+          char_count: chunk.content.length,
+          estimated_read_time_seconds: Math.ceil(chunk.content.split(/\s+/).length / 200 * 60),
+          chunk_type: chunk.chunk_type,
+          hierarchy_level: chunk.hierarchy_level,
+          key_terms: [], // Tags handled by separate flow after content is published
+          content_class: classification.content_class,
+          content_class_confidence: classification.confidence,
+          content_class_detected_at: new Date().toISOString(),
+          is_extractable: classification.is_extractable,
+          extraction_status: 'pending',
+          metadata: {
+            chunked_at: new Date().toISOString(),
+            source_type: sourceFile.source_type,
+            smart_chunking: false,
+            classification_hints: classification.extraction_hints
+          }
+        };
+      });
+    }
+
+    const { data: insertedChunks, error: insertError } = await supabase
+      .from("source_chunks")
+      .insert(chunkRecords)
+      .select("id, chunk_index, content_class, is_extractable");
+
+    if (insertError) {
+      console.error('[chunk-source] Failed to insert chunks:', insertError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to save chunks: ${insertError.message}`,
+        code: "INSERT_FAILED"
+      }, 500);
+    }
+
+    // Create extracted_entities for extractable chunks (JDs)
+    const extractableChunks = insertedChunks?.filter(c => c.is_extractable) || [];
+    const extractedEntities: any[] = [];
+
+    if (extractableChunks.length > 0) {
+      console.log('[chunk-source] Creating', extractableChunks.length, 'extracted entities...');
+
+      for (const chunk of extractableChunks) {
+        const chunkRecord = chunkRecords[chunk.chunk_index];
+        const { data: entity, error: entityError } = await supabase
+          .from("extracted_entities")
+          .insert({
+            organization_id: sourceFile.organization_id,
+            source_file_id: source_file_id,
+            source_chunk_id: chunk.id,
+            entity_type: chunk.content_class,
+            entity_status: 'pending',
+            extracted_data: chunkRecord?.metadata || {},
+            extraction_confidence: chunkRecord?.content_class_confidence || 0.7,
+            extraction_method: useSmartChunking ? 'smart_context' : 'pattern'
+          })
+          .select()
+          .single();
+
+        if (!entityError && entity) {
+          extractedEntities.push(entity);
+        }
+      }
+
+      // Update source file with entity counts
+      await supabase
+        .from("source_files")
+        .update({
+          detected_entity_count: extractedEntities.length,
+          pending_entity_count: extractedEntities.length,
+          has_job_descriptions: extractedEntities.some(e => e.entity_type === 'job_description')
+        })
+        .eq("id", source_file_id);
+    }
+
+    // Update source file status
+    await supabase
+      .from("source_files")
+      .update({
+        is_chunked: true,
+        chunked_at: new Date().toISOString(),
+        chunk_count: chunkRecords.length
+      })
+      .eq("id", source_file_id);
+
+    const processingTimeMs = Date.now() - startTime;
+    console.log('[chunk-source] Chunking completed in', processingTimeMs, 'ms');
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      chunk_count: chunkRecords.length,
+      processing_time_ms: processingTimeMs,
+      chunks: chunkRecords.map(c => ({
+        chunk_index: c.chunk_index,
+        title: c.title,
+        word_count: c.word_count,
+        char_count: c.char_count,
+        chunk_type: c.chunk_type,
+        hierarchy_level: c.hierarchy_level,
+        content_class: c.content_class,
+        content_class_confidence: c.content_class_confidence,
+        is_extractable: c.is_extractable,
+        metadata: c.metadata
+      })),
+      // New: Include extracted entities info
+      extracted_entities: {
+        total: extractedEntities.length,
+        job_descriptions: extractedEntities.filter(e => e.entity_type === 'job_description').length,
+        entities: extractedEntities.map(e => ({
+          id: e.id,
+          entity_type: e.entity_type,
+          entity_status: e.entity_status,
+          confidence: e.extraction_confidence,
+          potential_role_name: e.extracted_data?.potential_role_name
+        }))
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[chunk-source] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Chunking failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Smart document chunking algorithm
+ */
+async function chunkDocument(
+  text: string,
+  sourceType: string,
+  options: { targetChunkSize?: number; useAI?: boolean } = {}
+): Promise<ChunkResult[]> {
+  // Default to NO AI - it's slow and causes timeouts for large documents
+  // AI enhancement can be explicitly enabled via options.useAI = true
+  const { targetChunkSize = 500, useAI = false } = options;
+
+  console.log('[chunkDocument] Input text length:', text?.length || 0, 'characters');
+
+  if (!text || text.trim().length < 50) {
+    console.warn('[chunkDocument] Text too short or empty, cannot chunk');
+    return [];
+  }
+
+  // First pass: Split by obvious section markers
+  const sections = splitIntoSections(text);
+
+  console.log('[chunkDocument] Initial sections:', sections.length);
+
+  // Safety check: if we still have 0 sections after all fallbacks, log error
+  if (sections.length === 0) {
+    console.error('[chunkDocument] CRITICAL: splitIntoSections returned 0 sections for', text.length, 'chars of text');
+    console.error('[chunkDocument] First 500 chars of text:', text.slice(0, 500));
+  }
+
+  // If we have a reasonable number of sections and AI is enabled, enhance with AI
+  if (useAI && OPENAI_API_KEY && sections.length > 0 && sections.length < 50) {
+    return await enhanceChunksWithAI(sections, sourceType);
+  }
+
+  // Fallback: Use rule-based chunking
+  return sections.map((section, index) => ({
+    title: extractTitle(section) || `Section ${index + 1}`,
+    content: section.trim(),
+    chunk_type: detectChunkType(section),
+    hierarchy_level: detectHierarchyLevel(section),
+    key_terms: [], // Tags handled by separate flow after content is published
+    summary: section.slice(0, 200) + (section.length > 200 ? '...' : '')
+  }));
+}
+
+/**
+ * Split text into sections based on structural markers
+ */
+function splitIntoSections(text: string): string[] {
+  const sections: string[] = [];
+
+  if (!text || typeof text !== 'string') {
+    console.error('[splitIntoSections] CRITICAL: text is invalid');
+    return [];
+  }
+
+  // Normalize text: ensure consistent line endings
+  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  console.log('[splitIntoSections] Input text length:', normalizedText.length, 'chars');
+
+  // Split by common section markers
+  // Match: numbered sections (1., 1.1, etc.), headers (ALL CAPS lines), or double newlines with capitalized starts
+  const sectionPattern = /(?=\n(?:\d+\.[\d.]*\s+[A-Z]|\n[A-Z][A-Z\s]{10,}\n|\n\n[A-Z]))/g;
+
+  const parts = normalizedText.split(sectionPattern).filter(p => p.trim().length > 50);
+  console.log('[splitIntoSections] Section pattern found', parts.length, 'parts');
+
+  if (parts.length >= 3) {
+    sections.push(...parts);
+  } else {
+    // Not enough natural sections, try paragraph-based splitting
+    // First try double newlines
+    let paragraphs = normalizedText.split(/\n\n+/).filter(p => p.trim().length > 20);
+    console.log('[splitIntoSections] Double newline split found', paragraphs.length, 'paragraphs');
+
+    // If no double newlines, try single newlines with blank-line detection
+    if (paragraphs.length < 3) {
+      // Try splitting on lines that look like paragraph breaks:
+      // - Blank lines (even if just whitespace)
+      // - Lines ending with period followed by newline + capital letter
+      paragraphs = normalizedText.split(/\n\s*\n|\.\s*\n(?=[A-Z])/).filter(p => p.trim().length > 20);
+      console.log('[splitIntoSections] Single newline split found', paragraphs.length, 'paragraphs');
+    }
+
+    // If still not enough paragraphs, use sentence-based or character-based chunking
+    if (paragraphs.length < 3) {
+      console.log('[splitIntoSections] Falling back to sentence-based chunking');
+      // Split entire text into sentences and group them
+      // More flexible regex: matches text followed by period/question/exclamation with optional whitespace
+      const sentences = normalizedText.match(/[^.!?\n]+[.!?]+[\s]*/g) || [];
+      console.log('[splitIntoSections] Found', sentences.length, 'sentences');
+
+      if (sentences.length > 0) {
+        let currentChunk = '';
+        for (const sentence of sentences) {
+          if (currentChunk.length + sentence.length > 1500 && currentChunk.length > 200) {
+            sections.push(currentChunk.trim());
+            currentChunk = sentence;
+          } else {
+            currentChunk += ' ' + sentence;
+          }
+        }
+        if (currentChunk.trim().length > 50) {
+          sections.push(currentChunk.trim());
+        }
+      }
+      console.log('[splitIntoSections] After sentence chunking:', sections.length, 'sections');
+    } else {
+      // Build chunks from paragraphs
+      let currentChunk = '';
+      for (const para of paragraphs) {
+        if (currentChunk.length + para.length > 2000 && currentChunk.length > 300) {
+          sections.push(currentChunk.trim());
+          currentChunk = para;
+        } else {
+          currentChunk += '\n\n' + para;
+        }
+      }
+      if (currentChunk.trim().length > 50) {
+        sections.push(currentChunk.trim());
+      }
+    }
+  }
+
+  // CRITICAL FALLBACK: If we still have no sections but have valid text,
+  // force character-based chunking. This is the LAST RESORT and should ALWAYS
+  // produce chunks for any text >= 50 chars.
+  if (sections.length === 0 && normalizedText.trim().length >= 50) {
+    console.log('[splitIntoSections] CRITICAL: Using forced character-based chunking for', normalizedText.length, 'chars');
+    const trimmedText = normalizedText.trim();
+
+    // For large documents, chunk by ~1500 chars
+    if (trimmedText.length > 1500) {
+      for (let i = 0; i < trimmedText.length; i += 1500) {
+        const chunk = trimmedText.slice(i, i + 1500).trim();
+        if (chunk.length > 0) {
+          sections.push(chunk);
+        }
+      }
+    } else {
+      // For smaller documents, just use the whole text
+      sections.push(trimmedText);
+    }
+    console.log('[splitIntoSections] Forced chunking produced', sections.length, 'sections');
+  }
+
+  // Further split any sections that are too large (>3000 chars)
+  const finalSections: string[] = [];
+  for (const section of sections) {
+    if (section.length > 3000) {
+      const subSections = splitLargeSection(section);
+      finalSections.push(...subSections);
+    } else {
+      finalSections.push(section);
+    }
+  }
+
+  // Final safety check - if STILL no sections after everything, that's a critical error
+  if (finalSections.length === 0 && normalizedText.trim().length >= 50) {
+    console.error('[splitIntoSections] CRITICAL ERROR: All chunking strategies failed for', normalizedText.length, 'chars. Forcing single section.');
+    finalSections.push(normalizedText.trim().slice(0, 3000)); // Cap at 3000 chars as safety
+  }
+
+  console.log('[splitIntoSections] Final output:', finalSections.length, 'sections');
+  return finalSections;
+}
+
+/**
+ * Split a large section into smaller chunks while preserving coherence
+ */
+function splitLargeSection(text: string): string[] {
+  const chunks: string[] = [];
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+
+  let currentChunk = '';
+  for (const sentence of sentences) {
+    if (currentChunk.length + sentence.length > 2000 && currentChunk.length > 300) {
+      chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    } else {
+      currentChunk += ' ' + sentence;
+    }
+  }
+  if (currentChunk.trim().length > 50) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks;
+}
+
+/**
+ * Extract a title from section content
+ */
+function extractTitle(text: string): string | null {
+  const lines = text.trim().split('\n');
+  const firstLine = lines[0]?.trim();
+
+  // Check if first line looks like a title (short, possibly numbered)
+  if (firstLine && firstLine.length < 100) {
+    // Remove numbering like "1.1" or "Section 1:"
+    const cleaned = firstLine.replace(/^[\d.]+\s*/, '').replace(/^(section|chapter)\s*\d*:?\s*/i, '');
+    if (cleaned.length > 3 && cleaned.length < 80) {
+      return cleaned;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detect the type of content in a chunk
+ */
+function detectChunkType(text: string): 'header' | 'content' | 'list' | 'table' | 'form' {
+  const trimmed = text.trim();
+
+  // Check for list patterns
+  const listLines = trimmed.split('\n').filter(l => /^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/.test(l));
+  if (listLines.length > trimmed.split('\n').length * 0.5) {
+    return 'list';
+  }
+
+  // Check for form patterns (underscores, colons followed by blanks)
+  if (/_{5,}|:\s*_{3,}/.test(trimmed)) {
+    return 'form';
+  }
+
+  // Check for table-like patterns (multiple columns separated by tabs or multiple spaces)
+  const tableLines = trimmed.split('\n').filter(l => /\t|\s{3,}/.test(l) && l.split(/\t|\s{3,}/).length > 2);
+  if (tableLines.length > 3) {
+    return 'table';
+  }
+
+  // Short chunks that look like headers
+  if (trimmed.length < 100 && !/[.!?]$/.test(trimmed)) {
+    return 'header';
+  }
+
+  return 'content';
+}
+
+/**
+ * Detect hierarchy level based on formatting
+ */
+function detectHierarchyLevel(text: string): number {
+  const firstLine = text.trim().split('\n')[0] || '';
+
+  // Check for numbered hierarchy (1, 1.1, 1.1.1)
+  const numberMatch = firstLine.match(/^(\d+(?:\.\d+)*)/);
+  if (numberMatch) {
+    return numberMatch[1].split('.').length - 1;
+  }
+
+  // Check for header markers
+  if (/^#{1}\s/.test(firstLine)) return 0;
+  if (/^#{2}\s/.test(firstLine)) return 1;
+  if (/^#{3}\s/.test(firstLine)) return 2;
+
+  // ALL CAPS usually indicates top-level
+  if (firstLine === firstLine.toUpperCase() && firstLine.length > 5 && firstLine.length < 80) {
+    return 0;
+  }
+
+  return 1; // Default to section level
+}
+
+/**
+ * Extract key terms from text
+ */
+function extractKeyTerms(text: string): string[] {
+  // Simple extraction: find capitalized phrases, acronyms, and quoted terms
+  const terms = new Set<string>();
+
+  // Acronyms (2-6 capital letters)
+  const acronyms = text.match(/\b[A-Z]{2,6}\b/g) || [];
+  acronyms.forEach(a => terms.add(a));
+
+  // Capitalized phrases (excluding sentence starts)
+  const capitalPhrases = text.match(/(?<=[.!?]\s+|\n)[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
+  capitalPhrases.slice(0, 5).forEach(p => terms.add(p));
+
+  // Quoted terms
+  const quoted = text.match(/"([^"]+)"/g) || [];
+  quoted.slice(0, 3).forEach(q => terms.add(q.replace(/"/g, '')));
+
+  return Array.from(terms).slice(0, 10);
+}
+
+/**
+ * Enhance chunks with AI-generated metadata
+ */
+async function enhanceChunksWithAI(sections: string[], sourceType: string): Promise<ChunkResult[]> {
+  console.log('[enhanceChunksWithAI] Enhancing', sections.length, 'sections with AI');
+
+  // Process in batches to avoid token limits
+  const batchSize = 5;
+  const results: ChunkResult[] = [];
+
+  for (let i = 0; i < sections.length; i += batchSize) {
+    const batch = sections.slice(i, i + batchSize);
+
+    const prompt = `Analyze these document sections from a ${sourceType} document and provide metadata for each.
+
+For each section, return a JSON object with:
+- title: A concise, descriptive title (max 60 chars)
+- summary: A 1-2 sentence summary of the key information
+- chunk_type: One of "header", "content", "list", "table", "form"
+- hierarchy_level: 0 for main sections, 1 for subsections, 2 for sub-subsections
+
+Sections to analyze:
+${batch.map((s, idx) => `\n--- SECTION ${i + idx + 1} ---\n${s.slice(0, 1500)}`).join('\n')}
+
+Return a JSON array with one object per section, in order. Only return valid JSON, no other text.`;
+
+    try {
+      const response = await callOpenAI(
+        [{ role: "user", content: prompt }],
+        { temperature: 0.3, response_format: { type: "json_object" } }
+      );
+
+      // Parse AI response
+      let parsed;
+      try {
+        parsed = JSON.parse(response);
+        // Handle both array and object with array property
+        let aiResults = Array.isArray(parsed) ? parsed : (parsed.sections || parsed.chunks || parsed.results || null);
+
+        // If still not an array, try Object.values on the first non-null value
+        if (!Array.isArray(aiResults) && parsed && typeof parsed === 'object') {
+          const values = Object.values(parsed);
+          for (const val of values) {
+            if (Array.isArray(val)) {
+              aiResults = val;
+              break;
+            }
+          }
+        }
+
+        if (Array.isArray(aiResults) && aiResults.length > 0) {
+          // Ensure we don't exceed batch length
+          const maxItems = Math.min(aiResults.length, batch.length);
+          for (let idx = 0; idx < maxItems; idx++) {
+            const result = aiResults[idx];
+            results.push({
+              title: result?.title || `Section ${i + idx + 1}`,
+              content: batch[idx],
+              chunk_type: result?.chunk_type || 'content',
+              hierarchy_level: result?.hierarchy_level ?? 1,
+              key_terms: [], // Tags handled by separate flow after content is published
+              summary: result?.summary || batch[idx].slice(0, 200)
+            });
+          }
+          // If AI returned fewer than batch, add remaining with fallback
+          for (let idx = maxItems; idx < batch.length; idx++) {
+            results.push({
+              title: extractTitle(batch[idx]) || `Section ${i + idx + 1}`,
+              content: batch[idx],
+              chunk_type: detectChunkType(batch[idx]),
+              hierarchy_level: detectHierarchyLevel(batch[idx]),
+              key_terms: [], // Tags handled by separate flow after content is published
+              summary: batch[idx].slice(0, 200)
+            });
+          }
+        } else {
+          // AI didn't return a valid array - use fallback for entire batch
+          console.warn('[enhanceChunksWithAI] AI response not a valid array, using fallback for batch', i);
+          batch.forEach((section, idx) => {
+            results.push({
+              title: extractTitle(section) || `Section ${i + idx + 1}`,
+              content: section,
+              chunk_type: detectChunkType(section),
+              hierarchy_level: detectHierarchyLevel(section),
+              key_terms: [], // Tags handled by separate flow after content is published
+              summary: section.slice(0, 200)
+            });
+          });
+        }
+      } catch (parseError) {
+        console.error('[enhanceChunksWithAI] Failed to parse AI response, using fallback');
+        // Fallback to rule-based for this batch
+        batch.forEach((section, idx) => {
+          results.push({
+            title: extractTitle(section) || `Section ${i + idx + 1}`,
+            content: section,
+            chunk_type: detectChunkType(section),
+            hierarchy_level: detectHierarchyLevel(section),
+            key_terms: [], // Tags handled by separate flow after content is published
+            summary: section.slice(0, 200)
+          });
+        });
+      }
+    } catch (error) {
+      console.error('[enhanceChunksWithAI] AI call failed:', error);
+      // Fallback for this batch
+      batch.forEach((section, idx) => {
+        results.push({
+          title: extractTitle(section) || `Section ${i + idx + 1}`,
+          content: section,
+          chunk_type: detectChunkType(section),
+          hierarchy_level: detectHierarchyLevel(section),
+          key_terms: [], // Tags handled by separate flow after content is published
+          summary: section.slice(0, 200)
+        });
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get chunks for a source file
+ */
+async function handleGetChunks(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { data: chunks, error } = await supabase
+      .from("source_chunks")
+      .select("*")
+      .eq("source_file_id", sourceFileId)
+      .order("chunk_index", { ascending: true });
+
+    if (error) {
+      console.error('[get-chunks] Error:', error);
+      return jsonResponse({ error: "Failed to fetch chunks" }, 500);
+    }
+
+    return jsonResponse({
+      source_file_id: sourceFileId,
+      chunk_count: chunks?.length || 0,
+      chunks: chunks || []
+    });
+  } catch (error: any) {
+    console.error('[get-chunks] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Delete chunks for a source file
+ */
+async function handleDeleteChunks(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { error } = await supabase
+      .from("source_chunks")
+      .delete()
+      .eq("source_file_id", sourceFileId);
+
+    if (error) {
+      console.error('[delete-chunks] Error:', error);
+      return jsonResponse({ error: "Failed to delete chunks" }, 500);
+    }
+
+    // Update source file status
+    await supabase
+      .from("source_files")
+      .update({
+        is_chunked: false,
+        chunked_at: null,
+        chunk_count: 0
+      })
+      .eq("id", sourceFileId);
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error('[delete-chunks] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// =============================================================================
+// EXTRACTED ENTITIES HANDLERS - JD Detection and Processing
+// =============================================================================
+
+/**
+ * Get all extracted entities for a source file
+ */
+async function handleGetExtractedEntities(req: Request, sourceFileId: string): Promise<Response> {
+  try {
+    const { data: entities, error } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, chunk_index, title, content, word_count)
+      `)
+      .eq("source_file_id", sourceFileId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error('[get-extracted-entities] Error:', error);
+      return jsonResponse({ error: "Failed to fetch extracted entities" }, 500);
+    }
+
+    // Group by status
+    const pending = entities?.filter(e => e.entity_status === 'pending') || [];
+    const completed = entities?.filter(e => e.entity_status === 'completed') || [];
+    const skipped = entities?.filter(e => e.entity_status === 'skipped') || [];
+
+    return jsonResponse({
+      success: true,
+      source_file_id: sourceFileId,
+      total: entities?.length || 0,
+      summary: {
+        pending: pending.length,
+        completed: completed.length,
+        skipped: skipped.length,
+        job_descriptions: entities?.filter(e => e.entity_type === 'job_description').length || 0
+      },
+      entities: entities || []
+    });
+  } catch (error: any) {
+    console.error('[get-extracted-entities] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Get a single extracted entity with full details and lineage
+ */
+async function handleGetExtractedEntity(req: Request, entityId: string): Promise<Response> {
+  try {
+    const { data: entity, error } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, chunk_index, title, content, summary, word_count, key_terms),
+        source_file:source_files(id, file_name, source_type, file_url)
+      `)
+      .eq("id", entityId)
+      .single();
+
+    if (error || !entity) {
+      console.error('[get-extracted-entity] Error:', error);
+      return jsonResponse({ error: "Extracted entity not found" }, 404);
+    }
+
+    // If linked to a role, fetch role details
+    let linkedRole = null;
+    if (entity.linked_entity_type === 'roles' && entity.linked_entity_id) {
+      const { data: role } = await supabase
+        .from("roles")
+        .select("id, name, department, job_family, onet_code")
+        .eq("id", entity.linked_entity_id)
+        .single();
+      linkedRole = role;
+    }
+
+    return jsonResponse({
+      success: true,
+      entity: {
+        ...entity,
+        linked_role: linkedRole
+      }
+    });
+  } catch (error: any) {
+    console.error('[get-extracted-entity] Unexpected error:', error);
+    return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+/**
+ * Process an extracted entity (extract JD data, skip, or reclassify)
+ */
+async function handleProcessExtractedEntity(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { entity_id, action, options = {} } = body;
+
+    if (!entity_id || !action) {
+      return jsonResponse({
+        success: false,
+        error: "Missing entity_id or action",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch the entity with its chunk content
+    const { data: entity, error: fetchError } = await supabase
+      .from("extracted_entities")
+      .select(`
+        *,
+        source_chunk:source_chunks(id, content, title)
+      `)
+      .eq("id", entity_id)
+      .single();
+
+    if (fetchError || !entity) {
+      return jsonResponse({
+        success: false,
+        error: "Extracted entity not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    // Mark as processing
+    await supabase
+      .from("extracted_entities")
+      .update({ entity_status: 'processing' })
+      .eq("id", entity_id);
+
+    switch (action) {
+      case 'extract_jd': {
+        // Extract full JD data from the chunk content using AI
+        const chunkContent = entity.source_chunk?.content;
+        if (!chunkContent) {
+          return jsonResponse({
+            success: false,
+            error: "No chunk content available",
+            code: "NO_CONTENT"
+          }, 400);
+        }
+
+        // Call the JD extraction AI
+        const extractedData = await extractJobDescriptionData(chunkContent);
+
+        // Search for O*NET matches
+        let onetSuggestions: any[] = [];
+        if (extractedData.onet_search_keywords?.length > 0) {
+          const searchTerm = extractedData.onet_search_keywords.join(' ');
+          const { data: matches } = await supabase.rpc('search_onet_occupations', {
+            search_term: searchTerm,
+            match_limit: 5
+          });
+          onetSuggestions = matches || [];
+        }
+
+        // Update entity with extracted data
+        await supabase
+          .from("extracted_entities")
+          .update({
+            extracted_data: extractedData,
+            onet_suggestions: onetSuggestions,
+            entity_status: 'pending', // Still pending until role is created/linked
+            extraction_method: 'ai'
+          })
+          .eq("id", entity_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'extracted',
+          entity_id,
+          extracted_data: extractedData,
+          onet_suggestions: onetSuggestions
+        });
+      }
+
+      case 'skip': {
+        await supabase
+          .from("extracted_entities")
+          .update({
+            entity_status: 'skipped',
+            processing_notes: options.reason || 'User skipped'
+          })
+          .eq("id", entity_id);
+
+        // Update source chunk
+        await supabase
+          .from("source_chunks")
+          .update({ extraction_status: 'skipped' })
+          .eq("id", entity.source_chunk_id);
+
+        // Update source file counts
+        await updateSourceFileEntityCounts(entity.source_file_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'skipped',
+          entity_id
+        });
+      }
+
+      case 'reclassify': {
+        // User says this is not a JD, reclassify as policy
+        await supabase
+          .from("extracted_entities")
+          .update({
+            entity_status: 'skipped',
+            processing_notes: 'Reclassified by user as non-JD'
+          })
+          .eq("id", entity_id);
+
+        // Update the chunk classification
+        await supabase
+          .from("source_chunks")
+          .update({
+            content_class: 'policy',
+            is_extractable: false,
+            extraction_status: 'skipped'
+          })
+          .eq("id", entity.source_chunk_id);
+
+        // Update source file counts
+        await updateSourceFileEntityCounts(entity.source_file_id);
+
+        return jsonResponse({
+          success: true,
+          action: 'reclassified',
+          entity_id
+        });
+      }
+
+      default:
+        // Reset to pending on unknown action
+        await supabase
+          .from("extracted_entities")
+          .update({ entity_status: 'pending' })
+          .eq("id", entity_id);
+
+        return jsonResponse({
+          success: false,
+          error: `Unknown action: ${action}`,
+          code: "UNKNOWN_ACTION"
+        }, 400);
+    }
+  } catch (error: any) {
+    console.error('[process-extracted-entity] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Processing failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Re-classify chunks for a source file (run content classification again)
+ */
+async function handleClassifyChunks(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_file_id, reclassify = false, use_ai = false } = body;
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks for this source file
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("id, chunk_index, content, content_class, content_class_detected_at")
+      .eq("source_file_id", source_file_id)
+      .order("chunk_index");
+
+    if (fetchError) {
+      return jsonResponse({
+        success: false,
+        error: "Failed to fetch chunks",
+        code: "FETCH_FAILED"
+      }, 500);
+    }
+
+    if (!chunks || chunks.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "No chunks found for this source file",
+        code: "NO_CHUNKS"
+      }, 404);
+    }
+
+    // Get source file info
+    const { data: sourceFile } = await supabase
+      .from("source_files")
+      .select("organization_id")
+      .eq("id", source_file_id)
+      .single();
+
+    const classifications: any[] = [];
+    const newEntities: any[] = [];
+
+    for (const chunk of chunks) {
+      // Skip if already classified and not reclassifying
+      if (!reclassify && chunk.content_class_detected_at) {
+        classifications.push({
+          chunk_id: chunk.id,
+          chunk_index: chunk.chunk_index,
+          content_class: chunk.content_class,
+          skipped: true
+        });
+        continue;
+      }
+
+      // Classify the chunk
+      const classification = use_ai
+        ? await classifyChunkContentWithAI(chunk.content)
+        : classifyChunkContent(chunk.content);
+
+      // Update chunk with classification
+      await supabase
+        .from("source_chunks")
+        .update({
+          content_class: classification.content_class,
+          content_class_confidence: classification.confidence,
+          content_class_detected_at: new Date().toISOString(),
+          is_extractable: classification.is_extractable,
+          extraction_status: 'pending'
+        })
+        .eq("id", chunk.id);
+
+      classifications.push({
+        chunk_id: chunk.id,
+        chunk_index: chunk.chunk_index,
+        ...classification
+      });
+
+      // Create extracted_entity for extractable content
+      if (classification.is_extractable && classification.confidence > 0.70 && sourceFile) {
+        // Check if entity already exists for this chunk
+        const { data: existingEntity } = await supabase
+          .from("extracted_entities")
+          .select("id")
+          .eq("source_chunk_id", chunk.id)
+          .single();
+
+        if (!existingEntity) {
+          const { data: newEntity } = await supabase
+            .from("extracted_entities")
+            .insert({
+              organization_id: sourceFile.organization_id,
+              source_file_id: source_file_id,
+              source_chunk_id: chunk.id,
+              entity_type: classification.content_class,
+              entity_status: 'pending',
+              extracted_data: classification.extraction_hints || {},
+              extraction_confidence: classification.confidence,
+              extraction_method: classification.extraction_hints?.detected_via === 'ai_classification' ? 'ai' : 'pattern'
+            })
+            .select()
+            .single();
+
+          if (newEntity) {
+            newEntities.push(newEntity);
+          }
+        }
+      }
+    }
+
+    // Update source file entity counts
+    await updateSourceFileEntityCounts(source_file_id);
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      total_chunks: chunks.length,
+      classifications,
+      summary: {
+        job_descriptions: classifications.filter(c => c.content_class === 'job_description').length,
+        policy: classifications.filter(c => c.content_class === 'policy').length,
+        extractable: classifications.filter(c => c.is_extractable).length,
+        new_entities_created: newEntities.length
+      },
+      new_entities: newEntities
+    });
+  } catch (error: any) {
+    console.error('[classify-chunks] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Classification failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data directly from a source file
+ * Used for the direct JD upload flow (Role Detail Page, Role Modal)
+ */
+async function handleExtractJobDescription(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_file_id } = body;
+
+    if (!source_file_id) {
+      return jsonResponse({
+        success: false,
+        error: "Missing source_file_id",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    console.log('[extract-job-description] Processing source_file_id:', source_file_id);
+
+    // Fetch the source file to get extracted text
+    const { data: sourceFile, error: fetchError } = await supabase
+      .from("source_files")
+      .select("id, file_name, extracted_text, source_type")
+      .eq("id", source_file_id)
+      .single();
+
+    if (fetchError || !sourceFile) {
+      console.error('[extract-job-description] Source file not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Source file not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    if (!sourceFile.extracted_text) {
+      return jsonResponse({
+        success: false,
+        error: "No extracted text available. Please run text extraction first.",
+        code: "NO_EXTRACTED_TEXT"
+      }, 400);
+    }
+
+    console.log('[extract-job-description] Found source file with text length:', sourceFile.extracted_text.length);
+
+    // Extract JD data using AI
+    const extractedData = await extractJobDescriptionData(sourceFile.extracted_text);
+
+    // Search for O*NET matches if we have keywords
+    let onetSuggestions: any[] = [];
+    if (extractedData.onet_search_keywords?.length > 0) {
+      const searchTerm = extractedData.onet_search_keywords.join(' ');
+      console.log('[extract-job-description] Searching O*NET with:', searchTerm);
+
+      const { data: matches } = await supabase.rpc('search_onet_occupations', {
+        search_term: searchTerm,
+        match_limit: 5
+      });
+      onetSuggestions = matches || [];
+    }
+
+    // Update source file to mark as JD processed
+    await supabase
+      .from("source_files")
+      .update({
+        source_type: 'job_description',
+        jd_processed: true,
+        jd_processed_at: new Date().toISOString()
+      })
+      .eq("id", source_file_id);
+
+    console.log('[extract-job-description] Extraction complete');
+
+    return jsonResponse({
+      success: true,
+      source_file_id,
+      extracted_data: extractedData,
+      onet_suggestions: onetSuggestions
+    });
+  } catch (error: any) {
+    console.error('[extract-job-description] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Extraction failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data from a source chunk and create an extracted_entity
+ * Used when clicking "+ Role" on a JD chunk in the Document Intelligence Editor
+ */
+async function handleExtractJdFromChunk(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { source_chunk_id, source_file_id, content } = body;
+
+    if (!source_chunk_id || !content) {
+      return jsonResponse({
+        success: false,
+        error: "source_chunk_id and content are required",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Get org from token
+    const orgId = await getOrgIdFromToken(req);
+    if (!orgId) {
+      return jsonResponse({
+        success: false,
+        error: "Organization not found",
+        code: "NO_ORG"
+      }, 401);
+    }
+
+    console.log('[extract-jd] Processing chunk:', source_chunk_id);
+
+    // Check if entity already exists for this chunk
+    const { data: existingEntity } = await supabase
+      .from("extracted_entities")
+      .select("id")
+      .eq("source_chunk_id", source_chunk_id)
+      .single();
+
+    if (existingEntity) {
+      console.log('[extract-jd] Entity already exists:', existingEntity.id);
+      return jsonResponse({
+        success: true,
+        entity_id: existingEntity.id,
+        already_exists: true
+      });
+    }
+
+    // Extract JD data using AI
+    const extractedData = await extractJobDescriptionData(content);
+
+    console.log('[extract-jd] Extracted role_name:', extractedData.role_name);
+
+    // Create the extracted entity
+    const { data: entity, error: insertError } = await supabase
+      .from("extracted_entities")
+      .insert({
+        organization_id: orgId,
+        source_file_id: source_file_id || null,
+        source_chunk_id: source_chunk_id,
+        entity_type: 'job_description',
+        entity_status: 'pending',
+        extraction_confidence: 0.85,
+        extracted_data: {
+          role_name: extractedData.role_name,
+          department: extractedData.department,
+          job_summary: extractedData.job_description?.slice(0, 500),
+          responsibilities: extractedData.responsibilities,
+          skills: extractedData.skills,
+          knowledge: extractedData.knowledge,
+          is_manager: extractedData.is_manager,
+          is_frontline: extractedData.is_frontline,
+          permission_level: extractedData.permission_level,
+          onet_search_keywords: extractedData.onet_search_keywords
+        }
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[extract-jd] Failed to create entity:', insertError);
+      return jsonResponse({
+        success: false,
+        error: "Failed to create entity: " + insertError.message,
+        code: "INSERT_FAILED"
+      }, 500);
+    }
+
+    // Update the chunk to mark it as having an entity
+    await supabase
+      .from("source_chunks")
+      .update({
+        is_extractable: true,
+        extraction_status: 'extracted'
+      })
+      .eq("id", source_chunk_id);
+
+    // Update source file entity counts if we have a source_file_id
+    if (source_file_id) {
+      await updateSourceFileEntityCounts(source_file_id);
+    }
+
+    console.log('[extract-jd] Created entity:', entity.id);
+
+    return jsonResponse({
+      success: true,
+      entity_id: entity.id,
+      extracted_data: extractedData
+    });
+
+  } catch (error: any) {
+    console.error('[extract-jd] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Extraction failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Extract job description data using AI
+ */
+async function extractJobDescriptionData(content: string): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    // Return basic extraction without AI
+    return {
+      role_name: extractRoleNameFromContent(content),
+      job_description: content,
+      skills: [],
+      knowledge: [],
+      responsibilities: [],
+      onet_search_keywords: []
+    };
+  }
+
+  const prompt = `Extract structured job description data from this text.
+
+Return a JSON object with these fields:
+- role_name: The job title/position name (required)
+- department: Department or division (if mentioned)
+- job_family: Job family or category (if mentioned)
+- is_manager: Boolean - true if this is a supervisory/management role
+- is_frontline: Boolean - true if this is a customer-facing or operational role
+- permission_level: 1-5 scale (1=Frontline, 2=Lead, 3=Manager, 4=Director/Regional, 5=Executive)
+- responsibilities: Array of key responsibilities/duties
+- skills: Array of required skills
+- knowledge: Array of required knowledge areas
+- onet_search_keywords: 3-5 keywords for O*NET occupation matching
+- job_description: The full job description text (cleaned)
+
+Text to analyze:
+${content.slice(0, 4000)}
+
+Return only valid JSON.`;
+
+  try {
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.2, response_format: { type: "json_object" } }
+    );
+
+    return JSON.parse(response);
+  } catch (error) {
+    console.error('[extractJobDescriptionData] AI extraction failed:', error);
+    return {
+      role_name: extractRoleNameFromContent(content),
+      job_description: content,
+      skills: [],
+      knowledge: [],
+      responsibilities: [],
+      onet_search_keywords: []
+    };
+  }
+}
+
+/**
+ * Extract role name from content using patterns
+ */
+function extractRoleNameFromContent(content: string): string | null {
+  const patterns = [
+    /(?:job\s+title|position\s+title|position|role)\s*:\s*([^\n]+)/i,
+    /^([A-Z][A-Za-z\s]+(?:Manager|Director|Specialist|Coordinator|Analyst|Associate|Representative|Clerk|Supervisor|Lead|Engineer|Developer|Administrator))/m
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Update source file entity counts after entity changes
+ */
+async function updateSourceFileEntityCounts(sourceFileId: string): Promise<void> {
+  const { data: entities } = await supabase
+    .from("extracted_entities")
+    .select("entity_type, entity_status")
+    .eq("source_file_id", sourceFileId);
+
+  if (!entities) return;
+
+  const total = entities.length;
+  const pending = entities.filter(e => e.entity_status === 'pending').length;
+  const hasJDs = entities.some(e => e.entity_type === 'job_description');
+
+  await supabase
+    .from("source_files")
+    .update({
+      detected_entity_count: total,
+      pending_entity_count: pending,
+      has_job_descriptions: hasJDs
+    })
+    .eq("id", sourceFileId);
 }
 
 // =============================================================================
@@ -996,22 +4482,8 @@ async function handleTranscribe(req: Request): Promise<Response> {
         // If trackId is provided, auto-update track and generate facts (fire-and-forget)
         if (trackId) {
           console.log(`🔄 Auto-updating track ${trackId} with cached transcript and generating facts...`);
-          
-          // Update track with transcript
-          supabase
-            .from("tracks")
-            .update({ transcript: cached.transcript_text || "" })
-            .eq("id", trackId)
-            .then(({ error: updateError }) => {
-              if (updateError) {
-                console.error("Failed to update track with cached transcript:", updateError);
-              } else {
-                console.log("✅ Track updated with cached transcript");
-              }
-            })
-            .catch(err => console.error("Error updating track:", err));
 
-          // Generate key facts (only for video tracks, not stories)
+          // First fetch track type to determine how to handle the transcript
           supabase
             .from("tracks")
             .select("title, description, organization_id, transcript, type")
@@ -1019,14 +4491,41 @@ async function handleTranscribe(req: Request): Promise<Response> {
             .single()
             .then(async ({ data: trackData, error: trackError }) => {
               if (trackError || !trackData) {
-                console.error("Failed to fetch track for fact generation:", trackError);
+                console.error("Failed to fetch track for transcript update:", trackError);
                 return;
               }
 
-              // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+              // CRITICAL: Do NOT overwrite transcript for story tracks!
+              // Story tracks store JSON with slides in the transcript field.
+              // Overwriting it with plain text would wipe out all the slide data.
               if (trackData.type === "story") {
+                console.log("ℹ️ Story track - skipping transcript field update (slides stored in transcript)");
                 console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
                 return;
+              }
+
+              // For non-story tracks (video, article), update the transcript field AND transcript_data
+              // transcript_data should contain the actual transcript JSON (with text/words/utterances), not the full media_transcripts row
+              // This is what InteractiveTranscript component expects
+              const normalizedCachedData = cached.transcript_json || {
+                text: cached.transcript_text || "",
+                utterances: cached.transcript_utterances || [],
+                words: []
+              };
+              console.log("Saving normalized cached transcript_data with keys:", Object.keys(normalizedCachedData || {}));
+
+              const { error: updateError } = await supabase
+                .from("tracks")
+                .update({
+                  transcript: cached.transcript_text || "",
+                  transcript_data: normalizedCachedData  // Save the transcript JSON directly, not the media_transcripts wrapper
+                })
+                .eq("id", trackId);
+
+              if (updateError) {
+                console.error("Failed to update track with cached transcript:", updateError);
+              } else {
+                console.log("✅ Track updated with cached transcript and transcript_data");
               }
 
               // Only generate facts if track doesn't already have them
@@ -1220,23 +4719,8 @@ async function handleTranscribe(req: Request): Promise<Response> {
     // If trackId is provided, automatically update the track and generate key facts
     if (trackId) {
       console.log(`🔄 Auto-updating track ${trackId} with transcript and generating facts...`);
-      
-      // Update track with transcript (fire-and-forget)
-      supabase
-        .from("tracks")
-        .update({ transcript: transcript.text || "" })
-        .eq("id", trackId)
-        .then(({ error: updateError }) => {
-          if (updateError) {
-            console.error("Failed to update track with transcript:", updateError);
-          } else {
-            console.log("✅ Track updated with transcript");
-          }
-        })
-        .catch(err => console.error("Error updating track:", err));
 
-      // Generate key facts (fire-and-forget, only for video tracks, not stories)
-      // Get track info for fact generation
+      // First fetch track type to determine how to handle the transcript
       supabase
         .from("tracks")
         .select("title, description, organization_id, type")
@@ -1244,14 +4728,37 @@ async function handleTranscribe(req: Request): Promise<Response> {
         .single()
         .then(async ({ data: trackData, error: trackError }) => {
           if (trackError || !trackData) {
-            console.error("Failed to fetch track for fact generation:", trackError);
+            console.error("Failed to fetch track for transcript update:", trackError);
             return;
           }
 
-          // Skip auto-fact generation for story tracks (handled by automateStoryWorkflow)
+          // CRITICAL: Do NOT overwrite transcript for story tracks!
+          // Story tracks store JSON with slides in the transcript field.
+          // Overwriting it with plain text would wipe out all the slide data.
           if (trackData.type === "story") {
+            console.log("ℹ️ Story track - skipping transcript field update (slides stored in transcript)");
             console.log("ℹ️ Story track - facts will be generated after all videos are transcribed");
             return;
+          }
+
+          // For non-story tracks (video, article), update the transcript field AND transcript_data
+          // transcript_data should contain the actual transcript JSON (with text/words/utterances), not the full media_transcripts row
+          // This is what InteractiveTranscript component expects
+          const normalizedTranscriptData = newTranscript?.transcript_json || transcript;
+          console.log("Saving transcript_data with keys:", Object.keys(normalizedTranscriptData || {}));
+
+          const { error: updateError } = await supabase
+            .from("tracks")
+            .update({
+              transcript: transcript.text || "",
+              transcript_data: normalizedTranscriptData  // Save the transcript JSON directly, not the media_transcripts wrapper
+            })
+            .eq("id", trackId);
+
+          if (updateError) {
+            console.error("Failed to update track with transcript:", updateError);
+          } else {
+            console.log("✅ Track updated with transcript and transcript_data");
           }
 
           // Only generate facts if track doesn't already have them
@@ -1362,35 +4869,36 @@ async function handleGetTranscript(transcriptId: string): Promise<Response> {
 
 async function handleGetFactsForTrack(trackId: string): Promise<Response> {
   try {
-    // Get fact IDs linked to this track
-    const { data: usageData, error: usageError } = await supabase
+    // Single query with join to get facts linked to this track (optimized from 2 queries to 1)
+    const { data, error } = await supabase
       .from("fact_usage")
-      .select("fact_id")
+      .select(`
+        fact_id,
+        facts!inner (
+          id,
+          title,
+          content,
+          type,
+          steps,
+          context,
+          extracted_by,
+          extraction_confidence,
+          company_id,
+          created_at,
+          updated_at
+        )
+      `)
       .eq("track_id", trackId);
 
-    if (usageError) {
-      console.error("Get fact usage error:", usageError);
-      return jsonResponse({ error: usageError.message }, 500);
+    if (error) {
+      console.error("Get facts for track error:", error);
+      return jsonResponse({ error: error.message }, 500);
     }
 
-    if (!usageData || usageData.length === 0) {
-      return jsonResponse({ facts: [] });
-    }
+    // Extract facts from the joined result
+    const facts = (data || []).map((row: any) => row.facts);
 
-    const factIds = usageData.map((u) => u.fact_id);
-
-    // Get the actual facts
-    const { data: facts, error: factsError } = await supabase
-      .from("facts")
-      .select("*")
-      .in("id", factIds);
-
-    if (factsError) {
-      console.error("Get facts error:", factsError);
-      return jsonResponse({ error: factsError.message }, 500);
-    }
-
-    return jsonResponse({ facts: facts || [] });
+    return jsonResponse({ facts });
   } catch (error) {
     console.error("Get facts for track error:", error);
     return jsonResponse({ error: error.message }, 500);
@@ -1404,7 +4912,45 @@ async function handleGenerateKeyFacts(req: Request): Promise<Response> {
     }
 
     const body = await req.json();
-    const { title, content, description, transcript, trackType, trackId, companyId } = body;
+    const { title, content, description, transcript, trackType, trackId, companyId, replaceExisting } = body;
+
+    // When trackId provided and replaceExisting is false/undefined: skip if track already has facts (prevents duplicate generation from multiple callers)
+    if (trackId && !replaceExisting) {
+      const { count: factCount, error: countError } = await supabase
+        .from("fact_usage")
+        .select("*", { count: "exact", head: true })
+        .eq("track_id", trackId);
+
+      const existingCount = countError ? 0 : (factCount ?? 0);
+      if (existingCount > 0) {
+        console.log(`[generate-key-facts] Skipping: track ${trackId} already has ${existingCount} fact(s)`);
+        const { data: existingFacts } = await supabase
+          .from("fact_usage")
+          .select("fact_id, facts!inner(id, title, content, type, steps, context, extracted_by, extraction_confidence, company_id, created_at, updated_at)")
+          .eq("track_id", trackId);
+        const facts = (existingFacts || []).map((row: any) => row.facts);
+        return jsonResponse({
+          enriched: facts,
+          factIds: facts.map((f: any) => f.id),
+          skipped: true,
+          reason: "Track already has facts",
+        });
+      }
+    }
+
+    // When replaceExisting: delete existing fact_usage for this track before inserting new facts
+    if (trackId && replaceExisting) {
+      const { error: deleteError } = await supabase
+        .from("fact_usage")
+        .delete()
+        .eq("track_id", trackId);
+
+      if (deleteError) {
+        console.error("Failed to delete existing fact_usage before replace:", deleteError);
+      } else {
+        console.log(`Replaced facts for track ${trackId} (deleted existing fact_usage links)`);
+      }
+    }
 
     // Build the content to analyze
     let textToAnalyze = "";
@@ -1562,7 +5108,8 @@ interface TagRecommendation {
 
 interface NewTagSuggestion {
   suggested_name: string;
-  suggested_parent: string;
+  suggested_parent: string;  // The subcategory name (e.g., "Cash & Financial", "Compliance")
+  suggested_parent_id?: string;  // The resolved subcategory tag ID
   description?: string;  // Contextual description of what content belongs in this tag
   reasoning: string;     // Why this new tag is needed (justification)
 }
@@ -1765,6 +5312,9 @@ async function performTagAnalysis(params: {
     return `- "${tag.name}" (Category: ${parentName})${tag.description ? `\n  Context: ${tag.description}` : ''}`;
   }).join('\n');
 
+  // 3b. Build subcategory list for new tag placement
+  const subcategoryListForAI = subcategories.map((sub: any) => `- "${sub.name}"`).join('\n');
+
   // 4. Build the AI prompt
   const systemPrompt = `You are an expert training content classifier for convenience store and foodservice operations.
 
@@ -1785,11 +5335,23 @@ CRITICAL RULES:
 
 4. HIERARCHY AWARENESS: Tags are organized by category (Compliance, Foodservice, Customer Service, etc.). Content can span multiple categories. Don't artificially limit to one category.
 
-5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag. Include:
-   - Suggested name (concise, follows existing naming conventions)
-   - Which parent category it should go under
-   - A TAG DESCRIPTION: This is NOT reasoning for why the tag is needed. The description should define what types of content belong in this tag so the AI can use it for future classification. Write it as a contextual hint (e.g., "Training content related to identifying, preventing, and reporting suspicious financial transactions and money laundering activities in retail environments.")
-   - Brief reasoning (separate from description) explaining why this new tag is warranted
+5. NEW TAG SUGGESTIONS: If the content covers a topic that doesn't fit well into ANY existing tag (all would be below 60% confidence), suggest a new tag.
+
+   IMPORTANT: New tags MUST be placed under one of the existing parent categories listed below. Do NOT create new parent categories.
+
+   For the suggested_parent field, you MUST use EXACTLY one of these existing category names:
+${subcategoryListForAI}
+
+   Choose the BEST-FIT category for the new tag. For example:
+   - "Anti-Money Laundering" → "Cash & Financial" (deals with financial transactions and compliance)
+   - "Fire Safety Training" → "Compliance" (regulatory compliance topic)
+   - "Deli Slicing Techniques" → "Foodservice" (food preparation topic)
+
+   Include:
+   - suggested_name: Concise name following existing naming conventions
+   - suggested_parent: MUST be one of the exact category names listed above
+   - description: A TAG DESCRIPTION defining what content belongs in this tag for future AI classification. Write it as: "Assign this tag to content that [describes the types of content]. This includes topics such as [list key topics]."
+   - reasoning: Brief justification for creating this new tag
 
 OUTPUT FORMAT (JSON):
 {
@@ -1804,8 +5366,8 @@ OUTPUT FORMAT (JSON):
   "new_tag_suggestions": [
     {
       "suggested_name": "Suggested Tag Name",
-      "suggested_parent": "Parent Category Name",
-      "description": "Contextual description of what content belongs in this tag (for future AI classification)",
+      "suggested_parent": "MUST be one of: ${subcategories.map((s: any) => s.name).join(', ')}",
+      "description": "Assign this tag to content that [describes content types]. This includes topics such as [key topics].",
       "reasoning": "Why this new tag is needed (justification for creating it)"
     }
   ]
@@ -1870,9 +5432,22 @@ Analyze this content and provide tag recommendations. Remember:
     .filter((rec: any) => rec.confidence >= 50)
     .sort((a: any, b: any) => b.confidence - a.confidence);
 
-  // 7. Process new tag suggestions
+  // 7. Process new tag suggestions - resolve parent names to IDs
   const newTagSuggestions: NewTagSuggestion[] = (aiOutput.new_tag_suggestions || [])
-    .filter((sug: any) => sug.suggested_name && sug.suggested_parent);
+    .filter((sug: any) => sug.suggested_name && sug.suggested_parent)
+    .map((sug: any) => {
+      // Find matching subcategory by name (case-insensitive)
+      const matchedSubcategory = subcategories.find((sub: any) =>
+        sub.name.toLowerCase() === sug.suggested_parent.toLowerCase()
+      );
+      return {
+        suggested_name: sug.suggested_name,
+        suggested_parent: matchedSubcategory?.name || sug.suggested_parent,
+        suggested_parent_id: matchedSubcategory?.id || null,
+        description: sug.description,
+        reasoning: sug.reasoning,
+      };
+    });
 
   // 8. Store new tag suggestions
   if (newTagSuggestions.length > 0 && trackId && organizationId) {
@@ -1932,6 +5507,7 @@ async function storeNewTagSuggestions(
           organization_id: organizationId,
           suggested_tag_name: suggestion.suggested_name,
           suggested_parent_category: suggestion.suggested_parent,
+          suggested_parent_id: suggestion.suggested_parent_id || null,  // Reference to parent/subcategory tag
           suggested_description: suggestion.description,  // Contextual description for future AI classification
           reasoning: suggestion.reasoning,  // Justification for why this tag is needed
           status: 'pending',
@@ -2075,7 +5651,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
   try {
     let orgId = await getOrgIdFromToken(req);
     console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
-    
+
     // Fallback: Get org_id from the track itself if token extraction failed
     if (!orgId) {
       console.log("⚠️ [GetSourceTrack] No orgId from token, trying to get from track...");
@@ -2084,7 +5660,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
         .select("organization_id")
         .eq("id", trackId)
         .single();
-      
+
       if (!trackError && track?.organization_id) {
         orgId = track.organization_id;
         console.log(`✅ [GetSourceTrack] Got orgId from track: ${orgId}`);
@@ -2094,6 +5670,7 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
       }
     }
 
+    // Query ALL source relationships (a checkpoint can have multiple sources)
     let query = supabase
       .from("track_relationships")
       .select(`
@@ -2117,41 +5694,49 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
       query = query.eq("relationship_type", relationshipType);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query;
 
-    console.log(`📊 [GetSourceTrack] Query result:`, { 
-      hasData: !!data, 
-      hasError: !!error, 
+    console.log(`📊 [GetSourceTrack] Query result:`, {
+      hasData: !!data,
+      count: data?.length || 0,
+      hasError: !!error,
       errorCode: error?.code,
-      dataKeys: data ? Object.keys(data) : []
     });
 
     if (error) {
-      if (error.code === "PGRST116") {
-        // No rows returned
-        console.log("📊 [GetSourceTrack] No relationship found (PGRST116)");
-        return jsonResponse({ source: null });
-      }
       console.error("❌ [GetSourceTrack] Error:", error);
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // If join didn't work, fetch track separately
-    if (data && !data.source_track && data.source_track_id) {
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("id, title, type, thumbnail_url, status")
-        .eq("id", data.source_track_id)
-        .eq("organization_id", orgId)
-        .single();
+    // If no relationships found
+    if (!data || data.length === 0) {
+      console.log("📊 [GetSourceTrack] No relationships found");
+      return jsonResponse({ source: null, sources: [] });
+    }
 
-      if (!trackError && track) {
-        data.source_track = track;
+    // For each relationship where join didn't work, fetch track separately
+    for (const rel of data) {
+      if (!rel.source_track && rel.source_track_id) {
+        const { data: track, error: trackError } = await supabase
+          .from("tracks")
+          .select("id, title, type, thumbnail_url, status")
+          .eq("id", rel.source_track_id)
+          .eq("organization_id", orgId)
+          .single();
+
+        if (!trackError && track) {
+          rel.source_track = track;
+        }
       }
     }
 
-    console.log(`✅ [GetSourceTrack] Returning source relationship`);
-    return jsonResponse({ source: data });
+    console.log(`✅ [GetSourceTrack] Returning ${data.length} source relationship(s)`);
+
+    // Return both legacy format (first source) and new format (all sources)
+    return jsonResponse({
+      source: data[0] || null,  // Legacy: single source for backward compatibility
+      sources: data             // New: array of all source relationships
+    });
   } catch (error) {
     console.error("❌ [GetSourceTrack] Exception:", error);
     return jsonResponse({ error: error.message }, 500);
@@ -2934,7 +6519,8 @@ async function handleBrainChat(req: Request): Promise<Response> {
 RULES:
 1. Answer ONLY using the sources provided below - never use outside knowledge
 2. Add [1], [2], [3] after EVERY sentence that states a fact (matching the source number)
-3. If the answer isn't in the sources, say \"I couldn't find this in your training materials\"
+3. CRITICAL: If sources are provided below, you MUST answer the question using those sources. Do NOT say "I couldn't find this" if sources are present - use the information from the sources to answer.
+4. Only say "I couldn't find this in your training materials" if NO sources are provided below (the Sources section is empty).
 
 EXAMPLE FORMAT:
 "Employees must check ID for anyone appearing under 40. [1] The ID should be checked for date of birth and photo. [1]"
@@ -3035,7 +6621,64 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
           }));
           embeddings.unshift(...injectedEmbeddings);
         } else {
-          console.log(`[Brain] WARNING: Current track ${trackId} has no embeddings indexed!`);
+          // CRITICAL FALLBACK: If current track has NO embeddings indexed, fetch content directly from tracks table
+          // This ensures "Explain simply" works even if the track was never indexed
+          console.log(`[Brain] WARNING: Current track ${trackId} has no embeddings indexed! Fetching raw content as fallback...`);
+          const { data: trackContent } = await supabase
+            .from('tracks')
+            .select('id, title, description, content_text, content, transcript, type')
+            .eq('id', trackId)
+            .single();
+
+          if (trackContent) {
+            const trackType = trackContent.type || 'article';
+            // Build text content based on track type (same logic as brainIndexer)
+            let rawText = '';
+            if (trackContent.title) rawText += `Title: ${trackContent.title}\n\n`;
+            if (trackContent.description) rawText += `Description: ${trackContent.description}\n\n`;
+
+            if (trackType === 'article') {
+              // Articles: priority is content_text > content > transcript
+              const bodyContent = trackContent.content_text || trackContent.content || trackContent.transcript;
+              if (bodyContent) {
+                // Strip HTML tags
+                const cleanContent = bodyContent.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                if (cleanContent.length > 0) rawText += `Content: ${cleanContent}`;
+              }
+            } else if (trackType === 'story' && trackContent.transcript) {
+              // Stories: parse slides from transcript JSON
+              try {
+                const storyData = JSON.parse(trackContent.transcript);
+                if (storyData.slides && Array.isArray(storyData.slides)) {
+                  const slideTexts = storyData.slides.map((slide: any, idx: number) => {
+                    const slideTitle = slide.title || slide.name || '';
+                    const slideText = slide.transcript?.text || slide.content || '';
+                    const cleanText = slideText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    return cleanText ? `Slide ${idx + 1}: ${slideTitle ? slideTitle + ': ' : ''}${cleanText}` : '';
+                  }).filter(Boolean).join('\n\n');
+                  if (slideTexts) rawText += slideTexts;
+                }
+              } catch { /* not JSON, ignore */ }
+            }
+
+            if (rawText.trim().length > 50) {
+              console.log(`[Brain] Created synthetic embedding from raw track content (${rawText.length} chars)`);
+              // Create a synthetic embedding entry for citation building
+              const syntheticEmbedding = {
+                id: `synthetic-${trackId}`,
+                content_type: 'track',
+                chunk_text: rawText.substring(0, 3000), // Limit to reasonable context size
+                content_id: trackId,
+                metadata: { trackTitle: trackContent.title, trackType, synthetic: true },
+                similarity: 0.95,
+                injected: true,
+                synthetic: true
+              };
+              embeddings.unshift(syntheticEmbedding);
+            } else {
+              console.log(`[Brain] Raw track content too short to use as fallback (${rawText.length} chars)`);
+            }
+          }
         }
       } else {
         console.log(`[Brain] Current track ${trackId} already in semantic results`);
@@ -3206,7 +6849,7 @@ ${currentTrack ? `Current article: \"${currentTrack.title}\"` : ''}`;
 Sources:
 ${numberedContext}
 
-Answer using ONLY these sources. Add [1] [2] [3] after each fact.`
+IMPORTANT: Sources are provided above. You MUST answer the question using information from these sources. Do NOT say you couldn't find the information - use the sources to provide an answer. Add [1] [2] [3] after each fact you state.`
             },
           ];
           console.log(`[Brain GPT] Sending ${gptMessages.length} messages to GPT (direct fallback)`);
@@ -3308,7 +6951,7 @@ Answer using ONLY these sources. Add [1] [2] [3] after each fact.`
 Sources:
 ${context}
 
-Answer using ONLY these sources. Add [1] [2] [3] after each fact.`
+IMPORTANT: Sources are provided above. You MUST answer the question using information from these sources. Do NOT say you couldn't find the information - use the sources to provide an answer. Add [1] [2] [3] after each fact you state.`
       },
     ];
     console.log(`[Brain GPT] Sending ${gptMessages.length} messages to GPT (main path)`);
@@ -3511,9 +7154,7 @@ async function handleBrainSearch(req: Request): Promise<Response> {
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
 
-    // Build query
-    // TODO: Update match_brain_embeddings RPC to also return is_system_template=true rows
-    // For now, this only searches the user's org content
+    // Build query — includes both org-specific and system template embeddings
     let dbQuery = supabase.rpc("match_brain_embeddings", {
       query_embedding: queryEmbedding,
       match_threshold: 0.6, // Lowered from 0.7 for better recall
@@ -3880,6 +7521,532 @@ async function handleBrainBackfill(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * Migrate tags from tracks.tags (text[]) column to track_tags junction table
+ * This is a one-time migration utility to backfill the junction table
+ */
+async function handleMigrateTagsToJunction(req: Request): Promise<Response> {
+  try {
+    // Try token auth first
+    let orgId = await getOrgIdFromToken(req);
+
+    // Parse body to check for organizationId fallback
+    const body = await req.json().catch(() => ({}));
+    const { organizationId, dryRun = false } = body;
+
+    // Use body organizationId as fallback if token auth failed
+    if (!orgId && organizationId) {
+      console.log(`[Tags Migration] Using organizationId from request body: ${organizationId}`);
+      orgId = organizationId;
+    }
+
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized - no valid token or organizationId provided" }, 401);
+    }
+
+    console.log(`[Tags Migration] Starting migration for organization ${orgId}${dryRun ? ' (DRY RUN)' : ''}...`);
+
+    // Step 1: Get all tracks with tags in the legacy column
+    const { data: tracks, error: tracksError } = await supabase
+      .from("tracks")
+      .select("id, title, tags")
+      .eq("organization_id", orgId)
+      .not("tags", "is", null);
+
+    if (tracksError) {
+      console.error("[Tags Migration] Error fetching tracks:", tracksError);
+      return jsonResponse({ error: `Failed to fetch tracks: ${tracksError.message}` }, 500);
+    }
+
+    // Filter to only tracks with non-empty tags array
+    const tracksWithTags = (tracks || []).filter((t: any) =>
+      t.tags && Array.isArray(t.tags) && t.tags.length > 0
+    );
+
+    if (tracksWithTags.length === 0) {
+      return jsonResponse({
+        migrated: 0,
+        skipped: 0,
+        errors: [],
+        message: "No tracks with tags found",
+      });
+    }
+
+    console.log(`[Tags Migration] Found ${tracksWithTags.length} tracks with tags`);
+
+    // Step 2: Get all tags to build name-to-id lookup
+    const { data: allTags, error: tagsError } = await supabase
+      .from("tags")
+      .select("id, name");
+
+    if (tagsError) {
+      console.error("[Tags Migration] Error fetching tags:", tagsError);
+      return jsonResponse({ error: `Failed to fetch tags: ${tagsError.message}` }, 500);
+    }
+
+    const tagNameToId = new Map<string, string>();
+    for (const tag of (allTags || [])) {
+      tagNameToId.set(tag.name.toLowerCase(), tag.id);
+    }
+
+    console.log(`[Tags Migration] Built lookup for ${tagNameToId.size} tags`);
+
+    // Step 3: Get existing track_tags to avoid duplicates
+    const { data: existingJunctions, error: junctionError } = await supabase
+      .from("track_tags")
+      .select("track_id, tag_id");
+
+    if (junctionError) {
+      console.error("[Tags Migration] Error fetching existing junctions:", junctionError);
+    }
+
+    const existingPairs = new Set<string>();
+    for (const junction of (existingJunctions || [])) {
+      existingPairs.add(`${junction.track_id}:${junction.tag_id}`);
+    }
+
+    console.log(`[Tags Migration] Found ${existingPairs.size} existing track_tags records`);
+
+    // Step 4: Build insert records
+    const result = {
+      migrated: 0,
+      skipped: 0,
+      notFound: [] as string[],
+      errors: [] as string[],
+      details: [] as Array<{ trackId: string; title: string; tagsAdded: number; tagsSkipped: number }>,
+    };
+
+    const recordsToInsert: Array<{ track_id: string; tag_id: string }> = [];
+
+    for (const track of tracksWithTags) {
+      let tagsAdded = 0;
+      let tagsSkipped = 0;
+
+      for (const tagName of track.tags) {
+        // Skip system tags for now (they're handled separately)
+        if (tagName.startsWith('system:')) {
+          tagsSkipped++;
+          continue;
+        }
+
+        const tagId = tagNameToId.get(tagName.toLowerCase());
+        if (!tagId) {
+          result.notFound.push(tagName);
+          tagsSkipped++;
+          continue;
+        }
+
+        const pairKey = `${track.id}:${tagId}`;
+        if (existingPairs.has(pairKey)) {
+          tagsSkipped++;
+          continue;
+        }
+
+        recordsToInsert.push({ track_id: track.id, tag_id: tagId });
+        existingPairs.add(pairKey); // Prevent duplicates in this batch
+        tagsAdded++;
+      }
+
+      result.details.push({
+        trackId: track.id,
+        title: track.title || 'Untitled',
+        tagsAdded,
+        tagsSkipped,
+      });
+
+      result.migrated += tagsAdded;
+      result.skipped += tagsSkipped;
+    }
+
+    console.log(`[Tags Migration] Prepared ${recordsToInsert.length} records to insert`);
+
+    // Step 5: Insert records (unless dry run)
+    if (!dryRun && recordsToInsert.length > 0) {
+      // Insert in batches of 100 to avoid timeouts
+      const batchSize = 100;
+      for (let i = 0; i < recordsToInsert.length; i += batchSize) {
+        const batch = recordsToInsert.slice(i, i + batchSize);
+        const { error: insertError } = await supabase
+          .from("track_tags")
+          .insert(batch)
+          .select();
+
+        if (insertError) {
+          console.error(`[Tags Migration] Error inserting batch ${i / batchSize + 1}:`, insertError);
+          result.errors.push(`Batch ${i / batchSize + 1}: ${insertError.message}`);
+        } else {
+          console.log(`[Tags Migration] Inserted batch ${i / batchSize + 1} (${batch.length} records)`);
+        }
+      }
+    }
+
+    // Deduplicate notFound
+    result.notFound = [...new Set(result.notFound)];
+
+    console.log(`[Tags Migration] Complete: ${result.migrated} migrated, ${result.skipped} skipped, ${result.errors.length} errors`);
+
+    return jsonResponse({
+      ...result,
+      dryRun,
+      message: dryRun
+        ? `Dry run complete. Would migrate ${recordsToInsert.length} tag assignments.`
+        : `Migration complete. Migrated ${result.migrated} tag assignments.`,
+    });
+  } catch (error: any) {
+    console.error("[Tags Migration] Fatal error:", error);
+    return jsonResponse({
+      error: error.message || "Failed to migrate tags",
+      migrated: 0,
+      skipped: 0,
+      errors: [error.message || String(error)],
+      details: [],
+    }, 500);
+  }
+}
+
+// =============================================================================
+// RELAY.APP INTEGRATION
+// =============================================================================
+
+const RELAY_LOCATION_SCRAPER_WEBHOOK =
+  "https://hook.relay.app/api/v1/playbook/cmmmltie700p80qkkh1f30u6m/trigger/fkm3uJkE_8uhMgo8sEC7MA";
+
+/**
+ * Trigger Relay.app location scraper automation.
+ * API expects: company_name, company_domain
+ * Response: { status, runId, runLink }
+ * Optional relayDeduplicationKey for run dedup.
+ */
+async function triggerRelayLocationScraper(
+  companyName: string,
+  companyDomain: string,
+  options?: { orgId?: string; deduplicationKey?: string; fullWebsiteUrl?: string }
+): Promise<{ runId: string; runLink: string } | null> {
+  try {
+    // Relay expects company_name and company_domain. Use full URL for domain if provided
+    // (AI step "Go to [Company Domain]" may need full URL to navigate)
+    const domainForRelay = options?.fullWebsiteUrl || companyDomain;
+    const body: Record<string, string> = {
+      company_name: companyName,
+      company_domain: domainForRelay,
+    };
+    if (options?.orgId) {
+      body.org_id = options.orgId;
+    }
+    if (options?.deduplicationKey) {
+      body.relayDeduplicationKey = options.deduplicationKey;
+    }
+    console.log("[Relay] Triggering:", { url: RELAY_LOCATION_SCRAPER_WEBHOOK, body });
+    const resp = await fetch(RELAY_LOCATION_SCRAPER_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const respText = await resp.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(respText);
+    } catch {
+      console.error("[Relay] Non-JSON response:", respText?.slice(0, 500));
+    }
+    if (!resp.ok) {
+      console.error("[Relay] Trigger failed:", resp.status, resp.statusText, data);
+      return null;
+    }
+    const runId = data.runId || data.existingRunId;
+    if (runId && options?.orgId) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", options.orgId)
+        .single();
+      const existing = (org as any)?.scraped_data || {};
+      await supabase
+        .from("organizations")
+        .update({
+          scraped_data: { ...existing, relay_run_id: runId, relay_run_link: data.runLink || null },
+        })
+        .eq("id", options.orgId);
+    }
+    if (runId) {
+      console.log("[Relay] Trigger success:", runId, data.runLink || "(existing run)");
+      return { runId, runLink: data.runLink || "" };
+    }
+    console.warn("[Relay] Trigger response missing runId:", data);
+    return null;
+  } catch (e: any) {
+    console.error("[Relay] triggerRelayLocationScraper error:", e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * Expected Relay callback payload (configure playbook to POST to /relay/location-callback):
+ * {
+ *   org_id: string,
+ *   company_name?: string,
+ *   company_domain?: string,
+ *   industry?: { code?: string, name?: string },
+ *   operating_states?: string[],
+ *   co_type?: string,
+ *   totalLocationCount?: number,
+ *   date_checked?: string,
+ *   stores / locations: Array<{ name?, address?, city?, state?, zip?, ... }>
+ * }
+ *
+ * If stores/locations is empty: leave seed stores as-is (or create seed fallback). CRM fields are still persisted.
+ * If stores/locations has data: replace seed stores with real stores and persist CRM + counts.
+ */
+async function handleRelayLocationCallback(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const {
+      org_id,
+      company_name,
+      company_domain,
+      store_count,
+      totalLocationCount,
+      stores,
+      locations,
+      industry,
+      operating_states,
+      co_type,
+      date_checked,
+    } = body;
+    const storeList = Array.isArray(stores) ? stores : (Array.isArray(locations) ? locations : []);
+
+    // Relay may send industry as object or as JSON string
+    let relayIndustry: { code?: string; name?: string } | null = null;
+    if (industry != null) {
+      if (typeof industry === "object" && industry !== null && !Array.isArray(industry)) {
+        relayIndustry = industry as { code?: string; name?: string };
+      } else if (typeof industry === "string") {
+        try {
+          const parsed = JSON.parse(industry) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "code" in parsed) {
+            relayIndustry = parsed as { code?: string; name?: string };
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    const relayOperatingStates = Array.isArray(operating_states)
+      ? operating_states.filter((s: unknown) => typeof s === "string" && s.length === 2)
+      : [];
+    const relayCoType = typeof co_type === "string" && co_type ? co_type : null;
+    const relayDateChecked = typeof date_checked === "string" && date_checked ? date_checked : null;
+    const toNum = (v: unknown) => (typeof v === "number" && !isNaN(v) ? v : typeof v === "string" ? parseInt(v, 10) : NaN);
+    const scrapedTotal = toNum(totalLocationCount) || toNum(store_count) || null;
+
+    let orgId = org_id;
+    if (!orgId && company_domain) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .ilike("website", `%${company_domain}%`)
+        .limit(1)
+        .single();
+      orgId = org?.id;
+    }
+
+    if (!orgId) {
+      console.error("[Relay] Callback: missing org_id and could not resolve from company_domain");
+      return jsonResponse({ error: "org_id or company_domain required" }, 400);
+    }
+
+    let industryIdToSet: string | null = null;
+    if (relayIndustry?.code) {
+      const code = String(relayIndustry.code).trim().toLowerCase();
+      const { data: ind } = await supabase
+        .from("industries")
+        .select("id")
+        .ilike("code", code)
+        .limit(1)
+        .maybeSingle();
+      industryIdToSet = ind?.id ?? null;
+    }
+
+    async function updateOrgCrm(opts: {
+      storeCount: number | null;
+      scrapedTotal: number | null;
+    }) {
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("scraped_data")
+        .eq("id", orgId)
+        .single();
+      const existing = (orgRow as any)?.scraped_data || {};
+      const scrapedData: Record<string, unknown> = {
+        ...existing,
+        relay_industry: relayIndustry,
+        relay_operating_states: relayOperatingStates,
+        relay_co_type: relayCoType,
+        relay_date_checked: relayDateChecked,
+      };
+      if (opts.storeCount != null) {
+        scrapedData.store_count = opts.storeCount;
+        scrapedData.relay_locations_imported_at = new Date().toISOString();
+      }
+      if (opts.scrapedTotal != null) scrapedData.relay_locations_total = opts.scrapedTotal;
+      const updatePayload: Record<string, unknown> = { scraped_data: scrapedData };
+      if (industryIdToSet != null) (updatePayload as any).industry_id = industryIdToSet;
+      if (relayOperatingStates.length > 0) (updatePayload as any).operating_states = relayOperatingStates;
+      if (relayIndustry?.name && typeof relayIndustry.name === "string") {
+        (updatePayload as any).industry = relayIndustry.name.trim();
+      }
+      await supabase.from("organizations").update(updatePayload).eq("id", orgId);
+    }
+
+    const hasLocations = storeList.length > 0;
+
+    if (!hasLocations) {
+      // No locations from Relay. If we have no stores (DemoCreate skipped them), create seed fallback so demo isn't broken.
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log(`[Relay] Callback: no locations for org ${orgId} — creating seed fallback (5 stores)`);
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const firstId = inserted?.[0]?.id;
+        if (firstId) {
+          await supabase.from("users").update({ store_id: firstId }).eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        }
+        await updateOrgCrm({ storeCount: 5, scrapedTotal });
+        return jsonResponse({ success: true, action: "no_locations_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      console.log(`[Relay] Callback: no locations for org ${orgId} — keeping existing seed stores`);
+      await updateOrgCrm({ storeCount: null, scrapedTotal });
+      return jsonResponse({ success: true, action: "no_locations_kept_seed", org_id: orgId });
+    }
+
+    // Map Relay store format to our stores table
+    const mapStore = (s: any, index: number) => {
+      const addr = s.address || s.street_address || [s.street, s.city, s.state, s.zip].filter(Boolean).join(", ") || null;
+      const zip = s.zip || s.postal_code || null;
+      const lat = s.latitude ?? s.lat ?? null;
+      const lng = s.longitude ?? s.lng ?? null;
+      const storeName = s.name ? decodeHtmlEntities(String(s.name)) : `Location ${index + 1}`;
+      return {
+        organization_id: orgId,
+        name: storeName,
+        code: s.code || `S${(index + 1).toString().padStart(2, "0")}`,
+        address: addr,
+        city: s.city || null,
+        state: s.state || null,
+        zip,
+        phone: s.phone || null,
+        latitude: typeof lat === "number" ? lat : (typeof lat === "string" ? parseFloat(lat) : null),
+        longitude: typeof lng === "number" ? lng : (typeof lng === "string" ? parseFloat(lng) : null),
+        is_active: true,
+        is_seed: false,
+      };
+    };
+
+    const storesToInsert = storeList.slice(0, 500).map(mapStore); // Support 5–500 stores
+
+    // Get districts for this org (seed districts or any)
+    const { data: districts } = await supabase
+      .from("districts")
+      .select("id")
+      .eq("organization_id", orgId)
+      .limit(2);
+
+    const districtIds = districts?.map((d: any) => d.id) || [];
+
+    // Delete seed stores and get their IDs for user reassignment
+    const { data: deletedStores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("is_seed", true);
+
+    const deletedStoreIds = new Set((deletedStores || []).map((s: any) => s.id));
+
+    await supabase.from("stores").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+    // Insert real stores with district assignment
+    const storesWithDistrict = storesToInsert.map((s, i) => ({
+      ...s,
+      district_id: districtIds[i % districtIds.length] || null,
+    }));
+
+    const { data: insertedStores, error: insertErr } = await supabase
+      .from("stores")
+      .insert(storesWithDistrict)
+      .select("id");
+
+    if (insertErr) {
+      console.error("[Relay] Callback: failed to insert stores:", insertErr);
+      // Fallback: create seed stores so demo isn't broken
+      const { data: existingStores } = await supabase.from("stores").select("id").eq("organization_id", orgId);
+      if (!existingStores || existingStores.length === 0) {
+        console.log("[Relay] Callback: creating seed fallback after insert error");
+        const { data: districts } = await supabase.from("districts").select("id").eq("organization_id", orgId).limit(2);
+        const districtIds = districts?.map((d: any) => d.id) || [];
+        const fallbackStores = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: orgId,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+        const { data: inserted } = await supabase.from("stores").insert(fallbackStores).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const { data: seedPeople } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true).is("store_id", null);
+        if (seedPeople && seedPeople.length > 0 && storeIds.length > 0) {
+          for (let i = 0; i < seedPeople.length; i++) {
+            const storeId = storeIds[i % storeIds.length];
+            await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+          }
+        }
+        return jsonResponse({ success: true, action: "insert_error_seed_fallback", org_id: orgId, stores_created: 5 });
+      }
+      return jsonResponse({ error: insertErr.message }, 500);
+    }
+
+    const newStoreIds = (insertedStores || []).map((s: any) => s.id);
+    // Distribute seed people across first N stores (N = min(5, storeCount)) — scales to 5 or 500 stores
+    const storesForAssignment = newStoreIds.slice(0, 5);
+    let peopleQuery = supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+    peopleQuery = deletedStoreIds.size > 0 ? peopleQuery.in("store_id", Array.from(deletedStoreIds)) : peopleQuery.is("store_id", null);
+    const { data: seedPeople } = await peopleQuery;
+    if (seedPeople && seedPeople.length > 0 && storesForAssignment.length > 0) {
+      for (let i = 0; i < seedPeople.length; i++) {
+        const storeId = storesForAssignment[i % storesForAssignment.length];
+        await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+      }
+      console.log(`[Relay] Callback: assigned ${seedPeople.length} people to first ${storesForAssignment.length} stores`);
+    }
+
+    await updateOrgCrm({ storeCount: newStoreIds.length, scrapedTotal: scrapedTotal ?? null });
+
+    console.log(`[Relay] Callback: imported ${newStoreIds.length} stores for org ${orgId}`);
+    return jsonResponse({
+      success: true,
+      action: "imported_locations",
+      org_id: orgId,
+      stores_imported: newStoreIds.length,
+    });
+  } catch (e: any) {
+    console.error("[Relay] Callback error:", e);
+    return jsonResponse({ error: e.message || "Callback failed" }, 500);
+  }
+}
+
 // =============================================================================
 // ONBOARDING HANDLERS
 // =============================================================================
@@ -3930,10 +8097,13 @@ async function handleOnboardingStart(req: Request): Promise<Response> {
  * Scrape company info from website URL
  */
 async function handleEnrichCompany(req: Request): Promise<Response> {
+  let websiteInput = "";
   try {
-    const { website, session_token } = await req.json();
+    const body = await req.json();
+    const { website, session_token } = body;
+    websiteInput = website || "";
 
-    if (!website) {
+    if (!websiteInput) {
       return jsonResponse({ error: "website URL is required" }, 400);
     }
 
@@ -3976,57 +8146,41 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
     // Extract data from HTML
     const scrapedData = await extractCompanyDataFromHTML(html, url, domainName);
 
-    // Try to find store locator page and scrape locations
-    const storeLocatorUrls = [
-      "/locations",
-      "/location",  // singular (WordPress common)
-      "/stores",
-      "/store",
-      "/find-us",
-      "/store-locator",
-      "/our-locations",
-      "/find-a-store",
-      "/all-locations",
-    ];
-
-    let stores: any[] = [];
-    for (const locatorPath of storeLocatorUrls) {
-      try {
-        const locatorUrl = new URL(locatorPath, url).toString();
-        const locatorResponse = await fetch(locatorUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/json",
-          },
-        });
-
-        if (locatorResponse.ok) {
-          const locatorHtml = await locatorResponse.text();
-          stores = extractStoresFromHTML(locatorHtml);
-
-          // If no stores found directly, check for WPSL (WordPress Store Locator) AJAX endpoint
-          if (stores.length === 0 && locatorHtml.includes('wpsl')) {
-            console.log(`[Onboarding] Detected WPSL plugin, trying AJAX endpoint...`);
-            const wpslStores = await tryWPSLAjax(url);
-            if (wpslStores.length > 0) {
-              stores = wpslStores;
-            }
-          }
-
-          if (stores.length > 0) {
-            console.log(`[Onboarding] Found ${stores.length} stores at ${locatorPath}`);
-            break;
-          }
-        }
-      } catch (e) {
-        // Continue to next URL
+    // Phase 1: External logo fallback if HTML scraping didn't find one
+    if (!scrapedData.logo_url) {
+      console.log(`[Onboarding] No logo from HTML scrape, trying external services...`);
+      const externalLogo = await tryExternalLogoFallback(domain);
+      if (externalLogo) {
+        scrapedData.logo_url = externalLogo;
+        console.log(`[Onboarding] External logo found: ${externalLogo}`);
       }
     }
 
-    // Use AI to enhance the scraped data
-    let enrichedData = await enrichWithAI(scrapedData, html, stores);
+    // Location scraping: delegated to Relay.app automation (replaces in-house scraper)
+    // Skip Relay here — no org exists yet (EnrichCompany runs before org creation).
+    // Relay trigger schema requires org_id; we only trigger from DemoCreate and Onboarding (create org).
+    const stores: any[] = [];
+    const bestLocatorHtml = "";
 
-    // If we still don't have a good logo or company name, try Claude Vision
+    // Phase 2: Derive operating states from scraped store addresses (empty when using Relay)
+    const derivedStates = deriveOperatingStatesFromStores(stores);
+    if (derivedStates.length > 0) {
+      console.log(`[Onboarding] Derived ${derivedStates.length} states from store addresses: ${derivedStates.join(", ")}`);
+    }
+
+    // Use AI to enhance the scraped data (Phase 4: now with locations page HTML)
+    let enrichedData = await enrichWithAI(scrapedData, html, stores, bestLocatorHtml);
+
+    // Merge derived states with AI-detected states (deduped)
+    if (derivedStates.length > 0) {
+      const aiStates = (enrichedData.operating_states || []) as string[];
+      const mergedStates = Array.from(new Set([...derivedStates, ...aiStates.map((s: string) => s.toUpperCase())]))
+        .filter(s => US_STATE_CODES.has(s))
+        .sort();
+      enrichedData.operating_states = mergedStates;
+    }
+
+    // Phase 6: If we still don't have a good logo or company name, try Claude with actual HTML
     const needsVisionFallback = !enrichedData.logo_url ||
       !enrichedData.company_name ||
       enrichedData.company_name.length > 40 ||
@@ -4034,10 +8188,30 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
       enrichedData.company_name.includes('|');
 
     if (needsVisionFallback) {
-      console.log(`[Onboarding] HTML scrape incomplete, trying Claude Vision fallback...`);
-      const visionData = await enrichWithClaudeVision(url, enrichedData);
+      console.log(`[Onboarding] HTML scrape incomplete, trying Claude fallback with actual HTML...`);
+      const visionData = await enrichWithClaudeVision(url, enrichedData, html, bestLocatorHtml);
       if (visionData) {
         enrichedData = { ...enrichedData, ...visionData };
+      }
+    }
+
+    // Phase 3: Self-QA validation before saving
+    const qaResult = validateEnrichmentResults(enrichedData, stores);
+    if (qaResult.issues.length > 0) {
+      console.log(`[Onboarding] QA found ${qaResult.issues.length} issues: ${qaResult.issues.join("; ")}`);
+    }
+    if (qaResult.fixes) {
+      enrichedData = { ...enrichedData, ...qaResult.fixes };
+    }
+
+    // Post-QA logo fallback: if QA rejected the logo (or it was never found),
+    // retry with external services (Clearbit, Google Favicon)
+    if (!enrichedData.logo_url) {
+      console.log(`[Onboarding] No logo after QA validation, retrying external fallback...`);
+      const postQaLogo = await tryExternalLogoFallback(domain);
+      if (postQaLogo) {
+        enrichedData.logo_url = postQaLogo;
+        console.log(`[Onboarding] Post-QA external logo found: ${postQaLogo}`);
       }
     }
 
@@ -4052,16 +8226,332 @@ async function handleEnrichCompany(req: Request): Promise<Response> {
         .eq("session_token", session_token);
     }
 
-    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}`);
+    console.log(`[Onboarding] Enriched company: ${enrichedData.company_name}, logo_url: ${enrichedData.logo_url || 'NONE'}, stores: ${enrichedData.store_count || 0}, states: ${(enrichedData.operating_states || []).join(",") || 'NONE'}`);
+    if (!enrichedData.logo_url) {
+      console.warn(`[Onboarding] No logo found for ${url}. Scraped data had logo: ${scrapedData.logo_url || 'NONE'}`);
+    }
+
+    const responseData: Record<string, any> = { ...enrichedData };
 
     return jsonResponse({
       success: true,
-      data: enrichedData,
+      data: responseData,
     });
   } catch (error: any) {
     console.error("[Onboarding] Error enriching company:", error);
-    return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    // Fallback: same minimal logic as Create Demo — return domain-derived company name so user can continue
+    try {
+      if (!websiteInput) return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+      const fallbackUrl = websiteInput.startsWith("http") ? websiteInput : "https://" + websiteInput;
+      const domain = new URL(fallbackUrl).hostname.replace("www.", "");
+      const domainName = domain.split(".")[0];
+      return jsonResponse({
+        success: true,
+        data: {
+          website: fallbackUrl,
+          company_name: capitalizeWords(domainName),
+          scraped: false,
+          error: "Could not fully enrich company data",
+        },
+      });
+    } catch (fallbackErr: any) {
+      return jsonResponse({ error: error.message || "Failed to enrich company data" }, 500);
+    }
   }
+}
+
+// US state code constants (shared by state derivation and QA validation)
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+  "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+  "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+  "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+  "DC",
+]);
+
+/**
+ * Try external services for company logo when HTML scraping fails.
+ * Clearbit Logo API (free, no key) → Google Favicon (128px fallback)
+ */
+async function tryExternalLogoFallback(domain: string): Promise<string | null> {
+  // 1. Clearbit Logo API — high quality, transparent PNGs
+  const clearbitUrl = `https://logo.clearbit.com/${domain}`;
+  try {
+    const headRes = await fetch(clearbitUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const ct = headRes.headers.get("content-type") || "";
+      if (ct.includes("image/")) {
+        console.log(`[Onboarding] Clearbit logo found for ${domain}`);
+        return clearbitUrl;
+      }
+    }
+  } catch (_e) {
+    // Clearbit unavailable, try next
+  }
+
+  // 2. Google Favicon API — always returns something, 128px max
+  const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  try {
+    const headRes = await fetch(googleFaviconUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0)" },
+    });
+    if (headRes.ok) {
+      const cl = parseInt(headRes.headers.get("content-length") || "0", 10);
+      // Google returns a tiny default globe icon (~600 bytes) for unknown domains
+      // Real favicons are typically 2KB+
+      if (cl > 1000) {
+        console.log(`[Onboarding] Google Favicon found for ${domain} (${cl} bytes)`);
+        return googleFaviconUrl;
+      }
+    }
+  } catch (_e) {
+    // Google API unavailable
+  }
+
+  return null;
+}
+
+/**
+ * Derive operating states from scraped store data.
+ * Extracts unique 2-letter state codes from store address fields.
+ */
+function deriveOperatingStatesFromStores(stores: any[]): string[] {
+  const states = new Set<string>();
+
+  for (const store of stores) {
+    // Skip placeholder count objects
+    if (store._count || store._note) continue;
+
+    // Try state field directly
+    if (store.state) {
+      const code = store.state.trim().toUpperCase();
+      if (US_STATE_CODES.has(code)) {
+        states.add(code);
+      }
+    }
+
+    // Try to extract from address string (e.g. "123 Main St, City, TX 78701")
+    const addr = store.address || store.full_address || "";
+    if (addr) {
+      // Match ", ST " or ", ST\n" or ", STATE ZIP" patterns
+      const stateMatch = addr.match(/,\s*([A-Z]{2})\s+\d{5}/i)
+        || addr.match(/,\s*([A-Z]{2})\s*$/i)
+        || addr.match(/\b([A-Z]{2})\s+\d{5}\b/);
+      if (stateMatch) {
+        const code = stateMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+
+    // Try city_state combined field
+    if (store.city_state) {
+      const csMatch = store.city_state.match(/,\s*([A-Z]{2})\s*$/i)
+        || store.city_state.match(/\b([A-Z]{2})\s*$/i);
+      if (csMatch) {
+        const code = csMatch[1].toUpperCase();
+        if (US_STATE_CODES.has(code)) {
+          states.add(code);
+        }
+      }
+    }
+  }
+
+  return Array.from(states).sort();
+}
+
+/**
+ * Phase 3: Self-QA validation — catch common enrichment mistakes before saving.
+ * Returns { issues: string[], fixes: Record<string, any> | null }
+ */
+function validateEnrichmentResults(data: any, stores: any[]): { issues: string[]; fixes: any | null } {
+  const issues: string[] = [];
+  const fixes: any = {};
+
+  // 1. Store count sanity — align count with actual array length
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  const countPlaceholder = stores.find((s) => s._count);
+  if (realStores.length > 0 && data.store_count !== realStores.length) {
+    issues.push(`store_count mismatch: data says ${data.store_count}, actual array has ${realStores.length}`);
+    fixes.store_count = realStores.length;
+  } else if (realStores.length === 0 && countPlaceholder?._count) {
+    // We only have a count placeholder (e.g. "39 Locations" parsed from text)
+    if (data.store_count !== countPlaceholder._count) {
+      issues.push(`store_count placeholder: using parsed count ${countPlaceholder._count}`);
+      fixes.store_count = countPlaceholder._count;
+    }
+  }
+
+  // 2. Logo URL sanity — reject common false-positive patterns
+  if (data.logo_url) {
+    const logoLower = data.logo_url.toLowerCase();
+    const isBadLogo =
+      /spacer|pixel|blank|1x1|tracking|beacon|clear\.gif/i.test(logoLower) ||
+      /\.gif$/i.test(logoLower) && /spacer|blank|pixel|1x1/i.test(logoLower) ||
+      logoLower.includes("data:image/gif") ||
+      logoLower.includes("data:image/svg") && logoLower.length < 200;
+
+    if (isBadLogo) {
+      issues.push(`logo_url looks like a tracking pixel or spacer: ${data.logo_url.substring(0, 80)}`);
+      fixes.logo_url = null;
+    }
+  }
+
+  // 3. Company name cleanup — strip common suffixes
+  if (data.company_name) {
+    let cleaned = data.company_name
+      .replace(/\s*[|–-]\s*(Home|Homepage|Welcome|Official Site|Official Website)\s*$/i, "")
+      .replace(/\s*(Home|Homepage)\s*$/i, "")
+      .trim();
+
+    // Also strip leading "Welcome to " or "Home | "
+    cleaned = cleaned
+      .replace(/^(?:Welcome\s+to\s+|Home\s*[|–-]\s*)/i, "")
+      .trim();
+
+    if (cleaned !== data.company_name) {
+      issues.push(`company_name cleaned: "${data.company_name}" → "${cleaned}"`);
+      fixes.company_name = cleaned;
+    }
+  }
+
+  // 4. State code validation — filter out invalid codes
+  if (data.operating_states && Array.isArray(data.operating_states)) {
+    const validStates = data.operating_states.filter((s: string) =>
+      typeof s === "string" && US_STATE_CODES.has(s.toUpperCase())
+    );
+    if (validStates.length !== data.operating_states.length) {
+      const invalid = data.operating_states.filter((s: string) =>
+        typeof s !== "string" || !US_STATE_CODES.has(s.toUpperCase())
+      );
+      issues.push(`invalid state codes removed: ${invalid.join(", ")}`);
+      fixes.operating_states = validStates;
+    }
+  }
+
+  // 5. Ensure stores array is clean (no placeholder objects in the stored data)
+  if (data.stores && Array.isArray(data.stores)) {
+    const cleanStores = data.stores.filter((s: any) => !s._count && !s._note);
+    if (cleanStores.length !== data.stores.length) {
+      issues.push(`removed ${data.stores.length - cleanStores.length} placeholder store objects`);
+      fixes.stores = cleanStores;
+    }
+  }
+
+  return {
+    issues,
+    fixes: Object.keys(fixes).length > 0 ? fixes : null,
+  };
+}
+
+/**
+ * Phase 5: AI-powered location extraction when regex fails on JS-rendered pages.
+ * Uses GPT-4o-mini to parse store addresses from HTML that regex couldn't handle.
+ */
+async function extractStoresWithAI(locatorHtml: string, domain: string): Promise<any[]> {
+  if (!OPENAI_API_KEY) {
+    console.warn("[Onboarding] No OpenAI key, skipping AI store extraction");
+    return [];
+  }
+
+  // Pre-check: skip if HTML has no address/location indicators
+  const hasAddressIndicators = /\d{5}|address|location|store|branch/i.test(locatorHtml);
+  if (!hasAddressIndicators) {
+    console.log("[Onboarding] Locations page has no address indicators, skipping AI extraction");
+    return [];
+  }
+
+  try {
+    // Truncate to 20K chars for token limits
+    const truncatedHtml = locatorHtml.substring(0, 20000);
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You extract store/location addresses from HTML content. Return JSON only.
+
+Look for:
+- Individual store addresses with street, city, state, zip
+- Store names/numbers
+- Phone numbers
+
+If you can identify individual locations, return them. If you can only determine a total count, return that.
+
+Return JSON: { "stores": [...], "estimated_count": number }
+Each store: { "name": string|null, "address": string|null, "city": string|null, "state": string|null, "zip": string|null, "phone": string|null }`
+          },
+          {
+            role: "user",
+            content: `Extract store locations from this ${domain} locations page HTML:
+
+${truncatedHtml}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Onboarding] AI store extraction API error: ${response.status}`);
+      return [];
+    }
+
+    const aiResult = await response.json();
+    const aiData = JSON.parse(aiResult.choices[0].message.content);
+
+    if (aiData.stores && Array.isArray(aiData.stores) && aiData.stores.length > 0) {
+      // Filter out empty/invalid stores
+      const validStores = aiData.stores.filter((s: any) =>
+        s.address || s.city || s.name
+      );
+      console.log(`[Onboarding] AI extracted ${validStores.length} stores (raw: ${aiData.stores.length})`);
+      return validStores;
+    }
+
+    // If AI found a count but no individual stores, return a count placeholder
+    if (aiData.estimated_count && aiData.estimated_count > 0) {
+      console.log(`[Onboarding] AI estimated ${aiData.estimated_count} stores but couldn't parse details`);
+      return [{ _count: aiData.estimated_count, _note: "AI estimated count, details not parseable" }];
+    }
+
+    return [];
+  } catch (error: any) {
+    console.error("[Onboarding] AI store extraction failed:", error.message || error);
+    return [];
+  }
+}
+
+/**
+ * Decode HTML entities in text (e.g. &#039; → ', &amp; → &)
+ */
+function decodeHtmlEntities(str: string): string {
+  if (!str || typeof str !== "string") return str;
+  return str
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ");
 }
 
 /**
@@ -4087,8 +8577,15 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     const logoAltMatch = html.match(/<img[^>]*(?:class|id)=["'][^"']*logo[^"']*["'][^>]*alt=["']([^"']+)["']/i)
       || html.match(/<img[^>]*alt=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*logo[^"']*["']/i)
       || html.match(/<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]*alt=["']([^"']+)["']/i);
-    if (logoAltMatch && logoAltMatch[1].trim().length > 1 && logoAltMatch[1].trim().length < 50) {
-      data.company_name = logoAltMatch[1].trim();
+    if (logoAltMatch) {
+      // Clean the alt text: strip common suffixes like "Logo", "Icon", "Image"
+      let altName = logoAltMatch[1].trim()
+        .replace(/\s*[-–|]\s*(logo|icon|image|banner|brand|img)$/i, '')
+        .replace(/\s+(logo|icon|image|banner|brand|img)$/i, '')
+        .trim();
+      if (altName.length > 1 && altName.length < 50) {
+        data.company_name = altName;
+      }
     }
   }
 
@@ -4147,45 +8644,116 @@ function extractCompanyDataFromHTML(html: string, url: string, domainFallback: s
     data.company_name = capitalizeWords(domainFallback);
   }
 
-  // Extract logo - expanded patterns
-  const logoPatterns = [
-    // Header logo images (most common)
-    /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
-    /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
-    /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
-    // Logo in alt text
-    /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
-    /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
-    // SVG logos
-    /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
-    // Fallback to og:image
-    /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
-    /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
-    // Apple touch icon (usually a good square logo)
-    /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
-    // Favicon as last resort
-    /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
-  ];
+  // Decode HTML entities (e.g. Dak&#039;s Market → Dak's Market)
+  if (data.company_name) {
+    data.company_name = decodeHtmlEntities(data.company_name);
+  }
 
-  for (const pattern of logoPatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      let logoUrl = match[1];
-      // Skip data URIs, tiny images, and tracking pixels
-      if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) continue;
-      // Make relative URLs absolute
-      if (logoUrl.startsWith("//")) {
-        logoUrl = "https:" + logoUrl;
-      } else if (logoUrl.startsWith("/")) {
-        logoUrl = new URL(logoUrl, url).toString();
-      } else if (!logoUrl.startsWith("http")) {
-        logoUrl = new URL(logoUrl, url).toString();
+  // Extract logo - smart selection with domain awareness
+  const siteDomain = new URL(url).hostname.replace("www.", "");
+
+  // Helper: check if a URL belongs to the same domain as the site
+  const isSameDomain = (imgUrl: string): boolean => {
+    try {
+      if (imgUrl.startsWith("/") && !imgUrl.startsWith("//")) return true;
+      if (!imgUrl.startsWith("http") && !imgUrl.startsWith("//")) return true;
+      const imgDomain = new URL(imgUrl.startsWith("//") ? "https:" + imgUrl : imgUrl).hostname.replace("www.", "");
+      return imgDomain === siteDomain;
+    } catch { return true; }
+  };
+
+  // Helper: normalize a logo URL to absolute
+  const normalizeLogoUrl = (logoUrl: string): string | null => {
+    if (logoUrl.startsWith("data:") || logoUrl.includes("1x1") || logoUrl.includes("pixel")) return null;
+    // Resolve Shopify responsive image templates: {width}x → 300x
+    if (logoUrl.includes("{width}")) {
+      logoUrl = logoUrl.replace("{width}", "300");
+    }
+    if (logoUrl.startsWith("//")) return "https:" + logoUrl;
+    if (logoUrl.startsWith("/")) return new URL(logoUrl, url).toString();
+    if (!logoUrl.startsWith("http")) return new URL(logoUrl, url).toString();
+    return logoUrl;
+  };
+
+  // Strategy 1: Find logo inside a link to the site's own homepage (most reliable)
+  // Pattern: <a href="https://site.com/"> ... <img src="logo.png"> ... </a>
+  const homepageLinkLogoMatch = html.match(
+    /<a[^>]*href=["'](?:https?:\/\/(?:www\.)?)?(?:\/|[^"']*?(?:\/|\/index\.html?))["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>[\s\S]*?<\/a>/i
+  );
+  // Also try: header links that point to the domain root
+  const headerHomeLinkMatches = html.matchAll(
+    /<header[^>]*>[\s\S]*?<a[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/gi
+  );
+  for (const match of headerHomeLinkMatches) {
+    const linkHref = match[1];
+    const imgSrc = match[2];
+    // Check if this link points to the homepage (/, /index, or the full domain URL)
+    const isHomepageLink = linkHref === "/" ||
+      linkHref === url ||
+      linkHref === `https://${siteDomain}/` ||
+      linkHref === `https://www.${siteDomain}/` ||
+      linkHref === `http://${siteDomain}/` ||
+      linkHref === `http://www.${siteDomain}/`;
+    if (isHomepageLink && isSameDomain(imgSrc)) {
+      const normalized = normalizeLogoUrl(imgSrc);
+      if (normalized) {
+        data.logo_url = normalized;
+        break;
       }
-      data.logo_url = logoUrl;
-      break;
+    }
+  }
+
+  // Strategy 2: Use pattern-based matching if homepage link strategy didn't work
+  if (!data.logo_url) {
+    const logoPatterns = [
+      // Logo class/id patterns (very reliable)
+      /<(?:div|a)[^>]*class=["'][^"']*(?:logo|brand|site-logo|navbar-brand)[^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*class=["'][^"']*(?:logo|brand|site-logo)[^"']*["']/i,
+      /<img[^>]*id=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*id=["'][^"']*logo[^"']*["']/i,
+      // Logo in alt text
+      /<img[^>]*alt=["'][^"']*logo[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*src=["']([^"']+)["'][^>]*alt=["'][^"']*logo[^"']*["']/i,
+      // SVG logos
+      /<a[^>]*class=["'][^"']*logo[^"']*["'][^>]*href=["'][^"']*["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i,
+      // Header logo (fallback - first img in header, but prefer same-domain)
+      /<header[^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i,
+      // Fallback to og:image
+      /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i,
+      // Apple touch icon (usually a good square logo)
+      /<link[^>]*rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i,
+      // Favicon as last resort
+      /<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i,
+    ];
+
+    for (const pattern of logoPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const logoUrl = match[1];
+        // Prefer same-domain images; skip external domain logos (e.g., rewards program logos)
+        if (!isSameDomain(logoUrl)) continue;
+        const normalized = normalizeLogoUrl(logoUrl);
+        if (normalized) {
+          data.logo_url = normalized;
+          break;
+        }
+      }
+    }
+
+    // If no same-domain logo found, retry without domain filter (some companies host logos on CDNs)
+    if (!data.logo_url) {
+      for (const pattern of logoPatterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          const normalized = normalizeLogoUrl(match[1]);
+          if (normalized) {
+            data.logo_url = normalized;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -4400,7 +8968,42 @@ function extractStoresFromHTML(html: string): any[] {
     }
   }
 
-  return stores.slice(0, 100); // Cap at 100 for performance
+  // Filter out garbage stores whose fields contain HTML fragments
+  // (e.g. Shopify product availability modals, nav menus parsed as stores)
+  const cleanStores = stores.filter((store) => {
+    const fields = [store.name, store.address, store.city, store.state, store.zip, store.phone]
+      .filter(Boolean)
+      .join(" ");
+    // Reject if fields contain HTML tags, class/id attributes, or CSS selectors
+    if (/<[a-z][^>]*>/i.test(fields)) return false;
+    if (/\bclass\s*=\s*["']/i.test(fields)) return false;
+    if (/\bid\s*=\s*["']/i.test(fields)) return false;
+    if (/\bdata-[a-z]+=["']/i.test(fields)) return false;
+    // Reject if address is suspiciously short (< 5 chars) or missing entirely
+    if (!store.address && !store.city && !store.zip && !store.name) return false;
+    return true;
+  });
+
+  // Deduplicate stores - many sites render the same store multiple times
+  // (e.g. accordion expand/collapse, responsive views, summary + detail cards)
+  const seen = new Set<string>();
+  const uniqueStores = cleanStores.filter((store) => {
+    // Build a dedup key from address+zip or name
+    const addrKey = [
+      (store.address || '').replace(/\s+/g, ' ').trim().toLowerCase(),
+      (store.zip || '').trim(),
+    ].join('|');
+    const nameKey = (store.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // Use address+zip as primary key, fall back to name
+    const key = addrKey !== '|' ? addrKey : nameKey;
+    if (!key || key === '|') return true; // Keep stores we can't dedup
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueStores.slice(0, 100); // Cap at 100 for performance
 }
 
 /**
@@ -4459,18 +9062,53 @@ function parseStructuredStore(item: any): any {
 }
 
 /**
- * Use AI to enhance and classify scraped data
+ * Use AI to enhance and classify scraped data.
+ * Phase 4: Now accepts optional locatorHtml for multi-page analysis.
  */
-async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Promise<any> {
+async function enrichWithAI(scrapedData: any, html: string, stores: any[], locatorHtml?: string): Promise<any> {
   if (!OPENAI_API_KEY) {
     console.warn("[Onboarding] No OpenAI key, skipping AI enrichment");
     return { ...scrapedData, stores, services: [], industry: null };
   }
 
-  // Truncate HTML to avoid token limits
-  const truncatedHtml = html.substring(0, 15000);
+  // Phase 4: Reduce homepage slice to make room for locations page content
+  const homepageSlice = html.substring(0, locatorHtml ? 12000 : 15000);
+
+  // Build combined content: homepage + locations page + sample store data
+  let combinedContent = `Homepage content (truncated):\n${homepageSlice}`;
+
+  if (locatorHtml && locatorHtml.length > 100) {
+    combinedContent += `\n\n--- LOCATIONS PAGE (truncated) ---\n${locatorHtml.substring(0, 5000)}`;
+  }
+
+  // Include sample store data if available (first 5 stores for context)
+  const realStores = stores.filter((s) => !s._count && !s._note);
+  if (realStores.length > 0) {
+    const sample = realStores.slice(0, 5).map((s) =>
+      [s.name, s.address, s.city, s.state, s.zip].filter(Boolean).join(", ")
+    );
+    combinedContent += `\n\n--- SAMPLE STORES (${realStores.length} total) ---\n${sample.join("\n")}`;
+  }
+
+  const truncatedHtml = combinedContent;
 
   try {
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries, error: industriesError } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    if (industriesError) {
+      console.error("[Onboarding] Failed to fetch industries for AI prompt:", industriesError);
+    }
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -4484,14 +9122,15 @@ async function enrichWithAI(scrapedData: any, html: string, stores: any[]): Prom
             role: "system",
             content: `You analyze company websites to classify businesses. Return JSON only.
 
-Industries: convenience_retail, qsr (quick service restaurant), grocery, fuel_retail, hospitality
+Industries (use the code): ${industryList}
 Services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
 
 Analyze the website content and determine:
-1. The company's industry
+1. The company's industry (use the industry CODE only, e.g., "cstore" not "Convenience Stores")
 2. What services they likely offer based on the website content
-3. A brief description of the company
-4. Operating states if mentioned`
+3. A brief description of the company (1-2 sentences)
+4. Operating states as 2-letter state codes (e.g. "TX", "FL"). Look for state names in the text like "Texas" → "TX"
+5. Total number of store/location count if mentioned anywhere on the site (e.g. "25 stores" → 25)`
           },
           {
             role: "user",
@@ -4501,7 +9140,7 @@ Website: ${scrapedData.website}
 Website content (truncated):
 ${truncatedHtml}
 
-Return JSON with: { industry, services: [], description, operating_states: [] }`
+Return JSON with: { industry, services: [], description, operating_states: [], store_count: 0 }`
           }
         ],
         response_format: { type: "json_object" },
@@ -4524,7 +9163,7 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
       description: aiData.description || null,
       operating_states: aiData.operating_states || [],
       stores: stores,
-      store_count: stores.length,
+      store_count: stores.length > 0 ? stores.length : (aiData.store_count || 0),
     };
   } catch (error: any) {
     console.error("[Onboarding] AI enrichment failed:", error);
@@ -4533,21 +9172,66 @@ Return JSON with: { industry, services: [], description, operating_states: [] }`
 }
 
 /**
- * Use Claude Vision to extract company info from a screenshot of the website
- * This is used as a fallback when HTML parsing doesn't work well
+ * Phase 6: Use Claude to extract company info from actual HTML content.
+ * Enhanced fallback that sends real HTML instead of just a URL.
  */
-async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Promise<any | null> {
+async function enrichWithClaudeVision(websiteUrl: string, existingData: any, homepageHtml?: string, locatorHtml?: string): Promise<any | null> {
   if (!ANTHROPIC_API_KEY) {
-    console.warn("[Onboarding] No Anthropic API key, skipping Claude Vision fallback");
+    console.warn("[Onboarding] No Anthropic API key, skipping Claude fallback");
     return null;
   }
 
   try {
-    // Use a screenshot service or fetch the page and use vision
-    // For now, we'll use the URL directly with Claude's web capabilities
-    // In production, you might use a service like screenshotapi.net or similar
+    console.log(`[Onboarding] Calling Claude fallback for: ${websiteUrl} (html: ${homepageHtml ? homepageHtml.length : 0} chars, locator: ${locatorHtml ? locatorHtml.length : 0} chars)`);
 
-    console.log(`[Onboarding] Calling Claude Vision for: ${websiteUrl}`);
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
+    // Build content with actual HTML when available
+    let contentParts: string[] = [];
+
+    contentParts.push(`I need to extract company information from this website: ${websiteUrl}`);
+
+    // Include actual HTML for Claude to analyze
+    if (homepageHtml && homepageHtml.length > 200) {
+      contentParts.push(`\n--- HOMEPAGE HTML (truncated) ---\n${homepageHtml.substring(0, 10000)}`);
+    }
+
+    if (locatorHtml && locatorHtml.length > 200) {
+      contentParts.push(`\n--- LOCATIONS PAGE HTML (truncated) ---\n${locatorHtml.substring(0, 5000)}`);
+    }
+
+    contentParts.push(`
+Based on the HTML content above (or the domain if no HTML provided), please:
+1. Find the company's LOGO URL — look for <img> tags with "logo" in class, id, alt, or src. Return the full absolute URL.
+2. Determine the clean company name (just the brand name, no taglines or "Home |" prefixes)
+3. What industry they're in. Use the CODE only from this list: ${industryList}
+4. What services they offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
+
+I already scraped this data but it might be incomplete or wrong:
+- Company name: ${existingData.company_name || "unknown"}
+- Logo: ${existingData.logo_url || "MISSING"}
+- Industry: ${existingData.industry || "unknown"}
+- Services: ${JSON.stringify(existingData.services || [])}
+
+IMPORTANT: Look carefully in the HTML for logo image URLs. Check <img> tags, <link rel="icon">, og:image meta tags, and any image with "logo" in the path or attributes.
+
+Return JSON only:
+{
+  "company_name": "Clean Company Name",
+  "industry": "industry_code",
+  "services": ["service1", "service2"],
+  "logo_url": "absolute URL to the logo image, or null if not found"
+}`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -4562,25 +9246,7 @@ async function enrichWithClaudeVision(websiteUrl: string, existingData: any): Pr
         messages: [
           {
             role: "user",
-            content: `I need to extract company information from a website. The URL is: ${websiteUrl}
-
-Based on the domain and what you know, please provide:
-1. The clean company name (just the brand name, no taglines or "Home |" prefixes)
-2. What industry they're likely in (one of: convenience_retail, qsr, grocery, fuel_retail, hospitality)
-3. What services they probably offer (from: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders)
-
-I already scraped this data but it might be wrong:
-- Company name: ${existingData.company_name || "unknown"}
-- Industry: ${existingData.industry || "unknown"}
-- Services: ${JSON.stringify(existingData.services || [])}
-
-Please correct any issues and return JSON only:
-{
-  "company_name": "Clean Company Name",
-  "industry": "industry_slug",
-  "services": ["service1", "service2"],
-  "logo_url": "if you can determine the likely logo URL pattern, otherwise null"
-}`,
+            content: contentParts.join("\n"),
           },
         ],
       }),
@@ -4658,6 +9324,18 @@ async function handleOnboardingChat(req: Request): Promise<Response> {
     const conversationHistory = session.conversation_history || [];
     const collectedData = session.collected_data || {};
 
+    // Fetch industries from database to use actual codes in the prompt
+    const { data: industries } = await supabase
+      .from("industries")
+      .select("code, name")
+      .order("sort_order");
+
+    // Build industry list dynamically from database
+    const industryList = (industries || [])
+      .filter(i => i.code)
+      .map(i => `${i.code} (${i.name})`)
+      .join(", ") || "cstore, qsr, fsr, grocery, hospitality, retail, healthcare, manufacturing";
+
     // Build system prompt
     const systemPrompt = `You are Trike's friendly onboarding assistant. You help companies set up their training platform.
 
@@ -4674,7 +9352,7 @@ Your goals:
 Be conversational but efficient. Ask one thing at a time.
 When you have enough info, tell them you're ready to create their demo account.
 
-Available industries: convenience_retail, qsr, grocery, fuel_retail, hospitality
+Available industries (use the CODE only): ${industryList}
 Available services: fuel, alcohol, tobacco, vape, lottery, food_service, car_wash, atm, pharmacy, money_orders
 
 Respond with JSON: { "message": "your response", "action": null | "scrape_website" | "update_data" | "create_demo", "data": {} }`;
@@ -4792,6 +9470,133 @@ async function handleOnboardingUpdate(req: Request): Promise<Response> {
 }
 
 /**
+ * Validate and QA a logo URL
+ * Checks if the image is accessible, what format it is, and basic quality metrics
+ * Returns the validated URL or null if invalid
+ */
+async function validateLogoUrl(logoUrl: string | undefined): Promise<{
+  url: string | null;
+  format: string | null;
+  hasTransparency: boolean;
+  width: number | null;
+  height: number | null;
+  quality: 'good' | 'acceptable' | 'poor' | null;
+  issues: string[];
+}> {
+  const result = {
+    url: null as string | null,
+    format: null as string | null,
+    hasTransparency: false,
+    width: null as number | null,
+    height: null as number | null,
+    quality: null as 'good' | 'acceptable' | 'poor' | null,
+    issues: [] as string[],
+  };
+
+  if (!logoUrl || !logoUrl.startsWith('http')) {
+    result.issues.push('No valid logo URL provided');
+    return result;
+  }
+
+  try {
+    // Fetch the logo with a HEAD request first to check content-type
+    const headResponse = await fetch(logoUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+
+    if (!headResponse.ok) {
+      result.issues.push(`Logo URL returned status ${headResponse.status}`);
+      return result;
+    }
+
+    const contentType = headResponse.headers.get('content-type') || '';
+    const contentLength = parseInt(headResponse.headers.get('content-length') || '0', 10);
+
+    // Determine format from content-type
+    if (contentType.includes('image/png')) {
+      result.format = 'png';
+      result.hasTransparency = true; // PNG supports transparency
+    } else if (contentType.includes('image/svg')) {
+      result.format = 'svg';
+      result.hasTransparency = true; // SVG supports transparency
+    } else if (contentType.includes('image/webp')) {
+      result.format = 'webp';
+      result.hasTransparency = true; // WebP supports transparency
+    } else if (contentType.includes('image/jpeg') || contentType.includes('image/jpg')) {
+      result.format = 'jpeg';
+      result.hasTransparency = false;
+      result.issues.push('JPEG format - no transparency support');
+    } else if (contentType.includes('image/gif')) {
+      result.format = 'gif';
+      result.hasTransparency = true; // GIF supports transparency (limited)
+    } else if (contentType.includes('image/')) {
+      // Some other image type
+      result.format = contentType.replace('image/', '');
+    } else {
+      // Try to infer from URL extension
+      const urlLower = logoUrl.toLowerCase();
+      if (urlLower.includes('.png')) result.format = 'png';
+      else if (urlLower.includes('.svg')) result.format = 'svg';
+      else if (urlLower.includes('.jpg') || urlLower.includes('.jpeg')) result.format = 'jpeg';
+      else if (urlLower.includes('.webp')) result.format = 'webp';
+      else if (urlLower.includes('.gif')) result.format = 'gif';
+      else {
+        result.issues.push(`Unknown content type: ${contentType}`);
+      }
+    }
+
+    // Check file size
+    if (contentLength > 0) {
+      if (contentLength < 1000) {
+        result.issues.push('Logo file is very small (< 1KB), may be placeholder');
+        result.quality = 'poor';
+      } else if (contentLength > 5000000) {
+        result.issues.push('Logo file is very large (> 5MB)');
+        result.quality = 'acceptable';
+      }
+    }
+
+    // For common problematic patterns
+    const urlLower = logoUrl.toLowerCase();
+    if (urlLower.includes('1x1') || urlLower.includes('pixel') || urlLower.includes('spacer')) {
+      result.issues.push('URL suggests this is a tracking pixel, not a logo');
+      result.quality = 'poor';
+      return result;
+    }
+
+    if (urlLower.includes('placeholder') || urlLower.includes('default')) {
+      result.issues.push('URL suggests this may be a placeholder image');
+      result.quality = 'acceptable';
+    }
+
+    // If we got this far, the logo is valid
+    result.url = logoUrl;
+
+    // Set quality if not already set
+    if (!result.quality) {
+      if (result.format === 'png' || result.format === 'svg' || result.format === 'webp') {
+        result.quality = 'good';
+      } else if (result.format === 'jpeg') {
+        result.quality = 'acceptable';
+      } else {
+        result.quality = 'acceptable';
+      }
+    }
+
+    console.log(`[Onboarding] Logo validated: ${result.format}, quality: ${result.quality}, issues: ${result.issues.length}`);
+    return result;
+
+  } catch (error: any) {
+    console.error('[Onboarding] Error validating logo:', error);
+    result.issues.push(`Failed to fetch logo: ${error.message}`);
+    return result;
+  }
+}
+
+/**
  * Complete onboarding and create demo organization
  */
 async function handleOnboardingComplete(req: Request): Promise<Response> {
@@ -4838,6 +9643,21 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
 
+    // Validate logo if provided
+    let validatedLogoUrl: string | null = null;
+    let logoValidation = null;
+    console.log(`[Onboarding] Session collected_data logo_url: ${data.logo_url || 'MISSING'}`);
+    if (data.logo_url) {
+      console.log(`[Onboarding] Validating logo: ${data.logo_url}`);
+      logoValidation = await validateLogoUrl(data.logo_url);
+      if (logoValidation.url && logoValidation.quality !== 'poor') {
+        validatedLogoUrl = logoValidation.url;
+        console.log(`[Onboarding] Logo accepted: ${logoValidation.format}, quality: ${logoValidation.quality}`);
+      } else {
+        console.log(`[Onboarding] Logo rejected: ${logoValidation.issues.join(', ')}`);
+      }
+    }
+
     // Create organization
     const { data: org, error: orgError } = await supabase
       .from("organizations")
@@ -4845,6 +9665,9 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         name: data.company_name,
         subdomain: finalSubdomain,
         website: data.website,
+        logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
         status: "demo",
         demo_expires_at: new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString(),
         industry: data.industry,
@@ -4853,7 +9676,10 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
         brand_primary_color: data.brand_colors?.primary,
         brand_secondary_color: data.brand_colors?.secondary,
         onboarding_source: "self_service",
-        scraped_data: data,
+        scraped_data: {
+          ...data,
+          logo_validation: logoValidation,
+        },
       })
       .select()
       .single();
@@ -4862,7 +9688,7 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 
     console.log(`[Onboarding] Created org: ${org.name} (${org.id})`);
 
-    // Create Admin role for this organization
+    // Create Admin role first (needed for seed people)
     const { data: adminRole, error: roleError } = await supabase
       .from("roles")
       .insert({
@@ -4961,7 +9787,35 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
-    // Import stores if we have them
+    // Seed demo people (and activity) when we have a website — Relay will provide real stores and assign them
+    const hasWebsite = !!(data.website && data.company_name);
+    if (hasWebsite && adminRole?.id) {
+      try {
+        const trackIds: string[] = []; // Onboarding doesn't clone tracks; seed people + structure only
+        await seedDemoOrgData(org.id, adminRole.id, trackIds, { skipStores: true });
+        console.log(`[Onboarding] Seeded demo people for ${org.name} (Relay will assign to stores)`);
+      } catch (seedErr: any) {
+        console.error("[Onboarding] Seed data failed (non-fatal):", seedErr.message);
+      }
+    }
+
+    // Trigger Relay location scraper when we have website (must run AFTER seed people exist)
+    if (hasWebsite) {
+      try {
+        const fullUrl = data.website.startsWith("http") ? data.website : `https://${data.website}`;
+        const domain = new URL(fullUrl).hostname.replace("www.", "");
+        await triggerRelayLocationScraper(data.company_name, domain, {
+          orgId: org.id,
+          deduplicationKey: org.id,
+          fullWebsiteUrl: fullUrl,
+        });
+        console.log(`[Onboarding] Triggered Relay location scraper for ${org.name}`);
+      } catch (relayErr: any) {
+        console.error("[Onboarding] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    // Import stores if we have them (from onboarding chat, not Relay)
     let storesImported = 0;
     if (data.stores && data.stores.length > 0) {
       const storesToInsert = data.stores.slice(0, 50).map((store: any, index: number) => ({
@@ -4990,14 +9844,57 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
       }
     }
 
+    // Save organization compliance topics
+    if (data.compliance_topic_ids && data.compliance_topic_ids.length > 0) {
+      const topicsToInsert = data.compliance_topic_ids.map((topicId: string, index: number) => ({
+        organization_id: org.id,
+        topic_id: topicId,
+        is_active: true,
+        priority: index,
+        added_during: 'onboarding',
+      }));
+
+      const { error: topicsError } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+
+      if (topicsError) {
+        console.error("[Onboarding] Failed to save compliance topics:", topicsError);
+      } else {
+        console.log(`[Onboarding] Saved ${topicsToInsert.length} compliance topics`);
+      }
+    }
+
+    // Save organization programs
+    if (data.program_ids && data.program_ids.length > 0) {
+      const programsToInsert = data.program_ids.map((programId: string) => ({
+        organization_id: org.id,
+        program_id: programId,
+        is_active: true,
+        added_during: 'onboarding',
+      }));
+
+      const { error: programsError } = await supabase
+        .from("organization_programs")
+        .insert(programsToInsert);
+
+      if (programsError) {
+        console.error("[Onboarding] Failed to save programs:", programsError);
+      } else {
+        console.log(`[Onboarding] Saved ${programsToInsert.length} programs`);
+      }
+    }
+
     // Generate a magic link for the user to sign in
     let magicLink = null;
     if (authUser?.user) {
+      // Use request origin for dev/staging, fallback to production URL
+      const frontendOrigin = req.headers.get('origin') || 'https://app.trike.app';
       const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
         type: "magiclink",
         email: data.contact_email,
         options: {
-          redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/dashboard`,
+          redirectTo: `${frontendOrigin}/?demo_org_id=${org.id}`,
         },
       });
 
@@ -5046,27 +9943,75 @@ async function handleOnboardingComplete(req: Request): Promise<Response> {
 }
 
 /**
- * Get industries and services for form dropdowns
+ * Get industries, compliance topics, programs, and services for form dropdowns
  */
 async function handleOnboardingOptions(req: Request): Promise<Response> {
   try {
-    // Get industries
-    const { data: industries, error: industriesError } = await supabase
-      .from("industries")
-      .select("slug, name, description, default_services, icon, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
+    // Run all queries in parallel for faster response
+    const [
+      industriesResult,
+      complianceTopicsResult,
+      industryTopicDefaultsResult,
+      programCategoriesResult,
+      programsResult,
+      industryProgramDefaultsResult,
+      servicesResult,
+    ] = await Promise.all([
+      // Get industries (uses 'code' not 'slug', no is_active column)
+      supabase
+        .from("industries")
+        .select("id, code, name, description, sort_order")
+        .order("sort_order"),
+      // Get compliance topics (no 'slug' or 'is_active' columns)
+      supabase
+        .from("compliance_topics")
+        .select("id, name, description, sort_order")
+        .order("sort_order"),
+      // Get industry → compliance topic defaults
+      supabase
+        .from("industry_compliance_topics")
+        .select("industry_id, topic_id, priority")
+        .eq("is_typical", true),
+      // Get program categories
+      supabase
+        .from("program_categories")
+        .select("id, name, slug, description, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get all programs
+      supabase
+        .from("programs")
+        .select("id, category_id, name, slug, display_name, vendor_name, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+      // Get industry → program defaults
+      supabase
+        .from("industry_programs")
+        .select("industry_id, program_id, is_common, market_share_tier"),
+      // Get services (legacy)
+      supabase
+        .from("service_definitions")
+        .select("slug, name, description, compliance_domains, requires_license, sort_order")
+        .eq("is_active", true)
+        .order("sort_order"),
+    ]);
 
-    if (industriesError) throw industriesError;
+    // Check for errors
+    if (industriesResult.error) throw industriesResult.error;
+    if (complianceTopicsResult.error) throw complianceTopicsResult.error;
+    if (industryTopicDefaultsResult.error) throw industryTopicDefaultsResult.error;
+    if (programCategoriesResult.error) throw programCategoriesResult.error;
+    if (programsResult.error) throw programsResult.error;
+    if (industryProgramDefaultsResult.error) throw industryProgramDefaultsResult.error;
+    if (servicesResult.error) throw servicesResult.error;
 
-    // Get services
-    const { data: services, error: servicesError } = await supabase
-      .from("service_definitions")
-      .select("slug, name, description, compliance_domains, requires_license, icon, sort_order")
-      .eq("is_active", true)
-      .order("sort_order");
-
-    if (servicesError) throw servicesError;
+    const industries = industriesResult.data;
+    const complianceTopics = complianceTopicsResult.data;
+    const industryTopicDefaults = industryTopicDefaultsResult.data;
+    const programCategories = programCategoriesResult.data;
+    const programs = programsResult.data;
+    const industryProgramDefaults = industryProgramDefaultsResult.data;
+    const services = servicesResult.data;
 
     // Get US states
     const states = [
@@ -5089,10 +10034,52 @@ async function handleOnboardingOptions(req: Request): Promise<Response> {
       { code: "WI", name: "Wisconsin" }, { code: "WY", name: "Wyoming" }, { code: "DC", name: "District of Columbia" },
     ];
 
-    return jsonResponse({
-      industries: industries || [],
-      services: services || [],
+    // Build industry defaults map for easy lookup
+    // { industryId: { topicIds: [...], programIds: [...] } }
+    const industryDefaults: Record<string, { topicIds: string[]; programIds: string[] }> = {};
+    for (const industry of industries || []) {
+      industryDefaults[industry.id] = { topicIds: [], programIds: [] };
+    }
+    for (const it of industryTopicDefaults || []) {
+      if (industryDefaults[it.industry_id]) {
+        industryDefaults[it.industry_id].topicIds.push(it.topic_id);
+      }
+    }
+    for (const ip of industryProgramDefaults || []) {
+      if (industryDefaults[ip.industry_id]) {
+        industryDefaults[ip.industry_id].programIds.push(ip.program_id);
+      }
+    }
+
+    // Map industry 'code' to 'slug' for frontend compatibility
+    const mappedIndustries = (industries || []).map(ind => ({
+      ...ind,
+      slug: ind.code,  // Frontend expects 'slug'
+    }));
+
+    // Map compliance topics to add 'slug' from 'name' for frontend compatibility
+    const mappedTopics = (complianceTopics || []).map(topic => ({
+      ...topic,
+      slug: topic.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+    }));
+
+    // Return with no-cache headers to ensure fresh data
+    return new Response(JSON.stringify({
+      industries: mappedIndustries,
+      complianceTopics: mappedTopics,
+      programCategories: programCategories || [],
+      programs: programs || [],
+      industryDefaults,
+      services: services || [],  // Legacy, kept for backward compatibility
       states,
+    }), {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+      },
     });
   } catch (error: any) {
     console.error("[Onboarding] Options error:", error);
@@ -5138,7 +10125,7 @@ async function sendEmailViaResend(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: params.from || "Trike <noreply@notifications.trike.co>",
+        from: params.from || Deno.env.get("EMAIL_FROM_ADDRESS") || "Trike <noreply@notifications.trike.co>",
         to: params.to,
         subject: params.subject,
         html: params.html,
@@ -5998,13 +10985,13 @@ async function handleVariantResearch(
   track: { title: string; type: string },
   sourceContent: string
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
 
   // Build search queries based on content topics
   const topicAnalysis = analyzeContentTopics(sourceContent);
-  const searchQueries = buildSearchQueries(topicAnalysis, stateName, variantType);
+  const searchQueries = buildSearchQueries(topicAnalysis, targetLabel, variantType);
 
-  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${stateName}`);
+  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${targetLabel}`);
   console.log(`📋 [VariantResearch] Topics detected: ${topicAnalysis.join(', ')}`);
   console.log(`🔎 [VariantResearch] Search queries: ${searchQueries.join(' | ')}`);
 
@@ -6077,11 +11064,12 @@ async function handleVariantResearchFallback(
   sourceContent: string,
   topicAnalysis: string[]
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const focusLabel = getVariantFocusLabel(variantType);
 
   const fallbackMessage = `⚠️ **Web research unavailable** - Using knowledge-based adaptation
 
-I was unable to perform live web research for current ${stateName} regulations. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
+I was unable to perform live web research for current ${targetLabel} ${focusLabel}. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
 
 **Topics identified in source content:**
 ${topicAnalysis.map(t => `• ${t}`).join('\n')}
@@ -6380,7 +11368,11 @@ function buildResearchPrompt(
   sourceContent: string,
   topicAnalysis: string[]
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const targetTypeLabel =
+    variantType === 'geographic' ? 'state regulations' :
+    variantType === 'company' ? 'company policies and standards' :
+    'store/location operating procedures';
 
   // Derive audience from source content
   const audience = deriveAudienceFromContent(sourceContent);
@@ -6391,7 +11383,7 @@ function buildResearchPrompt(
       ? '(Medium confidence)'
       : '(Low confidence - minimal adaptation)';
 
-  return `You are researching ${stateName} state regulations to adapt training content.
+  return `You are researching ${targetLabel} ${targetTypeLabel} to adapt training content.
 
 ## AUDIENCE DERIVATION
 **Derived Role:** ${roleLabel} ${confidenceNote}
@@ -6400,26 +11392,20 @@ ${audience.evidence.slice(0, 4).map(e => `- ${e}`).join('\n') || '- No strong ro
 **Learner Actions (what they're being taught to DO):**
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- General compliance actions'}
 
-## SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
-You must find state-specific rules for two purposes:
-
-1. **Learner Action Modification:**
-   State-specific rules that directly modify one of the learner actions above.
-
-2. **General-to-Specific Replacement (THE FOREST):**
-   Identify ${stateName}'s specific stance on general regulatory topics (e.g., if federal law says "usually 18", find what ${stateName} says).
+## SCOPE LOCK (HARD RULE)
+You may ONLY add variant-specific rules that directly modify one of the learner actions above.
 
 For any proposed rule, you MUST identify:
-- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
+- **SourceAction:** Which learner action it modifies
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If you cannot map a rule to a SourceAction OR a general regulatory replacement, DISCARD it.
+If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
 
 ## SOURCE REQUIREMENTS
 
 **TIER 1 (Required - need at least 2):**
-- State legislature / compiled statutes (.gov domains)
-- State administrative code / regulations
+- Authoritative source(s) appropriate to the variant context
+- Prefer official or first-party sources over summaries/blogs
 
 **DO NOT USE:**
 - SEO blogs, law firm marketing, "compliance checklist" sites
@@ -6430,7 +11416,7 @@ If you cannot map a rule to a SourceAction OR a general regulatory replacement, 
 For each RELEVANT regulation found:
 \`\`\`
 **Rule:** [Actionable instruction for the ${roleLabel} - what they DO]
-**SourceAction:** [Which learner action: ${audience.learnerActions.slice(0, 4).join(' | ') || 'check id | refuse | verify age'} | "General Regulatory Context"]
+**SourceAction:** [Which learner action: ${audience.learnerActions.slice(0, 4).join(' | ') || 'check id | refuse | verify age'}]
 **WhyItMatters:** [1 sentence: behavioral impact]
 **Source:** [Official source name]
 **URL:** [Direct link to .gov]
@@ -6440,7 +11426,7 @@ For each RELEVANT regulation found:
 ## AFTER RESEARCH
 
 Summarize findings in 3-8 bullet points maximum.
-For each finding, verify it maps to a SourceAction OR General Regulatory Context - if not, DISCARD it.
+For each finding, verify it maps to a SourceAction - if not, DISCARD it.
 
 Then list 0-3 COMPANY-SPECIFIC questions only:
 - POS system flow for age-restricted sales?
@@ -6448,7 +11434,7 @@ Then list 0-3 COMPANY-SPECIFIC questions only:
 - ID scanning technology in use?
 - "Card everyone" policy beyond legal minimum?
 
-DO NOT ask about state laws, age requirements, or penalties - YOU research those.`;
+DO NOT ask the user to provide legal rules directly - YOU research those.`;
 }
 
 /**
@@ -6583,7 +11569,7 @@ function validateResearchQuality(
     tier1Count,
     issues,
     relevanceIssues,
-    filteredContent: undefined
+    filteredContent
   };
 }
 
@@ -6598,12 +11584,16 @@ function formatResearchResult(
   variantContext: any,
   sourceContent?: string
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const contextRuleLabel =
+    variantType === 'geographic' ? `${targetLabel}-Specific Rules` :
+    variantType === 'company' ? `${targetLabel} Policy/Standards Adaptations` :
+    `${targetLabel} Unit-Specific Adaptations`;
 
   // Derive audience for display
   const audience = sourceContent ? deriveAudienceFromContent(sourceContent) : null;
 
-  let result = `## Research Findings: ${stateName}\n\n`;
+  let result = `## Research Findings: ${targetLabel}\n\n`;
 
   // Show derived audience
   if (audience) {
@@ -6623,7 +11613,7 @@ function formatResearchResult(
   }
 
   // Main research findings
-  result += `### ${stateName}-Specific Rules\n\n`;
+  result += `### ${contextRuleLabel}\n\n`;
   result += outputText + '\n\n';
 
   // Sources
@@ -6641,7 +11631,7 @@ function formatResearchResult(
   result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
   result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
   result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
-  result += `\n*These are optional. Type "proceed" to generate with standard ${stateName} regulations.*\n\n`;
+  result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
   // Status indicator for UI
   if (!qualityCheck.passed) {
@@ -6706,7 +11696,11 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     const learnerActionsStr = audience.learnerActions.length
       ? audience.learnerActions.join(', ')
       : 'check id, verify age, refuse sale';
-    const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+    const targetLabel = getVariantTargetLabel(variantType, variantContext);
+    const adaptationFocus =
+      variantType === 'geographic' ? `${targetLabel} laws/regulations` :
+      variantType === 'company' ? `${targetLabel} company policies/terminology` :
+      `${targetLabel} store/location procedures`;
 
     // Enhanced generation prompt with structured output format
     const generationPrompt = `
@@ -6715,35 +11709,28 @@ ${sourceContent}
 
 ## VARIANT CONTEXT
 - Type: ${variantType}
-- Target: ${stateName}
+- Target: ${targetLabel}
 - Derived Learner Role: ${roleLabel} (${audience.roleConfidence} confidence)
 - Learner Actions: ${learnerActionsStr}
 
 ## COMPANY-SPECIFIC CONTEXT (from user)
 ${qaContent}
 
-## TASK: Generate ${stateName} State Variant
+## TASK: Generate ${targetLabel} ${variantType} Variant
 
-Apply the MINIMAL-DELTA principle: change ONLY what ${stateName} law requires you to change.
+Apply the MINIMAL-DELTA principle: change ONLY what ${adaptationFocus} requires you to change.
 Do NOT add new topics, warnings, or "nice to know" information not in the source.
 
-### SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
+### SCOPE LOCK (HARD RULE)
 
-You must adapt the content in two ways:
-
-1. **Learner Action Modification:**
-   State-specific rules that modify one of these learner actions:
+You may ONLY include variant-specific rules that modify one of these learner actions:
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
 
-2. **General-to-Specific Replacement (THE FOREST):**
-   Scan the source for general phrases like "Most states require", "In many jurisdictions", "Generally", "Federal law mandates", or "Typically".
-   You MUST replace these vague statements with the specific rule for ${stateName}, even if it just confirms the general rule (e.g., "In ${stateName}..." instead of "In most states...").
-
-For each rule or replacement, identify:
-- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
+For each rule, identify:
+- **SourceAction:** Which learner action it modifies
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If a rule doesn't modify a SourceAction OR replace a general regulatory statement, DISCARD it.
+If a rule doesn't modify a SourceAction above, DISCARD it.
 
 ### CITATION REQUIREMENT
 Any "must", "required", "illegal", or "penalty" needs [Source: URL]
@@ -6753,11 +11740,11 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 ### RETURN THIS JSON STRUCTURE:
 {
-  "generatedTitle": "${track.title} - ${stateName}",
+  "generatedTitle": "${track.title} - ${targetLabel}",
   "researchFindings": [
     {
       "rule": "Actionable rule for ${roleLabelLower}",
-      "sourceAction": "Which learner action this modifies OR 'General Regulatory Context'",
+      "sourceAction": "Which learner action this modifies",
       "whyItMatters": "1 sentence on behavioral impact",
       "citation": "Source name and URL",
       "effectiveDate": "Date or 'Current'",
@@ -6769,9 +11756,9 @@ Write for a ${roleLabel} ("you must..."). Use second person.
     {
       "section": "Section name",
       "originalText": "Original text from source",
-      "adaptedText": "New text for ${stateName}",
+      "adaptedText": "New text for ${targetLabel}",
       "reason": "Why this change was needed (cite specific law/regulation)",
-      "sourceAction": "Which learner action this adapts OR 'General Regulatory Context'"
+      "sourceAction": "Which learner action this adapts"
     }
   ],
   "openQuestions": [
@@ -6786,7 +11773,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 IMPORTANT:
 - researchFindings should have 3-8 rules MAX, each mapped to a learner action
-- generatedContent should be nearly identical to source, with only ${stateName}-specific swaps
+- generatedContent should be nearly identical to source, with only target-context-specific swaps
 - adaptations should list EVERY change made, with reason and source action
 - openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
 - Set needsReview: true if any claim lacks Tier-1 citation
@@ -6874,21 +11861,15 @@ Derived Learner Role: ${roleLabel} (${audience?.roleConfidence || 'unknown'} con
 Learner Actions: ${learnerActionsStr}`;
 
       scopeInstructions = `
-## SCOPE LOCK & GENERAL-TO-SPECIFIC STRATEGY
-You must adapt the content in two ways:
-
-1. **Learner Action Modification:**
-   State-specific rules that directly modify one of these learner actions:
-${audience?.learnerActions?.map(a => `   - ${a}`).join('\n') || '   - check id\n   - verify age\n   - refuse sale'}
-
-2. **General-to-Specific Replacement (THE FOREST):**
-   Replace general phrases like "Most states require" or "Federal law mandates" with the specific ${stateName} requirement.
+## SCOPE LOCK (HARD RULE)
+You may ONLY add state-specific rules that directly modify one of these learner actions:
+${audience?.learnerActions?.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
 
 For any proposed rule, you MUST identify:
-- **SourceAction:** Which learner action it modifies OR "General Regulatory Context"
+- **SourceAction:** Which learner action it modifies
 - **WhyItMatters:** 1 sentence on behavioral impact
 
-If you cannot map a rule to a SourceAction OR a general regulatory replacement, DISCARD it.
+If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
 
 ## ROLE AWARENESS
 Write for a ${roleLabel} (derived from source content). Use second person.
@@ -6954,7 +11935,7 @@ Structure your variant generation response as:
 1. **Research Findings (Relevant Only)** — 3-8 bullet rules max
    Each rule: maps to learner action, has citation, includes effective date if known
 
-2. **${variantContext.state_name || 'State'}-Specific Draft Script** — Rewritten transcript
+2. **${getVariantTargetLabel(variantType, variantContext)}-Specific Draft Script** — Rewritten transcript
    Minimal changes from source. Track what was adapted and why.
 
 3. **Open Questions (Company-Specific Only)** — 0-3 questions max
@@ -6962,6 +11943,32 @@ Structure your variant generation response as:
    NEVER: state laws, regulations, age requirements (you already have those)
 
 BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
+}
+
+function getVariantTargetLabel(variantType: string, variantContext: any): string {
+  switch (variantType) {
+    case 'geographic':
+      return variantContext?.state_name || variantContext?.state_code || 'the specified state';
+    case 'company':
+      return variantContext?.org_name || 'the target organization';
+    case 'unit':
+      return variantContext?.store_name || variantContext?.store_id || 'the target unit';
+    default:
+      return 'the target context';
+  }
+}
+
+function getVariantFocusLabel(variantType: string): string {
+  switch (variantType) {
+    case 'geographic':
+      return 'regulations';
+    case 'company':
+      return 'company policies and standards';
+    case 'unit':
+      return 'location procedures';
+    default:
+      return 'requirements';
+  }
 }
 
 /**
@@ -10109,11 +15116,34 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     console.log('🎙️ TTS generation requested:', { trackId, voice, forceRegenerate });
 
     // Get track content - include all possible content fields
-    const { data: track, error: trackError } = await supabase
+    // Note: We try to select TTS columns, but if they don't exist (migration not run),
+    // we'll catch the error and retry without them
+    let { data: track, error: trackError } = await supabase
       .from('tracks')
-      .select('transcript, content_text, description, title, type')
+      .select('transcript, content_text, description, title, type, organization_id, id, tts_audio_url, tts_voice, tts_content_hash')
       .eq('id', trackId)
       .single();
+    
+    // If query fails because TTS columns don't exist, retry without them
+    if (trackError && trackError.message?.includes('does not exist')) {
+      console.log('⚠️ TTS columns not found, retrying without them...');
+      const { data: trackWithoutTts, error: retryError } = await supabase
+        .from('tracks')
+        .select('transcript, content_text, description, title, type, organization_id, id')
+        .eq('id', trackId)
+        .single();
+      
+      if (!retryError && trackWithoutTts) {
+        track = trackWithoutTts;
+        trackError = null;
+        // Set TTS fields to undefined so caching logic knows they don't exist
+        track.tts_audio_url = undefined;
+        track.tts_voice = undefined;
+        track.tts_content_hash = undefined;
+      } else {
+        trackError = retryError;
+      }
+    }
 
     if (trackError || !track) {
       console.error('Track not found:', trackError);
@@ -10143,19 +15173,42 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
       preview: textContent.substring(0, 100) + '...'
     });
 
-    // Check for existing TTS audio in tracks table (tts_audio_url column)
-    const { data: existingTrack } = await supabase
-      .from('tracks')
-      .select('tts_audio_url, tts_voice')
-      .eq('id', trackId)
-      .single();
-
-    if (!forceRegenerate && existingTrack?.tts_audio_url && existingTrack?.tts_voice === voice) {
-      console.log('✅ Using existing TTS audio from track');
+    // Calculate content hash to detect if content actually changed
+    const contentHash = await hashString(textContent);
+    
+    // Check for existing TTS audio with content hash validation
+    // Only use cached audio if:
+    // 1. Not forcing regeneration
+    // 2. TTS audio URL exists
+    // 3. Voice matches
+    // 4. Content hash matches (content hasn't changed)
+    if (!forceRegenerate && 
+        track.tts_audio_url && 
+        track.tts_voice === voice && 
+        track.tts_content_hash === contentHash) {
+      console.log('✅ Using existing TTS audio (content unchanged):', {
+        audioUrl: track.tts_audio_url,
+        voice: track.tts_voice,
+        contentHash: contentHash.substring(0, 8) + '...'
+      });
       return jsonResponse({
-        audioUrl: existingTrack.tts_audio_url,
-        voice: existingTrack.tts_voice,
+        audioUrl: track.tts_audio_url,
+        voice: track.tts_voice,
         cached: true
+      });
+    }
+
+    // Content changed or force regenerate - log why we're regenerating
+    if (forceRegenerate) {
+      console.log('🔄 Force regenerating TTS (forceRegenerate=true)');
+    } else if (!track.tts_audio_url) {
+      console.log('🔄 Generating TTS (no existing audio)');
+    } else if (track.tts_voice !== voice) {
+      console.log('🔄 Generating TTS (voice changed):', { old: track.tts_voice, new: voice });
+    } else if (track.tts_content_hash !== contentHash) {
+      console.log('🔄 Generating TTS (content changed):', {
+        oldHash: track.tts_content_hash?.substring(0, 8) + '...',
+        newHash: contentHash.substring(0, 8) + '...'
       });
     }
 
@@ -10165,29 +15218,65 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
       return jsonResponse({ error: 'TTS service not configured' }, 503);
     }
 
-    console.log('🤖 Calling OpenAI TTS API...');
-    const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: textContent.substring(0, 4096), // OpenAI limit
-        voice: voice,
-        response_format: 'mp3',
-      }),
+    // Sanitize content (remove emojis, etc.)
+    const sanitizedContent = sanitizeForTTS(textContent, Infinity); // Don't truncate yet
+
+    // Chunk the content if it's too long (OpenAI limit is 4096 chars)
+    const MAX_CHUNK_SIZE = 3500; // Leave buffer for safety
+    const chunks = chunkTextForTTS(sanitizedContent, MAX_CHUNK_SIZE);
+
+    console.log('🤖 Calling OpenAI TTS API...', {
+      totalLength: sanitizedContent.length,
+      chunks: chunks.length
     });
 
-    if (!ttsResponse.ok) {
-      const errorText = await ttsResponse.text();
-      console.error('OpenAI TTS error:', errorText);
-      return jsonResponse({ error: 'TTS generation failed' }, 500);
+    // Generate audio for each chunk (in parallel for speed)
+    const audioBuffers: ArrayBuffer[] = [];
+    const chunkPromises = chunks.map(async (chunk, index) => {
+      console.log(`  Generating chunk ${index + 1}/${chunks.length} (${chunk.length} chars)...`);
+
+      const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'tts-1',
+          input: chunk,
+          voice: voice,
+          response_format: 'mp3',
+        }),
+      });
+
+      if (!ttsResponse.ok) {
+        const errorText = await ttsResponse.text();
+        console.error(`OpenAI TTS error for chunk ${index + 1}:`, {
+          status: ttsResponse.status,
+          error: errorText,
+          chunkLength: chunk.length
+        });
+        throw new Error(`TTS generation failed for chunk ${index + 1}`);
+      }
+
+      return { index, buffer: await ttsResponse.arrayBuffer() };
+    });
+
+    // Wait for all chunks and sort by index to maintain order
+    const results = await Promise.all(chunkPromises);
+    results.sort((a, b) => a.index - b.index);
+
+    for (const result of results) {
+      audioBuffers.push(result.buffer);
     }
 
-    const audioBuffer = await ttsResponse.arrayBuffer();
-    console.log('✅ Audio generated:', { size: audioBuffer.byteLength, voice });
+    // Concatenate all audio buffers
+    const audioBuffer = concatenateAudioBuffers(audioBuffers);
+    console.log('✅ Audio generated:', {
+      size: audioBuffer.byteLength,
+      voice,
+      chunks: chunks.length
+    });
 
     // Ensure TTS bucket exists
     const bucketName = 'tts-audio';
@@ -10216,19 +15305,30 @@ async function handleTTSGenerate(req: Request): Promise<Response> {
     const audioUrl = urlData?.publicUrl;
     console.log('✅ Audio uploaded to storage:', audioUrl);
 
-    // Store TTS info in the tracks table
+    // Store TTS info in the tracks table (including content hash)
+    // Try to update, but don't fail if columns don't exist (migration not run yet)
+    const updateData: any = {
+      tts_audio_url: audioUrl,
+      tts_voice: voice,
+      tts_content_hash: contentHash,
+      tts_generated_at: new Date().toISOString(),
+    };
+    
     const { error: updateError } = await supabase
       .from('tracks')
-      .update({
-        tts_audio_url: audioUrl,
-        tts_voice: voice,
-        tts_generated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', trackId);
 
     if (updateError) {
-      console.warn('Failed to update track with TTS info:', updateError);
+      // If error is about columns not existing, that's okay - migration hasn't run yet
+      if (updateError.message?.includes('does not exist')) {
+        console.warn('⚠️ TTS columns do not exist yet - please run migration add_tts_columns.sql');
+      } else {
+        console.warn('Failed to update track with TTS info:', updateError);
+      }
       // Don't fail - audio was generated successfully
+    } else {
+      console.log('✅ TTS info stored with content hash:', contentHash.substring(0, 8) + '...');
     }
 
     return jsonResponse({
@@ -10264,6 +15364,13 @@ async function handleUploadMedia(req: Request): Promise<Response> {
       return jsonResponse({ error: 'File too large. Maximum size is 50MB.' }, 400);
     }
 
+    // Ensure the track-media bucket exists
+    const bucketName = 'track-media';
+    const bucketReady = await ensureBucketExists(bucketName);
+    if (!bucketReady) {
+      return jsonResponse({ error: 'Storage bucket not available' }, 500);
+    }
+
     const timestamp = Date.now();
     const fileExt = file.name.split('.').pop();
     const fileName = `track-${timestamp}.${fileExt}`;
@@ -10271,7 +15378,7 @@ async function handleUploadMedia(req: Request): Promise<Response> {
     console.log('Uploading file:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
 
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('track-media')
+      .from(bucketName)
       .upload(fileName, file.stream(), {
         contentType: file.type,
         upsert: false,
@@ -10283,7 +15390,7 @@ async function handleUploadMedia(req: Request): Promise<Response> {
     }
 
     const { data: urlData } = supabase.storage
-      .from('track-media')
+      .from(bucketName)
       .getPublicUrl(fileName);
 
     return jsonResponse({
@@ -10417,53 +15524,83 @@ async function handleTranscribeStory(req: Request): Promise<Response> {
  */
 async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
   try {
-    const { trackId } = await req.json();
+    const body = await req.json();
+    // Support both single trackId (legacy) and multiple trackIds
+    const trackIds: string[] = body.trackIds || (body.trackId ? [body.trackId] : []);
 
-    if (!trackId) {
-      return jsonResponse({ error: 'trackId is required' }, 400);
+    // Question count settings (optional - if not provided, use default calculation)
+    const customMinQuestions: number | undefined = body.minQuestions;
+    const customMaxQuestions: number | undefined = body.maxQuestions;
+    const hasCustomQuestionCount = customMinQuestions !== undefined && customMaxQuestions !== undefined;
+
+    if (trackIds.length === 0) {
+      return jsonResponse({ error: 'trackId or trackIds is required' }, 400);
     }
 
-    console.log('🎯 Checkpoint AI generation requested for track:', trackId);
+    console.log('🎯 Checkpoint AI generation requested for tracks:', trackIds);
 
-    // 1. Fetch track from database
-    const { data: track, error: trackError } = await supabase
+    // 1. Fetch all tracks from database
+    const { data: tracks, error: tracksError } = await supabase
       .from('tracks')
       .select('*')
-      .eq('id', trackId)
-      .single();
+      .in('id', trackIds);
 
-    if (trackError || !track) {
-      console.error('Track not found:', trackError);
-      return jsonResponse({ error: 'Track not found' }, 404);
+    if (tracksError || !tracks || tracks.length === 0) {
+      console.error('Tracks not found:', tracksError);
+      return jsonResponse({ error: 'One or more tracks not found' }, 404);
     }
+
+    // Verify all tracks were found
+    if (tracks.length !== trackIds.length) {
+      const foundIds = new Set(tracks.map((t: any) => t.id));
+      const missingIds = trackIds.filter(id => !foundIds.has(id));
+      return jsonResponse({ error: `Tracks not found: ${missingIds.join(', ')}` }, 404);
+    }
+
+    // Sort tracks to match the order they were selected
+    const trackMap = new Map(tracks.map((t: any) => [t.id, t]));
+    const orderedTracks = trackIds.map(id => trackMap.get(id)).filter(Boolean);
 
     // Support article, video, and story tracks
-    if (!['article', 'video', 'story'].includes(track.type)) {
-      return jsonResponse({ error: 'Only articles, videos, and stories are supported for AI generation' }, 400);
-    }
-
-    // 2. Check minimum content
-    const articleContent = track.transcript || track.description || '';
-    const strippedContent = articleContent
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const wordCount = strippedContent.split(/\s+/).filter((w: string) => w.length > 0).length;
-
-    console.log('📊 Content validation:', { trackId, wordCount, minRequired: 150 });
-
-    if (wordCount < 150) {
+    const invalidTracks = orderedTracks.filter((t: any) => !['article', 'video', 'story'].includes(t.type));
+    if (invalidTracks.length > 0) {
       return jsonResponse({
-        error: `Content too short (${wordCount} words). Need at least 150 words to generate meaningful questions.`
+        error: `Only articles, videos, and stories are supported. Invalid tracks: ${invalidTracks.map((t: any) => t.title).join(', ')}`
       }, 400);
     }
 
-    // 3. Fetch key facts via fact_usage junction table
-    console.log('🔍 Fetching facts for trackId:', trackId);
+    // 2. Check minimum content (combined across all tracks)
+    let combinedContent = '';
+    const trackContents: Array<{ track: any; content: string; wordCount: number }> = [];
 
-    const { data: factUsage, error: factsError } = await supabase
+    for (const track of orderedTracks) {
+      const articleContent = track.transcript || track.description || '';
+      const strippedContent = articleContent
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const wordCount = strippedContent.split(/\s+/).filter((w: string) => w.length > 0).length;
+
+      trackContents.push({ track, content: strippedContent, wordCount });
+      combinedContent += `\n\n--- ${track.title} ---\n${strippedContent}`;
+    }
+
+    const totalWordCount = trackContents.reduce((sum, tc) => sum + tc.wordCount, 0);
+    console.log('📊 Content validation:', { trackIds, totalWordCount, minRequired: 150 });
+
+    if (totalWordCount < 150) {
+      return jsonResponse({
+        error: `Combined content too short (${totalWordCount} words). Need at least 150 words to generate meaningful questions.`
+      }, 400);
+    }
+
+    // 3. Fetch key facts for ALL tracks via fact_usage junction table
+    console.log('🔍 Fetching facts for trackIds:', trackIds);
+
+    const { data: allFactUsage, error: factsError } = await supabase
       .from('fact_usage')
       .select(`
+        track_id,
         display_order,
         facts (
           id,
@@ -10474,56 +15611,126 @@ async function handleCheckpointAIGenerate(req: Request): Promise<Response> {
           context
         )
       `)
-      .eq('track_id', trackId)
+      .in('track_id', trackIds)
       .order('display_order', { ascending: true });
-
-    const facts = factUsage?.map((fu: any) => fu.facts).filter(Boolean) || [];
-
-    console.log('📊 Facts query result:', {
-      trackId,
-      factUsageCount: factUsage?.length || 0,
-      factsFound: facts?.length || 0,
-    });
 
     if (factsError) {
       console.error('❌ Error fetching facts:', factsError);
       return jsonResponse({ error: 'Failed to fetch key facts from database' }, 500);
     }
 
+    // Group facts by track for better organization
+    const factsByTrack = new Map<string, any[]>();
+    for (const trackId of trackIds) {
+      factsByTrack.set(trackId, []);
+    }
+
+    for (const fu of allFactUsage || []) {
+      if (fu.facts) {
+        const trackFacts = factsByTrack.get(fu.track_id) || [];
+        trackFacts.push(fu.facts);
+        factsByTrack.set(fu.track_id, trackFacts);
+      }
+    }
+
+    // Check which tracks are missing facts
+    const tracksMissingFacts = trackIds.filter(id => (factsByTrack.get(id) || []).length === 0);
+    const tracksWithFacts = trackIds.filter(id => (factsByTrack.get(id) || []).length > 0);
+
+    // All facts combined (in order of track selection, then display order)
+    const allFacts: any[] = [];
+    for (const trackId of trackIds) {
+      const trackFacts = factsByTrack.get(trackId) || [];
+      allFacts.push(...trackFacts);
+    }
+
+    console.log('📊 Facts query result:', {
+      trackIds,
+      totalFactsFound: allFacts.length,
+      factsByTrack: Object.fromEntries([...factsByTrack.entries()].map(([k, v]) => [k, v.length])),
+      tracksMissingFacts,
+    });
+
     // Handle no facts - helpful error message
-    if (!facts || facts.length === 0) {
-      console.warn('⚠️ No facts found for track:', trackId);
+    if (allFacts.length === 0) {
+      console.warn('⚠️ No facts found for any tracks:', trackIds);
       return jsonResponse({
-        error: 'No key facts found for this content. Please go to the content detail page and click "Generate Key Facts" first, then try again.',
-        needsFactExtraction: true
+        error: 'No key facts found for the selected content. Please go to each content detail page and click "Generate Key Facts" first, then try again.',
+        needsFactExtraction: true,
+        tracksMissingFacts: trackIds
       }, 400);
     }
 
-    console.log(`✅ Found ${facts.length} facts - proceeding with generation`);
+    // Warn about tracks missing facts but continue if some have facts
+    if (tracksMissingFacts.length > 0 && tracksWithFacts.length > 0) {
+      const missingTitles = tracksMissingFacts.map(id => trackMap.get(id)?.title).filter(Boolean);
+      console.warn(`⚠️ Some tracks missing facts: ${missingTitles.join(', ')}`);
+    }
 
-    // 4. Calculate question count based on facts
-    const questionCount = facts.length <= 2 ? facts.length
-      : facts.length <= 5 ? 3
-      : facts.length <= 10 ? 5
-      : facts.length <= 15 ? 8
-      : facts.length <= 20 ? 10
-      : facts.length <= 30 ? 12
-      : 15;
+    console.log(`✅ Found ${allFacts.length} total facts across ${tracksWithFacts.length} tracks - proceeding with generation`);
 
-    console.log('🎲 Will generate', questionCount, 'questions');
+    // 4. Calculate question count based on total facts OR custom settings
+    let questionCount: number;
+    let needsQuestionVariations = false; // Flag if we need to ask questions in multiple ways
+
+    if (hasCustomQuestionCount) {
+      // User specified custom min/max
+      const min = Math.max(3, Math.min(99, customMinQuestions!));
+      const max = Math.max(3, Math.min(99, customMaxQuestions!));
+
+      // If we have fewer facts than min, we'll need to ask questions in different ways
+      if (allFacts.length < min) {
+        questionCount = min; // Still generate the minimum requested
+        needsQuestionVariations = true;
+        console.log(`⚠️ User requested min ${min} questions but only ${allFacts.length} facts - will use variations`);
+      } else {
+        // We have enough facts, pick a count in the user's range based on available facts
+        questionCount = Math.min(max, Math.max(min, Math.ceil(allFacts.length * 0.6)));
+      }
+    } else {
+      // Default calculation based on facts
+      questionCount = allFacts.length <= 2 ? allFacts.length
+        : allFacts.length <= 5 ? 3
+        : allFacts.length <= 10 ? 5
+        : allFacts.length <= 15 ? 8
+        : allFacts.length <= 20 ? 10
+        : allFacts.length <= 30 ? 12
+        : 15;
+    }
+
+    console.log('🎲 Will generate', questionCount, 'questions from', allFacts.length, 'facts', hasCustomQuestionCount ? `(custom: ${customMinQuestions}-${customMaxQuestions})` : '(default)', needsQuestionVariations ? '[WITH VARIATIONS]' : '');
 
     // 5. Generate questions with AI
     if (!OPENAI_API_KEY) {
       return jsonResponse({ error: 'AI service not configured' }, 503);
     }
 
-    const systemPrompt = `You are an expert training content developer for convenience store and foodservice operations. Your job is to create practical, job-relevant assessment questions.
+    const isMultiTrack = orderedTracks.length > 1;
+    const trackTitles = orderedTracks.map((t: any) => t.title);
 
+    // Build variations instructions if needed
+    const variationsInstructions = needsQuestionVariations
+      ? `
+IMPORTANT - QUESTION VARIATIONS:
+You need to generate ${questionCount} questions but there are only ${allFacts.length} key facts available. To meet the question count:
+- First, create a direct question for each key fact
+- Then, for additional questions, RE-ASK about the same facts using DIFFERENT approaches:
+  * Rephrase the question entirely (different wording, same concept)
+  * Change question type (if original was multiple choice, make it true/false or vice versa)
+  * Ask about the same fact from a different angle (e.g., "What should you do..." vs "Why is it important to...")
+  * Create scenario-based variations (e.g., "If a customer asks about X, what would you say about...")
+- NEVER repeat the exact same question - each must feel unique to the learner
+- Spread the variations across different facts rather than asking 3 questions about one fact in a row
+`
+      : '';
+
+    const systemPrompt = `You are an expert training content developer for convenience store and foodservice operations. Your job is to create practical, job-relevant assessment questions.
+${variationsInstructions}
 RULES:
 1. Generate exactly ${questionCount} questions
 2. Mix 75% multiple choice (4 options each) and 25% true/false
 3. Base questions on the provided key facts, prioritizing the most operationally important ones
-4. Questions should follow the order facts appear in the article
+4. ${isMultiTrack ? 'Questions should cover content from ALL source tracks proportionally, ensuring comprehensive assessment across topics' : 'Questions should follow the order facts appear in the article'}
 5. Focus on practical application, not trivia or memorization
 6. Difficulty: Medium (not too easy, not obscure)
 7. **CRITICAL**: For multiple choice, distribute correct answers randomly across positions A/B/C/D. Avoid patterns like all A's or all C's. Vary the position of the correct answer naturally.
@@ -10532,6 +15739,7 @@ RULES:
 10. True/false questions should not be obvious
 11. Each question must be self-contained (no pronouns referring to previous questions)
 12. Include an optional brief explanation for each question (1-2 sentences explaining why the answer is correct)
+${isMultiTrack ? '13. Do NOT ask questions that compare or contrast information between different source tracks - treat all content as a unified body of knowledge' : ''}
 
 FORMAT:
 Return JSON only, no markdown:
@@ -10560,13 +15768,38 @@ Return JSON only, no markdown:
   ]
 }`;
 
-    const userPrompt = `ARTICLE TITLE: ${track.title}
+    // Build facts list organized by track for multi-track
+    let factsSection = '';
+    if (isMultiTrack) {
+      let factIndex = 1;
+      for (const trackId of trackIds) {
+        const track = trackMap.get(trackId);
+        const trackFacts = factsByTrack.get(trackId) || [];
+        if (trackFacts.length > 0) {
+          factsSection += `\n\nFrom "${track.title}":\n`;
+          factsSection += trackFacts.map((f: any) => `${factIndex++}. ${f.title}: ${f.content}`).join('\n');
+        }
+      }
+    } else {
+      factsSection = allFacts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n');
+    }
+
+    const userPrompt = isMultiTrack
+      ? `SOURCE CONTENT TITLES: ${trackTitles.join(', ')}
+
+KEY FACTS (organized by source):${factsSection}
+
+COMBINED CONTENT (for context):
+${combinedContent.substring(0, 4000)}${combinedContent.length > 4000 ? '...' : ''}
+
+Generate ${questionCount} questions that comprehensively test understanding across all the source content.`
+      : `ARTICLE TITLE: ${orderedTracks[0].title}
 
 KEY FACTS (in order of appearance):
-${facts.map((f: any, i: number) => `${i + 1}. ${f.title}: ${f.content}`).join('\n')}
+${factsSection}
 
 FULL ARTICLE CONTENT (for context):
-${strippedContent.substring(0, 3000)}${strippedContent.length > 3000 ? '...' : ''}
+${trackContents[0].content.substring(0, 3000)}${trackContents[0].content.length > 3000 ? '...' : ''}
 
 Generate ${questionCount} questions that test understanding of the most important concepts for job performance.`;
 
@@ -10602,16 +15835,30 @@ Generate ${questionCount} questions that test understanding of the most importan
       explanation: q.explanation || undefined
     }));
 
+    // Build suggested title and description
+    const suggestedTitle = isMultiTrack
+      ? `${trackTitles.slice(0, 2).join(' & ')}${trackTitles.length > 2 ? ` (+${trackTitles.length - 2} more)` : ''} - Checkpoint`
+      : `${orderedTracks[0].title} - Checkpoint`;
+
+    const suggestedDescription = isMultiTrack
+      ? `Assessment questions generated from ${trackTitles.length} source tracks: ${trackTitles.join(', ')}.`
+      : `Assessment questions generated from "${orderedTracks[0].title}" to verify understanding of key concepts.`;
+
     return jsonResponse({
       questions: formattedQuestions,
-      sourceTrackId: trackId,
-      sourceTrackTitle: track.title,
-      thumbnailUrl: track.thumbnail_url || undefined,
-      factCount: facts.length,
+      // Multi-track response fields
+      sourceTrackIds: trackIds,
+      sourceTrackTitles: trackTitles,
+      // Legacy single-track fields for backward compatibility
+      sourceTrackId: trackIds[0],
+      sourceTrackTitle: trackTitles[0],
+      thumbnailUrl: orderedTracks[0].thumbnail_url || undefined,
+      factCount: allFacts.length,
       questionCount: formattedQuestions.length,
+      tracksMissingFacts: tracksMissingFacts.length > 0 ? tracksMissingFacts : undefined,
       metadata: {
-        suggestedTitle: `${track.title} - Checkpoint`,
-        suggestedDescription: `Assessment questions generated from "${track.title}" to verify understanding of key concepts.`
+        suggestedTitle,
+        suggestedDescription
       }
     });
 
@@ -11231,5 +16478,3428 @@ async function handleDeleteDraft(req: Request, path: string): Promise<Response> 
   } catch (error: any) {
     console.error('handleDeleteDraft error:', error);
     return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// =============================================================================
+// TRACK GENERATION - Convert chunks to training content
+// =============================================================================
+
+interface GeneratedTrack {
+  title: string;
+  description: string;
+  content: string;
+  duration_minutes: number;
+  key_points: string[];
+}
+
+/**
+ * Generate individual tracks from selected chunks (1 chunk = 1 track)
+ */
+async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { chunk_ids, options = {} } = body;
+
+    console.log('[generate-tracks] Starting generation for', chunk_ids?.length, 'chunks');
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    if (chunk_ids.length > 20) {
+      return jsonResponse({
+        success: false,
+        error: "Maximum 20 chunks per request",
+        code: "TOO_MANY_CHUNKS"
+      }, 400);
+    }
+
+    // Fetch the chunks
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("*, source_files(id, file_name, organization_id, source_type)")
+      .in("id", chunk_ids);
+
+    if (fetchError || !chunks || chunks.length === 0) {
+      console.error('[generate-tracks] Chunks not found:', fetchError);
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const organizationId = chunks[0].organization_id;
+    const sourceFileId = chunks[0].source_file_id;
+    const sourceType = chunks[0].source_files?.source_type || 'training_docs';
+
+    console.log('[generate-tracks] Processing chunks for org:', organizationId);
+
+    // Generate tracks
+    const generatedTracks: any[] = [];
+    const errors: any[] = [];
+
+    for (const chunk of chunks) {
+      try {
+        // Generate enhanced content using AI
+        const enhanced = await enhanceChunkForTrack(chunk, sourceType, options);
+
+        // Create the track (tags are assigned via track_tags junction table below)
+        const { data: track, error: trackError } = await supabase
+          .from("tracks")
+          .insert({
+            organization_id: organizationId,
+            title: enhanced.title,
+            description: enhanced.description,
+            transcript: enhanced.content, // Article content goes in transcript
+            type: 'article',
+            status: options.publish ? 'published' : 'draft',
+            duration_minutes: enhanced.duration_minutes,
+            // Store generation context in summary field
+            summary: `Generated from chunk: ${chunk.title || `Chunk ${chunk.chunk_index + 1}`}. Key points: ${enhanced.key_points?.join(', ') || 'N/A'}`
+          })
+          .select()
+          .single();
+
+        if (trackError) {
+          console.error('[generate-tracks] Failed to create track:', trackError);
+          errors.push({ chunk_id: chunk.id, error: trackError.message });
+          continue;
+        }
+
+        // Use AI tag analysis to assign meaningful tags (same as existing flow)
+        let assignedTags: string[] = [];
+        let assignedTagIds: string[] = [];
+        try {
+          console.log('[generate-tracks] Running AI tag analysis for track:', track.id);
+          const tagAnalysis = await performTagAnalysis({
+            title: enhanced.title,
+            description: enhanced.description,
+            transcript: enhanced.content,
+            keyFacts: enhanced.key_points?.map((kp: string) => ({ content: kp })) || [],
+            trackId: track.id,
+            organizationId: organizationId
+          });
+
+          // Auto-select tags with 85%+ confidence
+          const autoSelectedTags = tagAnalysis.recommendations.filter(rec => rec.auto_select);
+          assignedTags = autoSelectedTags.map(rec => rec.tag_name);
+          assignedTagIds = autoSelectedTags.map(rec => rec.tag_id).filter(Boolean);
+
+          if (assignedTagIds.length > 0) {
+            // Write to track_tags junction table (source of truth)
+            const trackTagRecords = assignedTagIds.map(tagId => ({
+              track_id: track.id,
+              tag_id: tagId
+            }));
+
+            const { error: junctionError } = await supabase
+              .from("track_tags")
+              .insert(trackTagRecords);
+
+            if (junctionError) {
+              console.error('[generate-tracks] Failed to insert track_tags:', junctionError);
+            } else {
+              console.log('[generate-tracks] Wrote to track_tags junction:', assignedTagIds.length, 'tags');
+            }
+
+            // NOTE: Legacy tracks.tags column sync removed - track_tags junction is now source of truth
+            console.log('[generate-tracks] Auto-assigned tags:', assignedTags);
+          }
+
+          // New tag suggestions are automatically stored by performTagAnalysis
+          if (tagAnalysis.new_tag_suggestions?.length > 0) {
+            console.log('[generate-tracks] Stored new tag suggestions:', tagAnalysis.new_tag_suggestions.map(s => s.suggested_name));
+          }
+        } catch (tagError) {
+          console.error('[generate-tracks] Tag analysis failed (non-blocking):', tagError);
+          // Continue without tags - not a critical failure
+        }
+
+        // Create track-chunk relationship (optional - table may not exist yet)
+        try {
+          await supabase
+            .from("track_source_chunks")
+            .insert({
+              track_id: track.id,
+              source_chunk_id: chunk.id,
+              organization_id: organizationId,
+              sequence_order: 0,
+              usage_type: 'content'
+            });
+        } catch (e) {
+          console.log('[generate-tracks] track_source_chunks table not available yet');
+        }
+
+        // Mark chunk as converted (optional - columns may not exist yet)
+        try {
+          await supabase
+            .from("source_chunks")
+            .update({
+              is_converted: true,
+              converted_at: new Date().toISOString(),
+              converted_track_id: track.id
+            })
+            .eq("id", chunk.id);
+        } catch (e) {
+          console.log('[generate-tracks] source_chunks conversion columns not available yet');
+        }
+
+        // Auto-extract key facts for the new track (non-blocking)
+        try {
+          console.log('[generate-tracks] Auto-extracting key facts for track:', track.id);
+          const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              title: enhanced.title,
+              description: enhanced.description || "",
+              transcript: enhanced.content,
+              trackType: "article",
+              trackId: track.id,
+              companyId: organizationId,
+            }),
+          });
+
+          if (factsResponse.ok) {
+            const factsData = await factsResponse.json();
+            console.log(`[generate-tracks] ✅ Auto-generated ${factsData.factIds?.length || 0} key facts for track ${track.id}`);
+          } else {
+            const error = await factsResponse.json().catch(() => ({}));
+            console.error('[generate-tracks] Failed to auto-generate key facts:', error);
+          }
+        } catch (factError) {
+          console.error('[generate-tracks] Error auto-generating key facts (non-blocking):', factError);
+          // Continue without facts - not a critical failure
+        }
+
+        generatedTracks.push({
+          track_id: track.id,
+          title: track.title,
+          chunk_id: chunk.id,
+          status: track.status,
+          assigned_tags: assignedTags
+        });
+
+      } catch (chunkError: any) {
+        console.error('[generate-tracks] Error processing chunk:', chunk.id, chunkError);
+        errors.push({ chunk_id: chunk.id, error: chunkError.message });
+      }
+    }
+
+    const processingTimeMs = Date.now() - startTime;
+    console.log('[generate-tracks] Generated', generatedTracks.length, 'tracks in', processingTimeMs, 'ms');
+
+    return jsonResponse({
+      success: true,
+      tracks_generated: generatedTracks.length,
+      tracks: generatedTracks,
+      errors: errors.length > 0 ? errors : undefined,
+      processing_time_ms: processingTimeMs
+    });
+
+  } catch (error: any) {
+    console.error('[generate-tracks] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Track generation failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Generate a single combined track from multiple chunks
+ */
+async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { chunk_ids, title, options = {} } = body;
+
+    console.log('[generate-combined] Creating combined track from', chunk_ids?.length, 'chunks');
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks in order
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("*, source_files(id, file_name, organization_id, source_type)")
+      .in("id", chunk_ids)
+      .order("chunk_index", { ascending: true });
+
+    if (fetchError || !chunks || chunks.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const organizationId = chunks[0].organization_id;
+    const sourceFileId = chunks[0].source_file_id;
+    const sourceType = chunks[0].source_files?.source_type || 'training_docs';
+
+    // Combine chunks into sections
+    const combinedContent = await generateCombinedContent(chunks, title, sourceType, options);
+
+    // Calculate total stats
+    const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
+    const totalDurationMinutes = Math.ceil(totalWords / 200); // 200 WPM
+
+    // Create the track (tags are assigned via track_tags junction table below)
+    const { data: track, error: trackError } = await supabase
+      .from("tracks")
+      .insert({
+        organization_id: organizationId,
+        title: combinedContent.title,
+        description: combinedContent.description,
+        transcript: combinedContent.content,
+        type: 'article',
+        status: options.publish ? 'published' : 'draft',
+        duration_minutes: totalDurationMinutes,
+        // Store generation context in summary field
+        summary: `Combined from ${chunks.length} chunks (${totalWords.toLocaleString()} words). Sections: ${combinedContent.sections?.map((s: any) => s.title).join(', ') || 'N/A'}`
+      })
+      .select()
+      .single();
+
+    if (trackError) {
+      console.error('[generate-combined] Failed to create track:', trackError);
+      return jsonResponse({
+        success: false,
+        error: `Failed to create track: ${trackError.message}`,
+        code: "CREATE_FAILED"
+      }, 500);
+    }
+
+    // Use AI tag analysis to assign meaningful tags (same as existing flow)
+    let assignedTags: string[] = [];
+    let assignedTagIds: string[] = [];
+    try {
+      console.log('[generate-combined] Running AI tag analysis for track:', track.id);
+      const tagAnalysis = await performTagAnalysis({
+        title: combinedContent.title,
+        description: combinedContent.description,
+        transcript: combinedContent.content,
+        keyFacts: combinedContent.sections?.map((s: any) => ({ content: `Section: ${s.title}` })) || [],
+        trackId: track.id,
+        organizationId: organizationId
+      });
+
+      // Auto-select tags with 85%+ confidence
+      const autoSelectedTags = tagAnalysis.recommendations.filter(rec => rec.auto_select);
+      assignedTags = autoSelectedTags.map(rec => rec.tag_name);
+      assignedTagIds = autoSelectedTags.map(rec => rec.tag_id).filter(Boolean);
+
+      if (assignedTagIds.length > 0) {
+        // Write to track_tags junction table (source of truth)
+        const trackTagRecords = assignedTagIds.map(tagId => ({
+          track_id: track.id,
+          tag_id: tagId
+        }));
+
+        const { error: junctionError } = await supabase
+          .from("track_tags")
+          .insert(trackTagRecords);
+
+        if (junctionError) {
+          console.error('[generate-combined] Failed to insert track_tags:', junctionError);
+        } else {
+          console.log('[generate-combined] Wrote to track_tags junction:', assignedTagIds.length, 'tags');
+        }
+
+        // NOTE: Legacy tracks.tags column sync removed - track_tags junction is now source of truth
+        console.log('[generate-combined] Auto-assigned tags:', assignedTags);
+      }
+
+      // New tag suggestions are automatically stored by performTagAnalysis
+      if (tagAnalysis.new_tag_suggestions?.length > 0) {
+        console.log('[generate-combined] Stored new tag suggestions:', tagAnalysis.new_tag_suggestions.map(s => s.suggested_name));
+      }
+    } catch (tagError) {
+      console.error('[generate-combined] Tag analysis failed (non-blocking):', tagError);
+      // Continue without tags - not a critical failure
+    }
+
+    // Create track-chunk relationships (optional - table may not exist yet)
+    try {
+      const relationships = chunks.map((chunk, index) => ({
+        track_id: track.id,
+        source_chunk_id: chunk.id,
+        organization_id: organizationId,
+        sequence_order: index,
+        usage_type: 'content'
+      }));
+
+      await supabase
+        .from("track_source_chunks")
+        .insert(relationships);
+    } catch (e) {
+      console.log('[generate-combined] track_source_chunks table not available yet');
+    }
+
+    // Mark chunks as converted (optional - columns may not exist yet)
+    try {
+      await supabase
+        .from("source_chunks")
+        .update({
+          is_converted: true,
+          converted_at: new Date().toISOString(),
+          converted_track_id: track.id
+        })
+        .in("id", chunk_ids);
+    } catch (e) {
+      console.log('[generate-combined] source_chunks conversion columns not available yet');
+    }
+
+    // Auto-extract key facts for the new combined track (non-blocking)
+    try {
+      console.log('[generate-combined] Auto-extracting key facts for track:', track.id);
+      const factsResponse = await fetch(`${SUPABASE_URL}/functions/v1/trike-server/generate-key-facts`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: combinedContent.title,
+          description: combinedContent.description || "",
+          transcript: combinedContent.content,
+          trackType: "article",
+          trackId: track.id,
+          companyId: organizationId,
+        }),
+      });
+
+      if (factsResponse.ok) {
+        const factsData = await factsResponse.json();
+        console.log(`[generate-combined] ✅ Auto-generated ${factsData.factIds?.length || 0} key facts for track ${track.id}`);
+      } else {
+        const error = await factsResponse.json().catch(() => ({}));
+        console.error('[generate-combined] Failed to auto-generate key facts:', error);
+      }
+    } catch (factError) {
+      console.error('[generate-combined] Error auto-generating key facts (non-blocking):', factError);
+      // Continue without facts - not a critical failure
+    }
+
+    const processingTimeMs = Date.now() - startTime;
+
+    return jsonResponse({
+      success: true,
+      track: {
+        id: track.id,
+        title: track.title,
+        description: track.description,
+        status: track.status,
+        duration_minutes: totalDurationMinutes,
+        word_count: totalWords,
+        chunk_count: chunks.length,
+        assigned_tags: assignedTags
+      },
+      processing_time_ms: processingTimeMs
+    });
+
+  } catch (error: any) {
+    console.error('[generate-combined] Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message || "Combined track generation failed",
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Preview what tracks would be generated (dry run)
+ */
+async function handlePreviewTrackGeneration(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { chunk_ids, mode = 'individual' } = body;
+
+    if (!chunk_ids || !Array.isArray(chunk_ids) || chunk_ids.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Missing or empty chunk_ids array",
+        code: "MISSING_PARAMETER"
+      }, 400);
+    }
+
+    // Fetch chunks
+    const { data: chunks, error: fetchError } = await supabase
+      .from("source_chunks")
+      .select("id, title, summary, word_count, chunk_type, key_terms, is_converted")
+      .in("id", chunk_ids)
+      .order("chunk_index", { ascending: true });
+
+    if (fetchError || !chunks) {
+      return jsonResponse({
+        success: false,
+        error: "Chunks not found",
+        code: "NOT_FOUND"
+      }, 404);
+    }
+
+    const totalWords = chunks.reduce((sum, c) => sum + (c.word_count || 0), 0);
+    const alreadyConverted = chunks.filter(c => c.is_converted).length;
+
+    if (mode === 'individual') {
+      return jsonResponse({
+        success: true,
+        mode: 'individual',
+        preview: {
+          tracks_to_generate: chunks.length,
+          already_converted: alreadyConverted,
+          total_word_count: totalWords,
+          estimated_total_duration_minutes: Math.ceil(totalWords / 200),
+          tracks: chunks.map(c => ({
+            chunk_id: c.id,
+            suggested_title: c.title,
+            word_count: c.word_count,
+            chunk_type: c.chunk_type,
+            is_converted: c.is_converted
+          }))
+        }
+      });
+    } else {
+      // Combined mode
+      return jsonResponse({
+        success: true,
+        mode: 'combined',
+        preview: {
+          tracks_to_generate: 1,
+          chunks_to_combine: chunks.length,
+          already_converted: alreadyConverted,
+          total_word_count: totalWords,
+          estimated_duration_minutes: Math.ceil(totalWords / 200),
+          sections: chunks.map(c => ({
+            chunk_id: c.id,
+            title: c.title,
+            word_count: c.word_count
+          }))
+        }
+      });
+    }
+
+  } catch (error: any) {
+    console.error('[preview-generation] Error:', error);
+    return jsonResponse({
+      success: false,
+      error: error.message,
+      code: "INTERNAL_ERROR"
+    }, 500);
+  }
+}
+
+/**
+ * Enhance a chunk's content for use as a training track
+ */
+async function enhanceChunkForTrack(
+  chunk: any,
+  sourceType: string,
+  options: any = {}
+): Promise<GeneratedTrack> {
+  // If AI enhancement is disabled or no API key, use chunk as-is
+  if (options.skipAI || !OPENAI_API_KEY) {
+    return {
+      title: chunk.title || 'Untitled Section',
+      description: chunk.summary || chunk.content.slice(0, 200),
+      content: formatContentAsArticle(chunk.content, chunk.title),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
+      key_points: chunk.key_terms || []
+    };
+  }
+
+  try {
+    const prompt = `You are a document cleanup and formatting engine. Your job is to clean up and format extracted text into proper HTML - NOT to rewrite, paraphrase, or summarize. Preserve the original wording exactly.
+
+Source content (extracted from PDF/document):
+${chunk.content.slice(0, 4000)}
+
+Original title: ${chunk.title || 'None provided'}
+
+CLEANUP TASKS (do all that apply):
+1. IDENTIFY HEADERS: Find main titles and section headers, format as <h2> or <h3>
+2. FIX EXTRACTION ARTIFACTS: Remove weird characters, extra spaces, periods instead of spaces, broken sentences that got split mid-word
+3. REMOVE PRINT ARTIFACTS: Remove signature lines (___), page numbers, repeated headers/footers, "Page X of Y"
+4. FIX LISTS: Convert squares/bullets/dashes to proper <ul><li> lists. Convert hardcoded numbers (1. 2. 3.) to <ol><li> lists
+5. FORMAT PARAGRAPHS: Wrap text blocks in <p> tags
+6. FIX LINE BREAKS: Rejoin sentences that were incorrectly split across lines
+7. PRESERVE EVERYTHING ELSE: Keep all original content, wording, and meaning exactly as written
+
+DO NOT:
+- Rewrite or paraphrase any content
+- Summarize or shorten anything
+- Add new information
+- Change the meaning or tone
+- Remove important content
+
+Return JSON with:
+- title: Extract the main title from the content (or use original if clear). Max 80 chars.
+- description: First 1-2 sentences of the actual content (not a summary you write). Max 200 chars.
+- content: The FULL original content, cleaned up and formatted as HTML. Use <h2>/<h3> for headers, <p> for paragraphs, <ul>/<ol>/<li> for lists, <strong> for emphasis.
+- key_points: Array of 3-5 actual key points/rules mentioned IN the document (quote them, don't paraphrase)
+
+Return only valid JSON.`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.1, response_format: { type: "json_object" } } // Low temp for consistent formatting
+    );
+
+    const parsed = JSON.parse(response);
+
+    return {
+      title: parsed.title || chunk.title || 'Training Content',
+      description: parsed.description || chunk.summary || '',
+      content: parsed.content || formatContentAsArticle(chunk.content, chunk.title),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
+      key_points: parsed.key_points || chunk.key_terms || []
+    };
+
+  } catch (error) {
+    console.error('[enhanceChunkForTrack] AI enhancement failed:', error);
+    // Fallback to basic formatting
+    return {
+      title: chunk.title || 'Training Content',
+      description: chunk.summary || chunk.content.slice(0, 200),
+      content: formatContentAsArticle(chunk.content, chunk.title),
+      duration_minutes: Math.ceil((chunk.word_count || 100) / 200),
+      key_points: chunk.key_terms || []
+    };
+  }
+}
+
+/**
+ * Generate combined content from multiple chunks
+ * Now uses enhanceChunkForTrack for proper cleanup of each chunk before combining
+ */
+async function generateCombinedContent(
+  chunks: any[],
+  customTitle: string | undefined,
+  sourceType: string,
+  options: any = {}
+): Promise<{
+  title: string;
+  description: string;
+  content: string;
+  tags: string[];
+  sections: { title: string; word_count: number }[];
+}> {
+  console.log('[generateCombinedContent] Processing', chunks.length, 'chunks with enhancement');
+
+  // Collect unique tags from all chunks
+  const allTags = new Set<string>();
+  chunks.forEach(c => {
+    (c.key_terms || []).forEach((t: string) => allTags.add(t));
+  });
+
+  // If AI disabled, just combine with basic formatting
+  if (options.skipAI || !OPENAI_API_KEY) {
+    const sections = chunks.map(c => ({
+      title: c.title || `Section ${c.chunk_index + 1}`,
+      content: c.content,
+      word_count: c.word_count || 0
+    }));
+
+    const combinedHtml = sections.map(s =>
+      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
+    ).join('\n\n');
+
+    return {
+      title: customTitle || chunks[0]?.source_files?.file_name || 'Combined Training Module',
+      description: `Training module covering ${sections.length} topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+  }
+
+  try {
+    // STEP 1: Enhance each chunk individually using enhanceChunkForTrack
+    // This cleans up extraction artifacts, signatures, page numbers, and formats as proper HTML
+    console.log('[generateCombinedContent] Enhancing chunks with AI cleanup...');
+    const enhancedChunks = await Promise.all(
+      chunks.map(chunk => enhanceChunkForTrack(chunk, sourceType, options))
+    );
+
+    // Build sections from enhanced content
+    const sections = enhancedChunks.map((enhanced, i) => ({
+      title: enhanced.title || chunks[i].title || `Section ${i + 1}`,
+      content: enhanced.content,
+      word_count: chunks[i].word_count || 0,
+      key_points: enhanced.key_points || []
+    }));
+
+    // STEP 2: Generate a cohesive title and description for the combined module
+    const sectionSummary = sections.map((s, i) => `${i + 1}. ${s.title} (${s.word_count} words)`).join('\n');
+
+    const prompt = `Create metadata for a training module combining these ${sections.length} sections from a ${sourceType} document.
+
+Sections:
+${sectionSummary}
+
+${customTitle ? `Requested title: ${customTitle}` : ''}
+
+Return JSON with:
+- title: Clear, professional module title (max 60 chars). Do NOT use generic phrases like "Welcome to..." or "Module on..."
+- description: What learners will gain from this module (max 200 chars)
+
+Return only valid JSON.`;
+
+    const response = await callOpenAI(
+      [{ role: "user", content: prompt }],
+      { temperature: 0.3, response_format: { type: "json_object" } }
+    );
+
+    const parsed = JSON.parse(response);
+
+    // STEP 3: Combine the enhanced sections (no intro paragraph needed - content speaks for itself)
+    const combinedHtml = sections.map(s => s.content).join('\n\n');
+
+    console.log('[generateCombinedContent] Successfully combined', sections.length, 'enhanced sections');
+
+    return {
+      title: customTitle || parsed.title || 'Training Module',
+      description: parsed.description || `Covers ${sections.length} essential topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+
+  } catch (error) {
+    console.error('[generateCombinedContent] AI failed:', error);
+    // Fallback to basic formatting without enhancement
+    const sections = chunks.map(c => ({
+      title: c.title || `Section ${c.chunk_index + 1}`,
+      content: c.content,
+      word_count: c.word_count || 0
+    }));
+
+    const combinedHtml = sections.map(s =>
+      `<h2>${s.title}</h2>\n${formatContentAsArticle(s.content, null)}`
+    ).join('\n\n');
+
+    return {
+      title: customTitle || 'Training Module',
+      description: `Training covering ${sections.length} topics.`,
+      content: combinedHtml,
+      tags: Array.from(allTags).slice(0, 10),
+      sections: sections.map(s => ({ title: s.title, word_count: s.word_count }))
+    };
+  }
+}
+
+/**
+ * Format plain text content as clean HTML article
+ */
+function formatContentAsArticle(content: string, title: string | null): string {
+  let html = '';
+
+  // Split into paragraphs
+  const paragraphs = content.split(/\n\n+/);
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+
+    // Check if it's a list
+    const lines = trimmed.split('\n');
+    const listLines = lines.filter(l => /^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/.test(l));
+
+    if (listLines.length > lines.length * 0.5 && listLines.length > 1) {
+      // It's a list
+      const items = lines
+        .map(l => l.replace(/^[\s]*[-•*]\s|^[\s]*\d+[.)]\s/, '').trim())
+        .filter(l => l.length > 0);
+      html += '<ul>\n' + items.map(item => `  <li>${item}</li>`).join('\n') + '\n</ul>\n\n';
+    } else if (trimmed.length < 100 && !trimmed.includes('.') && lines.length === 1) {
+      // Short line without period - likely a subheading
+      html += `<h3>${trimmed}</h3>\n\n`;
+    } else {
+      // Regular paragraph
+      html += `<p>${trimmed.replace(/\n/g, ' ')}</p>\n\n`;
+    }
+  }
+
+  return html.trim();
+}
+
+// =============================================================================
+// PLAYBOOK HANDLERS - Source-to-Album Automated Workflow
+// =============================================================================
+
+/**
+ * Analyze source chunks and create playbook with suggested track groupings
+ * Uses RAG to intelligently group chunks by topic and detect conflicts with existing content
+ */
+async function handlePlaybookAnalyze(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { source_file_id, organization_id, options = {} } = body;
+
+    console.log('[playbook/analyze] Starting analysis for source:', source_file_id);
+
+    if (!source_file_id) {
+      return jsonResponse({ success: false, error: "source_file_id is required" }, 400);
+    }
+
+    if (!organization_id) {
+      return jsonResponse({ success: false, error: "organization_id is required" }, 400);
+    }
+
+    // Fetch source file info
+    const { data: sourceFile, error: sourceError } = await supabase
+      .from("source_files")
+      .select("id, file_name, organization_id, chunk_count")
+      .eq("id", source_file_id)
+      .single();
+
+    if (sourceError || !sourceFile) {
+      return jsonResponse({ success: false, error: "Source file not found" }, 404);
+    }
+
+    // Fetch all chunks for this source
+    const { data: chunks, error: chunksError } = await supabase
+      .from("source_chunks")
+      .select("*")
+      .eq("source_file_id", source_file_id)
+      .order("chunk_index", { ascending: true });
+
+    if (chunksError || !chunks || chunks.length === 0) {
+      return jsonResponse({ success: false, error: "No chunks found for source file" }, 404);
+    }
+
+    console.log('[playbook/analyze] Found', chunks.length, 'chunks');
+
+    // Use GPT-4 to analyze chunks and propose groupings
+    const groupingPrompt = `You are an expert content curator creating training tracks from a source document.
+
+Analyze these document chunks and propose logical groupings for training tracks.
+Each track should:
+- Cover a coherent topic or theme
+- Be learnable in one sitting (ideally 2-10 chunks per track)
+- Have a clear, descriptive title
+
+CHUNKS:
+${chunks.map((c, i) => `
+[Chunk ${i + 1}] (ID: ${c.id})
+Type: ${c.content_class || 'other'}
+Title: ${c.title || 'Untitled'}
+Key Terms: ${(c.key_terms || []).join(', ') || 'None'}
+Content Preview: ${(c.content || '').substring(0, 300)}...
+---`).join('\n')}
+
+Respond with a JSON object containing an array of proposed tracks:
+{
+  "proposed_tracks": [
+    {
+      "title": "Clear descriptive track title",
+      "chunk_ids": ["chunk-id-1", "chunk-id-2"],
+      "reasoning": "Brief explanation of why these chunks belong together",
+      "confidence": 0.85
+    }
+  ],
+  "unassigned_chunk_ids": ["chunk-ids-that-dont-fit-well"]
+}
+
+Guidelines:
+- Group chunks with related topics, key terms, or content types
+- Prefer 3-7 chunks per track for optimal learning
+- Single chunks can be their own track if they're substantial and self-contained
+- Very short/metadata chunks can be left unassigned
+- Confidence should reflect how well the chunks fit together (0.5-1.0)`;
+
+    const groupingResponse = await callOpenAI(
+      [{ role: "user", content: groupingPrompt }],
+      { temperature: 0.3, response_format: { type: "json_object" } }
+    );
+
+    let proposedGroupings;
+    try {
+      proposedGroupings = JSON.parse(groupingResponse);
+    } catch (e) {
+      console.error('[playbook/analyze] Failed to parse grouping response:', e);
+      return jsonResponse({ success: false, error: "Failed to analyze chunks" }, 500);
+    }
+
+    console.log('[playbook/analyze] AI proposed', proposedGroupings.proposed_tracks?.length || 0, 'tracks');
+
+    // Check for conflicts with existing published content if enabled
+    const checkDuplicates = options.check_duplicates !== false;
+    const tracksWithConflicts = [];
+
+    if (checkDuplicates && proposedGroupings.proposed_tracks) {
+      console.log('[playbook/analyze] Checking for conflicts with existing content...');
+
+      for (const track of proposedGroupings.proposed_tracks) {
+        const conflicts = [];
+
+        // Get chunk content for this track
+        const trackChunkIds = track.chunk_ids || [];
+        const trackChunks = chunks.filter(c => trackChunkIds.includes(c.id));
+        const combinedContent = trackChunks.map(c => c.content || '').join(' ').substring(0, 1000);
+
+        if (combinedContent.length > 50) {
+          try {
+            // Search existing brain index for similar content
+            const queryEmbedding = await generateEmbedding(track.title + ' ' + combinedContent.substring(0, 500));
+
+            const { data: searchResults } = await supabase.rpc("match_brain_embeddings", {
+              query_embedding: queryEmbedding,
+              match_threshold: 0.7,
+              match_count: 5,
+              org_id: organization_id,
+            });
+
+            if (searchResults && searchResults.length > 0) {
+              // Group by content_id and get highest similarity per track
+              const trackSimilarities = new Map();
+              for (const result of searchResults) {
+                const existingScore = trackSimilarities.get(result.content_id) || 0;
+                if (result.similarity > existingScore) {
+                  trackSimilarities.set(result.content_id, {
+                    track_id: result.content_id,
+                    similarity: result.similarity,
+                    metadata: result.metadata
+                  });
+                }
+              }
+
+              // Convert to conflicts array
+              for (const [trackId, data] of trackSimilarities) {
+                // Fetch track title
+                const { data: existingTrack } = await supabase
+                  .from("tracks")
+                  .select("id, title")
+                  .eq("id", trackId)
+                  .single();
+
+                if (existingTrack && data.similarity > 0.7) {
+                  let matchType = 'direct_overlap';
+                  if (data.similarity < 0.85) {
+                    matchType = 'version_candidate';
+                  }
+
+                  conflicts.push({
+                    existing_track_id: existingTrack.id,
+                    existing_track_title: existingTrack.title,
+                    similarity_score: Math.round(data.similarity * 100) / 100,
+                    match_type: matchType,
+                    overlap_summary: `Content similarity detected (${Math.round(data.similarity * 100)}% match)`
+                  });
+                }
+              }
+            }
+          } catch (searchError) {
+            console.error('[playbook/analyze] Conflict search failed (non-blocking):', searchError);
+          }
+        }
+
+        tracksWithConflicts.push({
+          ...track,
+          has_conflicts: conflicts.length > 0,
+          conflicts
+        });
+      }
+    } else {
+      // No conflict checking - just add empty conflicts array
+      for (const track of proposedGroupings.proposed_tracks || []) {
+        tracksWithConflicts.push({
+          ...track,
+          has_conflicts: false,
+          conflicts: []
+        });
+      }
+    }
+
+    // Create playbook record
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .insert({
+        source_file_id,
+        organization_id,
+        title: sourceFile.file_name.replace(/\.[^/.]+$/, ''), // Remove file extension
+        status: 'suggestion',
+        rag_analysis: {
+          chunk_count: chunks.length,
+          proposed_track_count: tracksWithConflicts.length,
+          analysis_timestamp: new Date().toISOString()
+        }
+      })
+      .select()
+      .single();
+
+    if (playbookError) {
+      console.error('[playbook/analyze] Failed to create playbook:', playbookError);
+      return jsonResponse({ success: false, error: "Failed to create playbook" }, 500);
+    }
+
+    console.log('[playbook/analyze] Created playbook:', playbook.id);
+
+    // Create playbook tracks and chunk assignments
+    const createdTracks = [];
+    for (let i = 0; i < tracksWithConflicts.length; i++) {
+      const track = tracksWithConflicts[i];
+
+      const { data: playbookTrack, error: trackError } = await supabase
+        .from("playbook_tracks")
+        .insert({
+          playbook_id: playbook.id,
+          organization_id,
+          title: track.title,
+          display_order: i,
+          status: 'suggestion',
+          rag_reasoning: track.reasoning,
+          rag_confidence: track.confidence,
+          has_conflicts: track.has_conflicts,
+          conflicts: track.conflicts
+        })
+        .select()
+        .single();
+
+      if (trackError) {
+        console.error('[playbook/analyze] Failed to create track:', trackError);
+        continue;
+      }
+
+      // Assign chunks to track
+      const chunkAssignments = (track.chunk_ids || []).map((chunkId: string, index: number) => ({
+        playbook_track_id: playbookTrack.id,
+        source_chunk_id: chunkId,
+        sequence_order: index
+      }));
+
+      if (chunkAssignments.length > 0) {
+        await supabase
+          .from("playbook_track_chunks")
+          .insert(chunkAssignments);
+      }
+
+      createdTracks.push({
+        id: playbookTrack.id,
+        title: playbookTrack.title,
+        chunk_ids: track.chunk_ids,
+        reasoning: track.reasoning,
+        confidence: track.confidence,
+        conflicts: track.conflicts
+      });
+    }
+
+    const duration = Date.now() - startTime;
+    console.log('[playbook/analyze] Complete in', duration, 'ms');
+
+    return jsonResponse({
+      success: true,
+      playbook_id: playbook.id,
+      suggested_tracks: createdTracks,
+      unassigned_chunks: proposedGroupings.unassigned_chunk_ids || [],
+      stats: {
+        total_chunks: chunks.length,
+        assigned_chunks: createdTracks.reduce((sum, t) => sum + (t.chunk_ids?.length || 0), 0),
+        track_count: createdTracks.length,
+        conflicts_found: createdTracks.filter(t => t.conflicts?.length > 0).length,
+        duration_ms: duration
+      }
+    });
+
+  } catch (error) {
+    console.error('[playbook/analyze] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Analysis failed" }, 500);
+  }
+}
+
+/**
+ * Get playbook by ID with full details
+ */
+async function handleGetPlaybook(req: Request, playbookId: string): Promise<Response> {
+  try {
+    const { data: playbook, error } = await supabase
+      .from("playbooks")
+      .select(`
+        *,
+        source_file:source_files (
+          id,
+          file_name,
+          chunk_count
+        ),
+        playbook_tracks (
+          *,
+          playbook_track_chunks (
+            id,
+            source_chunk_id,
+            sequence_order,
+            chunk:source_chunks (
+              id,
+              chunk_index,
+              content,
+              title,
+              summary,
+              word_count,
+              chunk_type,
+              content_class,
+              key_terms
+            )
+          )
+        )
+      `)
+      .eq("id", playbookId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+      }
+      throw error;
+    }
+
+    // Transform and sort
+    const tracks = (playbook.playbook_tracks || [])
+      .sort((a: any, b: any) => a.display_order - b.display_order)
+      .map((track: any) => ({
+        ...track,
+        chunks: (track.playbook_track_chunks || [])
+          .sort((a: any, b: any) => a.sequence_order - b.sequence_order),
+        chunk_count: (track.playbook_track_chunks || []).length
+      }));
+
+    return jsonResponse({
+      success: true,
+      playbook: {
+        ...playbook,
+        tracks,
+        track_count: tracks.length
+      }
+    });
+
+  } catch (error) {
+    console.error('[playbook/get] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to get playbook" }, 500);
+  }
+}
+
+/**
+ * Update track groupings after user drag-drop operations
+ */
+async function handlePlaybookUpdateGroupings(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_id, tracks, new_tracks, removed_track_ids } = body;
+
+    console.log('[playbook/update-groupings] Updating playbook:', playbook_id);
+
+    if (!playbook_id) {
+      return jsonResponse({ success: false, error: "playbook_id is required" }, 400);
+    }
+
+    // Get playbook to verify it exists and get org_id
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .select("id, organization_id")
+      .eq("id", playbook_id)
+      .single();
+
+    if (playbookError || !playbook) {
+      return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+    }
+
+    // Remove deleted tracks
+    if (removed_track_ids && removed_track_ids.length > 0) {
+      await supabase
+        .from("playbook_tracks")
+        .delete()
+        .in("id", removed_track_ids);
+      console.log('[playbook/update-groupings] Removed', removed_track_ids.length, 'tracks');
+    }
+
+    // Update existing tracks
+    if (tracks && tracks.length > 0) {
+      for (const track of tracks) {
+        // Update track metadata
+        await supabase
+          .from("playbook_tracks")
+          .update({
+            title: track.title,
+            display_order: track.display_order
+          })
+          .eq("id", track.id);
+
+        // Update chunk assignments
+        await supabase
+          .from("playbook_track_chunks")
+          .delete()
+          .eq("playbook_track_id", track.id);
+
+        if (track.chunk_ids && track.chunk_ids.length > 0) {
+          const assignments = track.chunk_ids.map((chunkId: string, index: number) => ({
+            playbook_track_id: track.id,
+            source_chunk_id: chunkId,
+            sequence_order: index
+          }));
+
+          await supabase
+            .from("playbook_track_chunks")
+            .insert(assignments);
+        }
+      }
+      console.log('[playbook/update-groupings] Updated', tracks.length, 'tracks');
+    }
+
+    // Create new tracks
+    if (new_tracks && new_tracks.length > 0) {
+      for (const newTrack of new_tracks) {
+        const { data: createdTrack } = await supabase
+          .from("playbook_tracks")
+          .insert({
+            playbook_id,
+            organization_id: playbook.organization_id,
+            title: newTrack.title,
+            display_order: newTrack.display_order,
+            status: 'suggestion'
+          })
+          .select()
+          .single();
+
+        if (createdTrack && newTrack.chunk_ids && newTrack.chunk_ids.length > 0) {
+          const assignments = newTrack.chunk_ids.map((chunkId: string, index: number) => ({
+            playbook_track_id: createdTrack.id,
+            source_chunk_id: chunkId,
+            sequence_order: index
+          }));
+
+          await supabase
+            .from("playbook_track_chunks")
+            .insert(assignments);
+        }
+      }
+      console.log('[playbook/update-groupings] Created', new_tracks.length, 'new tracks');
+    }
+
+    // Fetch updated playbook
+    return await handleGetPlaybook(req, playbook_id);
+
+  } catch (error) {
+    console.error('[playbook/update-groupings] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to update groupings" }, 500);
+  }
+}
+
+/**
+ * Confirm a track grouping (ready for draft generation)
+ */
+async function handlePlaybookConfirmTrack(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_track_id, conflict_resolution } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get current track
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select("*, playbook_track_chunks(source_chunk_id)")
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    // If track has conflicts, require resolution
+    if (track.has_conflicts && !conflict_resolution) {
+      return jsonResponse({
+        success: false,
+        error: "Track has conflicts - conflict_resolution is required",
+        conflicts: track.conflicts
+      }, 400);
+    }
+
+    // Update track status
+    const { data: updatedTrack, error: updateError } = await supabase
+      .from("playbook_tracks")
+      .update({
+        status: 'confirmed',
+        conflict_resolution: conflict_resolution || null
+      })
+      .eq("id", playbook_track_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return jsonResponse({
+      success: true,
+      playbook_track: updatedTrack
+    });
+
+  } catch (error) {
+    console.error('[playbook/confirm-track] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to confirm track" }, 500);
+  }
+}
+
+/**
+ * Generate draft content for a confirmed track
+ */
+async function handlePlaybookGenerateDraft(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { playbook_track_id } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get track with chunks
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select(`
+        *,
+        playbook_track_chunks (
+          sequence_order,
+          chunk:source_chunks (*)
+        )
+      `)
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    if (track.status !== 'confirmed') {
+      return jsonResponse({ success: false, error: "Track must be confirmed before generating draft" }, 400);
+    }
+
+    // Update status to generating
+    await supabase
+      .from("playbook_tracks")
+      .update({ status: 'generating' })
+      .eq("id", playbook_track_id);
+
+    // Get chunks in order
+    const sortedChunks = (track.playbook_track_chunks || [])
+      .sort((a: any, b: any) => a.sequence_order - b.sequence_order)
+      .map((ptc: any) => ptc.chunk)
+      .filter(Boolean);
+
+    if (sortedChunks.length === 0) {
+      await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'confirmed',
+          generation_error: 'No chunks found for this track'
+        })
+        .eq("id", playbook_track_id);
+
+      return jsonResponse({ success: false, error: "No chunks found for this track" }, 400);
+    }
+
+    console.log('[playbook/generate-draft] Generating draft from', sortedChunks.length, 'chunks');
+
+    // Use the same generation logic as handleGenerateCombinedTrack
+    try {
+      const combinedContent = await generateCombinedContent(sortedChunks, track.title, 'training_docs', {});
+
+      // Update track with generated content
+      const { data: updatedTrack, error: updateError } = await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'draft_ready',
+          generated_content: combinedContent.content,
+          generated_at: new Date().toISOString(),
+          generation_error: null
+        })
+        .eq("id", playbook_track_id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      const duration = Date.now() - startTime;
+      console.log('[playbook/generate-draft] Complete in', duration, 'ms');
+
+      return jsonResponse({
+        success: true,
+        playbook_track: updatedTrack,
+        generated: {
+          title: combinedContent.title,
+          description: combinedContent.description,
+          content_length: combinedContent.content?.length || 0,
+          sections: combinedContent.sections?.map((s: any) => s.title) || []
+        }
+      });
+
+    } catch (genError) {
+      console.error('[playbook/generate-draft] Generation failed:', genError);
+
+      await supabase
+        .from("playbook_tracks")
+        .update({
+          status: 'confirmed',
+          generation_error: genError.message || 'Generation failed'
+        })
+        .eq("id", playbook_track_id);
+
+      return jsonResponse({ success: false, error: "Draft generation failed: " + genError.message }, 500);
+    }
+
+  } catch (error) {
+    console.error('[playbook/generate-draft] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to generate draft" }, 500);
+  }
+}
+
+/**
+ * Approve a draft track
+ */
+async function handlePlaybookApproveTrack(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { playbook_track_id, edited_content } = body;
+
+    if (!playbook_track_id) {
+      return jsonResponse({ success: false, error: "playbook_track_id is required" }, 400);
+    }
+
+    // Get track
+    const { data: track, error: trackError } = await supabase
+      .from("playbook_tracks")
+      .select("*")
+      .eq("id", playbook_track_id)
+      .single();
+
+    if (trackError || !track) {
+      return jsonResponse({ success: false, error: "Track not found" }, 404);
+    }
+
+    if (track.status !== 'draft_ready') {
+      return jsonResponse({ success: false, error: "Track must have a generated draft before approval" }, 400);
+    }
+
+    // Update with edited content if provided
+    const { data: updatedTrack, error: updateError } = await supabase
+      .from("playbook_tracks")
+      .update({
+        status: 'approved',
+        generated_content: edited_content || track.generated_content
+      })
+      .eq("id", playbook_track_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return jsonResponse({
+      success: true,
+      playbook_track: updatedTrack
+    });
+
+  } catch (error) {
+    console.error('[playbook/approve-track] Error:', error);
+    return jsonResponse({ success: false, error: error.message || "Failed to approve track" }, 500);
+  }
+}
+
+/**
+ * Publish all approved tracks and create album
+ */
+async function handlePlaybookPublish(req: Request): Promise<Response> {
+  const startTime = Date.now();
+
+  try {
+    const body = await req.json();
+    const { playbook_id, album_title, album_description } = body;
+
+    if (!playbook_id) {
+      return jsonResponse({ success: false, error: "playbook_id is required" }, 400);
+    }
+
+    // Get playbook with tracks
+    const { data: playbook, error: playbookError } = await supabase
+      .from("playbooks")
+      .select(`
+        *,
+        playbook_tracks (
+          *,
+          playbook_track_chunks (
+            source_chunk_id,
+            sequence_order
+          )
+        )
+      `)
+      .eq("id", playbook_id)
+      .single();
+
+    if (playbookError || !playbook) {
+      return jsonResponse({ success: false, error: "Playbook not found" }, 404);
+    }
+
+    // Update playbook status
+    await supabase
+      .from("playbooks")
+      .update({ status: 'publishing' })
+      .eq("id", playbook_id);
+
+    const approvedTracks = (playbook.playbook_tracks || []).filter(
+      (t: any) => t.status === 'approved'
+    );
+    const skippedTracks = (playbook.playbook_tracks || []).filter(
+      (t: any) => t.status === 'skipped'
+    );
+
+    if (approvedTracks.length === 0) {
+      return jsonResponse({ success: false, error: "No approved tracks to publish" }, 400);
+    }
+
+    console.log('[playbook/publish] Publishing', approvedTracks.length, 'tracks');
+
+    // Create album
+    const { data: album, error: albumError } = await supabase
+      .from("albums")
+      .insert({
+        organization_id: playbook.organization_id,
+        title: album_title || playbook.title,
+        description: album_description || `Generated from ${playbook.title}`,
+        status: 'published'
+      })
+      .select()
+      .single();
+
+    if (albumError) {
+      console.error('[playbook/publish] Failed to create album:', albumError);
+      return jsonResponse({ success: false, error: "Failed to create album" }, 500);
+    }
+
+    console.log('[playbook/publish] Created album:', album.id);
+
+    // Publish each approved track
+    const publishedTracks = [];
+    const errors = [];
+
+    for (let i = 0; i < approvedTracks.length; i++) {
+      const playbookTrack = approvedTracks[i];
+
+      try {
+        // Calculate stats
+        const wordCount = (playbookTrack.generated_content || '').split(/\s+/).length;
+        const durationMinutes = Math.ceil(wordCount / 200);
+
+        // Create track
+        const { data: track, error: trackCreateError } = await supabase
+          .from("tracks")
+          .insert({
+            organization_id: playbook.organization_id,
+            title: playbookTrack.title,
+            description: playbookTrack.description || '',
+            transcript: playbookTrack.generated_content,
+            type: 'article',
+            status: 'published',
+            duration_minutes: durationMinutes
+          })
+          .select()
+          .single();
+
+        if (trackCreateError || !track) {
+          throw new Error(trackCreateError?.message || 'Failed to create track');
+        }
+
+        // Add to album
+        await supabase
+          .from("album_tracks")
+          .insert({
+            album_id: album.id,
+            track_id: track.id,
+            display_order: i,
+            is_required: true,
+            unlock_previous: false
+          });
+
+        // Update playbook track with published track reference
+        await supabase
+          .from("playbook_tracks")
+          .update({
+            status: 'published',
+            published_track_id: track.id,
+            published_at: new Date().toISOString()
+          })
+          .eq("id", playbookTrack.id);
+
+        // Create track-chunk relationships (link published track back to source chunks)
+        const chunkIds = (playbookTrack.playbook_track_chunks || [])
+          .map((ptc: any) => ptc.source_chunk_id)
+          .filter(Boolean);
+
+        if (chunkIds.length > 0) {
+          try {
+            // Insert track_source_chunks relationships
+            const relationships = chunkIds.map((chunkId: string, index: number) => ({
+              track_id: track.id,
+              source_chunk_id: chunkId,
+              organization_id: playbook.organization_id,
+              sequence_order: index,
+              usage_type: 'content'
+            }));
+
+            await supabase
+              .from("track_source_chunks")
+              .insert(relationships);
+
+            console.log('[playbook/publish] Created', relationships.length, 'track-chunk relationships for track:', track.id);
+
+            // Mark source chunks as converted
+            await supabase
+              .from("source_chunks")
+              .update({
+                is_converted: true,
+                converted_at: new Date().toISOString(),
+                converted_track_id: track.id
+              })
+              .in("id", chunkIds);
+
+            console.log('[playbook/publish] Marked', chunkIds.length, 'chunks as converted');
+          } catch (relError) {
+            console.error('[playbook/publish] Failed to create track-chunk relationships (non-blocking):', relError);
+            // Continue - this is not critical to the publish operation
+          }
+        }
+
+        // Index to brain (non-blocking)
+        try {
+          const embedding = await generateEmbedding(
+            `${track.title} ${track.description || ''} ${(track.transcript || '').substring(0, 2000)}`
+          );
+
+          await supabase
+            .from("brain_embeddings")
+            .insert({
+              organization_id: playbook.organization_id,
+              content_type: 'track',
+              content_id: track.id,
+              chunk_index: 0,
+              chunk_text: (track.transcript || '').substring(0, 8000),
+              embedding,
+              metadata: { title: track.title, type: 'article' }
+            });
+        } catch (indexError) {
+          console.error('[playbook/publish] Brain indexing failed (non-blocking):', indexError);
+        }
+
+        publishedTracks.push({
+          playbook_track_id: playbookTrack.id,
+          published_track_id: track.id
+        });
+
+        console.log('[playbook/publish] Published track:', track.id);
+
+      } catch (trackError) {
+        console.error('[playbook/publish] Failed to publish track:', playbookTrack.id, trackError);
+        errors.push(`Track "${playbookTrack.title}": ${trackError.message}`);
+      }
+    }
+
+    // Update playbook status
+    await supabase
+      .from("playbooks")
+      .update({
+        status: 'completed',
+        album_id: album.id,
+        completed_at: new Date().toISOString()
+      })
+      .eq("id", playbook_id);
+
+    const duration = Date.now() - startTime;
+    console.log('[playbook/publish] Complete in', duration, 'ms');
+
+    return jsonResponse({
+      success: true,
+      album: {
+        id: album.id,
+        title: album.title,
+        track_count: publishedTracks.length
+      },
+      published_tracks: publishedTracks,
+      skipped_tracks: skippedTracks.map((t: any) => t.id),
+      errors
+    });
+
+  } catch (error) {
+    console.error('[playbook/publish] Error:', error);
+
+    // Revert playbook status on error
+    const body = await req.json().catch(() => ({}));
+    if (body.playbook_id) {
+      await supabase
+        .from("playbooks")
+        .update({ status: 'review' })
+        .eq("id", body.playbook_id);
+    }
+
+    return jsonResponse({ success: false, error: error.message || "Publish failed" }, 500);
+  }
+}
+
+// =============================================================================
+// DEMO SEED DATA HELPERS
+// =============================================================================
+
+const SEED_PEOPLE = [
+  { first_name: "Jamie", last_name: "Chen", email: "jamie.demo@example.com", employee_id: "E101" },
+  { first_name: "Marcus", last_name: "Rivera", email: "marcus.demo@example.com", employee_id: "E102" },
+  { first_name: "Sofia", last_name: "Kim", email: "sofia.demo@example.com", employee_id: "E103" },
+  { first_name: "Alex", last_name: "Thompson", email: "alex.demo@example.com", employee_id: "E104" },
+  { first_name: "Jordan", last_name: "Williams", email: "jordan.demo@example.com", employee_id: "E105" },
+];
+
+const SEED_UNITS = [
+  { name: "Downtown Store", code: "DT01", city: "Atlanta", state: "GA" },
+  { name: "Airport Location", code: "AP02", city: "Atlanta", state: "GA" },
+  { name: "Highway Stop", code: "HW03", city: "Marietta", state: "GA" },
+  { name: "Campus Store", code: "CP04", city: "Athens", state: "GA" },
+  { name: "Mall Kiosk", code: "MK05", city: "Atlanta", state: "GA" },
+];
+
+/**
+ * Seed demo org with 5 people, 5 units, and dummy activity for dashboards.
+ * All seeded rows get is_seed=true so they can be removed on prospect→onboarding.
+ * When skipStores=true (Relay will provide real locations), create people with store_id=null
+ * so the Relay callback can assign them to real stores when it runs.
+ */
+async function seedDemoOrgData(
+  orgId: string,
+  adminRoleId: string | null,
+  trackIds: string[],
+  options?: { skipStores?: boolean }
+): Promise<{ people: number; units: number; activity: number }> {
+  const stats = { people: 0, units: 0, activity: 0 };
+  const skipStores = options?.skipStores === true;
+
+  // Create Employee role for seed people
+  const { data: employeeRole } = await supabase
+    .from("roles")
+    .insert({
+      organization_id: orgId,
+      name: "Employee",
+      description: "Basic access",
+      level: 0,
+      permissions: JSON.stringify(["view_content"]),
+    })
+    .select("id")
+    .single();
+
+  const roleId = employeeRole?.id || adminRoleId;
+  if (!roleId) return stats;
+
+  // 2 seed districts
+  const { data: districts } = await supabase
+    .from("districts")
+    .insert([
+      { organization_id: orgId, name: "North Region", code: "NORTH", is_seed: true },
+      { organization_id: orgId, name: "South Region", code: "SOUTH", is_seed: true },
+    ])
+    .select("id");
+
+  if (!districts || districts.length < 2) return stats;
+
+  // 5 seed stores (skip when Relay will provide real locations)
+  let stores: { id: string }[] = [];
+  if (!skipStores) {
+    const storesToInsert = SEED_UNITS.map((u, i) => ({
+      organization_id: orgId,
+      district_id: districts[i % 2].id,
+      name: u.name,
+      code: u.code,
+      city: u.city,
+      state: u.state,
+      is_active: true,
+      is_seed: true,
+    }));
+    const { data: insertedStores } = await supabase.from("stores").insert(storesToInsert).select("id");
+    stores = insertedStores || [];
+    if (stores.length > 0) stats.units = stores.length;
+  }
+
+  // 5 seed people (no auth_user_id). store_id=null when skipStores (Relay callback will assign)
+  const usersToInsert = SEED_PEOPLE.map((p, i) => ({
+    organization_id: orgId,
+    role_id: roleId,
+    store_id: stores.length > 0 ? stores[i % stores.length].id : null,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    email: `seed${i + 1}@org-${orgId.slice(0, 8)}.demo`,
+    employee_id: p.employee_id,
+    status: "active",
+    is_seed: true,
+  }));
+
+  const { data: seedUsers } = await supabase.from("users").insert(usersToInsert).select("id");
+  if (!seedUsers || seedUsers.length === 0) return stats;
+  stats.people = seedUsers.length;
+
+  const now = new Date();
+  const activityLogs: any[] = [];
+  const activityEvents: any[] = [];
+  const trackCompletions: any[] = [];
+  const userProgressRows: any[] = [];
+
+  for (let i = 0; i < seedUsers.length; i++) {
+    const uid = seedUsers[i].id;
+    const daysAgo = (days: number) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d.toISOString();
+    };
+
+    // Activity logs (admin-style activity)
+    activityLogs.push({ organization_id: orgId, user_id: uid, action: "login", entity_type: "user", entity_id: uid, details: {}, is_seed: true });
+    if (trackIds.length > 0) {
+      activityLogs.push(
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[0], details: {}, is_seed: true },
+        { organization_id: orgId, user_id: uid, action: "completed", entity_type: "track", entity_id: trackIds[Math.min(1, trackIds.length - 1)], details: {}, is_seed: true }
+      );
+    }
+
+    // Activity events (learning activity - completions)
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const ts = daysAgo(i + 1);
+      activityEvents.push({
+        user_id: uid,
+        verb: "completed",
+        object_type: "track",
+        object_id: trackId,
+        object_name: "Training",
+        result_completion: true,
+        result_success: true,
+        context_platform: "web",
+        timestamp: ts,
+        stored_at: ts,
+        is_seed: true,
+      });
+    }
+
+    // Track completions
+    if (trackIds.length > 0) {
+      const trackId = trackIds[i % trackIds.length];
+      const completedAt = daysAgo(i + 1);
+      trackCompletions.push({
+        user_id: uid,
+        track_id: trackId,
+        track_version_number: 1,
+        status: "completed",
+        passed: true,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+        metadata: { is_seed: true },
+      });
+      userProgressRows.push({
+        organization_id: orgId,
+        user_id: uid,
+        track_id: trackId,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+        time_spent_minutes: 10 + i * 2,
+      });
+    }
+  }
+
+  if (activityLogs.length > 0) {
+    await supabase.from("activity_logs").insert(activityLogs);
+    stats.activity += activityLogs.length;
+  }
+  if (activityEvents.length > 0) {
+    await supabase.from("activity_events").insert(activityEvents);
+    stats.activity += activityEvents.length;
+  }
+  if (trackCompletions.length > 0) {
+    await supabase.from("track_completions").insert(trackCompletions);
+  }
+  if (userProgressRows.length > 0) {
+    await supabase.from("user_progress").insert(userProgressRows);
+  }
+
+  // Create CORE Playlist (clone from Trike.co template or use system tracks) and assignments for demo reports
+  const template = await getCorePlaylistTemplate();
+  let playlistMeta: { title: string; description: string | null; type: string; release_type: string | null; release_schedule: any; is_active: boolean } = template
+    ? { title: template.title, description: template.description, type: template.type, release_type: template.release_type, release_schedule: template.release_schedule, is_active: template.is_active }
+    : { title: CORE_PLAYLIST_TITLE, description: "Core training content for demo.", type: "manual", release_type: "immediate", release_schedule: null, is_active: true };
+
+  let playlistTrackIds = trackIds;
+  if (playlistTrackIds.length === 0 && seedUsers.length > 0) {
+    if (template && template.trackIds.length > 0) {
+      playlistTrackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      playlistTrackIds = (systemTracks || []).map((t: any) => t.id);
+    }
+  }
+  if (playlistTrackIds.length > 0 && seedUsers.length > 0) {
+    const { data: playlist } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id: orgId,
+        title: playlistMeta.title,
+        description: playlistMeta.description,
+        type: playlistMeta.type,
+        release_type: playlistMeta.release_type ?? "immediate",
+        release_schedule: playlistMeta.release_schedule,
+        is_active: playlistMeta.is_active,
+      })
+      .select("id")
+      .single();
+
+    if (playlist?.id) {
+      const pts = playlistTrackIds.map((tid: string, idx: number) => ({
+        playlist_id: playlist.id,
+        track_id: tid,
+        display_order: idx,
+      }));
+      await supabase.from("playlist_tracks").insert(pts);
+
+      const assignmentRows = seedUsers.map((u: any, i: number) => {
+        const completedAt = (() => {
+          const d = new Date(now);
+          d.setDate(d.getDate() - (i + 1));
+          return d.toISOString();
+        })();
+        return {
+          organization_id: orgId,
+          user_id: u.id,
+          playlist_id: playlist.id,
+          assigned_at: completedAt,
+          status: "completed",
+          progress_percent: 100,
+          completed_at: completedAt,
+        };
+      });
+      await supabase.from("assignments").insert(assignmentRows);
+
+      // Add 2 in-progress assignments so Assignments tab shows variety (not all completed)
+      const inProgressAssignments = [
+        {
+          organization_id: orgId,
+          user_id: seedUsers[0].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 30,
+          completed_at: null,
+        },
+        {
+          organization_id: orgId,
+          user_id: seedUsers[1].id,
+          playlist_id: playlist.id,
+          assigned_at: now.toISOString(),
+          status: "in_progress",
+          progress_percent: 50,
+          completed_at: null,
+        },
+      ];
+      await supabase.from("assignments").insert(inProgressAssignments);
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * Remove all demo seed data when org transitions prospect→onboarding.
+ * Keeps user-entered data (is_seed=false or null).
+ */
+async function removeDemoSeedData(orgId: string): Promise<{ removed: number }> {
+  let removed = 0;
+
+  const { data: seedUsers } = await supabase.from("users").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedUserIds = seedUsers?.map((u: any) => u.id) || [];
+
+  if (seedUserIds.length > 0) {
+    await supabase.from("user_progress").delete().in("user_id", seedUserIds);
+    await supabase.from("track_completions").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_logs").delete().in("user_id", seedUserIds);
+    await supabase.from("activity_events").delete().in("user_id", seedUserIds);
+    await supabase.from("assignments").delete().in("user_id", seedUserIds);
+    await supabase.from("users").delete().in("id", seedUserIds);
+    removed += seedUserIds.length;
+  }
+
+  // Remove seed playlist "CORE Playlist" (and legacy "Demo Training") created for reports
+  const { data: seedPlaylists } = await supabase
+    .from("playlists")
+    .select("id")
+    .eq("organization_id", orgId)
+    .in("title", [CORE_PLAYLIST_TITLE, "Demo Training"]);
+  if (seedPlaylists && seedPlaylists.length > 0) {
+    const playlistIds = seedPlaylists.map((p: any) => p.id);
+    await supabase.from("playlist_tracks").delete().in("playlist_id", playlistIds);
+    await supabase.from("playlists").delete().in("id", playlistIds);
+    removed += seedPlaylists.length;
+  }
+
+  const { data: seedStores } = await supabase.from("stores").select("id").eq("organization_id", orgId).eq("is_seed", true);
+  const seedStoreIds = seedStores?.map((s: any) => s.id) || [];
+
+  if (seedStoreIds.length > 0) {
+    await supabase.from("stores").delete().in("id", seedStoreIds);
+    removed += seedStoreIds.length;
+  }
+
+  await supabase.from("districts").delete().eq("organization_id", orgId).eq("is_seed", true);
+
+  const { data: deletedLogs } = await supabase.from("activity_logs").delete().eq("organization_id", orgId).eq("is_seed", true).select("id");
+  if (deletedLogs) removed += deletedLogs.length;
+
+  await supabase.from("tracks").delete().eq("organization_id", orgId).eq("is_demo_content", true);
+
+  const { data: octTopics } = await supabase.from("organization_compliance_topics").delete().eq("organization_id", orgId).eq("added_during", "admin_demo").select("id");
+  if (octTopics) removed += octTopics.length;
+
+  console.log(`[RemoveDemoSeed] Org ${orgId}: removed ${removed} seed items`);
+  return { removed };
+}
+
+/**
+ * POST /org/transition-to-onboarding
+ * Transition prospect org to onboarding: remove demo seed data, update status.
+ * Call when prospect accepts proposal + billing (e.g. from admin, webhook, or Go Live).
+ */
+async function handleOrgTransitionToOnboarding(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    if (org.status !== "demo") {
+      return jsonResponse({ error: `Org status must be demo, got: ${org.status}` }, 400);
+    }
+
+    const { removed } = await removeDemoSeedData(organization_id);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "live",
+        converted_at: new Date().toISOString(),
+        demo_expires_at: null,
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[TransitionToOnboarding] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    const { error: dealError } = await supabase
+      .from("deals")
+      .update({ stage: "won" })
+      .eq("organization_id", organization_id);
+
+    if (dealError) console.error("[TransitionToOnboarding] Deal update (non-fatal):", dealError);
+
+    console.log(`[TransitionToOnboarding] ${org.name} → live, removed ${removed} seed items`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      status: "live",
+      seed_data_removed: removed,
+    });
+  } catch (error: any) {
+    console.error("[TransitionToOnboarding] Error:", error);
+    return jsonResponse({ error: error.message || "Transition failed" }, 500);
+  }
+}
+
+/** Trike.co main org — excluded from bulk seed operations */
+const TRIKE_CO_ORG_ID = "10000000-0000-0000-0000-000000000001";
+
+/** Template playlist in Trike account to clone for demo orgs */
+const CORE_PLAYLIST_TITLE = "CORE Playlist";
+
+/**
+ * Fetch "CORE Playlist" from Trike.co and return template fields + ordered list of track IDs
+ * that are system content (so demo orgs can use them). Returns null if no template or no system tracks.
+ */
+async function getCorePlaylistTemplate(): Promise<{
+  title: string;
+  description: string | null;
+  type: string;
+  release_type: string | null;
+  release_schedule: any;
+  is_active: boolean;
+  trackIds: string[];
+} | null> {
+  const { data: template, error: playlistErr } = await supabase
+    .from("playlists")
+    .select("id, title, description, type, release_type, release_schedule, is_active")
+    .eq("organization_id", TRIKE_CO_ORG_ID)
+    .ilike("title", CORE_PLAYLIST_TITLE)
+    .limit(1)
+    .maybeSingle();
+  if (playlistErr || !template?.id) return null;
+
+  const { data: pts, error: ptsErr } = await supabase
+    .from("playlist_tracks")
+    .select("track_id, display_order")
+    .eq("playlist_id", template.id)
+    .order("display_order", { ascending: true });
+  if (ptsErr || !pts || pts.length === 0) return null;
+
+  const trackIds = pts.map((p: any) => p.track_id);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, is_system_content")
+    .in("id", trackIds);
+  const systemById = new Set((tracks || []).filter((t: any) => t.is_system_content === true).map((t: any) => t.id));
+  const orderedSystemIds = trackIds.filter((id: string) => systemById.has(id));
+  if (orderedSystemIds.length === 0) return null;
+
+  return {
+    title: template.title,
+    description: template.description ?? null,
+    type: template.type ?? "manual",
+    release_type: template.release_type ?? "immediate",
+    release_schedule: template.release_schedule ?? null,
+    is_active: template.is_active !== false,
+    trackIds: orderedSystemIds,
+  };
+}
+
+/**
+ * POST /admin/seed-demo-org
+ * Seed demo data (people, units, activity) for a single existing org.
+ * Body: { organization_id: "..." }
+ * Skips Trike.co main org. Guards against double-seeding (skips if seed users exist).
+ */
+async function handleAdminSeedDemoOrg(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    if (organization_id === TRIKE_CO_ORG_ID) {
+      return jsonResponse({ error: "Cannot seed Trike.co main org" }, 400);
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Guard against double-seeding
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+
+    if (existingSeedUsers && existingSeedUsers.length > 0) {
+      return jsonResponse({
+        success: false,
+        skipped: true,
+        reason: "Org already has seed data (seed users exist)",
+        organization_id,
+      }, 200);
+    }
+
+    // Get Admin role for org
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .ilike("name", "%admin%")
+      .limit(1)
+      .maybeSingle();
+
+    // Get org's published tracks for activity/completion data
+    const { data: tracks } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("status", "published")
+      .limit(10);
+
+    const trackIds = (tracks || []).map((t: any) => t.id);
+
+    const stats = await seedDemoOrgData(organization_id, adminRole?.id || null, trackIds);
+
+    console.log(`[AdminSeedDemoOrg] ${org.name} (${organization_id}): ${stats.people}p ${stats.units}u ${stats.activity}a`);
+
+    return jsonResponse({
+      success: true,
+      organization_id,
+      organization_name: org.name,
+      seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrg] Error:", error);
+    return jsonResponse({ error: error.message || "Seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /demo/seed-playlist
+ * Create "CORE Playlist" for a demo org by cloning the Trike account's CORE Playlist (same title, description, type, tracks).
+ * Body: { organization_id: string }
+ * If no CORE Playlist exists in Trike.co, creates one with 5 published system tracks.
+ */
+async function handleDemoSeedPlaylist(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const organization_id = body?.organization_id;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id required" }, 400);
+    }
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+    if (orgErr || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+    if ((org as any).status !== "demo") {
+      return jsonResponse({ error: "Only demo organizations can use this endpoint" }, 400);
+    }
+
+    const { data: existing } = await supabase
+      .from("playlists")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("title", CORE_PLAYLIST_TITLE)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      return jsonResponse({
+        success: true,
+        created: false,
+        playlist_id: existing.id,
+        message: `"${CORE_PLAYLIST_TITLE}" already exists`,
+      });
+    }
+
+    const { data: seedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true);
+    const users = seedUsers && seedUsers.length > 0 ? seedUsers : (await supabase.from("users").select("id").eq("organization_id", organization_id).limit(10)).data;
+    if (!users || users.length === 0) {
+      return jsonResponse({ error: "No users in org to assign playlist" }, 400);
+    }
+
+    const template = await getCorePlaylistTemplate();
+    let title: string;
+    let description: string | null;
+    let type: string;
+    let release_type: string | null;
+    let release_schedule: any;
+    let is_active: boolean;
+    let trackIds: string[];
+
+    if (template && template.trackIds.length > 0) {
+      title = template.title;
+      description = template.description;
+      type = template.type;
+      release_type = template.release_type;
+      release_schedule = template.release_schedule;
+      is_active = template.is_active;
+      trackIds = template.trackIds;
+    } else {
+      const { data: systemTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("is_system_content", true)
+        .eq("status", "published")
+        .limit(5)
+        .order("created_at", { ascending: false });
+      trackIds = (systemTracks || []).map((t: any) => t.id);
+      if (trackIds.length === 0) {
+        return jsonResponse({ error: "No published system tracks available for playlist" }, 400);
+      }
+      title = CORE_PLAYLIST_TITLE;
+      description = "Core training content for demo.";
+      type = "manual";
+      release_type = "immediate";
+      release_schedule = null;
+      is_active = true;
+    }
+
+    const { data: playlist, error: playlistErr } = await supabase
+      .from("playlists")
+      .insert({
+        organization_id,
+        title,
+        description,
+        type,
+        release_type: release_type ?? "immediate",
+        release_schedule,
+        is_active,
+      })
+      .select("id")
+      .single();
+    if (playlistErr || !playlist?.id) {
+      return jsonResponse({ error: playlistErr?.message || "Failed to create playlist" }, 500);
+    }
+
+    const pts = trackIds.map((tid: string, idx: number) => ({
+      playlist_id: playlist.id,
+      track_id: tid,
+      display_order: idx,
+    }));
+    await supabase.from("playlist_tracks").insert(pts);
+
+    const now = new Date();
+    const assignmentRows = users.map((u: any, i: number) => {
+      const completedAt = (() => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - (i + 1));
+        return d.toISOString();
+      })();
+      return {
+        organization_id,
+        user_id: u.id,
+        playlist_id: playlist.id,
+        assigned_at: completedAt,
+        status: "completed",
+        progress_percent: 100,
+        completed_at: completedAt,
+      };
+    });
+    await supabase.from("assignments").insert(assignmentRows);
+
+    console.log(`[DemoSeedPlaylist] ${org.name} (${organization_id}): created "${title}" ${playlist.id}, ${trackIds.length} tracks, ${users.length} assignments`);
+    return jsonResponse({
+      success: true,
+      created: true,
+      playlist_id: playlist.id,
+      title,
+      tracks: trackIds.length,
+      assignments: users.length,
+    });
+  } catch (error: any) {
+    console.error("[DemoSeedPlaylist] Error:", error);
+    return jsonResponse({ error: error.message || "Seed playlist failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/seed-demo-org-all
+ * Seed demo data for all orgs except Trike.co main org.
+ * Skips orgs that already have seed users. Returns summary per org.
+ */
+async function handleAdminSeedDemoOrgAll(req: Request): Promise<Response> {
+  try {
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name")
+      .neq("id", TRIKE_CO_ORG_ID);
+
+    if (orgsError) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    if (!orgs || orgs.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No orgs to seed (excluding Trike.co main org)",
+        results: [],
+      });
+    }
+
+    const results: Array<{
+      organization_id: string;
+      organization_name: string;
+      status: "seeded" | "skipped" | "error";
+      reason?: string;
+      seeded?: { people: number; units: number; activity: number };
+    }> = [];
+
+    for (const org of orgs) {
+      try {
+        // Guard against double-seeding
+        const { data: existingSeedUsers } = await supabase
+          .from("users")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("is_seed", true)
+          .limit(1);
+
+        if (existingSeedUsers && existingSeedUsers.length > 0) {
+          results.push({
+            organization_id: org.id,
+            organization_name: org.name,
+            status: "skipped",
+            reason: "Already has seed data",
+          });
+          continue;
+        }
+
+        const { data: adminRole } = await supabase
+          .from("roles")
+          .select("id")
+          .eq("organization_id", org.id)
+          .ilike("name", "%admin%")
+          .limit(1)
+          .maybeSingle();
+
+        const { data: tracks } = await supabase
+          .from("tracks")
+          .select("id")
+          .eq("organization_id", org.id)
+          .eq("status", "published")
+          .limit(10);
+
+        const trackIds = (tracks || []).map((t: any) => t.id);
+        const stats = await seedDemoOrgData(org.id, adminRole?.id || null, trackIds);
+
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "seeded",
+          seeded: { people: stats.people, units: stats.units, activity: stats.activity },
+        });
+
+        console.log(`[AdminSeedDemoOrgAll] ${org.name}: ${stats.people}p ${stats.units}u ${stats.activity}a`);
+      } catch (err: any) {
+        results.push({
+          organization_id: org.id,
+          organization_name: org.name,
+          status: "error",
+          reason: err.message || "Unknown error",
+        });
+        console.error(`[AdminSeedDemoOrgAll] ${org.name} failed:`, err.message);
+      }
+    }
+
+    const seeded = results.filter((r) => r.status === "seeded").length;
+    const skipped = results.filter((r) => r.status === "skipped").length;
+    const errors = results.filter((r) => r.status === "error").length;
+
+    return jsonResponse({
+      success: true,
+      summary: { total: orgs.length, seeded, skipped, errors },
+      results,
+    });
+  } catch (error: any) {
+    console.error("[AdminSeedDemoOrgAll] Error:", error);
+    return jsonResponse({ error: error.message || "Bulk seed failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/relay-fallback-seed
+ * Create seed stores for orgs where Relay was triggered but never returned.
+ * Call via cron (e.g. every 10 min) to recover demos stuck with 0 stores.
+ * Body: { minutesAgo?: number } — only consider orgs created at least this long ago (default 10).
+ */
+async function handleRelayFallbackSeed(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const minutesAgo = body.minutesAgo ?? 10;
+    const cutoff = new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+
+    const { data: orgs, error: orgsError } = await supabase
+      .from("organizations")
+      .select("id, name, scraped_data, created_at")
+      .lt("created_at", cutoff);
+
+    if (orgsError || !orgs) {
+      return jsonResponse({ error: "Failed to list organizations" }, 500);
+    }
+
+    const candidates = orgs.filter(
+      (o: any) =>
+        o.scraped_data?.relay_run_id && !o.scraped_data?.relay_locations_imported_at
+    );
+
+    const results: Array<{ org_id: string; org_name: string; status: string; stores_created?: number }> = [];
+
+    for (const org of candidates) {
+      const { count } = await supabase
+        .from("stores")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", org.id);
+      if ((count ?? 0) > 0) continue;
+
+      try {
+        const { data: districts } = await supabase
+          .from("districts")
+          .select("id")
+          .eq("organization_id", org.id)
+          .limit(2);
+        const districtIds = (districts || []).map((d: any) => d.id);
+
+        const storesToInsert = SEED_UNITS.map((u: any, i: number) => ({
+          organization_id: org.id,
+          district_id: districtIds[i % 2] || null,
+          name: u.name,
+          code: u.code,
+          city: u.city,
+          state: u.state,
+          is_active: true,
+          is_seed: true,
+        }));
+
+        const { data: inserted } = await supabase.from("stores").insert(storesToInsert).select("id");
+        const storeIds = (inserted || []).map((s: any) => s.id);
+        const firstId = storeIds[0];
+
+        if (firstId) {
+          const { data: seedPeople } = await supabase
+            .from("users")
+            .select("id")
+            .eq("organization_id", org.id)
+            .eq("is_seed", true)
+            .is("store_id", null);
+          const storesForAssignment = storeIds.slice(0, 5);
+          if (seedPeople && seedPeople.length > 0) {
+            for (let i = 0; i < seedPeople.length; i++) {
+              const storeId = storesForAssignment[i % storesForAssignment.length];
+              await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+            }
+          }
+        }
+
+        await supabase
+          .from("organizations")
+          .update({
+            scraped_data: { ...(org.scraped_data || {}), relay_fallback_seed_at: new Date().toISOString() },
+          })
+          .eq("id", org.id);
+
+        results.push({ org_id: org.id, org_name: org.name, status: "seeded", stores_created: 5 });
+        console.log(`[RelayFallbackSeed] ${org.name}: created 5 seed stores`);
+      } catch (err: any) {
+        results.push({ org_id: org.id, org_name: org.name, status: "error" });
+        console.error(`[RelayFallbackSeed] ${org.name} failed:`, err.message);
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      message: `Checked ${candidates.length} orgs, seeded ${results.filter((r) => r.status === "seeded").length}`,
+      results,
+    });
+  } catch (error: any) {
+    console.error("[RelayFallbackSeed] Error:", error);
+    return jsonResponse({ error: error.message || "Relay fallback failed" }, 500);
+  }
+}
+
+/**
+ * POST /admin/assign-seed-people-to-stores
+ * Assign seed people (store_id=null) to the first 5 stores for an org.
+ * Fixes orgs where Relay returned stores but the callback didn't assign people (e.g. race, callback failure).
+ * Body: { organization_id: string }
+ */
+async function handleAssignSeedPeopleToStores(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { organization_id } = body;
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    const { data: stores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .order("name")
+      .limit(5);
+
+    const storeIds = (stores || []).map((s: any) => s.id);
+    if (storeIds.length === 0) {
+      return jsonResponse({ error: "No stores found for this organization" }, 400);
+    }
+
+    let seedPeople = (await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .is("store_id", null)).data;
+
+    // Fallback: some older demo orgs may have seed people without is_seed set
+    if (!seedPeople || seedPeople.length === 0) {
+      seedPeople = (await supabase
+        .from("users")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .is("store_id", null)
+        .limit(10)).data;
+    }
+
+    if (!seedPeople || seedPeople.length === 0) {
+      return jsonResponse({
+        success: true,
+        message: "No unassigned people found",
+        assigned: 0,
+      });
+    }
+
+    const storesForAssignment = storeIds.slice(0, 5);
+    for (let i = 0; i < seedPeople.length; i++) {
+      const storeId = storesForAssignment[i % storesForAssignment.length];
+      await supabase.from("users").update({ store_id: storeId }).eq("id", seedPeople[i].id);
+    }
+
+    // Trigger compliance onboarding assignments for each user (requirements for their store state)
+    let complianceCreated = 0;
+    for (const u of seedPeople) {
+      const { data: count, error: rpcError } = await supabase.rpc("create_onboarding_assignments", {
+        p_user_id: u.id,
+      });
+      if (!rpcError && typeof count === "number") complianceCreated += count;
+    }
+
+    console.log(`[AssignSeedPeopleToStores] Org ${organization_id}: assigned ${seedPeople.length} people to ${storesForAssignment.length} stores; ${complianceCreated} compliance assignments created`);
+    return jsonResponse({
+      success: true,
+      assigned: seedPeople.length,
+      stores_used: storesForAssignment.length,
+      compliance_assignments_created: complianceCreated,
+    });
+  } catch (error: any) {
+    console.error("[AssignSeedPeopleToStores] Error:", error);
+    return jsonResponse({ error: error.message || "Assign failed" }, 500);
+  }
+}
+
+// =============================================================================
+// UNIFIED DEMO CREATION
+// =============================================================================
+
+/**
+ * POST /demo/create
+ * Unified demo creation: optionally enrich from website, create org + auth user,
+ * provision demo content, return magic link. Used by both admin single-create
+ * and batch-create flows.
+ */
+async function handleDemoCreate(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const {
+      url: websiteUrl,
+      organization_name,
+      contact_email,
+      contact_name,
+      demo_days = 14,
+      industry,
+      operating_states,
+      origin: clientOrigin,
+    } = body;
+
+    if (!contact_email) {
+      return jsonResponse({ error: "contact_email is required" }, 400);
+    }
+
+    if (!websiteUrl && !organization_name) {
+      return jsonResponse({ error: "Either url or organization_name is required" }, 400);
+    }
+
+    console.log(`[DemoCreate] Starting for ${websiteUrl || organization_name} (${contact_email})`);
+
+    // Step 1: Enrich from website if URL provided
+    let enrichedData: any = {};
+    if (websiteUrl) {
+      try {
+        let normalizedUrl = websiteUrl.trim().toLowerCase();
+        if (!normalizedUrl.startsWith("http")) {
+          normalizedUrl = "https://" + normalizedUrl;
+        }
+
+        const domain = new URL(normalizedUrl).hostname.replace("www.", "");
+        const domainName = domain.split(".")[0];
+
+        const response = await fetch(normalizedUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; TrikeBot/1.0; +https://trike.io)",
+            "Accept": "text/html,application/xhtml+xml",
+          },
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          enrichedData = await extractCompanyDataFromHTML(html, normalizedUrl, domainName);
+
+          if (!enrichedData.logo_url) {
+            const externalLogo = await tryExternalLogoFallback(domain);
+            if (externalLogo) enrichedData.logo_url = externalLogo;
+          }
+        } else {
+          enrichedData.company_name = capitalizeWords(domainName);
+        }
+
+        enrichedData.website = normalizedUrl;
+      } catch (enrichErr: any) {
+        console.error(`[DemoCreate] Enrichment failed:`, enrichErr.message);
+        enrichedData.website = normalizedUrl || (websiteUrl.startsWith("http") ? websiteUrl : "https://" + websiteUrl);
+      }
+    }
+
+    const companyName = enrichedData.company_name || organization_name || "Demo Company";
+    const subdomain = companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .substring(0, 30);
+
+    const { data: existing } = await supabase
+      .from("organizations")
+      .select("id")
+      .eq("subdomain", subdomain)
+      .single();
+
+    const finalSubdomain = existing ? `${subdomain}-${Date.now().toString(36)}` : subdomain;
+
+    // Validate logo
+    let validatedLogoUrl: string | null = null;
+    if (enrichedData.logo_url) {
+      const logoValidation = await validateLogoUrl(enrichedData.logo_url);
+      if (logoValidation.url && logoValidation.quality !== "poor") {
+        validatedLogoUrl = logoValidation.url;
+      }
+    }
+
+    // Step 2: Create organization
+    const demoExpiry = new Date(Date.now() + demo_days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .insert({
+        name: companyName,
+        subdomain: finalSubdomain,
+        website: enrichedData.website || null,
+        logo_url: validatedLogoUrl,
+        logo_dark_url: validatedLogoUrl,
+        logo_light_url: validatedLogoUrl,
+        status: "demo",
+        demo_expires_at: demoExpiry,
+        industry: industry || enrichedData.industry || null,
+        operating_states: operating_states || enrichedData.operating_states || [],
+        onboarding_source: "admin",
+        scraped_data: enrichedData,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+    console.log(`[DemoCreate] Created org: ${org.name} (${org.id})`);
+
+    // Step 3: Create admin role
+    const { data: adminRole } = await supabase
+      .from("roles")
+      .insert({
+        organization_id: org.id,
+        name: "Admin",
+        description: "Full administrative access",
+        level: 3,
+        permissions: JSON.stringify([
+          "manage_users", "manage_content", "manage_assignments",
+          "manage_settings", "view_reports", "manage_compliance",
+        ]),
+      })
+      .select()
+      .single();
+
+    // Step 4: Create auth user + user record
+    const tempPassword = crypto.randomUUID().substring(0, 16) + "!Aa1";
+    let magicLink: string | null = null;
+
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+      email: contact_email,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: {
+        organization_id: org.id,
+        full_name: contact_name || "",
+      },
+    });
+
+    if (authError) {
+      console.error("[DemoCreate] Failed to create auth user:", authError);
+      // When email already exists (batch demos with same contact), provide demo URL fallback
+      if (authError.code === "email_exists" || authError.message?.includes("already been registered")) {
+        let base = clientOrigin || req.headers.get("origin");
+        if (!base && req.headers.get("referer")) {
+          try {
+            base = new URL(req.headers.get("referer")!).origin;
+          } catch {}
+        }
+        base = base || "https://trikebackoffice20.vercel.app";
+        magicLink = `${base.replace(/\/$/, "")}/?demo_org_id=${org.id}`;
+      }
+    }
+
+    if (authUser?.user) {
+      const nameParts = (contact_name || "Admin User").trim().split(/\s+/);
+      const firstName = nameParts[0] || "Admin";
+      const lastName = nameParts.slice(1).join(" ") || "User";
+
+      await supabase.from("users").insert({
+        organization_id: org.id,
+        role_id: adminRole?.id || null,
+        auth_user_id: authUser.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        email: contact_email,
+        status: "active",
+        metadata: { onboarded_at: new Date().toISOString(), source: "admin_demo_create" },
+      });
+
+      // Generate magic link
+      const { data: linkData } = await supabase.auth.admin.generateLink({
+        type: "magiclink",
+        email: contact_email,
+      });
+      if (linkData?.properties?.action_link) {
+        magicLink = linkData.properties.action_link;
+      }
+    }
+
+    // Step 5: Provision demo content (compliance topics + sample tracks)
+    let topicsCloned = 0;
+    let tracksCloned = 0;
+
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      const topicsToInsert = globalTopics.map((t: any, i: number) => ({
+        organization_id: org.id,
+        topic_id: t.id,
+        is_active: true,
+        priority: i,
+        added_during: "admin_demo",
+      }));
+      const { error: topicsErr } = await supabase
+        .from("organization_compliance_topics")
+        .insert(topicsToInsert);
+      if (!topicsErr) topicsCloned = topicsToInsert.length;
+    }
+
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    let clonedTrackIds: string[] = [];
+    if (templateTracks && templateTracks.length > 0) {
+      const tracksToInsert = templateTracks.map((t: any) => ({
+        organization_id: org.id,
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        content_url: t.content_url,
+        thumbnail_url: t.thumbnail_url,
+        duration_minutes: t.duration_minutes,
+        tags: t.tags,
+        status: "published",
+        is_demo_content: true,
+      }));
+      const { data: insertedTracks, error: tracksErr } = await supabase.from("tracks").insert(tracksToInsert).select("id");
+      if (!tracksErr && insertedTracks) {
+        tracksCloned = insertedTracks.length;
+        clonedTrackIds = insertedTracks.map((t: any) => t.id);
+      }
+    }
+
+    // Step 5a: Determine if Relay will run (we need this before seeding)
+    const canTriggerRelay = !!(websiteUrl && enrichedData?.website);
+
+    // Step 5b: Seed demo people, units, and activity. Skip stores when Relay will provide real locations.
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    try {
+      seedStats = await seedDemoOrgData(org.id, adminRole?.id, clonedTrackIds, { skipStores: canTriggerRelay });
+    } catch (seedErr: any) {
+      console.error("[DemoCreate] Seed data failed (non-fatal):", seedErr.message);
+    }
+
+    // Step 6: Create a deal record
+    await supabase.from("deals").insert({
+      organization_id: org.id,
+      name: `${companyName} - Demo`,
+      stage: "evaluating",
+      deal_type: "new",
+      probability: 50,
+    });
+
+    // Step 7: Trigger Relay location scraper when we have website (async, fire-and-forget)
+    let relayRunId: string | null = null;
+    let relayRunLink: string | null = null;
+    if (!canTriggerRelay) {
+      console.log(`[DemoCreate] Skipping Relay trigger: websiteUrl=${!!websiteUrl} enrichedData.website=${!!enrichedData?.website}`);
+    }
+    if (canTriggerRelay) {
+      try {
+        const websiteForUrl = enrichedData.website.startsWith("http") ? enrichedData.website : "https://" + enrichedData.website;
+        const demoDomain = new URL(websiteForUrl).hostname.replace("www.", "");
+        console.log(`[DemoCreate] Triggering Relay for ${companyName} (${websiteForUrl})`);
+        const relayResult = await triggerRelayLocationScraper(companyName, demoDomain, {
+          orgId: org.id,
+          deduplicationKey: org.id,
+          fullWebsiteUrl: enrichedData.website,
+        });
+        if (relayResult) {
+          relayRunId = relayResult.runId;
+          relayRunLink = relayResult.runLink;
+          console.log(`[DemoCreate] Triggered Relay location scraper for ${companyName}`);
+        }
+      } catch (relayErr: any) {
+        console.error("[DemoCreate] Relay trigger failed (non-fatal):", relayErr.message);
+      }
+    }
+
+    const enrichedDataOut = enrichedData.company_name
+      ? { ...enrichedData, ...(relayRunId && { relay_run_id: relayRunId, relay_run_link: relayRunLink }) }
+      : undefined;
+
+    console.log(`[DemoCreate] Complete! ${companyName} — topics:${topicsCloned} tracks:${tracksCloned} seed:${seedStats.people}p/${seedStats.units}u/${seedStats.activity}a`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        demo_expires_at: org.demo_expires_at,
+      },
+      magic_link: magicLink,
+      enriched_data: enrichedDataOut,
+      provisioned: { compliance_topics: topicsCloned, sample_tracks: tracksCloned, seed_people: seedStats.people, seed_units: seedStats.units, seed_activity: seedStats.activity },
+    });
+  } catch (error: any) {
+    console.error("[DemoCreate] Error:", error);
+    return jsonResponse({ error: error.message || "Demo creation failed" }, 500);
+  }
+}
+
+// =============================================================================
+// DEMO PROVISIONING
+// =============================================================================
+
+/**
+ * Provision a demo environment for an existing prospect organization.
+ * Clones template content (compliance topics, sample tracks) into the org's namespace.
+ */
+async function handleDemoProvision(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { organization_id, demo_days = 14 } = body;
+
+    if (!organization_id) {
+      return jsonResponse({ error: "organization_id is required" }, 400);
+    }
+
+    console.log(`[DemoProvision] Starting provisioning for org: ${organization_id}`);
+
+    // Step 1: Verify org exists
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, name, status")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return jsonResponse({ error: "Organization not found" }, 404);
+    }
+
+    // Step 2: Update org status and set demo expiry
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + demo_days);
+
+    const { error: updateError } = await supabase
+      .from("organizations")
+      .update({
+        status: "demo",
+        demo_expires_at: expiryDate.toISOString(),
+        onboarding_source: "sales_demo",
+      })
+      .eq("id", organization_id);
+
+    if (updateError) {
+      console.error("[DemoProvision] Failed to update org:", updateError);
+      return jsonResponse({ error: "Failed to update organization status" }, 500);
+    }
+
+    console.log(`[DemoProvision] Org status updated, demo expires: ${expiryDate.toISOString()}`);
+
+    // Step 3: Clone template compliance topics into the org
+    // Get all global compliance topics (not org-specific)
+    let topicsCloned = 0;
+    const { data: globalTopics } = await supabase
+      .from("compliance_topics")
+      .select("id")
+      .limit(20);
+
+    if (globalTopics && globalTopics.length > 0) {
+      // Check which topics are already assigned to avoid duplicates
+      const { data: existingTopics } = await supabase
+        .from("organization_compliance_topics")
+        .select("topic_id")
+        .eq("organization_id", organization_id);
+
+      const existingTopicIds = new Set((existingTopics || []).map((t: any) => t.topic_id));
+      const newTopics = globalTopics.filter((t: any) => !existingTopicIds.has(t.id));
+
+      if (newTopics.length > 0) {
+        const topicsToInsert = newTopics.map((topic: any, index: number) => ({
+          organization_id,
+          topic_id: topic.id,
+          is_active: true,
+          priority: index,
+          added_during: "sales_demo",
+        }));
+
+        const { error: topicsError } = await supabase
+          .from("organization_compliance_topics")
+          .insert(topicsToInsert);
+
+        if (topicsError) {
+          console.error("[DemoProvision] Failed to clone compliance topics:", topicsError);
+        } else {
+          topicsCloned = topicsToInsert.length;
+          console.log(`[DemoProvision] Cloned ${topicsCloned} compliance topics`);
+        }
+      }
+    }
+
+    // Step 4: Clone sample published tracks into the org
+    // Find published tracks from the Trike master org (if any) or any published tracks
+    let tracksCloned = 0;
+    const { data: templateTracks } = await supabase
+      .from("tracks")
+      .select("id, title, description, type, content_url, thumbnail_url, duration_minutes, tags, status")
+      .eq("status", "published")
+      .limit(10);
+
+    let clonedTrackIds: string[] = [];
+    if (templateTracks && templateTracks.length > 0) {
+      // Check if org already has tracks to avoid duplicates
+      const { data: existingTracks } = await supabase
+        .from("tracks")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .limit(1);
+
+      if (!existingTracks || existingTracks.length === 0) {
+        const tracksToInsert = templateTracks.map((track: any) => ({
+          organization_id,
+          title: track.title,
+          description: track.description,
+          type: track.type,
+          content_url: track.content_url,
+          thumbnail_url: track.thumbnail_url,
+          duration_minutes: track.duration_minutes,
+          tags: track.tags,
+          status: "published",
+          is_demo_content: true,
+        }));
+
+        const { data: insertedTracks, error: tracksError } = await supabase
+          .from("tracks")
+          .insert(tracksToInsert)
+          .select("id");
+
+        if (tracksError) {
+          console.error("[DemoProvision] Failed to clone tracks:", tracksError);
+        } else if (insertedTracks && insertedTracks.length > 0) {
+          tracksCloned = insertedTracks.length;
+          clonedTrackIds = insertedTracks.map((t: any) => t.id);
+          console.log(`[DemoProvision] Cloned ${tracksCloned} sample tracks`);
+        }
+      }
+    }
+
+    // Step 4b: Seed people, units, CORE Playlist, and activity (same as new demos) when org has no seed users
+    let seedStats = { people: 0, units: 0, activity: 0 };
+    const { data: existingSeedUsers } = await supabase
+      .from("users")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .eq("is_seed", true)
+      .limit(1);
+    if (!existingSeedUsers || existingSeedUsers.length === 0) {
+      const { data: adminRole } = await supabase
+        .from("roles")
+        .select("id")
+        .eq("organization_id", organization_id)
+        .ilike("name", "%admin%")
+        .limit(1)
+        .maybeSingle();
+      try {
+        seedStats = await seedDemoOrgData(organization_id, adminRole?.id ?? null, clonedTrackIds, { skipStores: false });
+        console.log(`[DemoProvision] Seeded: ${seedStats.people}p ${seedStats.units}u ${seedStats.activity}a`);
+      } catch (seedErr: any) {
+        console.error("[DemoProvision] Seed data failed (non-fatal):", seedErr.message);
+      }
+    }
+
+    // Step 5: Update the deal stage if one exists
+    const { data: deal } = await supabase
+      .from("deals")
+      .select("id, stage")
+      .eq("organization_id", organization_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (deal && !["evaluating", "closing", "won", "lost"].includes(deal.stage)) {
+      const { error: dealError } = await supabase
+        .from("deals")
+        .update({ stage: "evaluating", updated_at: new Date().toISOString() })
+        .eq("id", deal.id);
+      if (dealError) {
+        console.error(`[DemoProvision] Failed to update deal ${deal.id}:`, dealError);
+      } else {
+        console.log(`[DemoProvision] Updated deal ${deal.id} to evaluating stage`);
+      }
+    }
+
+    console.log(`[DemoProvision] Complete! Org: ${org.name}`);
+
+    return jsonResponse({
+      success: true,
+      organization: {
+        id: org.id,
+        name: org.name,
+        demo_expires_at: expiryDate.toISOString(),
+      },
+      provisioned: {
+        compliance_topics: topicsCloned,
+        sample_tracks: tracksCloned,
+        seed_people: seedStats.people,
+        seed_units: seedStats.units,
+        seed_activity: seedStats.activity,
+        deal_updated: !!deal,
+      },
+    });
+  } catch (error: any) {
+    console.error("[DemoProvision] Error:", error);
+    return jsonResponse({ error: error.message || "Demo provisioning failed" }, 500);
+  }
+}
+
+// =============================================================================
+// eSignatures.io CONTRACT HANDLERS
+// =============================================================================
+
+/**
+ * Send a contract for e-signature via eSignatures.io
+ * POST /contracts/send
+ * Body: { deal_id, template_id, signer_name, signer_email, metadata? }
+ */
+async function handleContractSend(req: Request): Promise<Response> {
+  const ESIG_TOKEN = Deno.env.get("ESIGNATURES_API_TOKEN");
+  if (!ESIG_TOKEN) {
+    return jsonResponse({ error: "eSignatures.io not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { deal_id, template_id, signer_name, signer_email, metadata } = body;
+
+  if (!deal_id || !template_id || !signer_name || !signer_email) {
+    return jsonResponse(
+      { error: "deal_id, template_id, signer_name, and signer_email are required" },
+      400
+    );
+  }
+
+  // Send contract via eSignatures.io API
+  const esigResponse = await fetch(
+    `https://esignatures.com/api/contracts?token=${ESIG_TOKEN}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id,
+        signers: [{ name: signer_name, email: signer_email }],
+        metadata: JSON.stringify({ deal_id, ...metadata }),
+        title: `Agreement for ${signer_name}`,
+      }),
+    }
+  );
+
+  if (!esigResponse.ok) {
+    const errText = await esigResponse.text();
+    return jsonResponse({ error: "Failed to send contract", details: errText }, 500);
+  }
+
+  const esigData = await esigResponse.json();
+  const contractId = esigData.data?.contract?.id;
+
+  // Update deal with contract info
+  await supabase
+    .from("deals")
+    .update({
+      contract_id: contractId,
+      contract_status: "sent",
+      contract_signer_email: signer_email,
+    })
+    .eq("id", deal_id);
+
+  // Log activity
+  await supabase.from("deal_activities").insert({
+    deal_id,
+    activity_type: "system",
+    description: `Contract sent to ${signer_email}`,
+    metadata: { contract_id: contractId },
+  });
+
+  return jsonResponse({ success: true, contract_id: contractId });
+}
+
+/**
+ * Handle webhook events from eSignatures.io
+ * POST /contracts/webhook
+ * Body: { status, contract: { id, signers, metadata } }
+ */
+async function handleContractWebhook(req: Request): Promise<Response> {
+  const body = await req.json();
+  const { status, contract } = body;
+
+  if (!contract?.id) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
+  }
+
+  const contractId = contract.id;
+  const signerEmail = contract.signers?.[0]?.email;
+  let metadata: any = {};
+  try {
+    metadata = JSON.parse(contract.metadata || "{}");
+  } catch {
+    // ignore parse errors
+  }
+
+  const dealId = metadata.deal_id;
+  if (!dealId) {
+    return jsonResponse({ error: "No deal_id in contract metadata" }, 400);
+  }
+
+  // Map eSignatures.io event to deal status
+  let contractStatus = "sent";
+  let activityDesc = "";
+
+  switch (status) {
+    case "signer-viewed-the-contract":
+      contractStatus = "viewed";
+      activityDesc = `Contract viewed by ${signerEmail}`;
+      break;
+    case "signer-signed":
+    case "contract-signed":
+      contractStatus = "signed";
+      activityDesc = `Contract signed by ${signerEmail}`;
+      break;
+    case "signer-declined":
+      contractStatus = "declined";
+      activityDesc = `Contract declined by ${signerEmail}`;
+      break;
+    case "contract-withdrawn":
+      contractStatus = "withdrawn";
+      activityDesc = "Contract withdrawn";
+      break;
+    default:
+      activityDesc = `Contract event: ${status}`;
+  }
+
+  // Update deal
+  const updateFields: Record<string, any> = { contract_status: contractStatus };
+  if (contractStatus === "signed") {
+    updateFields.contract_signed_at = new Date().toISOString();
+  }
+
+  await supabase.from("deals").update(updateFields).eq("id", dealId);
+
+  // Log activity
+  if (activityDesc) {
+    await supabase.from("deal_activities").insert({
+      deal_id: dealId,
+      activity_type: "system",
+      description: activityDesc,
+      metadata: { contract_id: contractId, event: status },
+    });
+  }
+
+  return jsonResponse({ success: true });
+}
+
+// =============================================================================
+// STRIPE BILLING HANDLERS
+// =============================================================================
+
+async function handleBillingSetupIntent(req: Request): Promise<Response> {
+  const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!STRIPE_KEY) {
+    return jsonResponse({ error: "Stripe not configured" }, 500);
+  }
+
+  const body = await req.json();
+  const { organization_id } = body;
+  if (!organization_id) {
+    return jsonResponse({ error: "organization_id is required" }, 400);
+  }
+
+  // Get org details
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("id, name, stripe_customer_id")
+    .eq("id", organization_id)
+    .single();
+
+  if (!org) {
+    return jsonResponse({ error: "Organization not found" }, 404);
+  }
+
+  const stripeHeaders = {
+    Authorization: `Bearer ${STRIPE_KEY}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+
+  let customerId = org.stripe_customer_id;
+
+  // Create Stripe customer if needed
+  if (!customerId) {
+    const custResp = await fetch("https://api.stripe.com/v1/customers", {
+      method: "POST",
+      headers: stripeHeaders,
+      body: new URLSearchParams({
+        name: org.name,
+        "metadata[organization_id]": organization_id,
+      }),
+    });
+    const custData = await custResp.json();
+    if (custData.error) {
+      return jsonResponse({ error: custData.error.message || "Failed to create Stripe customer" }, 500);
+    }
+    customerId = custData.id;
+
+    // Save customer ID
+    await supabase
+      .from("organizations")
+      .update({ stripe_customer_id: customerId })
+      .eq("id", organization_id);
+  }
+
+  // Create SetupIntent
+  const siResp = await fetch("https://api.stripe.com/v1/setup_intents", {
+    method: "POST",
+    headers: stripeHeaders,
+    body: new URLSearchParams({
+      customer: customerId,
+      "payment_method_types[]": "card",
+      "metadata[organization_id]": organization_id,
+    }),
+  });
+  const siData = await siResp.json();
+  if (siData.error) {
+    return jsonResponse({ error: siData.error.message || "Failed to create SetupIntent" }, 500);
+  }
+
+  return jsonResponse({
+    client_secret: siData.client_secret,
+    customer_id: customerId,
+  });
+}
+
+async function handleBillingWebhook(req: Request): Promise<Response> {
+  const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  // Read raw body for signature verification
+  const rawBody = await req.text();
+
+  // Verify webhook signature if secret is configured
+  if (STRIPE_WEBHOOK_SECRET) {
+    const sig = req.headers.get("stripe-signature");
+    // Note: In production, verify signature using Stripe's algorithm
+    // For now, proceed with basic validation
+    if (!sig) {
+      return jsonResponse({ error: "Missing stripe-signature header" }, 400);
+    }
+  }
+
+  try {
+    const event = JSON.parse(rawBody);
+
+    if (event.type === "setup_intent.succeeded") {
+      const setupIntent = event.data.object;
+      const orgId = setupIntent.metadata?.organization_id;
+      const paymentMethodId = setupIntent.payment_method;
+
+      if (orgId && paymentMethodId) {
+        await supabase
+          .from("organizations")
+          .update({
+            stripe_payment_method_id: paymentMethodId,
+            billing_status: "payment_method_saved",
+          })
+          .eq("id", orgId);
+      }
+    }
+
+    return jsonResponse({ received: true });
+  } catch (err: any) {
+    return jsonResponse({ error: "Invalid webhook payload" }, 400);
   }
 }

@@ -13,13 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Checkbox } from './ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { FilterDialog } from './FilterDialog';
-import { 
+import {
   ArrowLeft,
   Download,
   Filter,
   Calendar as CalendarIcon,
   X,
   FileText,
+  FileSpreadsheet,
   Search,
   SlidersHorizontal,
   RefreshCw,
@@ -37,10 +38,29 @@ import {
   Settings,
   CheckCircle,
   Plus,
-  Info
+  Info,
+  Archive,
+  AlertTriangle,
+  AlertCircle,
+  TrendingDown,
+  Zap
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { getLearnerRecords, type LearnerRecord as LearnerRecordType } from '../lib/crud/reports';
+import {
+  getLearnerRecords,
+  getReportFilterOptions,
+  flattenToAssignmentRows,
+  aggregateToUnitRows,
+  type LearnerRecord as LearnerRecordType,
+  type FilterOptions,
+  type AssignmentRecord,
+  type ReportType,
+  type FlattenedAssignmentRow,
+  type UnitReportRow,
+  type RiskLevel
+} from '../lib/crud/reports';
+import { exportToCSV, exportToExcel, exportToPDF } from '../lib/utils/export';
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 // Mock date formatting function since date-fns is not available
 const format = (date: Date, formatStr: string) => {
@@ -71,497 +91,14 @@ interface FilterState {
   employees: string[];
   certifications: string[];
   completionStatus: string[];
+  playlistStatus: string[]; // 'active' | 'archived'
 }
-
-interface LearnerRecord {
-  id: string;
-  employeeName: string;
-  employeeId: string;
-  district: string;
-  store: string;
-  role: string;
-  department: string;
-  album: string;
-  playlist: string;
-  track: string;
-  progress: number;
-  completionDate: string | null;
-  score: number;
-  timeSpent: number;
-  attempts: number;
-  certification: string | null;
-  certificationDate: string | null;
-  status: 'completed' | 'in-progress' | 'not-started' | 'overdue';
-  lastActivity: string;
-}
-
-// Mock data for learner records
-const mockLearnerData: LearnerRecord[] = [
-  {
-    id: '1',
-    employeeName: 'Sarah Johnson',
-    employeeId: 'EMP001',
-    district: 'North',
-    store: 'Store A',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'Fire Safety Protocol',
-    progress: 100,
-    completionDate: '2024-06-15',
-    score: 95,
-    timeSpent: 45,
-    attempts: 1,
-    certification: 'Fire Safety Certification',
-    certificationDate: '2024-06-15',
-    status: 'completed',
-    lastActivity: '2024-06-15'
-  },
-  {
-    id: '2',
-    employeeName: 'Mike Rodriguez',
-    employeeId: 'EMP002',
-    district: 'South',
-    store: 'Store B',
-    role: 'Store Manager',
-    department: 'Management',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Conflict Resolution',
-    progress: 78,
-    completionDate: null,
-    score: 82,
-    timeSpent: 32,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-20'
-  },
-  {
-    id: '3',
-    employeeName: 'Emily Chen',
-    employeeId: 'EMP003',
-    district: 'East',
-    store: 'Store C',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Customer Communication',
-    track: 'Handling Complaints',
-    progress: 96,
-    completionDate: '2024-06-28',
-    score: 88,
-    timeSpent: 38,
-    attempts: 1,
-    certification: 'Customer Service Pro',
-    certificationDate: '2024-06-28',
-    status: 'completed',
-    lastActivity: '2024-06-28'
-  },
-  {
-    id: '4',
-    employeeName: 'David Thompson',
-    employeeId: 'EMP004',
-    district: 'North',
-    store: 'Store D',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Safety Training Album',
-    playlist: 'Workplace Safety',
-    track: 'Equipment Handling',
-    progress: 65,
-    completionDate: null,
-    score: 75,
-    timeSpent: 28,
-    attempts: 3,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-25'
-  },
-  {
-    id: '5',
-    employeeName: 'Lisa Park',
-    employeeId: 'EMP005',
-    district: 'North',
-    store: 'Store A',
-    role: 'Supervisor',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Advanced Features',
-    progress: 100,
-    completionDate: '2024-06-22',
-    score: 92,
-    timeSpent: 42,
-    attempts: 1,
-    certification: 'Product Expert',
-    certificationDate: '2024-06-22',
-    status: 'completed',
-    lastActivity: '2024-06-22'
-  },
-  {
-    id: '6',
-    employeeName: 'James Wilson',
-    employeeId: 'EMP006',
-    district: 'South',
-    store: 'Store E',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'Evacuation Procedures',
-    progress: 95,
-    completionDate: '2024-06-30',
-    score: 89,
-    timeSpent: 35,
-    attempts: 1,
-    certification: 'Emergency Response',
-    certificationDate: '2024-06-30',
-    status: 'completed',
-    lastActivity: '2024-06-30'
-  },
-  {
-    id: '7',
-    employeeName: 'Maria Garcia',
-    employeeId: 'EMP007',
-    district: 'North',
-    store: 'Store A',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Sales Techniques',
-    track: 'Upselling Strategies',
-    progress: 82,
-    completionDate: null,
-    score: 84,
-    timeSpent: 29,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-26'
-  },
-  {
-    id: '8',
-    employeeName: 'Robert Brown',
-    employeeId: 'EMP008',
-    district: 'South',
-    store: 'Store B',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Performance Management',
-    track: 'Goal Setting',
-    progress: 100,
-    completionDate: '2024-06-18',
-    score: 94,
-    timeSpent: 48,
-    attempts: 1,
-    certification: 'Leadership Certified',
-    certificationDate: '2024-06-18',
-    status: 'completed',
-    lastActivity: '2024-06-18'
-  },
-  {
-    id: '9',
-    employeeName: 'Amanda Lee',
-    employeeId: 'EMP009',
-    district: 'East',
-    store: 'Store C',
-    role: 'Assistant Manager',
-    department: 'Management',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Basic Features',
-    progress: 55,
-    completionDate: null,
-    score: 68,
-    timeSpent: 22,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-29'
-  },
-  {
-    id: '10',
-    employeeName: 'Kevin Nguyen',
-    employeeId: 'EMP010',
-    district: 'South',
-    store: 'Store B',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Safety Training Album',
-    playlist: 'Workplace Safety',
-    track: 'Personal Protective Equipment',
-    progress: 100,
-    completionDate: '2024-06-21',
-    score: 97,
-    timeSpent: 41,
-    attempts: 1,
-    certification: 'Safety Certified',
-    certificationDate: '2024-06-21',
-    status: 'completed',
-    lastActivity: '2024-06-21'
-  },
-  {
-    id: '11',
-    employeeName: 'Jessica Martinez',
-    employeeId: 'EMP011',
-    district: 'North',
-    store: 'Store D',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Customer Communication',
-    track: 'Active Listening',
-    progress: 0,
-    completionDate: null,
-    score: 0,
-    timeSpent: 0,
-    attempts: 0,
-    certification: null,
-    certificationDate: null,
-    status: 'not-started',
-    lastActivity: '2024-06-10'
-  },
-  {
-    id: '12',
-    employeeName: 'Brandon Taylor',
-    employeeId: 'EMP012',
-    district: 'South',
-    store: 'Store E',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Delegation Skills',
-    progress: 45,
-    completionDate: null,
-    score: 52,
-    timeSpent: 18,
-    attempts: 3,
-    certification: null,
-    certificationDate: null,
-    status: 'overdue',
-    lastActivity: '2024-05-28'
-  },
-  {
-    id: '13',
-    employeeName: 'Rachel Kim',
-    employeeId: 'EMP013',
-    district: 'North',
-    store: 'Store A',
-    role: 'Supervisor',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Advanced Features',
-    progress: 89,
-    completionDate: null,
-    score: 91,
-    timeSpent: 36,
-    attempts: 1,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-30'
-  },
-  {
-    id: '14',
-    employeeName: 'Christopher Davis',
-    employeeId: 'EMP014',
-    district: 'East',
-    store: 'Store C',
-    role: 'Store Manager',
-    department: 'Management',
-    album: 'Leadership Development',
-    playlist: 'Performance Management',
-    track: 'Performance Reviews',
-    progress: 100,
-    completionDate: '2024-06-24',
-    score: 96,
-    timeSpent: 52,
-    attempts: 1,
-    certification: 'Leadership Certified',
-    certificationDate: '2024-06-24',
-    status: 'completed',
-    lastActivity: '2024-06-24'
-  },
-  {
-    id: '15',
-    employeeName: 'Nicole Anderson',
-    employeeId: 'EMP015',
-    district: 'South',
-    store: 'Store B',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Customer Service Excellence',
-    playlist: 'Sales Techniques',
-    track: 'Cross-Selling',
-    progress: 72,
-    completionDate: null,
-    score: 78,
-    timeSpent: 26,
-    attempts: 2,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-27'
-  },
-  {
-    id: '16',
-    employeeName: 'Joshua White',
-    employeeId: 'EMP016',
-    district: 'North',
-    store: 'Store D',
-    role: 'Assistant Manager',
-    department: 'Management',
-    album: 'Safety Training Album',
-    playlist: 'Emergency Procedures',
-    track: 'First Aid Basics',
-    progress: 100,
-    completionDate: '2024-06-19',
-    score: 93,
-    timeSpent: 44,
-    attempts: 1,
-    certification: 'First Aid Certification',
-    certificationDate: '2024-06-19',
-    status: 'completed',
-    lastActivity: '2024-06-19'
-  },
-  {
-    id: '17',
-    employeeName: 'Samantha Lopez',
-    employeeId: 'EMP017',
-    district: 'South',
-    store: 'Store E',
-    role: 'Sales Associate',
-    department: 'Sales',
-    album: 'Product Knowledge',
-    playlist: 'Product Features',
-    track: 'Product Specifications',
-    progress: 38,
-    completionDate: null,
-    score: 45,
-    timeSpent: 15,
-    attempts: 4,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-06-23'
-  },
-  {
-    id: '18',
-    employeeName: 'Daniel Harris',
-    employeeId: 'EMP018',
-    district: 'North',
-    store: 'Store A',
-    role: 'Team Lead',
-    department: 'Operations',
-    album: 'Leadership Development',
-    playlist: 'Team Management',
-    track: 'Motivation Techniques',
-    progress: 92,
-    completionDate: null,
-    score: 89,
-    timeSpent: 39,
-    attempts: 1,
-    certification: null,
-    certificationDate: null,
-    status: 'in-progress',
-    lastActivity: '2024-07-01'
-  }
-];
-
-// Filter options with enhanced structure
-const filterProperties = [
-  {
-    id: 'progress',
-    label: 'Progress',
-    icon: Clock,
-    type: 'range',
-    description: 'Filter by completion percentage'
-  },
-  {
-    id: 'albums',
-    label: 'Albums',
-    icon: BookOpen,
-    type: 'multi-select',
-    description: 'Select specific training albums',
-    options: ['Safety Training Album', 'Customer Service Excellence', 'Product Knowledge', 'Leadership Development']
-  },
-  {
-    id: 'location',
-    label: 'Location',
-    icon: MapPin,
-    type: 'multi-select',
-    description: 'Filter by districts and stores',
-    options: ['North', 'South', 'East', 'Store A', 'Store B', 'Store C', 'Store D', 'Store E']
-  },
-  {
-    id: 'districts',
-    label: 'Districts',
-    icon: Building,
-    type: 'multi-select',
-    description: 'Filter by geographic districts',
-    options: ['North', 'South', 'East']
-  },
-  {
-    id: 'roles',
-    label: 'Roles',
-    icon: Users,
-    type: 'multi-select',
-    description: 'Filter by job roles',
-    options: ['Sales Associate', 'Team Lead', 'Supervisor', 'Store Manager', 'Assistant Manager']
-  },
-  {
-    id: 'playlists',
-    label: 'Playlists',
-    icon: Play,
-    type: 'multi-select',
-    description: 'Select specific playlists',
-    options: ['Emergency Procedures', 'Customer Communication', 'Product Features', 'Team Management', 'Sales Techniques', 'Performance Management', 'Workplace Safety']
-  },
-  {
-    id: 'tracks',
-    label: 'Tracks',
-    icon: Play,
-    type: 'multi-select',
-    description: 'Filter by individual tracks',
-    options: ['Fire Safety Protocol', 'Conflict Resolution', 'Handling Complaints', 'Equipment Handling', 'Advanced Features', 'Evacuation Procedures', 'Upselling Strategies', 'Goal Setting']
-  },
-  {
-    id: 'certifications',
-    label: 'Certifications',
-    icon: Award,
-    type: 'multi-select',
-    description: 'Filter by earned certifications',
-    options: ['Fire Safety Certification', 'Customer Service Pro', 'Product Expert', 'Emergency Response', 'Leadership Certified', 'Safety Certified', 'First Aid Certification']
-  },
-  {
-    id: 'completionStatus',
-    label: 'Status',
-    icon: CheckCircle,
-    type: 'multi-select',
-    description: 'Filter by completion status',
-    options: ['completed', 'in-progress', 'not-started', 'overdue']
-  },
-  {
-    id: 'dateRange',
-    label: 'Date Range',
-    icon: CalendarIcon,
-    type: 'date-range',
-    description: 'Filter by date range'
-  }
-];
 
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
+  // Report type controls the "grain" of the data
+  const [reportType, setReportType] = useState<ReportType>('people');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof LearnerRecord>('employeeName');
+  const [sortField, setSortField] = useState<string>('employeeName');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [showFilterPicker, setShowFilterPicker] = useState(false);
@@ -571,6 +108,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const [learnerData, setLearnerData] = useState<LearnerRecordType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   
   const [filters, setFilters] = useState<FilterState>({
     progress: { min: 0, max: 100 },
@@ -583,7 +121,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     dateRange: { start: null, end: null },
     employees: [],
     certifications: [],
-    completionStatus: []
+    completionStatus: [],
+    playlistStatus: ['active'] // Default to showing only active playlists
   });
 
   // Active filters for display
@@ -629,7 +168,14 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     filters.completionStatus.forEach(status => {
       active.push({ key: 'completionStatus', label: 'Status', value: status });
     });
-    
+
+    // Only show playlistStatus filter chip if not default (which is ['active'])
+    if (filters.playlistStatus.length !== 1 || filters.playlistStatus[0] !== 'active') {
+      filters.playlistStatus.forEach(status => {
+        active.push({ key: 'playlistStatus', label: 'Playlist Status', value: status });
+      });
+    }
+
     if (filters.dateRange.start && filters.dateRange.end) {
       active.push({
         key: 'dateRange',
@@ -640,6 +186,99 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     
     return active;
   }, [filters]);
+
+  // Dynamic filter properties with options from database
+  const filterProperties = useMemo(() => [
+    {
+      id: 'progress',
+      label: 'Progress',
+      icon: Clock,
+      type: 'range',
+      description: 'Filter by completion percentage'
+    },
+    {
+      id: 'albums',
+      label: 'Albums',
+      icon: BookOpen,
+      type: 'multi-select',
+      description: 'Select specific training albums',
+      options: filterOptions?.albums.map(a => a.name) || []
+    },
+    {
+      id: 'location',
+      label: 'Location',
+      icon: MapPin,
+      type: 'multi-select',
+      description: 'Filter by districts and stores',
+      options: [
+        ...(filterOptions?.districts.map(d => d.name) || []),
+        ...(filterOptions?.stores.map(s => s.name) || [])
+      ]
+    },
+    {
+      id: 'districts',
+      label: 'Districts',
+      icon: Building,
+      type: 'multi-select',
+      description: 'Filter by geographic districts',
+      options: filterOptions?.districts.map(d => d.name) || []
+    },
+    {
+      id: 'roles',
+      label: 'Roles',
+      icon: Users,
+      type: 'multi-select',
+      description: 'Filter by job roles',
+      options: filterOptions?.roles.map(r => r.name) || []
+    },
+    {
+      id: 'playlists',
+      label: 'Playlists',
+      icon: Play,
+      type: 'multi-select',
+      description: 'Select specific playlists',
+      options: filterOptions?.playlists.map(p => p.name) || []
+    },
+    {
+      id: 'tracks',
+      label: 'Tracks',
+      icon: Play,
+      type: 'multi-select',
+      description: 'Filter by individual tracks',
+      options: filterOptions?.tracks.map(t => t.name) || []
+    },
+    {
+      id: 'certifications',
+      label: 'Certifications',
+      icon: Award,
+      type: 'multi-select',
+      description: 'Filter by earned certifications',
+      options: filterOptions?.certifications.map(c => c.name) || []
+    },
+    {
+      id: 'completionStatus',
+      label: 'Status',
+      icon: CheckCircle,
+      type: 'multi-select',
+      description: 'Filter by completion status',
+      options: ['completed', 'in-progress', 'not-started', 'overdue']
+    },
+    {
+      id: 'playlistStatus',
+      label: 'Playlist Status',
+      icon: Archive,
+      type: 'multi-select',
+      description: 'Filter by playlist active/archived status',
+      options: ['active', 'archived']
+    },
+    {
+      id: 'dateRange',
+      label: 'Date Range',
+      icon: CalendarIcon,
+      type: 'date-range',
+      description: 'Filter by date range'
+    }
+  ], [filterOptions]);
 
   // Fetch learner records on mount and when storeFilter changes
   useEffect(() => {
@@ -658,6 +297,19 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     }
     fetchData();
   }, [storeFilter]);
+
+  // Fetch filter options on mount
+  useEffect(() => {
+    async function fetchFilterOptions() {
+      try {
+        const options = await getReportFilterOptions();
+        setFilterOptions(options);
+      } catch (error) {
+        console.error('Error fetching filter options:', error);
+      }
+    }
+    fetchFilterOptions();
+  }, []);
 
   // Filtered and sorted data
   const filteredData = useMemo(() => {
@@ -732,7 +384,18 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       if (filters.completionStatus.length > 0 && !filters.completionStatus.includes(record.status)) {
         return false;
       }
-      
+
+      // Playlist status filter (active/archived)
+      // Only apply when user has assignments; users with no assignments (e.g. demo seed people) pass through
+      if (filters.playlistStatus.length > 0 && record.assignments && record.assignments.length > 0) {
+        const hasMatchingPlaylistStatus = record.assignments.some(
+          (a: AssignmentRecord) => filters.playlistStatus.includes(a.playlistStatus)
+        );
+        if (!hasMatchingPlaylistStatus) {
+          return false;
+        }
+      }
+
       // Date range filter
       if (filters.dateRange.start && filters.dateRange.end) {
         const recordDate = record.completionDate ? new Date(record.completionDate) : new Date(record.lastActivity);
@@ -767,7 +430,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     return filtered;
   }, [searchTerm, filters, sortField, sortDirection, storeFilter, learnerData]);
 
-  const handleSort = (field: keyof LearnerRecord) => {
+  const handleSort = (field: keyof LearnerRecordType) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -817,6 +480,79 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     setSearchTerm('');
   };
 
+  // Handle report type change - reset selection and expansion state
+  const handleReportTypeChange = (newType: ReportType) => {
+    setReportType(newType);
+    setSelectedRecords([]); // Clear selection when changing modes
+    setExpandedRows([]); // Clear expansion state
+    // Reset sort to appropriate default for the mode
+    if (newType === 'people') {
+      setSortField('employeeName');
+      setSortDirection('asc');
+    } else if (newType === 'assignments') {
+      setSortField('playlist'); // Sort by playlist - assignment is the anchor
+      setSortDirection('asc');
+    } else {
+      setSortField('riskScore'); // Sort by risk - highest risk first
+      setSortDirection('desc');
+    }
+  };
+
+  // Transform data based on report type - use filteredData as source so filters apply
+  const assignmentRows = useMemo(() => {
+    if (reportType !== 'assignments') return [];
+    const rows = flattenToAssignmentRows(filteredData);
+
+    // Apply sorting
+    rows.sort((a, b) => {
+      const aValue = a[sortField as keyof FlattenedAssignmentRow];
+      const bValue = b[sortField as keyof FlattenedAssignmentRow];
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+
+      return 0;
+    });
+
+    return rows;
+  }, [reportType, filteredData, sortField, sortDirection]);
+
+  const unitRows = useMemo(() => {
+    if (reportType !== 'units') return [];
+    const rows = aggregateToUnitRows(filteredData);
+
+    // Apply sorting (override the default risk-based sort if user clicked a column)
+    rows.sort((a, b) => {
+      const aValue = a[sortField as keyof UnitReportRow];
+      const bValue = b[sortField as keyof UnitReportRow];
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortDirection === 'asc'
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+
+      return 0;
+    });
+
+    return rows;
+  }, [reportType, filteredData, sortField, sortDirection]);
+
   const filteredProperties = filterProperties.filter(property =>
     property.label.toLowerCase().includes(filterSearch.toLowerCase()) ||
     property.description.toLowerCase().includes(filterSearch.toLowerCase())
@@ -850,11 +586,44 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   };
 
   const handleExport = (format: 'csv' | 'xlsx' | 'pdf') => {
-    const recordCount = filteredData.length;
-    toast.success(`Exporting ${recordCount} records as ${format.toUpperCase()}...`, {
-      description: 'Your report will be ready for download shortly.',
-      duration: 3000
-    });
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `${reportType}-report-${timestamp}`;
+
+    // Get the correct data based on current report type
+    let exportData: any[];
+    let recordCount: number;
+    switch (reportType) {
+      case 'people':
+        exportData = filteredData;
+        recordCount = filteredData.length;
+        break;
+      case 'assignments':
+        exportData = assignmentRows;
+        recordCount = assignmentRows.length;
+        break;
+      case 'units':
+        exportData = unitRows;
+        recordCount = unitRows.length;
+        break;
+    }
+
+    try {
+      switch (format) {
+        case 'csv':
+          exportToCSV(exportData, filename, reportType);
+          break;
+        case 'xlsx':
+          exportToExcel(exportData, filename, reportType);
+          break;
+        case 'pdf':
+          exportToPDF(exportData, filename, reportType);
+          break;
+      }
+      toast.success(`Exported ${recordCount} ${reportType} records as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(`Failed to export as ${format.toUpperCase()}`);
+    }
   };
 
   const handleSelectAll = () => {
@@ -880,10 +649,28 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       'not-started': 'bg-gray-100 text-gray-800',
       'overdue': 'bg-red-100 text-red-800'
     };
-    
+
     return (
       <Badge className={variants[status as keyof typeof variants] || 'bg-gray-100 text-gray-800'}>
         {status.replace('-', ' ')}
+      </Badge>
+    );
+  };
+
+  const getRiskBadge = (riskLevel: RiskLevel) => {
+    const config = {
+      'low': { className: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle, label: 'Low Risk' },
+      'medium': { className: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: AlertCircle, label: 'Medium' },
+      'high': { className: 'bg-orange-100 text-orange-800 border-orange-200', icon: AlertTriangle, label: 'High' },
+      'critical': { className: 'bg-red-100 text-red-800 border-red-200', icon: Zap, label: 'Critical' }
+    };
+
+    const { className, icon: Icon, label } = config[riskLevel];
+
+    return (
+      <Badge className={`${className} border flex items-center gap-1`}>
+        <Icon className="h-3 w-3" />
+        {label}
       </Badge>
     );
   };
@@ -907,7 +694,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             Learner activity & progress
           </p>
         </div>
-        
+
         {/* Export Actions */}
         <div className="flex items-center space-x-2">
           <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
@@ -923,6 +710,41 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             PDF
           </Button>
         </div>
+      </div>
+
+      {/* Report Type Pill Toggle - Centered */}
+      <div className="flex justify-center">
+        <ToggleGroup
+          type="single"
+          value={reportType}
+          onValueChange={(value) => value && handleReportTypeChange(value as ReportType)}
+          className="bg-accent/50 p-1 rounded-lg"
+        >
+          <ToggleGroupItem
+            value="people"
+            aria-label="People view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <Users className="h-4 w-4" />
+            People
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="assignments"
+            aria-label="Assignments view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Assignments
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="units"
+            aria-label="Units view"
+            className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
+          >
+            <Building className="h-4 w-4" />
+            Units
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {/* Search and Filter Bar */}
@@ -990,7 +812,9 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
 
             {/* Results Count */}
             <span className="text-sm text-muted-foreground">
-              {filteredData.length} {filteredData.length === 1 ? 'record' : 'records'}
+              {reportType === 'people' && `${filteredData.length} ${filteredData.length === 1 ? 'person' : 'people'}`}
+              {reportType === 'assignments' && `${assignmentRows.length} ${assignmentRows.length === 1 ? 'assignment' : 'assignments'}`}
+              {reportType === 'units' && `${unitRows.length} ${unitRows.length === 1 ? 'unit' : 'units'}`}
             </span>
           </div>
 
@@ -1030,244 +854,753 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center space-x-2">
-            <h3 className="font-semibold">Activity Report</h3>
+            <h3 className="font-semibold">
+              {reportType === 'people' ? 'Learner Report' :
+               reportType === 'assignments' ? 'Assignment Report' :
+               'Unit Report'}
+            </h3>
             {selectedRecords.length > 0 && (
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                 {selectedRecords.length} selected
               </Badge>
             )}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <Info className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">Click rows to expand details</p>
-            </TooltipContent>
-          </Tooltip>
+          {reportType === 'people' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Click rows to expand details</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         
         <div className="overflow-x-auto">
-          <Table className="w-full">
-            <TableHeader>
-              <TableRow className="border-b border-border bg-accent/30">
-                <TableHead className="w-8 pl-4"></TableHead>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={selectedRecords.length === filteredData.length}
-                    onCheckedChange={handleSelectAll}
-                  />
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('employeeName')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Employee</span>
-                    {sortField === 'employeeName' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('district')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Location</span>
-                    {sortField === 'district' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead><span>Content</span></TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('progress')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Progress</span>
-                    {sortField === 'progress' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead 
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleSort('score')}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Score</span>
-                    {sortField === 'score' && (
-                      sortDirection === 'asc' ? 
-                      <ChevronUp className="h-3 w-3 text-primary" /> : 
-                      <ChevronDown className="h-3 w-3 text-primary" />
-                    )}
-                  </div>
-                </TableHead>
-                <TableHead><span>Status</span></TableHead>
-                <TableHead className="pr-4"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
-                      <p className="text-sm text-muted-foreground">Loading learner records...</p>
+          {/* People Mode Table */}
+          {reportType === 'people' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-8 pl-4"></TableHead>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selectedRecords.length === filteredData.length && filteredData.length > 0}
+                      onCheckedChange={handleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('employeeName')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Employee</span>
+                      {sortField === 'employeeName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
                     </div>
-                  </TableCell>
-                </TableRow>
-              ) : filteredData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
-                      <p className="text-sm font-medium text-foreground">No records found</p>
-                      <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('role')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Role</span>
+                      {sortField === 'role' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
                     </div>
-                  </TableCell>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('district')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>District</span>
+                      {sortField === 'district' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('store')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Location</span>
+                      {sortField === 'store' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Assignments</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => handleSort('progress')}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Progress</span>
+                      {sortField === 'progress' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Status</span></TableHead>
+                  <TableHead className="pr-4"></TableHead>
                 </TableRow>
-              ) : (
-                filteredData.map((record, index) => {
-                const isExpanded = expandedRows.includes(record.id);
-                return (
-                  <React.Fragment key={record.id}>
-                    <TableRow 
-                      className={`border-b border-border hover:bg-accent/20 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
-                      onClick={() => toggleRowExpansion(record.id)}
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading learner records...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No records found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredData.map((record, index) => {
+                  const isExpanded = expandedRows.includes(record.id);
+                  return (
+                    <React.Fragment key={record.id}>
+                      <TableRow
+                        className={`border-b border-border hover:bg-accent/20 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
+                        onClick={() => toggleRowExpansion(record.id)}
+                      >
+                        <TableCell className="pl-4">
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                          </Button>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedRecords.includes(record.id)}
+                            onCheckedChange={() => handleSelectRecord(record.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-foreground">{record.employeeName}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.role}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.district}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{record.store}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="text-sm">
+                                <span className="font-medium">{record.assignments?.length || 0}</span>
+                                <span className="text-muted-foreground ml-1">
+                                  {(record.assignments?.length || 0) === 1 ? 'assignment' : 'assignments'}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="space-y-1 text-xs max-w-[250px]">
+                                {(record.assignments || []).slice(0, 5).map((a: AssignmentRecord) => (
+                                  <div key={a.id} className="flex justify-between gap-2">
+                                    <span className="truncate">{a.playlist}</span>
+                                    <span className="text-muted-foreground">{a.progress}%</span>
+                                  </div>
+                                ))}
+                                {(record.assignments?.length || 0) > 5 && (
+                                  <div className="text-muted-foreground">+{(record.assignments?.length || 0) - 5} more...</div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-2">
+                            <Progress value={record.progress} className="h-1.5 w-16" />
+                            <span className="text-sm font-medium min-w-[35px]">{record.progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(record.status)}
+                        </TableCell>
+                        <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-accent">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">View details</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded Row - Uses table cells to align with parent columns */}
+                      {isExpanded && (record.assignments || []).map((assignment: AssignmentRecord, idx: number) => (
+                        <TableRow
+                          key={assignment.id}
+                          className={`bg-accent/20 ${idx !== (record.assignments?.length || 0) - 1 ? '' : ''}`}
+                        >
+                          {/* Expand column - empty */}
+                          <TableCell className="pl-4 py-2"></TableCell>
+                          {/* Checkbox column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* Playlist - in Employee column */}
+                          <TableCell className="py-2">
+                            <div className="text-sm text-muted-foreground">{assignment.playlist}</div>
+                          </TableCell>
+                          {/* Role column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* District column - empty */}
+                          <TableCell className="py-2"></TableCell>
+                          {/* Location column - Assigned date */}
+                          <TableCell className="py-2">
+                            <div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Assigned</div>
+                              <div className="text-sm text-muted-foreground">
+                                {assignment.dateAssigned
+                                  ? new Date(assignment.dateAssigned).toLocaleDateString()
+                                  : '—'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          {/* Assignments column - Due date */}
+                          <TableCell className="py-2">
+                            <div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Due</div>
+                              <div className={`text-sm ${assignment.dueDate && new Date(assignment.dueDate) < new Date() && !assignment.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                                {assignment.dueDate
+                                  ? new Date(assignment.dueDate).toLocaleDateString()
+                                  : '—'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          {/* Progress column */}
+                          <TableCell className="py-2">
+                            <div className="flex items-center space-x-2">
+                              <Progress value={assignment.progress} className="h-1.5 w-16" />
+                              <span className="text-sm font-medium min-w-[35px]">{assignment.progress}%</span>
+                            </div>
+                          </TableCell>
+                          {/* Status column */}
+                          <TableCell className="py-2">
+                            {getStatusBadge(assignment.status)}
+                          </TableCell>
+                          {/* Actions column - empty */}
+                          <TableCell className="pr-4 py-2"></TableCell>
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  );
+                }))}
+              </TableBody>
+            </Table>
+          )}
+
+          {/* Assignments Mode Table - Assignment is the anchor, person is context */}
+          {reportType === 'assignments' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-10 pl-4">
+                    <Checkbox
+                      checked={selectedRecords.length === assignmentRows.length && assignmentRows.length > 0}
+                      onCheckedChange={() => {
+                        if (selectedRecords.length === assignmentRows.length) {
+                          setSelectedRecords([]);
+                        } else {
+                          setSelectedRecords(assignmentRows.map(r => r.id));
+                        }
+                      }}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'playlist') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('playlist');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Playlist / Track</span>
+                      {sortField === 'playlist' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'employeeName') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('employeeName');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Assigned To</span>
+                      {sortField === 'employeeName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'store') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('store');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Location</span>
+                      {sortField === 'store' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'dueDate') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('dueDate');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Due</span>
+                      {sortField === 'dueDate' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'progress') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('progress');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Progress</span>
+                      {sortField === 'progress' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'status') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('status');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {sortField === 'status' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading assignments...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : assignmentRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <FileSpreadsheet className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No assignments found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  assignmentRows.map((row, index) => (
+                    <TableRow
+                      key={row.id}
+                      className={`border-b border-border hover:bg-accent/20 transition-colors ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}
                     >
                       <TableCell className="pl-4">
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                          {isExpanded ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
-                          checked={selectedRecords.includes(record.id)}
-                          onCheckedChange={() => handleSelectRecord(record.id)}
+                          checked={selectedRecords.includes(row.id)}
+                          onCheckedChange={() => handleSelectRecord(row.id)}
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-foreground">{record.employeeName}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">{record.store}</div>
-                      </TableCell>
-                      <TableCell>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="text-sm truncate max-w-[200px]">{record.album}</div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="space-y-1 text-xs">
-                              <div><span className="text-muted-foreground">Album:</span> {record.album}</div>
-                              <div><span className="text-muted-foreground">Playlist:</span> {record.playlist}</div>
-                              <div><span className="text-muted-foreground">Track:</span> {record.track}</div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Progress value={record.progress} className="h-1.5 w-16" />
-                          <span className="text-sm font-medium min-w-[35px]">{record.progress}%</span>
+                        <div>
+                          <div className="font-medium text-foreground">{row.playlist}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">{row.track}</div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm font-medium">{record.score}</span>
+                        <div>
+                          <div className="text-sm">{row.employeeName}</div>
+                          <div className="text-xs text-muted-foreground">{row.role}</div>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(record.status)}
+                        <div className="text-sm">{row.store}</div>
                       </TableCell>
-                      <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+                      <TableCell>
+                        <div className={`text-sm ${row.dueDate && new Date(row.dueDate) < new Date() && !row.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                          {row.dueDate ? new Date(row.dueDate).toLocaleDateString() : '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Progress value={row.progress} className="h-1.5 w-16" />
+                          <span className="text-sm font-medium min-w-[35px]">{row.progress}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {getStatusBadge(row.status)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
+
+          {/* Units Mode Table - Operational risk focus with diagnostic signals */}
+          {reportType === 'units' && (
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="border-b border-border bg-accent/30">
+                  <TableHead className="w-10 pl-4">
+                    <Checkbox
+                      checked={selectedRecords.length === unitRows.length && unitRows.length > 0}
+                      onCheckedChange={() => {
+                        if (selectedRecords.length === unitRows.length) {
+                          setSelectedRecords([]);
+                        } else {
+                          setSelectedRecords(unitRows.map(r => r.id));
+                        }
+                      }}
+                    />
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'riskScore') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('riskScore');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Risk</span>
+                      {sortField === 'riskScore' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'unitName') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('unitName');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Unit</span>
+                      {sortField === 'unitName' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead><span>Top Issue</span></TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'compliance') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('compliance');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Compliance</span>
+                      {sortField === 'compliance' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'overdueCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('overdueCount');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Overdue</span>
+                      {sortField === 'overdueCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'stalledCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('stalledCount');
+                        setSortDirection('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Stalled</span>
+                      {sortField === 'stalledCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => {
+                      if (sortField === 'employeeCount') {
+                        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortField('employeeCount');
+                        setSortDirection('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Team</span>
+                      {sortField === 'employeeCount' && (
+                        sortDirection === 'asc' ?
+                        <ChevronUp className="h-3 w-3 text-primary" /> :
+                        <ChevronDown className="h-3 w-3 text-primary" />
+                      )}
+                    </div>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading unit data...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : unitRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <Building className="h-8 w-8 text-muted-foreground opacity-50" />
+                        <p className="text-sm font-medium text-foreground">No units found</p>
+                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  unitRows.map((row, index) => (
+                    <TableRow
+                      key={row.id}
+                      className={`border-b border-border hover:bg-accent/20 transition-colors ${
+                        row.riskLevel === 'critical' ? 'bg-red-500/10 dark:bg-red-500/20' :
+                        row.riskLevel === 'high' ? 'bg-orange-500/10 dark:bg-orange-500/15' :
+                        index % 2 === 0 ? 'bg-background' : 'bg-accent/10'
+                      }`}
+                    >
+                      <TableCell className="pl-4">
+                        <Checkbox
+                          checked={selectedRecords.includes(row.id)}
+                          onCheckedChange={() => handleSelectRecord(row.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {getRiskBadge(row.riskLevel)}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium text-foreground">{row.unitName}</div>
+                          <div className="text-xs text-muted-foreground">{row.district}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {row.topIssueDetail ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`text-sm ${
+                                row.topIssue === 'high-performer' ? 'text-green-600 dark:text-green-400' :
+                                row.topIssue === 'overdue-spike' || row.topIssue === 'low-completion' ? 'text-red-600 dark:text-red-400' :
+                                row.topIssue === 'stalled-learners' ? 'text-orange-600 dark:text-orange-400' :
+                                'text-muted-foreground'
+                              }`}>
+                                {row.topIssueDetail}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="text-xs space-y-1">
+                                <div>Completed: {row.completedCount} / {row.assignmentCount}</div>
+                                <div>In Progress: {row.inProgressCount}</div>
+                                <div>Not Started: {row.notStartedCount}</div>
+                                {row.avgDaysOverdue > 0 && (
+                                  <div>Avg days overdue: {row.avgDaysOverdue}</div>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Progress
+                            value={row.compliance}
+                            className={`h-1.5 w-16 ${
+                              row.compliance >= 80 ? '[&>div]:bg-green-500' :
+                              row.compliance >= 50 ? '[&>div]:bg-yellow-500' :
+                              '[&>div]:bg-red-500'
+                            }`}
+                          />
+                          <span className={`text-sm font-medium min-w-[35px] ${
+                            row.compliance >= 80 ? 'text-green-600' :
+                            row.compliance >= 50 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>{row.compliance}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`text-sm font-medium ${row.overdueCount > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                          {row.overdueCount}
+                          {row.avgDaysOverdue > 0 && row.overdueCount > 0 && (
+                            <span className="text-xs text-muted-foreground ml-1">
+                              (~{row.avgDaysOverdue}d)
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-accent">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
+                            <div className={`text-sm font-medium ${row.stalledCount > 0 ? 'text-orange-500' : 'text-muted-foreground'}`}>
+                              {row.stalledCount}
+                            </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p className="text-xs">View details</p>
+                            <p className="text-xs">Employees with no activity in 14+ days</p>
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <span className="font-medium">{row.employeeCount}</span>
+                          <span className="text-muted-foreground ml-1">
+                            ({row.assignmentCount} assignments)
+                          </span>
+                        </div>
+                      </TableCell>
                     </TableRow>
-                    
-                    {/* Expanded Row Details */}
-                    {isExpanded && (
-                      <TableRow className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-accent/10'}`}>
-                        <TableCell colSpan={9} className="px-4 py-4">
-                          <div className="grid grid-cols-4 gap-6 pl-8">
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Employee ID</div>
-                              <div className="text-sm font-medium">{record.employeeId}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">District</div>
-                              <div className="text-sm font-medium">{record.district}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Role</div>
-                              <div className="text-sm font-medium">{record.role}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Department</div>
-                              <div className="text-sm font-medium">{record.department}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Playlist</div>
-                              <div className="text-sm font-medium">{record.playlist}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Track</div>
-                              <div className="text-sm font-medium">{record.track}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Time Spent</div>
-                              <div className="text-sm font-medium">{record.timeSpent} min</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Attempts</div>
-                              <div className="text-sm font-medium">{record.attempts}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Completion Date</div>
-                              <div className="text-sm font-medium">{record.completionDate || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-muted-foreground mb-1">Last Activity</div>
-                              <div className="text-sm font-medium">{record.lastActivity}</div>
-                            </div>
-                            <div className="col-span-2">
-                              <div className="text-xs text-muted-foreground mb-1">Certification</div>
-                              <div className="text-sm font-medium">{record.certification || '—'}</div>
-                              {record.certificationDate && (
-                                <div className="text-xs text-muted-foreground mt-0.5">{record.certificationDate}</div>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                );
-              }))}
-            </TableBody>
-          </Table>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </div>
 

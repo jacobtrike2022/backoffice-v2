@@ -97,16 +97,18 @@ CREATE POLICY "Admins can manage tags"
   ON tags FOR ALL
   USING (
     EXISTS (
-      SELECT 1 FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin', 'Store Manager', 'District Manager')
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin', 'Store Manager', 'District Manager')
     )
   )
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin', 'Store Manager', 'District Manager')
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin', 'Store Manager', 'District Manager')
     )
   );
 

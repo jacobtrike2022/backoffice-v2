@@ -4,11 +4,12 @@
 
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { getHealthStatus } from '../serverHealth';
-import { supabase, getCurrentUserOrgId } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { compressImage } from '../utils/imageCompression';
 import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTrackTranscript } from '../utils/brainIndexer';
 import { generateKeyFacts } from './facts';
 import { calculateTrackDuration } from '../utils/trackDuration';
+import { assignTrackTagsByName } from './tags';
 
 export interface CreateTrackInput {
   title: string;
@@ -18,6 +19,7 @@ export interface CreateTrackInput {
   thumbnail_url?: string;
   duration_minutes?: number;
   transcript?: string;
+  transcript_data?: any; // Structured transcript with word-level timestamps from transcription API
   summary?: string;
   status?: 'draft' | 'published' | 'archived';
   learning_objectives?: string[];
@@ -35,8 +37,327 @@ export interface UpdateTrackInput extends Partial<CreateTrackInput> {
   id: string;
 }
 
-// Default thumbnail URL (served from public folder)
-const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+// Default thumbnail URL (served from public folder) - used only for display when no custom thumbnail
+export const DEFAULT_THUMBNAIL_URL = '/default-thumbnail.png';
+
+/**
+ * Returns the URL to display for a track thumbnail.
+ * Use this everywhere we render a track thumbnail so behavior is consistent:
+ * - No thumbnail (null, empty, or the stored default placeholder) → show default Trike image.
+ * - Custom thumbnail from media/upload → show that URL.
+ */
+export function getEffectiveThumbnailUrl(thumbnailUrl: string | null | undefined): string {
+  const trimmed = (thumbnailUrl || '').trim();
+  if (!trimmed || trimmed === DEFAULT_THUMBNAIL_URL) return DEFAULT_THUMBNAIL_URL;
+  return trimmed;
+}
+
+// ============================================================================
+// PUBLISH VALIDATION
+// ============================================================================
+
+/**
+ * Validation result for publish readiness
+ */
+export interface PublishValidationResult {
+  canPublish: boolean;
+  reason?: string;
+  missingContent?: 'transcript' | 'content_text' | 'slides';
+}
+
+/**
+ * Validate if a track is ready to be published.
+ *
+ * Rules:
+ * - Articles: Must have content_text (body content)
+ * - Videos: Must have transcript (transcription must be complete)
+ * - Stories: Must have transcript with slides data
+ * - Checkpoints: Always allowed (quiz questions don't need transcript)
+ *
+ * This prevents the race condition where content is indexed before
+ * transcription/content is complete, causing Company Brain to miss content.
+ */
+export async function validateTrackReadyForPublish(
+  trackId: string
+): Promise<PublishValidationResult> {
+  const { data: track, error } = await supabase
+    .from('tracks')
+    .select('id, type, transcript, content_text, status')
+    .eq('id', trackId)
+    .single();
+
+  if (error || !track) {
+    return { canPublish: false, reason: 'Track not found' };
+  }
+
+  return validateTrackContentForPublish(track);
+}
+
+/**
+ * Validate track content for publishing (synchronous version for when track data is already loaded)
+ */
+export function validateTrackContentForPublish(track: {
+  type?: string;
+  transcript?: string | null;
+  content_text?: string | null;
+}): PublishValidationResult {
+  const trackType = track.type || 'article';
+
+  switch (trackType) {
+    case 'article':
+      // Articles store body in content_text (primary) or transcript (fallback)
+      const articleContent = track.content_text || track.transcript;
+      if (!articleContent || articleContent.trim().length < 20) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'content_text'
+        };
+      }
+      break;
+
+    case 'video':
+      // Videos need transcript (transcription must be complete)
+      if (!track.transcript || track.transcript.trim().length < 20) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'transcript'
+        };
+      }
+      break;
+
+    case 'story':
+      // Stories need slide data in transcript field
+      if (!track.transcript) {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'slides'
+        };
+      }
+      // Validate it's actually JSON slide data
+      try {
+        const storyData = typeof track.transcript === 'string'
+          ? JSON.parse(track.transcript)
+          : track.transcript;
+        if (!storyData.slides || !Array.isArray(storyData.slides) || storyData.slides.length === 0) {
+          return {
+            canPublish: false,
+            reason: 'Content still processing',
+            missingContent: 'slides'
+          };
+        }
+      } catch {
+        return {
+          canPublish: false,
+          reason: 'Content still processing',
+          missingContent: 'slides'
+        };
+      }
+      break;
+
+    case 'checkpoint':
+      // Checkpoints are always allowed - quiz questions don't need transcript
+      // (and they're not indexed to Brain anyway)
+      break;
+
+    default:
+      // Unknown type - allow by default
+      break;
+  }
+
+  return { canPublish: true };
+}
+
+/**
+ * Enrich tracks with tags from the track_tags junction table
+ * This is the source of truth for tags (replaces deprecated tracks.tags column)
+ */
+async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
+  if (!tracks || tracks.length === 0) return tracks;
+
+  const trackIds = tracks.map(t => t.id);
+
+  // Fetch all track-tag relationships for these tracks in one query
+  const { data: trackTagRelations, error: relError } = await supabase
+    .from('track_tags')
+    .select('track_id, tag_id')
+    .in('track_id', trackIds);
+
+  if (relError) {
+    console.error('[enrichTracksWithJunctionTags] Error fetching track_tags:', relError);
+    return tracks; // Return tracks as-is if junction table query fails
+  }
+
+  if (!trackTagRelations || trackTagRelations.length === 0) {
+    // No tags in junction table, return tracks with empty tags arrays
+    return tracks.map(t => ({ ...t, tags: [] }));
+  }
+
+  // Get unique tag IDs
+  const tagIds = [...new Set(trackTagRelations.map(r => r.tag_id))];
+
+  // Fetch tag details
+  const { data: tags, error: tagError } = await supabase
+    .from('tags')
+    .select('id, name')
+    .in('id', tagIds);
+
+  if (tagError) {
+    console.error('[enrichTracksWithJunctionTags] Error fetching tags:', tagError);
+    return tracks;
+  }
+
+  // Create a map of tag_id -> tag_name
+  const tagIdToName: Record<string, string> = {};
+  tags?.forEach(tag => {
+    tagIdToName[tag.id] = tag.name;
+  });
+
+  // Create a map of track_id -> tag_names[]
+  const trackIdToTagNames: Record<string, string[]> = {};
+  trackTagRelations.forEach(rel => {
+    if (!trackIdToTagNames[rel.track_id]) {
+      trackIdToTagNames[rel.track_id] = [];
+    }
+    const tagName = tagIdToName[rel.tag_id];
+    if (tagName) {
+      trackIdToTagNames[rel.track_id].push(tagName);
+    }
+  });
+
+  // Enrich tracks with their tags and parse/normalize transcript_data
+  return tracks.map(track => {
+    let parsedTranscriptData = track.transcript_data;
+
+    // Parse if stored as JSON string
+    if (typeof track.transcript_data === 'string') {
+      try {
+        parsedTranscriptData = JSON.parse(track.transcript_data);
+      } catch (e) {
+        console.warn('[enrichTracksWithJunctionTags] Failed to parse transcript_data for track', track.id, e);
+      }
+    }
+
+    // Normalize: if transcript_data has nested transcript_json, extract it
+    // This happens when transcript comes from media_transcripts table with full metadata
+    if (parsedTranscriptData) {
+      // Check if this is the media_transcripts structure (has transcript_json key)
+      const hasMediaTranscriptStructure = 'transcript_json' in parsedTranscriptData ||
+                                          'transcript_text' in parsedTranscriptData ||
+                                          'transcription_service' in parsedTranscriptData;
+
+      if (hasMediaTranscriptStructure) {
+        // Handle transcript_json - might be object or string (if serialized from JSONB)
+        let transcriptJson = parsedTranscriptData.transcript_json;
+
+        // Parse if transcript_json is a string
+        if (typeof transcriptJson === 'string' && transcriptJson.length > 0) {
+          try {
+            transcriptJson = JSON.parse(transcriptJson);
+          } catch (e) {
+            console.warn(`[enrichTracksWithJunctionTags] Failed to parse transcript_json string for track ${track.id}`, e);
+            transcriptJson = null;
+          }
+        }
+
+        // Prefer transcript_json if it has data
+        if (transcriptJson &&
+            typeof transcriptJson === 'object' &&
+            Object.keys(transcriptJson).length > 0) {
+          parsedTranscriptData = transcriptJson;
+        }
+        // Fallback: construct from transcript_text/utterances
+        else if (parsedTranscriptData.transcript_text || parsedTranscriptData.transcript_utterances) {
+          // Also try to parse transcript_utterances if it's a string
+          let utterances = parsedTranscriptData.transcript_utterances;
+          if (typeof utterances === 'string') {
+            try {
+              utterances = JSON.parse(utterances);
+            } catch (e) {
+              utterances = [];
+            }
+          }
+
+          parsedTranscriptData = {
+            text: parsedTranscriptData.transcript_text || '',
+            utterances: utterances || [],
+            words: [] // May not have word-level data
+          };
+        }
+        else {
+          console.warn(`[enrichTracksWithJunctionTags] Track ${track.id} has media_transcripts structure but no usable transcript data`);
+        }
+      }
+    }
+
+    return {
+      ...track,
+      tags: trackIdToTagNames[track.id] || [],
+      transcript_data: parsedTranscriptData,
+    };
+  });
+}
+
+/**
+ * Enrich tracks with scope from track_scopes (one row per track).
+ * Attaches second-level labels: state_code, state_name, industry_name, company_name, program_name, unit_name.
+ */
+async function enrichTracksWithScope(tracks: any[]): Promise<any[]> {
+  if (!tracks || tracks.length === 0) return tracks;
+  const trackIds = tracks.map(t => t.id);
+  const { data: scopeRows, error } = await supabase
+    .from('track_scopes')
+    .select('*')
+    .in('track_id', trackIds);
+  if (error || !scopeRows?.length) {
+    return tracks.map(t => ({ ...t, scope: null }));
+  }
+  const stateIds = [...new Set((scopeRows as any[]).map((r: any) => r.state_id).filter(Boolean))];
+  const industryIds = [...new Set((scopeRows as any[]).map((r: any) => r.industry_id).filter(Boolean))];
+  const companyIds = [...new Set((scopeRows as any[]).map((r: any) => r.company_id).filter(Boolean))];
+  const programIds = [...new Set((scopeRows as any[]).map((r: any) => r.program_id).filter(Boolean))];
+  const unitIds = [...new Set((scopeRows as any[]).map((r: any) => r.unit_id).filter(Boolean))];
+
+  const [statesRes, industriesRes, orgsRes, programsRes, storesRes] = await Promise.all([
+    stateIds.length ? supabase.from('us_states').select('id, code, name').in('id', stateIds) : { data: [] },
+    industryIds.length ? supabase.from('industries').select('id, name').in('id', industryIds) : { data: [] },
+    companyIds.length ? supabase.from('organizations').select('id, name').in('id', companyIds) : { data: [] },
+    programIds.length ? supabase.from('programs').select('id, name').in('id', programIds) : { data: [] },
+    unitIds.length ? supabase.from('stores').select('id, name').in('id', unitIds) : { data: [] },
+  ]);
+
+  const stateById: Record<string, { code: string; name: string }> = {};
+  (statesRes.data || []).forEach((s: any) => { stateById[s.id] = { code: s.code, name: s.name }; });
+  const industryById: Record<string, string> = {};
+  (industriesRes.data || []).forEach((i: any) => { industryById[i.id] = i.name; });
+  const companyById: Record<string, string> = {};
+  (orgsRes.data || []).forEach((o: any) => { companyById[o.id] = o.name; });
+  const programById: Record<string, string> = {};
+  (programsRes.data || []).forEach((p: any) => { programById[p.id] = p.name; });
+  const unitById: Record<string, string> = {};
+  (storesRes.data || []).forEach((u: any) => { unitById[u.id] = u.name; });
+
+  const scopeByTrackId: Record<string, any> = {};
+  scopeRows.forEach((row: any) => {
+    const scope = { ...row };
+    if (row.state_id && stateById[row.state_id]) {
+      scope.state_code = stateById[row.state_id].code;
+      scope.state_name = stateById[row.state_id].name;
+    }
+    if (row.industry_id && industryById[row.industry_id]) scope.industry_name = industryById[row.industry_id];
+    if (row.company_id && companyById[row.company_id]) scope.company_name = companyById[row.company_id];
+    if (row.program_id && programById[row.program_id]) scope.program_name = programById[row.program_id];
+    if (row.unit_id && unitById[row.unit_id]) scope.unit_name = unitById[row.unit_id];
+    scopeByTrackId[row.track_id] = scope;
+  });
+
+  return tracks.map(t => ({
+    ...t,
+    scope: scopeByTrackId[t.id] ?? null,
+  }));
+}
 
 /**
  * Automate story workflow: transcribe all videos → update story JSON → generate key facts
@@ -68,6 +389,16 @@ async function automateStoryWorkflow(track: { id: string; title?: string; descri
     
     if (videoSlides.length === 0) {
       console.log('[Story Workflow] No video slides found, skipping automation');
+      return;
+    }
+
+    // Skip if track already has facts (prevents duplicate generation)
+    const { count: storyFactCount } = await supabase
+      .from('fact_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('track_id', track.id);
+    if (storyFactCount && storyFactCount > 0) {
+      console.log(`[Story Workflow] Track ${track.id} already has ${storyFactCount} facts, skipping`);
       return;
     }
 
@@ -158,6 +489,29 @@ async function automateStoryWorkflow(track: { id: string; title?: string; descri
       // Continue anyway - transcripts are cached in media_transcripts
     } else {
       console.log('[Story Workflow] ✓ Story updated with transcripts');
+
+      // Step 2b: Re-index to Brain if track is published
+      // This ensures the new slide transcripts are searchable in Company Brain
+      const { data: currentTrack } = await supabase
+        .from('tracks')
+        .select('status, organization_id')
+        .eq('id', track.id)
+        .single();
+
+      if (currentTrack?.status === 'published') {
+        console.log('[Story Workflow] Track is published, re-indexing to Brain...');
+        indexTrackToBrain({
+          id: track.id,
+          title: track.title,
+          description: track.description,
+          type: 'story',
+          status: 'published',
+          transcript: JSON.stringify(updatedStoryData),
+          organization_id: currentTrack.organization_id,
+        }).catch(err => {
+          console.error('[Story Workflow] Brain re-index failed:', err);
+        });
+      }
     }
 
     // Step 3: Generate key facts from combined transcripts
@@ -222,7 +576,7 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
 
     const transcribeData = await transcribeResponse.json();
     const transcriptText = transcribeData.transcript?.transcript_text || transcribeData.transcript?.text || '';
-    
+
     if (!transcriptText) {
       console.warn('[Video Workflow] No transcript text received');
       return;
@@ -230,34 +584,59 @@ async function automateVideoWorkflow(track: { id: string; title?: string; descri
 
     console.log(`[Video Workflow] ✓ Transcript generated (${transcriptText.length} chars)`);
 
-    // Step 2: Update track with transcript
+    // Normalize transcript_data - extract transcript_json if nested (from media_transcripts)
+    // The API returns media_transcripts row structure, we want just the transcript_json for interactive display
+    let transcriptData = transcribeData.transcript;
+    if (transcriptData && transcriptData.transcript_json) {
+      console.log('[Video Workflow] Extracting transcript_json from media_transcripts structure');
+      transcriptData = transcriptData.transcript_json;
+    }
+
+    // Step 2: Update track with transcript and transcript_data
+    // transcript_data should contain the actual transcript with text/words/utterances for InteractiveTranscript
     console.log('[Video Workflow] Step 2: Saving transcript to track...');
+    console.log('[Video Workflow] transcript_data keys:', transcriptData ? Object.keys(transcriptData) : 'null');
     const { error: updateError } = await supabase
       .from('tracks')
-      .update({ transcript: transcriptText })
+      .update({
+        transcript: transcriptText,
+        transcript_data: transcriptData  // Save the normalized transcript_json, not the full media_transcripts row
+      })
       .eq('id', track.id);
 
     if (updateError) {
       console.error('[Video Workflow] Failed to save transcript:', updateError);
       // Continue anyway - transcript is cached in media_transcripts
     } else {
-      console.log('[Video Workflow] ✓ Transcript saved to track');
+      console.log('[Video Workflow] ✓ Transcript and transcript_data saved to track');
+
+      // Step 2b: Re-index to Brain if track is published
+      // This ensures the new transcript is searchable in Company Brain
+      const { data: currentTrack } = await supabase
+        .from('tracks')
+        .select('status, organization_id')
+        .eq('id', track.id)
+        .single();
+
+      if (currentTrack?.status === 'published') {
+        console.log('[Video Workflow] Track is published, re-indexing to Brain...');
+        indexTrackToBrain({
+          id: track.id,
+          title: track.title,
+          description: track.description,
+          type: 'video',
+          status: 'published',
+          organization_id: currentTrack.organization_id,
+        }, transcriptText).catch(err => {
+          console.error('[Video Workflow] Brain re-index failed:', err);
+        });
+      }
     }
 
-    // Step 3: Generate key facts
-    console.log('[Video Workflow] Step 3: Generating key facts...');
-    const orgId = track.organization_id || await getCurrentUserOrgId();
-    
-    await generateKeyFacts({
-      title: track.title || 'Untitled Video',
-      description: track.description || '',
-      transcript: transcriptText,
-      trackType: 'video',
-      trackId: track.id,
-      companyId: orgId || undefined,
-    });
-
-    console.log(`[Video Workflow] ✓ Key facts generated for track ${track.id}`);
+    // Step 3: Key facts - SKIP here. The /transcribe endpoint handles key fact generation when trackId
+    // is provided (it checks fact_usage and only generates if none exist). Calling generateKeyFacts here
+    // caused duplicate facts because both this workflow AND the transcribe callback were generating.
+    console.log('[Video Workflow] Key facts handled by transcribe endpoint (no duplicate generation)');
     console.log('[Video Workflow] Automation complete!');
 
   } catch (error) {
@@ -278,6 +657,16 @@ async function automateArticleWorkflow(track: { id: string; title?: string; desc
   }
 
   try {
+    // Skip if track already has facts (backend also checks; this avoids unnecessary API call)
+    const { count } = await supabase
+      .from('fact_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('track_id', track.id);
+    if (count && count > 0) {
+      console.log(`[Article Workflow] Track ${track.id} already has ${count} facts, skipping`);
+      return;
+    }
+
     console.log(`[Article Workflow] Starting automation for track ${track.id}...`);
 
     // Strip HTML to get plain text for word count check
@@ -313,15 +702,15 @@ async function automateArticleWorkflow(track: { id: string; title?: string; desc
 }
 
 /**
- * Create a new track (defaults to draft)
- * Automatically assigns default thumbnail if none provided
+ * Create a new track (defaults to draft).
+ * Thumbnail: store only when provided (null otherwise). Display layer uses getEffectiveThumbnailUrl() to show default when null.
  */
 export async function createTrack(input: CreateTrackInput) {
   const orgId = await getCurrentUserOrgId();
   if (!orgId) throw new Error('User not authenticated');
 
-  // Set default thumbnail if none provided
-  const thumbnailUrl = input.thumbnail_url || DEFAULT_THUMBNAIL_URL;
+  // Store thumbnail only when a real URL is provided (null = no thumbnail → display shows default)
+  const thumbnailUrl = (input.thumbnail_url || '').trim() || null;
 
   // Auto-calculate duration if not provided
   let calculatedDuration = input.duration_minutes;
@@ -359,6 +748,7 @@ export async function createTrack(input: CreateTrackInput) {
     }
   }
 
+  // NOTE: tags are NOT included in the insert - they go to track_tags junction table only
   const { data: track, error } = await supabase
     .from('tracks')
     .insert({
@@ -373,7 +763,7 @@ export async function createTrack(input: CreateTrackInput) {
       summary: input.summary,
       status: input.status || 'draft',
       learning_objectives: input.learning_objectives || [],
-      tags: input.tags || [],
+      // tags column is deprecated - use track_tags junction table
       is_system_content: input.is_system_content || false,
       content_text: input.content_text,
       parent_track_id: input.parent_track_id,
@@ -385,6 +775,17 @@ export async function createTrack(input: CreateTrackInput) {
     .single();
 
   if (error) throw error;
+
+  // Sync tags to junction table (source of truth)
+  if (input.tags && input.tags.length > 0) {
+    try {
+      await assignTrackTagsByName(track.id, input.tags);
+      console.log(`🏷️ Synced ${input.tags.length} tags to track_tags junction table for new track ${track.id}`);
+    } catch (tagSyncError) {
+      console.error('Failed to sync tags to junction table (non-blocking):', tagSyncError);
+      // Non-blocking - don't fail the whole create if tag sync fails
+    }
+  }
 
   // Automate video workflow: transcribe → save transcript → generate key facts
   if (track.type === 'video' && track.content_url) {
@@ -429,9 +830,10 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   // First, check if track exists and user has permission
   // Also get status for brain indexing and check if it's a video
+  // NOTE: Include content_text for brain indexing (articles store body in this field)
   const { data: existingTrack, error: checkError } = await supabase
     .from('tracks')
-    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description')
+    .select('id, created_by, organization_id, status, type, content_url, transcript, title, description, content_text')
     .eq('id', id)
     .single();
 
@@ -445,6 +847,22 @@ export async function updateTrack(input: UpdateTrackInput) {
 
   if (!existingTrack) {
     throw new Error('Track not found');
+  }
+
+  // PUBLISH VALIDATION: If trying to publish, validate content is ready
+  // This prevents the race condition where content is indexed before transcript/content is complete
+  const isPublishing = updateData.status === 'published' && existingTrack.status !== 'published';
+  if (isPublishing) {
+    // Merge existing track data with updates for validation
+    const trackToValidate = {
+      type: updateData.type || existingTrack.type,
+      transcript: updateData.transcript !== undefined ? updateData.transcript : existingTrack.transcript,
+      content_text: updateData.content_text !== undefined ? updateData.content_text : existingTrack.content_text,
+    };
+    const validation = validateTrackContentForPublish(trackToValidate);
+    if (!validation.canPublish) {
+      throw new Error(validation.reason || 'Track is not ready to publish');
+    }
   }
 
   // Auto-calculate duration if content changed and duration not explicitly provided
@@ -486,20 +904,43 @@ export async function updateTrack(input: UpdateTrackInput) {
     }
   }
 
-  // Update the track
-  const { data: track, error } = await supabase
-    .from('tracks')
-    .update(updateData)
-    .eq('id', id)
-    .select()
-    .single();
+  // Extract tags from updateData - we'll handle them separately via junction table
+  const tagsToSync = updateData.tags;
+  const { tags: _removedTags, ...updateDataWithoutTags } = updateData as any;
 
-  if (error) {
-    // Check if it's a permission error (RLS blocked the update)
-    if (error.code === 'PGRST116' || error.message?.includes('not found')) {
-      throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
+  // Check if we have any non-tag fields to update
+  const hasNonTagUpdates = Object.keys(updateDataWithoutTags).length > 0;
+
+  let track = existingTrack;
+
+  // Only update the track if there are non-tag fields to update
+  if (hasNonTagUpdates) {
+    const { data: updatedTrack, error } = await supabase
+      .from('tracks')
+      .update(updateDataWithoutTags)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      // Check if it's a permission error (RLS blocked the update)
+      if (error.code === 'PGRST116' || error.message?.includes('not found')) {
+        throw new Error('Permission denied. You can only update tracks you created. Please contact an administrator if you need to update this track.');
+      }
+      throw error;
     }
-    throw error;
+    track = updatedTrack;
+  }
+
+  // Sync tags to junction table (source of truth) if tags were provided
+  if (tagsToSync !== undefined && Array.isArray(tagsToSync)) {
+    try {
+      await assignTrackTagsByName(id, tagsToSync);
+      console.log(`🏷️ Synced ${tagsToSync.length} tags to track_tags junction table for track ${id}`);
+    } catch (tagSyncError) {
+      console.error('Failed to sync tags to junction table (non-blocking):', tagSyncError);
+      // Non-blocking - don't fail the whole update if tag sync fails
+    }
   }
 
   // Auto-regenerate facts if content changed
@@ -535,7 +976,8 @@ export async function updateTrack(input: UpdateTrackInput) {
           trackType: track.type,
           title: track.title || '',
           description: updateData.transcript || '',
-          content: plainText
+          content: plainText,
+          replaceExisting: true  // Replace facts when article content changes (was adding duplicates)
         })
       })
       .then(async (res) => {
@@ -639,22 +1081,13 @@ export async function updateTrack(input: UpdateTrackInput) {
 
 /**
  * Publish a track (change status from draft to published)
+ * Note: Brain indexing is handled by updateTrack → handleTrackStatusChange
+ * to avoid duplicate indexing
  */
 export async function publishTrack(trackId: string) {
   const track = await updateTrack({ id: trackId, status: 'published' });
-  
-  // Index to Brain after publishing (fire-and-forget)
-  const trackType = track.type || track.track_type || 'article';
-  if (trackType === 'video') {
-    getTrackTranscript(track.id).then(transcript => {
-      indexTrackToBrain(track, transcript).catch(() => {});
-    }).catch(() => {
-      indexTrackToBrain(track).catch(() => {});
-    });
-  } else {
-    indexTrackToBrain(track).catch(() => {});
-  }
-  
+  // Brain indexing is already triggered by updateTrack via handleTrackStatusChange
+  // No need to call indexTrackToBrain again here
   return track;
 }
 
@@ -683,6 +1116,18 @@ export async function deleteTrack(trackId: string) {
     await softDeleteTrack(trackId);
   } else {
     // Hard delete: truly remove from database
+    // First, delete associated fact_usage entries (since track_id is TEXT, not FK with CASCADE)
+    const { error: factUsageError } = await supabase
+      .from('fact_usage')
+      .delete()
+      .eq('track_id', trackId);
+    
+    // Log but don't fail if fact_usage cleanup fails (non-critical)
+    if (factUsageError) {
+      console.error('Failed to cleanup fact_usage entries:', factUsageError);
+    }
+    
+    // Then delete the track
     const { error } = await supabase
       .from('tracks')
       .delete()
@@ -703,7 +1148,25 @@ export async function getTrackById(trackId: string) {
     .single();
 
   if (error) throw error;
-  return data;
+
+  // Enrich with tags from junction table and scope (so detail view shows "Content scope")
+  const withTags = await enrichTracksWithJunctionTags([data]);
+  const withScope = await enrichTracksWithScope(withTags);
+  return withScope[0];
+}
+
+/**
+ * Content Management preview: fetch full track row by ID via RPC (bypasses RLS).
+ * Use this for the preview dialog so transcript/content_text are always returned
+ * (e.g. in demo mode when there is no auth session).
+ */
+export async function getTrackByIdForContentManagement(trackId: string): Promise<any | null> {
+  const { data, error } = await supabase.rpc('get_track_by_id_for_content_management', {
+    p_track_id: trackId,
+  });
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  return rows.length ? rows[0] : null;
 }
 
 /**
@@ -724,7 +1187,7 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
   
   // This is an old version - find the latest version
   const parentId = track.parent_track_id || trackId;
-  
+
   // Get the latest version of this track family
   const { data: latestTrack, error } = await supabase
     .from('tracks')
@@ -732,18 +1195,32 @@ export async function getTrackByIdOrLatest(trackId: string): Promise<{
     .or(`id.eq.${parentId},parent_track_id.eq.${parentId}`)
     .eq('is_latest_version', true)
     .single();
-  
+
   if (error || !latestTrack) {
     // Fallback: if we can't find the latest, return the requested track
     return { track, isLatest: false, latestTrackId: trackId };
   }
-  
-  return { track: latestTrack, isLatest: false, latestTrackId: latestTrack.id };
+
+  // Enrich the latest track with tags and scope
+  const withTags = await enrichTracksWithJunctionTags([latestTrack]);
+  const withScope = await enrichTracksWithScope(withTags);
+  return { track: withScope[0], isLatest: false, latestTrackId: latestTrack.id };
 }
 
 /**
  * Get all tracks for organization with filters
  */
+export interface GetTracksScopeFilters {
+  scopeLevel?: string;
+  sector?: string;
+  industryId?: string;
+  stateCode?: string;
+  stateId?: string;
+  companyId?: string;
+  programId?: string;
+  unitId?: string;
+}
+
 export async function getTracks(filters: {
   type?: string;
   status?: string;
@@ -751,14 +1228,93 @@ export async function getTracks(filters: {
   tags?: string[];
   ids?: string[]; // Filter by specific IDs
   includeAllVersions?: boolean; // Set to true to include old versions
+  organizationId?: string; // Optional: specific org ID (defaults to current user's org)
+  isSystemContent?: boolean; // Optional: filter for system content
+  /** When true and isSystemContent true, skip org filter so Trike Super Admin sees all published system tracks. Only honored if current user is Trike Super Admin. */
+  allSystemTracksForSuperAdmin?: boolean;
+  /** When true (default), include published system tracks (is_system_content = true, status = published) in results so Content Library shows Trike template content for all orgs. Only applied when orgId is set and status is not drafts/archived. */
+  includePublishedSystemTracks?: boolean;
+  scopeLevel?: string;
+  sector?: string;
+  industryId?: string;
+  stateCode?: string;
+  stateId?: string;
+  companyId?: string;
+  programId?: string;
+  unitId?: string;
 } = {}) {
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
+  // Use provided organizationId or fall back to current user's org
+  let orgId: string | null = filters.organizationId || (await getCurrentUserOrgId());
+  const isSuperAdminAllSystem =
+    filters.allSystemTracksForSuperAdmin === true &&
+    filters.isSystemContent === true;
+  // Content Management tab passes this only when UI role is Trike Super Admin (dropdown + password).
+  // Trust the caller: that view is route- and password-protected, so skip org filter whenever asked.
+  if (isSuperAdminAllSystem) {
+    orgId = null; // Show all published system tracks (RLS allows for anon/Super Admin)
+  }
+  if (!orgId && !filters.isSystemContent) throw new Error('User not authenticated and no organization context provided');
 
   let query = supabase
     .from('tracks')
-    .select('*')
-    .eq('organization_id', orgId);
+    .select('*');
+
+  // Scope filter: resolve track_ids from track_scopes first
+  const hasScopeFilter =
+    filters.scopeLevel ||
+    filters.sector ||
+    filters.industryId ||
+    filters.stateCode ||
+    filters.stateId ||
+    filters.companyId ||
+    filters.programId ||
+    filters.unitId;
+
+  if (hasScopeFilter) {
+    let scopeQuery = supabase.from('track_scopes').select('track_id');
+    if (filters.scopeLevel) scopeQuery = scopeQuery.eq('scope_level', filters.scopeLevel);
+    if (filters.sector) scopeQuery = scopeQuery.eq('sector', filters.sector);
+    if (filters.industryId) scopeQuery = scopeQuery.eq('industry_id', filters.industryId);
+    if (filters.stateId) scopeQuery = scopeQuery.eq('state_id', filters.stateId);
+    if (filters.companyId) scopeQuery = scopeQuery.eq('company_id', filters.companyId);
+    if (filters.programId) scopeQuery = scopeQuery.eq('program_id', filters.programId);
+    if (filters.unitId) scopeQuery = scopeQuery.eq('unit_id', filters.unitId);
+    if (filters.stateCode) {
+      const { data: stateRow } = await supabase
+        .from('us_states')
+        .select('id')
+        .eq('code', filters.stateCode.toUpperCase())
+        .single();
+      if (stateRow) scopeQuery = scopeQuery.eq('state_id', stateRow.id);
+      else scopeQuery = scopeQuery.eq('state_id', '00000000-0000-0000-0000-000000000000'); // no match
+    }
+    const { data: scopeRows, error: scopeError } = await scopeQuery;
+    if (scopeError) throw scopeError;
+    const scopeTrackIds = [...new Set((scopeRows || []).map((r: { track_id: string }) => r.track_id))];
+    if (scopeTrackIds.length === 0) return [];
+    query = query.in('id', scopeTrackIds);
+  }
+
+  // Apply filters
+  if (filters.isSystemContent !== undefined) {
+    query = query.eq('is_system_content', filters.isSystemContent);
+  }
+
+  // Org scope: either strict org-only or org + published system tracks (so Content Library shows Trike template content)
+  const includeSystem =
+    filters.includePublishedSystemTracks !== false &&
+    orgId &&
+    filters.status !== 'drafts' &&
+    filters.status !== 'archived';
+  if (orgId) {
+    if (includeSystem) {
+      query = query.or(
+        `organization_id.eq.${orgId},and(is_system_content.eq.true,status.eq.published)`
+      );
+    } else {
+      query = query.eq('organization_id', orgId);
+    }
+  }
 
   if (filters.ids && filters.ids.length > 0) {
     query = query.in('id', filters.ids);
@@ -768,16 +1324,28 @@ export async function getTracks(filters: {
     query = query.eq('type', filters.type);
   }
 
-  // Handle tag filtering at database level if tags are provided
+  // Handle tag filtering via junction table (source of truth)
   if (filters.tags && filters.tags.length > 0) {
-    // Filter tracks by tags array column (array contains)
-    const { data: matchingTracks } = await supabase
-      .from('tracks')
+    // First, get tag IDs for the requested tag names
+    const { data: matchingTagRecords } = await supabase
+      .from('tags')
       .select('id')
-      .eq('organization_id', orgId)
-      .contains('tags', filters.tags);
+      .in('name', filters.tags);
 
-    const matchingTrackIds = matchingTracks?.map(t => t.id) || [];
+    const tagIds = matchingTagRecords?.map(t => t.id) || [];
+
+    if (tagIds.length === 0) {
+      // No tags found with these names, return empty result
+      return [];
+    }
+
+    // Get track IDs that have any of these tags
+    const { data: trackTagRelations } = await supabase
+      .from('track_tags')
+      .select('track_id')
+      .in('tag_id', tagIds);
+
+    const matchingTrackIds = [...new Set(trackTagRelations?.map(r => r.track_id) || [])];
 
     if (matchingTrackIds.length > 0) {
       query = query.in('id', matchingTrackIds);
@@ -806,18 +1374,26 @@ export async function getTracks(filters: {
         .eq('status', 'published')
         .eq('show_in_knowledge_base', true);
 
-      // Get tracks with tags array containing the system tag
-      const { data: kbTagTracks } = await supabase
-        .from('tracks')
+      // Get tracks with system:show_in_knowledge_base tag via junction table
+      const { data: kbTagRecord } = await supabase
+        .from('tags')
         .select('id')
-        .eq('organization_id', orgId)
-        .eq('status', 'published')
-        .contains('tags', ['system:show_in_knowledge_base']);
+        .eq('name', 'system:show_in_knowledge_base')
+        .single();
+
+      let kbTagTrackIds: string[] = [];
+      if (kbTagRecord) {
+        const { data: kbTagRelations } = await supabase
+          .from('track_tags')
+          .select('track_id')
+          .eq('tag_id', kbTagRecord.id);
+        kbTagTrackIds = kbTagRelations?.map(r => r.track_id) || [];
+      }
 
       // Combine all track IDs
       const allKbTrackIds = [
         ...(kbBooleanTracks?.map(t => t.id) || []),
-        ...(kbTagTracks?.map(t => t.id) || [])
+        ...kbTagTrackIds
       ];
 
       const uniqueKbTrackIds = [...new Set(allKbTrackIds)];
@@ -854,12 +1430,25 @@ export async function getTracks(filters: {
     // If error is about missing column, just log it and continue
     if (error.code === '42703') {
       // Removed console.warn and console.log per code quality standards
-      
+
       // Retry query without the problematic filter
       const simpleQuery = supabase
         .from('tracks')
-        .select('*')
-        .eq('organization_id', orgId);
+        .select('*');
+
+      if (orgId) {
+        if (includeSystem) {
+          simpleQuery.or(
+            `organization_id.eq.${orgId},and(is_system_content.eq.true,status.eq.published)`
+          );
+        } else {
+          simpleQuery.eq('organization_id', orgId);
+        }
+      }
+
+      if (filters.isSystemContent !== undefined) {
+        simpleQuery.eq('is_system_content', filters.isSystemContent);
+      }
 
       if (filters.ids && filters.ids.length > 0) {
         simpleQuery.in('id', filters.ids);
@@ -881,8 +1470,12 @@ export async function getTracks(filters: {
 
       if (retryError) throw retryError;
 
+      // Enrich with tags from junction table and scope
+      const tracksWithJunctionTags = await enrichTracksWithJunctionTags(retryData || []);
+      const filteredDataWithScope = await enrichTracksWithScope(tracksWithJunctionTags);
+
       // Apply client-side filtering for tags and in-kb if needed (fallback)
-      let filteredData = retryData || [];
+      let filteredData = filteredDataWithScope;
 
       if (filters.tags && filters.tags.length > 0) {
         filteredData = filteredData.filter(track => {
@@ -903,7 +1496,66 @@ export async function getTracks(filters: {
     throw error;
   }
 
-  return data || [];
+  // Enrich tracks with tags from junction table (source of truth)
+  const enrichedTracks = await enrichTracksWithJunctionTags(data || []);
+  const withScope = await enrichTracksWithScope(enrichedTracks);
+
+  // Post-fetch geographic filtering when viewing as an org (Content Library, demo account, etc.)
+  // Exclude STATE-scoped tracks whose state is not in the org's operating_states; also filter by state tags.
+  if (orgId && !filters.allSystemTracksForSuperAdmin) {
+    try {
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('operating_states')
+        .eq('id', orgId)
+        .single();
+
+      const states: string[] = Array.isArray(orgData?.operating_states)
+        ? (orgData.operating_states as string[]).map((s: string) => String(s).toUpperCase())
+        : [];
+
+      if (states.length > 0) {
+        const stateTagPrefix = 'state:';
+        const allowedStateTags = states.map((s: string) => `${stateTagPrefix}${s}`);
+
+        return withScope.filter(track => {
+          // 1) track_scopes STATE: if scope is STATE and state_code not in org's states, exclude
+          const scope = track.scope;
+          if (scope?.scope_level === 'STATE' && scope.state_code) {
+            const code = String(scope.state_code).toUpperCase();
+            if (!states.includes(code)) return false;
+          }
+          // 2) Legacy state tags: if track has state tags, at least one must match org's operating states
+          const trackTags = track.tags || [];
+          const hasStateTags = trackTags.some((tag: string) => tag.startsWith(stateTagPrefix));
+          if (hasStateTags && !trackTags.some((tag: string) => allowedStateTags.includes(tag))) return false;
+          return true;
+        });
+      }
+    } catch (err) {
+      console.warn('Geographic filtering failed (non-critical):', err);
+    }
+  }
+
+  return withScope;
+}
+
+/**
+ * Content Management tab: tracks via RPC (bypasses RLS).
+ * Use this when the UI role is Trike Super Admin so the list is not limited by org.
+ * @param status - 'published' (default) or 'archived'
+ */
+export async function getAllPublishedSystemTracksForContentManagement(
+  status: 'published' | 'archived' = 'published'
+): Promise<any[]> {
+  const { data, error } = await supabase.rpc('get_all_published_system_tracks', {
+    p_status: status,
+  });
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  const withTags = await enrichTracksWithJunctionTags(rows);
+  const withScope = await enrichTracksWithScope(withTags);
+  return withScope;
 }
 
 /**
@@ -1893,7 +2545,7 @@ export async function softDeleteTrack(trackId: string) {
   try {
     const { error } = await supabase
       .from('tracks')
-      .update({ 
+      .update({
         deleted_at: new Date().toISOString(),
         status: 'archived'
       })
@@ -1901,13 +2553,18 @@ export async function softDeleteTrack(trackId: string) {
 
     if (error) {
       // If deleted_at column doesn't exist, just set status
-      if (error.code === '42703') {
+      // Check for both PostgreSQL error code and Supabase schema cache error
+      const isColumnNotFound = error.code === '42703' ||
+        error.message?.includes('Could not find') ||
+        error.message?.includes('deleted_at');
+
+      if (isColumnNotFound) {
         console.log('⚠️ deleted_at column not found, using status only');
         const { error: statusError } = await supabase
           .from('tracks')
           .update({ status: 'archived' })
           .eq('id', trackId);
-        
+
         if (statusError) throw statusError;
       } else {
         throw error;
@@ -1917,4 +2574,65 @@ export async function softDeleteTrack(trackId: string) {
     console.error('Error in softDeleteTrack:', err);
     throw err;
   }
+}
+
+/**
+ * Bulk assign tracks to an album. Skips tracks already in the album.
+ * Used by Trike Super Admin content management.
+ */
+export async function bulkAssignTracksToAlbum(
+  albumId: string,
+  trackIds: string[]
+): Promise<{ added: number; skipped: number; errors: string[] }> {
+  if (!albumId || !trackIds?.length) {
+    return { added: 0, skipped: 0, errors: [] };
+  }
+  const { data: existing } = await supabase
+    .from('album_tracks')
+    .select('track_id')
+    .eq('album_id', albumId);
+  const existingSet = new Set((existing || []).map((r: { track_id: string }) => r.track_id));
+  const toAdd = trackIds.filter((id) => !existingSet.has(id));
+  if (toAdd.length === 0) {
+    return { added: 0, skipped: trackIds.length, errors: [] };
+  }
+  const maxOrderResult = await supabase
+    .from('album_tracks')
+    .select('display_order')
+    .eq('album_id', albumId)
+    .order('display_order', { ascending: false })
+    .limit(1);
+  const maxOrder = (maxOrderResult.data?.[0] as any)?.display_order ?? 0;
+  const records = toAdd.map((track_id, i) => ({
+    album_id: albumId,
+    track_id,
+    display_order: maxOrder + 1 + i,
+    is_required: true,
+    unlock_previous: false,
+  }));
+  const { error } = await supabase.from('album_tracks').insert(records);
+  if (error) throw error;
+  await supabase.from('albums').update({ updated_at: new Date().toISOString() }).eq('id', albumId);
+  return {
+    added: toAdd.length,
+    skipped: trackIds.length - toAdd.length,
+    errors: [],
+  };
+}
+
+/**
+ * Bulk set is_system_content (Trike template for new orgs) on tracks.
+ * Used by Content Management bulk "Set system content" action.
+ */
+export async function bulkUpdateTrackSystemContent(
+  trackIds: string[],
+  isSystemContent: boolean
+): Promise<{ updated: number; errors: string[] }> {
+  if (!trackIds?.length) return { updated: 0, errors: [] };
+  const { error } = await supabase
+    .from('tracks')
+    .update({ is_system_content: isSystemContent, updated_at: new Date().toISOString() })
+    .in('id', trackIds);
+  if (error) throw error;
+  return { updated: trackIds.length, errors: [] };
 }

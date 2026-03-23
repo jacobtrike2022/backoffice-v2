@@ -13,13 +13,6 @@ import {
   TableRow,
 } from './ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -39,10 +32,14 @@ import {
   Check,
   X,
   Loader2,
+  Zap,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId } from '../lib/supabase';
-import { compressDocument, shouldCompressDocument } from '../lib/utils/documentCompression';
+import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
+import { uploadSourceFile } from '../lib/services/uploadService';
+import { getServerUrl } from '../utils/supabase/info';
 
 interface SourceFile {
   id: string;
@@ -59,18 +56,37 @@ interface SourceFile {
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+  extracted_text: string | null;
+  metadata: any;
+  is_chunked?: boolean;
+  chunked_at?: string | null;
+  chunk_count?: number;
+  // Detected content type counts from chunks
+  detected_entity_count?: number;
+  pending_entity_count?: number;
+  has_job_descriptions?: boolean;
 }
 
-type SourceType = 'handbook' | 'policy' | 'procedures' | 'communications' | 'training_docs' | 'other';
+// Content type configuration for pills (matches backend ContentClass types)
+// - policy: Rules, expectations, standards
+// - procedure: Step-by-step instructions
+// - job_description: Role definitions
+// - training_materials: Checklists, guides, OJT (catchall)
+// - other: Miscellaneous
+const CONTENT_TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  policy: { label: 'Policy', color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+  procedure: { label: 'Procedure', color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
+  job_description: { label: 'Job Description', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
+  training_materials: { label: 'Training', color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
+  other: { label: 'Other', color: 'text-gray-700 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-900/30' },
+};
 
-const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string }[] = [
-  { value: 'handbook', label: 'Handbook' },
-  { value: 'policy', label: 'Policy' },
-  { value: 'procedures', label: 'Procedures' },
-  { value: 'communications', label: 'Communications' },
-  { value: 'training_docs', label: 'Training Docs' },
-  { value: 'other', label: 'Other' },
-];
+interface ChunkContentSummary {
+  source_file_id: string;
+  content_class: string;
+  count: number;
+}
+
 
 const ACCEPTED_FILE_TYPES = [
   'application/pdf',
@@ -91,39 +107,20 @@ const ACCEPTED_FILE_TYPES = [
 
 const ACCEPTED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif';
 
-export function SourcesManagement() {
+interface SourcesManagementProps {
+  onOpenEditor?: (sourceFileId: string) => void;
+}
+
+export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
+  const [contentSummaries, setContentSummaries] = useState<Record<string, ChunkContentSummary[]>>({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [compressing, setCompressing] = useState(false);
-  const [compressingFileName, setCompressingFileName] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [extracting, setExtracting] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Get a signed URL for viewing/downloading files (private bucket)
-  const getSignedUrl = async (storagePath: string): Promise<string | null> => {
-    try {
-      const { data, error } = await supabase.storage
-        .from('source-files')
-        .createSignedUrl(storagePath, 3600); // 1 hour expiry
-
-      if (error) throw error;
-      return data.signedUrl;
-    } catch (error: any) {
-      console.error('Error creating signed URL:', error);
-      toast.error('Failed to access file');
-      return null;
-    }
-  };
-
-  // Open file in new tab using signed URL
-  const handleViewFile = async (file: SourceFile) => {
-    const signedUrl = await getSignedUrl(file.storage_path);
-    if (signedUrl) {
-      window.open(signedUrl, '_blank');
-    }
-  };
 
   useEffect(() => {
     loadSourceFiles();
@@ -146,11 +143,74 @@ export function SourcesManagement() {
 
       if (error) throw error;
       setSourceFiles(data || []);
+
+      // Load content type summaries for chunked files
+      const chunkedFileIds = (data || []).filter(f => f.is_chunked).map(f => f.id);
+      if (chunkedFileIds.length > 0) {
+        await loadContentSummaries(chunkedFileIds);
+      }
     } catch (error: any) {
       console.error('Error loading source files:', error);
       toast.error('Failed to load source files');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load content type summaries from chunks
+  const loadContentSummaries = async (fileIds: string[]) => {
+    try {
+      // Query chunks grouped by content_class for each file
+      const { data: chunks, error } = await supabase
+        .from('source_chunks')
+        .select('source_file_id, content_class')
+        .in('source_file_id', fileIds);
+
+      if (error) throw error;
+
+      // Group and count by file and content class
+      const summaries: Record<string, ChunkContentSummary[]> = {};
+      (chunks || []).forEach((chunk: { source_file_id: string; content_class: string }) => {
+        if (!summaries[chunk.source_file_id]) {
+          summaries[chunk.source_file_id] = [];
+        }
+        const existing = summaries[chunk.source_file_id].find(s => s.content_class === chunk.content_class);
+        if (existing) {
+          existing.count++;
+        } else {
+          summaries[chunk.source_file_id].push({
+            source_file_id: chunk.source_file_id,
+            content_class: chunk.content_class || 'other',
+            count: 1,
+          });
+        }
+      });
+
+      setContentSummaries(summaries);
+    } catch (error: any) {
+      console.error('Error loading content summaries:', error);
+    }
+  };
+
+  const getSignedUrl = async (storagePath: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('source-files')
+        .createSignedUrl(storagePath, 3600);
+
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (error: any) {
+      console.error('Error creating signed URL:', error);
+      toast.error('Failed to access file');
+      return null;
+    }
+  };
+
+  const handleViewFile = async (file: SourceFile) => {
+    const signedUrl = await getSignedUrl(file.storage_path);
+    if (signedUrl) {
+      window.open(signedUrl, '_blank');
     }
   };
 
@@ -164,245 +224,148 @@ export function SourcesManagement() {
     }
 
     setUploading(true);
-    const uploadPromises: Promise<void>[] = [];
+    setUploadProgress(0);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
 
       // Validate file type
       if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-        toast.error(`Invalid file type: ${file.name}`, {
-          description: 'Accepted formats: PDF, Word, Excel, PowerPoint, Text, CSV'
-        });
+        toast.error(`Invalid file type: ${file.name}`);
         continue;
       }
 
       // Validate file size (50MB max)
       if (file.size > 50 * 1024 * 1024) {
-        toast.error(`File too large: ${file.name}`, {
-          description: 'Maximum file size is 50MB'
-        });
+        toast.error(`File too large: ${file.name} (max 50MB)`);
         continue;
       }
 
-      uploadPromises.push(uploadSingleFile(file, orgId));
+      try {
+        // Upload using the reliable upload service
+        const result = await uploadSourceFile(file, orgId, (progress) => {
+          setUploadProgress(progress);
+        });
+
+        if (!result.success || !result.path || !result.signedUrl) {
+          throw new Error(result.error || 'Upload failed');
+        }
+
+        // Insert record into database
+        const { data: insertedFile, error: insertError } = await supabase
+          .from('source_files')
+          .insert({
+            organization_id: orgId,
+            file_name: file.name,
+            storage_path: result.path,
+            file_url: result.signedUrl,
+            file_type: file.type,
+            file_size: file.size,
+          })
+          .select('id')
+          .single();
+
+        if (insertError) {
+          // Clean up storage if database insert fails
+          await supabase.storage.from('source-files').remove([result.path]);
+          throw insertError;
+        }
+
+        toast.success(`Uploaded: ${file.name}`);
+
+        // Auto-trigger extraction for supported file types
+        const extractableTypes = [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+          'text/csv'
+        ];
+
+        if (extractableTypes.includes(file.type) && insertedFile?.id) {
+          triggerExtraction(insertedFile.id, file.name);
+        }
+
+      } catch (error: any) {
+        console.error('Error uploading file:', error);
+        toast.error(`Failed to upload: ${file.name}`, {
+          description: error.message
+        });
+      }
     }
 
+    setUploading(false);
+    setUploadProgress(0);
+    await loadSourceFiles();
+  };
+
+  const triggerExtraction = async (fileId: string, fileName: string) => {
+    const toastId = toast.loading(`Processing ${fileName}...`);
+
     try {
-      await Promise.all(uploadPromises);
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || supabaseAnonKey;
+
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: fileId }),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Extraction failed');
+      }
+
+      toast.dismiss(toastId);
+      toast.success(`Extracted ${responseData.stats?.word_count?.toLocaleString() || 0} words from ${fileName}`);
       await loadSourceFiles();
-    } finally {
-      setUploading(false);
+    } catch (error: any) {
+      toast.dismiss(toastId);
+      toast.error(`Failed to process ${fileName}`, {
+        description: error.message
+      });
     }
   };
 
-  const uploadSingleFile = async (file: File, orgId: string) => {
+  const handleExtractSource = async (file: SourceFile) => {
+    setExtracting(file.id);
     try {
-      const originalSizeMB = file.size / (1024 * 1024);
-      let fileToUpload = file;
-      let wasCompressed = false;
-      let compressedSizeMB = originalSizeMB;
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || supabaseAnonKey;
 
-      // Compress file if needed (especially for images)
-      if (shouldCompressDocument(file, 180)) { // Compress if over 180MB (to stay under 200MB)
-        setCompressing(true);
-        setCompressingFileName(file.name);
-        
-        try {
-          const compressionResult = await compressDocument(file, {
-            maxSizeMB: 180,
-            maxImageSizeMB: 10, // Compress images over 10MB
-          });
-          
-          fileToUpload = compressionResult.file;
-          wasCompressed = compressionResult.wasCompressed;
-          compressedSizeMB = compressionResult.compressedSizeMB;
-          
-          if (wasCompressed) {
-            toast.info(
-              `Compressed ${file.name}: ${originalSizeMB.toFixed(1)}MB → ${compressedSizeMB.toFixed(1)}MB`,
-              { duration: 3000 }
-            );
-          }
-        } catch (compressionError: any) {
-          console.warn('[SourcesManagement] Compression failed, using original file:', compressionError);
-          toast.warning(`Compression failed for ${file.name}, uploading original file`);
-        } finally {
-          setCompressing(false);
-          setCompressingFileName('');
-        }
-      }
-
-      // Validate final file size (200MB limit)
-      const finalSizeMB = fileToUpload.size / (1024 * 1024);
-      if (finalSizeMB > 200) {
-        throw new Error(
-          `File is too large (${finalSizeMB.toFixed(1)}MB). Maximum size is 200MB. ` +
-          `Please compress the file before uploading.`
-        );
-      }
-
-      // Generate unique file path
-      const fileExt = fileToUpload.name.split('.').pop();
-      const fileName = `${orgId}/${crypto.randomUUID()}.${fileExt}`;
-
-      console.log('[SourcesManagement] Starting upload:', {
-        fileName,
-        originalSize: file.size,
-        finalSize: fileToUpload.size,
-        fileType: fileToUpload.type,
-        wasCompressed
+      const serverUrl = getServerUrl();
+      const response = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: file.id }),
       });
 
-      // Verify Supabase session before upload
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.warn('[SourcesManagement] Session error:', sessionError);
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Extraction failed');
       }
-      console.log('[SourcesManagement] Session status:', { 
-        hasSession: !!session, 
-        userId: session?.user?.id,
-        expiresAt: session?.expires_at 
+
+      toast.success('Extraction completed!', {
+        description: `${responseData.stats?.word_count || 0} words extracted`,
       });
 
-      // Upload to storage with retry logic for network issues
-      let uploadError: any = null;
-      let uploadData: any = null;
-      const maxRetries = 3;
-      const retryDelay = 2000; // 2 seconds
-      const uploadTimeout = 10 * 60 * 1000; // 10 minutes for large files
-
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          console.log(`[SourcesManagement] Upload attempt ${attempt}/${maxRetries} for ${file.name} (${finalSizeMB.toFixed(1)}MB)`);
-          
-          // Create upload promise
-          const uploadPromise = supabase.storage
-            .from('source-files')
-            .upload(fileName, fileToUpload, {
-              contentType: fileToUpload.type || file.type || 'application/octet-stream',
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          // Add timeout wrapper
-          const timeoutPromise = new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Upload timeout - the file may be too large or connection is slow')), uploadTimeout)
-          );
-
-          try {
-            const result = await Promise.race([uploadPromise, timeoutPromise]);
-            uploadData = result.data;
-            uploadError = result.error;
-
-            if (!uploadError) {
-              console.log(`[SourcesManagement] Upload successful on attempt ${attempt}`);
-              break;
-            }
-
-            // If it's a network error and we have retries left, wait and retry
-            const isNetworkError = uploadError?.message?.includes('fetch') || 
-                                 uploadError?.message?.includes('network') ||
-                                 uploadError?.message?.includes('Failed to fetch');
-            
-            if (isNetworkError && attempt < maxRetries) {
-              console.warn(`[SourcesManagement] Network error on attempt ${attempt}, retrying in ${retryDelay * attempt}ms...`);
-              await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Exponential backoff
-              continue;
-            }
-
-            // If it's not a network error or we're out of retries, break and throw
-            break;
-          } catch (timeoutError: any) {
-            // Handle timeout specifically
-            if (timeoutError.message?.includes('timeout')) {
-              uploadError = timeoutError;
-              if (attempt < maxRetries) {
-                console.warn(`[SourcesManagement] Timeout on attempt ${attempt}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
-                continue;
-              }
-            }
-            throw timeoutError;
-          }
-        } catch (error: any) {
-          uploadError = error;
-          const isRetryable = (error.message?.includes('timeout') || 
-                              error.message?.includes('fetch') ||
-                              error.message?.includes('network')) && attempt < maxRetries;
-          
-          if (isRetryable) {
-            console.warn(`[SourcesManagement] Error on attempt ${attempt}, retrying...`);
-            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
-            continue;
-          }
-          
-          // If not retryable or out of retries, break
-          break;
-        }
-      }
-
-      console.log('[SourcesManagement] Upload result:', { uploadData, uploadError });
-
-      if (uploadError) {
-        console.error('[SourcesManagement] Upload error details:', {
-          message: uploadError.message,
-          error: uploadError
-        });
-        
-        // Provide more helpful error messages
-        const isNetworkIssue = uploadError.message?.includes('timeout') || 
-                              uploadError.message?.includes('fetch') ||
-                              uploadError.message?.includes('network') ||
-                              uploadError.message?.includes('Failed to fetch');
-        
-        if (isNetworkIssue) {
-          throw new Error(
-            `Upload failed due to network issues. The file (${finalSizeMB.toFixed(1)}MB) may be too large for your connection. ` +
-            `Please try: 1) Check your internet connection, 2) Try a smaller file, or 3) Compress the file before uploading.`
-          );
-        }
-        
-        throw uploadError;
-      }
-
-      // Since bucket is private, use signed URL instead of public URL
-      // Create signed URL with 10 year expiration for long-term access
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('source-files')
-        .createSignedUrl(fileName, 315360000); // 10 years in seconds
-
-      if (signedUrlError) {
-        console.error('[SourcesManagement] Error creating signed URL:', signedUrlError);
-        throw new Error(`Failed to create file URL: ${signedUrlError.message}`);
-      }
-
-      const fileUrl = signedUrlData.signedUrl;
-
-      // Insert record into database
-      const { error: insertError } = await supabase
-        .from('source_files')
-        .insert({
-          organization_id: orgId,
-          file_name: file.name, // Keep original filename
-          storage_path: fileName,
-          file_url: fileUrl,
-          file_type: file.type, // Keep original MIME type
-          file_size: fileToUpload.size, // Store actual uploaded size
-        });
-
-      if (insertError) {
-        // Clean up storage if database insert fails
-        await supabase.storage.from('source-files').remove([fileName]);
-        throw insertError;
-      }
-
-      toast.success(`Uploaded: ${file.name}`);
+      await loadSourceFiles();
     } catch (error: any) {
-      console.error('Error uploading file:', error);
-      toast.error(`Failed to upload: ${file.name}`, {
-        description: error.message
-      });
+      console.error('Extract error:', error);
+      toast.error('Extraction failed', { description: error.message });
+    } finally {
+      setExtracting(null);
     }
   };
 
@@ -449,13 +412,7 @@ export function SourcesManagement() {
 
     try {
       // Delete from storage
-      const { error: storageError } = await supabase.storage
-        .from('source-files')
-        .remove([file.storage_path]);
-
-      if (storageError) {
-        console.error('Storage deletion error:', storageError);
-      }
+      await supabase.storage.from('source-files').remove([file.storage_path]);
 
       // Delete from database
       const { error: dbError } = await supabase
@@ -470,6 +427,26 @@ export function SourcesManagement() {
     } catch (error: any) {
       console.error('Error deleting file:', error);
       toast.error('Failed to delete file');
+    }
+  };
+
+  const handleSourceTypeUpdate = async (fileId: string, newType: string) => {
+    try {
+      const { error } = await supabase
+        .from('source_files')
+        .update({ source_type: newType })
+        .eq('id', fileId);
+
+      if (error) throw error;
+
+      setSourceFiles(prev =>
+        prev.map(f => f.id === fileId ? { ...f, source_type: newType } : f)
+      );
+
+      toast.success('Source type updated');
+    } catch (error: any) {
+      console.error('Error updating source type:', error);
+      toast.error('Failed to update source type');
     }
   };
 
@@ -510,7 +487,7 @@ export function SourcesManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Drag and Drop Upload Area */}
+      {/* Upload Area */}
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
           isDragOver
@@ -531,17 +508,18 @@ export function SourcesManagement() {
           onChange={(e) => handleFileUpload(e.target.files)}
         />
 
-        {uploading || compressing ? (
+        {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-10 w-10 text-primary animate-spin" />
             <p className="text-sm text-muted-foreground">
-              {compressing ? `Compressing ${compressingFileName}...` : 'Uploading files...'}
+              Uploading... {uploadProgress}%
             </p>
-            {compressing && (
-              <p className="text-xs text-muted-foreground">
-                Large files are automatically compressed to reduce upload time
-              </p>
-            )}
+            <div className="w-48 h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -554,10 +532,7 @@ export function SourcesManagement() {
                 Drag and drop files here, or click to browse
               </p>
               <p className="text-xs text-muted-foreground mt-2">
-                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 200MB)
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Images are automatically compressed for faster uploads
+                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 50MB)
               </p>
             </div>
           </div>
@@ -600,8 +575,9 @@ export function SourcesManagement() {
               <TableRow>
                 <TableHead className="w-[300px]">File Name</TableHead>
                 <TableHead>Attachment</TableHead>
-                <TableHead className="w-[180px]">Source Type</TableHead>
-                <TableHead className="w-[100px]">Processed?</TableHead>
+                <TableHead className="w-[200px]">Detected Content</TableHead>
+                <TableHead className="w-[100px]">Extracted?</TableHead>
+                <TableHead className="w-[120px]">Status</TableHead>
                 <TableHead className="w-[100px]">Size</TableHead>
                 <TableHead className="w-[120px]">Uploaded</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
@@ -611,40 +587,72 @@ export function SourcesManagement() {
               {filteredFiles.map((file) => (
                 <TableRow key={file.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onOpenEditor?.(file.id)}
+                      className="flex items-center gap-2 hover:text-primary transition-colors text-left"
+                    >
                       {getFileIcon(file.file_type)}
                       <span className="font-medium truncate max-w-[250px]" title={file.file_name}>
                         {file.file_name}
                       </span>
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => handleViewFile(file)}
+                        title="Open original file"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => handleExtractSource(file)}
+                        disabled={extracting === file.id}
+                        title="Re-extract text"
+                      >
+                        {extracting === file.id ? (
+                          <Zap className="h-4 w-4 text-[#F74A05] animate-pulse" />
+                        ) : (
+                          <Zap className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-primary hover:text-primary"
-                      onClick={() => handleViewFile(file)}
-                    >
-                      <ExternalLink className="h-4 w-4 mr-1" />
-                      View
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={file.source_type || ''}
-                      onValueChange={(value) => handleUpdateSourceType(file.id, value as SourceType)}
-                    >
-                      <SelectTrigger className="h-8 w-[160px]">
-                        <SelectValue placeholder="Select type..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SOURCE_TYPE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Show detected content types from chunks - clickable to open editor */}
+                    {file.is_chunked && contentSummaries[file.id]?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {contentSummaries[file.id].map((summary) => {
+                          const config = CONTENT_TYPE_CONFIG[summary.content_class] || CONTENT_TYPE_CONFIG.other;
+                          return (
+                            <button
+                              key={summary.content_class}
+                              onClick={() => onOpenEditor?.(file.id)}
+                              className="transition-opacity hover:opacity-80"
+                            >
+                              <Badge
+                                variant="secondary"
+                                className={`${config.bgColor} ${config.color} text-xs cursor-pointer`}
+                              >
+                                {config.label} ({summary.count})
+                              </Badge>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : file.is_chunked ? (
+                      <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs">
+                        Unclassified
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {file.is_processed ? (
@@ -652,6 +660,40 @@ export function SourcesManagement() {
                         <Check className="h-3 w-3 mr-1" />
                         Yes
                       </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                        <X className="h-3 w-3 mr-1" />
+                        No
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {file.is_chunked ? (
+                      <button
+                        onClick={() => onOpenEditor?.(file.id)}
+                        className="inline-flex items-center"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 cursor-pointer transition-colors"
+                        >
+                          <Layers className="h-3 w-3 mr-1" />
+                          {file.chunk_count || 0} chunks
+                        </Badge>
+                      </button>
+                    ) : file.extracted_text ? (
+                      <button
+                        onClick={() => onOpenEditor?.(file.id)}
+                        className="inline-flex items-center"
+                      >
+                        <Badge
+                          variant="secondary"
+                          className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 cursor-pointer transition-colors"
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Process
+                        </Badge>
+                      </button>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                         <X className="h-3 w-3 mr-1" />
@@ -673,6 +715,12 @@ export function SourcesManagement() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {onOpenEditor && (
+                          <DropdownMenuItem onClick={() => onOpenEditor(file.id)}>
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Process Document
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => handleViewFile(file)}>
                           <Download className="h-4 w-4 mr-2" />
                           Download

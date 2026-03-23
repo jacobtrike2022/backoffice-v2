@@ -71,18 +71,58 @@ export async function getPlaylists(filters: {
   // Extract all playlist IDs for batched queries
   const playlistIds = playlists.map((p: any) => p.id);
 
-  // Batch query 1: Get all album counts for all playlists at once
+  // Batch query 1: Get all album data for all playlists at once
   const { data: allPlaylistAlbums } = await supabase
     .from('playlist_albums')
-    .select('playlist_id')
+    .select('playlist_id, album_id')
     .in('playlist_id', playlistIds);
 
-  // Batch query 2: Get all track data for all playlists at once
+  // Batch query 2: Get all track data for all playlists at once (with track status and duration to filter archived)
   const { data: allPlaylistTracks } = await supabase
     .from('playlist_tracks')
-    .select('playlist_id, track_id, display_order')
+    .select(`
+      playlist_id,
+      track_id,
+      display_order,
+      track:tracks (
+        status,
+        duration_minutes
+      )
+    `)
     .in('playlist_id', playlistIds)
     .order('display_order', { ascending: true });
+
+  // Batch query 2b: Get all tracks within albums for these playlists
+  const allAlbumIds = [...new Set((allPlaylistAlbums || []).map((pa: any) => pa.album_id).filter(Boolean))];
+  let albumTracksByAlbum: Record<string, { track_id: string; duration_minutes: number }[]> = {};
+
+  if (allAlbumIds.length > 0) {
+    const { data: albumTracks } = await supabase
+      .from('album_tracks')
+      .select(`
+        album_id,
+        track_id,
+        track:tracks (
+          id,
+          status,
+          duration_minutes
+        )
+      `)
+      .in('album_id', allAlbumIds);
+
+    // Group album tracks by album_id, filtering out archived tracks
+    (albumTracks || []).forEach((at: any) => {
+      if (at.track?.status !== 'archived') {
+        if (!albumTracksByAlbum[at.album_id]) {
+          albumTracksByAlbum[at.album_id] = [];
+        }
+        albumTracksByAlbum[at.album_id].push({
+          track_id: at.track_id,
+          duration_minutes: at.track?.duration_minutes || 0,
+        });
+      }
+    });
+  }
 
   // Batch query 3: Get all assignments for all playlists at once
   const { data: allAssignments } = await supabase
@@ -100,19 +140,28 @@ export async function getPlaylists(filters: {
 
   // Build lookup maps
   const albumCountByPlaylist: Record<string, number> = {};
+  const albumIdsByPlaylist: Record<string, string[]> = {};
   (allPlaylistAlbums as any[])?.forEach((pa: any) => {
     albumCountByPlaylist[pa.playlist_id] = (albumCountByPlaylist[pa.playlist_id] || 0) + 1;
+    if (!albumIdsByPlaylist[pa.playlist_id]) {
+      albumIdsByPlaylist[pa.playlist_id] = [];
+    }
+    if (pa.album_id) {
+      albumIdsByPlaylist[pa.playlist_id].push(pa.album_id);
+    }
   });
 
-  const tracksByPlaylist: Record<string, { track_id: string; display_order: number }[]> = {};
+  const tracksByPlaylist: Record<string, { track_id: string; display_order: number; duration_minutes: number }[]> = {};
   (allPlaylistTracks as any[])?.forEach((pt: any) => {
     if (!tracksByPlaylist[pt.playlist_id]) {
       tracksByPlaylist[pt.playlist_id] = [];
     }
-    if (pt.track_id) {
+    // Only include non-archived tracks
+    if (pt.track_id && pt.track?.status !== 'archived') {
       tracksByPlaylist[pt.playlist_id].push({
         track_id: pt.track_id,
         display_order: pt.display_order || 0,
+        duration_minutes: pt.track?.duration_minutes || 0,
       });
     }
   });
@@ -122,9 +171,41 @@ export async function getPlaylists(filters: {
     tracksByPlaylist[playlistId].sort((a, b) => a.display_order - b.display_order);
   });
 
+  // Calculate total track count (standalone + album tracks) and duration for each playlist
   const trackCountByPlaylist: Record<string, number> = {};
-  Object.keys(tracksByPlaylist).forEach(playlistId => {
-    trackCountByPlaylist[playlistId] = tracksByPlaylist[playlistId].length;
+  const totalDurationByPlaylist: Record<string, number> = {};
+  const allTrackIdsByPlaylist: Record<string, string[]> = {};
+
+  playlists.forEach((playlist: any) => {
+    const standaloneTracks = tracksByPlaylist[playlist.id] || [];
+    const standaloneTrackIds = standaloneTracks.map(t => t.track_id);
+    const playlistAlbumIds = albumIdsByPlaylist[playlist.id] || [];
+
+    // Calculate standalone track duration
+    let standaloneTracksDuration = 0;
+    standaloneTracks.forEach(t => {
+      standaloneTracksDuration += t.duration_minutes || 0;
+    });
+
+    // Get all track IDs from albums
+    const albumTrackIds: string[] = [];
+    let albumTracksDuration = 0;
+    playlistAlbumIds.forEach(albumId => {
+      const albumTracks = albumTracksByAlbum[albumId] || [];
+      albumTracks.forEach(at => {
+        if (!albumTrackIds.includes(at.track_id) && !standaloneTrackIds.includes(at.track_id)) {
+          // Only add duration if track is not already counted as standalone
+          albumTrackIds.push(at.track_id);
+          albumTracksDuration += at.duration_minutes || 0;
+        }
+      });
+    });
+
+    // Combine and dedupe track IDs
+    const allTrackIds = [...new Set([...standaloneTrackIds, ...albumTrackIds])];
+    allTrackIdsByPlaylist[playlist.id] = allTrackIds;
+    trackCountByPlaylist[playlist.id] = allTrackIds.length;
+    totalDurationByPlaylist[playlist.id] = standaloneTracksDuration + albumTracksDuration;
   });
 
   const assignmentsByPlaylist: Record<string, { user_id: string; progress_percent: number; status: string }[]> = {};
@@ -157,27 +238,27 @@ export async function getPlaylists(filters: {
 
   // Enrich each playlist with data from lookup maps
   const enrichedPlaylists = playlists.map((playlist: any) => {
-    const playlistTracks = tracksByPlaylist[playlist.id] || [];
-    const track_ids = playlistTracks.map((pt: any) => pt.track_id).filter(Boolean);
-    const requiredTrackIds = new Set(track_ids);
-    
+    // Use the combined track IDs (standalone + album tracks)
+    const all_track_ids = allTrackIdsByPlaylist[playlist.id] || [];
+    const standaloneTrackIds = (tracksByPlaylist[playlist.id] || []).map((pt: any) => pt.track_id).filter(Boolean);
+
     const assignments = assignmentsByPlaylist[playlist.id] || [];
     const totalAssignments = assignments.length;
-    
+
     // Calculate completion rate based on track_completions
     // A user has "completed" the playlist if they've completed all tracks in it
     let completedUsers = 0;
     assignments.forEach((assignment: any) => {
       const userCompletions = completionsByUser[assignment.user_id] || new Set();
-      // Check if user has completed all required tracks
-      const hasCompletedAll = track_ids.length > 0 && 
-        track_ids.every(trackId => userCompletions.has(trackId));
+      // Check if user has completed all required tracks (including album tracks)
+      const hasCompletedAll = all_track_ids.length > 0 &&
+        all_track_ids.every(trackId => userCompletions.has(trackId));
       if (hasCompletedAll) {
         completedUsers++;
       }
     });
-    
-    const completionRate = totalAssignments > 0 
+
+    const completionRate = totalAssignments > 0
       ? Math.round((completedUsers / totalAssignments) * 100)
       : 0;
 
@@ -191,10 +272,13 @@ export async function getPlaylists(filters: {
       ...playlist,
       album_count: albumCountByPlaylist[playlist.id] || 0,
       track_count: trackCountByPlaylist[playlist.id] || 0,
+      total_duration_minutes: totalDurationByPlaylist[playlist.id] || 0,
       assignment_count: assignmentCountByPlaylist[playlist.id] || 0,
       completion_rate: completionRate,
       avg_progress: avgProgress,
-      track_ids,
+      track_ids: all_track_ids, // Now includes album tracks
+      standalone_track_ids: standaloneTrackIds,
+      album_ids: albumIdsByPlaylist[playlist.id] || [],
     };
   });
 
@@ -204,6 +288,7 @@ export async function getPlaylists(filters: {
 /**
  * Get playlist title and track IDs only (lightweight, for filtering)
  * This is optimized for filtering operations where we don't need full playlist data
+ * Note: This excludes archived tracks
  */
 export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: string; track_ids: string[] } | null> {
   // Run all independent queries in parallel for maximum speed
@@ -214,10 +299,15 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
       .select('id, title')
       .eq('id', playlistId)
       .single(),
-    // Get standalone track IDs (no joins needed)
+    // Get standalone track IDs with track status to filter archived
     supabase
       .from('playlist_tracks')
-      .select('track_id')
+      .select(`
+        track_id,
+        track:tracks (
+          status
+        )
+      `)
       .eq('playlist_id', playlistId),
     // Get album IDs
     supabase
@@ -230,19 +320,30 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
 
   const albumIds = (playlistAlbumsResult.data || []).map((pa: any) => pa.album_id).filter(Boolean);
 
-  // Get track IDs from albums (only if there are albums)
+  // Get track IDs from albums (only if there are albums), excluding archived tracks
   let albumTrackIds: string[] = [];
   if (albumIds.length > 0) {
     const { data: albumTracks } = await supabase
       .from('album_tracks')
-      .select('track_id')
+      .select(`
+        track_id,
+        track:tracks (
+          status
+        )
+      `)
       .in('album_id', albumIds);
-    
-    albumTrackIds = (albumTracks || []).map((at: any) => at.track_id).filter(Boolean);
+
+    albumTrackIds = (albumTracks || [])
+      .filter((at: any) => at.track?.status !== 'archived')
+      .map((at: any) => at.track_id)
+      .filter(Boolean);
   }
 
-  // Combine standalone tracks and album tracks, deduplicate
-  const standaloneTrackIds = (playlistTracksResult.data || []).map((pt: any) => pt.track_id).filter(Boolean);
+  // Combine standalone tracks and album tracks, deduplicate (exclude archived)
+  const standaloneTrackIds = (playlistTracksResult.data || [])
+    .filter((pt: any) => pt.track?.status !== 'archived')
+    .map((pt: any) => pt.track_id)
+    .filter(Boolean);
   const allTrackIds = [...new Set([...standaloneTrackIds, ...albumTrackIds])];
 
   return {
@@ -255,6 +356,8 @@ export async function getPlaylistTrackIds(playlistId: string): Promise<{ title: 
  * Get a single playlist by ID with full details
  */
 export async function getPlaylistById(playlistId: string) {
+  console.log('🔍 getPlaylistById called with:', playlistId);
+
   const { data: playlist, error } = await supabase
     .from('playlists')
     .select(`
@@ -266,41 +369,78 @@ export async function getPlaylistById(playlistId: string) {
 
   if (error) throw error;
 
-  // Get albums in this playlist
-  const { data: playlistAlbums } = await supabase
+  // Get playlist_albums junction records
+  const { data: playlistAlbumsRaw } = await supabase
     .from('playlist_albums')
-    .select(`
-      id,
-      display_order,
-      release_stage,
-      albums(
-        id,
-        title,
-        description,
-        thumbnail_url,
-        duration_minutes
-      )
-    `)
+    .select('id, album_id, display_order, release_stage')
     .eq('playlist_id', playlistId)
     .order('display_order');
 
-  // Get standalone tracks in this playlist
-  const { data: playlistTracks } = await supabase
-    .from('playlist_tracks')
-    .select(`
-      id,
-      display_order,
-      release_stage,
-      tracks(
-        id,
-        title,
-        description,
-        duration_minutes,
-        type
+  // Get the actual album data separately
+  const albumIds = (playlistAlbumsRaw || []).map((pa: any) => pa.album_id).filter(Boolean);
+  let albumsMap: Record<string, any> = {};
+
+  // Get playlist_tracks junction records (run in parallel with album fetching)
+  const [playlistTracksResult, ...albumResults] = await Promise.all([
+    supabase
+      .from('playlist_tracks')
+      .select('id, track_id, display_order, release_stage')
+      .eq('playlist_id', playlistId)
+      .order('display_order'),
+    // Fetch all albums in parallel
+    ...albumIds.map(albumId =>
+      supabase
+        .from('albums')
+        .select('*')
+        .eq('id', albumId)
+        .limit(1)
+    )
+  ]);
+
+  const playlistTracksRaw = playlistTracksResult.data;
+
+  // Process album results
+  albumResults.forEach((result: any) => {
+    if (result.data && result.data.length > 0) {
+      const album = result.data[0];
+      albumsMap[album.id] = album;
+    }
+  });
+
+  // Combine junction data with album data
+  const playlistAlbums = (playlistAlbumsRaw || []).map((pa: any) => ({
+    ...pa,
+    album: albumsMap[pa.album_id] || null,
+  }));
+
+  // Get the actual track data separately - fetch all in parallel
+  const trackIds = (playlistTracksRaw || []).map((pt: any) => pt.track_id).filter(Boolean);
+  let tracksMap: Record<string, any> = {};
+
+  if (trackIds.length > 0) {
+    const trackResults = await Promise.all(
+      trackIds.map(trackId =>
+        supabase
+          .from('tracks')
+          .select('*')
+          .eq('id', trackId)
+          .limit(1)
       )
-    `)
-    .eq('playlist_id', playlistId)
-    .order('display_order');
+    );
+
+    trackResults.forEach((result: any) => {
+      if (result.data && result.data.length > 0) {
+        const track = result.data[0];
+        tracksMap[track.id] = track;
+      }
+    });
+  }
+
+  // Combine junction data with track data
+  const playlistTracks = (playlistTracksRaw || []).map((pt: any) => ({
+    ...pt,
+    track: tracksMap[pt.track_id] || null,
+  }));
 
   // Get assignments stats
   const { count: assignmentCount } = await supabase
@@ -309,29 +449,106 @@ export async function getPlaylistById(playlistId: string) {
     .eq('playlist_id', playlistId)
     .in('status', ['assigned', 'in_progress', 'completed']);
 
-  // Normalize response structure - Supabase may return albums/tracks under different keys
-  // Normalize to always use 'album' and 'track' keys for consistency
-  const normalizedAlbums = (playlistAlbums || []).map((pa: any) => ({
-    ...pa,
-    album: pa.albums || pa.album, // Support both structures
-  }));
-  
-  const normalizedTracks = (playlistTracks || []).map((pt: any) => ({
-    ...pt,
-    track: pt.tracks || pt.track, // Support both structures
-  }));
+  // Fetch tracks for each album (albumIds already defined above)
+  let albumTracksMap: Record<string, any[]> = {};
+  let totalAlbumTracksDuration = 0;
 
-  // Extract album and track IDs for easier access
-  const album_ids = normalizedAlbums.map((pa: any) => pa.album?.id).filter(Boolean) || [];
-  const track_ids = normalizedTracks.map((pt: any) => pt.track?.id).filter(Boolean) || [];
+  if (albumIds.length > 0) {
+    // Get album_tracks junction records - fetch all in parallel
+    const albumTracksResults = await Promise.all(
+      albumIds.map(albumId =>
+        supabase
+          .from('album_tracks')
+          .select('album_id, track_id, display_order')
+          .eq('album_id', albumId)
+          .order('display_order')
+      )
+    );
+
+    const albumTracksRaw: any[] = [];
+    albumTracksResults.forEach((result: any) => {
+      if (result.data) {
+        albumTracksRaw.push(...result.data);
+      }
+    });
+
+    // Get the actual track data
+    const albumTrackIds = albumTracksRaw.map((at: any) => at.track_id).filter(Boolean);
+    // Dedupe track IDs to avoid fetching same track multiple times
+    const uniqueAlbumTrackIds = [...new Set(albumTrackIds)];
+
+    if (uniqueAlbumTrackIds.length > 0) {
+      // Fetch all tracks in parallel
+      const albumTrackResults = await Promise.all(
+        uniqueAlbumTrackIds.map(trackId =>
+          supabase
+            .from('tracks')
+            .select('*')
+            .eq('id', trackId)
+            .limit(1)
+        )
+      );
+
+      const tracksById: Record<string, any> = {};
+      albumTrackResults.forEach((result: any) => {
+        if (result.data && result.data.length > 0) {
+          const track = result.data[0];
+          tracksById[track.id] = track;
+        }
+      });
+
+      // Group tracks by album_id
+      albumTracksRaw.forEach((at: any) => {
+        const track = tracksById[at.track_id];
+        if (track && track.status !== 'archived') {
+          if (!albumTracksMap[at.album_id]) {
+            albumTracksMap[at.album_id] = [];
+          }
+          albumTracksMap[at.album_id].push(track);
+          totalAlbumTracksDuration += track.duration_minutes || 0;
+        }
+      });
+    }
+  }
+
+  // Enrich albums with their tracks
+  const normalizedAlbums = playlistAlbums.map((pa: any) => {
+    const album = pa.album;
+    const tracks = albumTracksMap[album?.id] || [];
+    return {
+      ...pa,
+      album: album ? {
+        ...album,
+        tracks: tracks,
+        track_count: tracks.length,
+      } : null,
+    };
+  });
+
+  // Extract IDs for easier access
+  const album_ids_final = normalizedAlbums.map((pa: any) => pa.album?.id).filter(Boolean);
+  const standalone_track_ids = playlistTracks.map((pt: any) => pt.track?.id).filter(Boolean);
+
+  // Get all track IDs (standalone + album tracks)
+  const allAlbumTrackIds = Object.values(albumTracksMap).flat().map((t: any) => t.id);
+  const all_track_ids = [...new Set([...standalone_track_ids, ...allAlbumTrackIds])];
+
+  // Calculate total duration
+  const standaloneDuration = playlistTracks.reduce((sum: number, pt: any) =>
+    sum + (pt.track?.duration_minutes || 0), 0);
+  const total_duration_minutes = standaloneDuration + totalAlbumTracksDuration;
 
   return {
     ...playlist,
+    playlist_albums: normalizedAlbums,
     albums: normalizedAlbums,
-    tracks: normalizedTracks,
-    album_ids,
-    track_ids,
+    tracks: playlistTracks,
+    album_ids: album_ids_final,
+    track_ids: all_track_ids, // All track IDs including album tracks
+    standalone_track_ids,
     assignment_count: assignmentCount || 0,
+    total_duration_minutes,
+    total_track_count: all_track_ids.length,
   };
 }
 
@@ -339,6 +556,13 @@ export async function getPlaylistById(playlistId: string) {
  * Create a new playlist
  */
 export async function createPlaylist(input: CreatePlaylistInput) {
+  console.log('🔍 CRUD createPlaylist received:', {
+    title: input.title,
+    album_ids: input.album_ids,
+    track_ids: input.track_ids,
+    release_schedule: input.release_schedule,
+  });
+
   // Input validation
   if (!input.title || typeof input.title !== 'string' || input.title.trim().length === 0) {
     throw new Error('Invalid title: must be a non-empty string');
@@ -380,29 +604,52 @@ export async function createPlaylist(input: CreatePlaylistInput) {
 
   if (playlistError) throw playlistError;
 
-  // Add albums to playlist
+  // Build stage-to-content mapping from release_schedule if available
+  const stages = input.release_schedule?.stages || [];
+  const albumToStage: Record<string, number> = {};
+  const trackToStage: Record<string, number> = {};
+
+  stages.forEach((stage: any, index: number) => {
+    const stageNum = index + 1;
+    (stage.albumIds || []).forEach((albumId: string) => {
+      albumToStage[albumId] = stageNum;
+    });
+    (stage.trackIds || []).forEach((trackId: string) => {
+      trackToStage[trackId] = stageNum;
+    });
+  });
+
+  // Add albums to playlist with correct release_stage
   if (input.album_ids && input.album_ids.length > 0) {
     const albumRecords = input.album_ids.map((albumId, index) => ({
       playlist_id: playlist.id,
       album_id: albumId,
       display_order: index + 1,
-      release_stage: 1,
+      release_stage: albumToStage[albumId] || 1,
     }));
+
+    console.log('🔍 Inserting into playlist_albums:', albumRecords);
 
     const { error: albumError } = await supabase
       .from('playlist_albums')
       .insert(albumRecords);
 
-    if (albumError) throw albumError;
+    if (albumError) {
+      console.error('❌ Error inserting playlist_albums:', albumError);
+      throw albumError;
+    }
+    console.log('✅ Successfully inserted', albumRecords.length, 'albums into playlist_albums');
+  } else {
+    console.log('⚠️ No album_ids provided to insert into playlist_albums');
   }
 
-  // Add standalone tracks to playlist
+  // Add standalone tracks to playlist with correct release_stage
   if (input.track_ids && input.track_ids.length > 0) {
     const trackRecords = input.track_ids.map((trackId, index) => ({
       playlist_id: playlist.id,
       track_id: trackId,
       display_order: (input.album_ids?.length || 0) + index + 1,
-      release_stage: 1,
+      release_stage: trackToStage[trackId] || 1,
     }));
 
     const { error: trackError } = await supabase
@@ -433,6 +680,14 @@ export async function createPlaylist(input: CreatePlaylistInput) {
  * Update an existing playlist
  */
 export async function updatePlaylist(playlistId: string, input: UpdatePlaylistInput) {
+  console.log('🔍 CRUD updatePlaylist received:', {
+    playlistId,
+    title: input.title,
+    album_ids: input.album_ids,
+    track_ids: input.track_ids,
+    release_schedule: input.release_schedule,
+  });
+
   // Input validation
   if (!playlistId || typeof playlistId !== 'string') {
     throw new Error('Invalid playlistId: must be a non-empty string');
@@ -472,29 +727,55 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
 
   if (error) throw error;
 
+  // Build stage-to-content mapping from release_schedule if available
+  const stages = playlistData.release_schedule?.stages || [];
+  const albumToStage: Record<string, number> = {};
+  const trackToStage: Record<string, number> = {};
+
+  stages.forEach((stage: any, index: number) => {
+    const stageNum = index + 1;
+    (stage.albumIds || []).forEach((albumId: string) => {
+      albumToStage[albumId] = stageNum;
+    });
+    (stage.trackIds || []).forEach((trackId: string) => {
+      trackToStage[trackId] = stageNum;
+    });
+  });
+
   // Handle album updates if provided
   if (album_ids !== undefined) {
+    console.log('🔍 updatePlaylist: Deleting existing playlist_albums for playlist:', playlistId);
     // Delete existing albums
     await supabase
       .from('playlist_albums')
       .delete()
       .eq('playlist_id', playlistId);
 
-    // Add new albums
+    // Add new albums with correct release_stage
     if (album_ids.length > 0) {
       const albumRecords = album_ids.map((albumId, index) => ({
         playlist_id: playlistId,
         album_id: albumId,
         display_order: index + 1,
-        release_stage: 1,
+        release_stage: albumToStage[albumId] || 1,
       }));
+
+      console.log('🔍 updatePlaylist: Inserting into playlist_albums:', albumRecords);
 
       const { error: albumError } = await supabase
         .from('playlist_albums')
         .insert(albumRecords);
 
-      if (albumError) throw albumError;
+      if (albumError) {
+        console.error('❌ Error inserting playlist_albums in update:', albumError);
+        throw albumError;
+      }
+      console.log('✅ updatePlaylist: Successfully inserted', albumRecords.length, 'albums');
+    } else {
+      console.log('⚠️ updatePlaylist: album_ids is empty array, no albums to insert');
     }
+  } else {
+    console.log('⚠️ updatePlaylist: album_ids is undefined, skipping album update');
   }
 
   // Handle track updates if provided
@@ -505,13 +786,13 @@ export async function updatePlaylist(playlistId: string, input: UpdatePlaylistIn
       .delete()
       .eq('playlist_id', playlistId);
 
-    // Add new tracks
+    // Add new tracks with correct release_stage
     if (track_ids.length > 0) {
       const trackRecords = track_ids.map((trackId, index) => ({
         playlist_id: playlistId,
         track_id: trackId,
         display_order: (album_ids?.length || 0) + index + 1,
-        release_stage: 1,
+        release_stage: trackToStage[trackId] || 1,
       }));
 
       const { error: trackError } = await supabase
@@ -581,9 +862,47 @@ export async function deletePlaylist(playlistId: string) {
 }
 
 /**
- * Archive/deactivate a playlist
+ * Get assignment statistics for a playlist
  */
-export async function archivePlaylist(playlistId: string) {
+export async function getPlaylistAssignmentStats(playlistId: string) {
+  const { data: assignments, error } = await supabase
+    .from('assignments')
+    .select('id, status')
+    .eq('playlist_id', playlistId)
+    .neq('status', 'archived');
+
+  if (error) throw error;
+
+  const totalAssignments = assignments?.length || 0;
+  const completedCount = assignments?.filter(a => a.status === 'completed').length || 0;
+  const inProgressCount = assignments?.filter(a => a.status === 'in_progress').length || 0;
+  const notStartedCount = assignments?.filter(a => a.status === 'assigned' || a.status === 'pending').length || 0;
+
+  return {
+    totalAssignments,
+    completedCount,
+    inProgressCount,
+    notStartedCount
+  };
+}
+
+/**
+ * Archive/deactivate a playlist
+ * @param archiveAssignments - If true, also archives all active assignments for this playlist
+ */
+export async function archivePlaylist(playlistId: string, archiveAssignments: boolean = false) {
+  // Archive related assignments if requested
+  if (archiveAssignments) {
+    const { error: assignmentError } = await supabase
+      .from('assignments')
+      .update({ status: 'archived' })
+      .eq('playlist_id', playlistId)
+      .neq('status', 'archived')
+      .neq('status', 'completed');
+
+    if (assignmentError) throw assignmentError;
+  }
+
   return updatePlaylist(playlistId, { is_active: false });
 }
 

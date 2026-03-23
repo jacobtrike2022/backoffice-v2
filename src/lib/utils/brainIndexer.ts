@@ -26,11 +26,10 @@ interface IndexableTrack {
   id: string;
   title?: string;
   description?: string;
-  content?: string; // For articles
-  content_text?: string; // Alternative content field
+  content_text?: string; // Primary content field for articles (HTML from TipTap editor)
+  transcript?: string; // For videos: transcript text; For stories: JSON slide data; For articles: fallback content
   slides?: Array<{ content?: string; title?: string }>; // For stories
-  track_type?: string;
-  type?: string; // Some places use 'type' instead of 'track_type'
+  type?: string; // Track type: 'article' | 'video' | 'story' | 'checkpoint'
   status?: string;
   organization_id?: string;
   is_system_content?: boolean; // Trike template flag
@@ -60,8 +59,8 @@ export async function indexTrackToBrain(
   transcript?: string,
   additionalMetadata?: Partial<IndexMetadata>
 ): Promise<void> {
-  const trackType = track.track_type || track.type || 'article';
-  
+  const trackType = track.type || 'article';
+
   // RULE: Never index checkpoints
   if (SKIP_TRACK_TYPES.includes(trackType)) {
     console.log(`[Brain] Skipping checkpoint: ${track.id}`);
@@ -76,10 +75,26 @@ export async function indexTrackToBrain(
 
   // Build text based on track type
   const text = buildTrackText(track, trackType, transcript);
-  
+
   if (!text || text.trim().length < 20) {
     console.log(`[Brain] Skipping track with insufficient content: ${track.id}`);
     return;
+  }
+
+  // VALIDATION: Warn if content seems sparse (likely missing article body)
+  // Check if text only contains title/description without actual content
+  const hasOnlyTitleDesc = text.includes('Title:') &&
+                           !text.includes('Content:') &&
+                           !text.includes('Slide ');
+  const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+
+  if (hasOnlyTitleDesc || wordCount < 50) {
+    console.warn(`[Brain] ⚠️ Track ${track.id} (${track.title || 'untitled'}) has sparse content:`);
+    console.warn(`  - Word count: ${wordCount}`);
+    console.warn(`  - Has body content: ${text.includes('Content:')}`);
+    console.warn(`  - Track type: ${trackType}`);
+    console.warn(`  - Fields available: content_text=${!!track.content_text}, transcript=${!!track.transcript}`);
+    // Still index, but log warning for debugging
   }
 
   const metadata: IndexMetadata = {
@@ -135,7 +150,7 @@ export async function handleTrackStatusChange(
   previousStatus?: string,
   transcript?: string
 ): Promise<void> {
-  const trackType = track.track_type || track.type || 'article';
+  const trackType = track.type || 'article';
   
   // Skip checkpoints always
   if (SKIP_TRACK_TYPES.includes(trackType)) {
@@ -183,22 +198,32 @@ function buildTrackText(
       break;
 
     case 'article':
-      // Articles have direct content in transcript field (may be HTML - strip tags)
-      const articleContent = track.transcript || track.content || track.content_text;
+      // Articles store body content in content_text (primary) or transcript (fallback)
+      // Note: 'content' column doesn't exist in tracks table
+      const articleContent = track.content_text || track.transcript;
       if (articleContent) {
         const cleanContent = stripHtmlTags(articleContent);
-        parts.push(`Content: ${cleanContent}`);
+        if (cleanContent.length > 0) {
+          parts.push(`Content: ${cleanContent}`);
+        }
       }
       break;
 
     case 'story':
-      // Stories have slides stored in transcript field as JSON, or in slides array
-      let storySlides: Array<{ content?: string; title?: string; name?: string; transcript?: { text?: string } }> = [];
-      
-      // Try to get slides from transcript field (JSON format)
-      if (track.content_text) {
+      // Stories have slides stored in transcript field as JSON (primary) or content_text
+      let storySlides: Array<{
+        content?: string;
+        title?: string;
+        name?: string;
+        transcript?: { text?: string };
+        text?: string; // Some slides store text directly
+      }> = [];
+
+      // Try to get slides from transcript field first (this is where story JSON is stored)
+      const storyJsonSource = track.transcript || track.content_text;
+      if (storyJsonSource) {
         try {
-          const storyData = JSON.parse(track.content_text);
+          const storyData = JSON.parse(storyJsonSource);
           if (storyData.slides && Array.isArray(storyData.slides)) {
             storySlides = storyData.slides;
           }
@@ -206,24 +231,24 @@ function buildTrackText(
           // Not JSON, ignore
         }
       }
-      
+
       // Fallback to slides array if available
       if (storySlides.length === 0 && track.slides && Array.isArray(track.slides)) {
         storySlides = track.slides;
       }
-      
+
       if (storySlides.length > 0) {
         const slideContent = storySlides
           .map((slide, index) => {
             const slideTitle = slide.title || slide.name || '';
-            // Stories may have transcript.text in slide.transcript
-            const slideText = slide.transcript?.text || slide.content || '';
+            // Check multiple possible locations for transcript text
+            const slideText = slide.transcript?.text || slide.text || slide.content || '';
             const cleanText = slideText ? stripHtmlTags(slideText) : '';
             return cleanText ? `Slide ${index + 1}: ${slideTitle ? slideTitle + ': ' : ''}${cleanText}` : '';
           })
           .filter(Boolean)
           .join('\n\n');
-        
+
         if (slideContent) {
           parts.push(slideContent);
         }
@@ -231,8 +256,8 @@ function buildTrackText(
       break;
 
     default:
-      // Fallback: use content if available
-      const fallbackContent = track.content || track.content_text;
+      // Fallback: use content_text or transcript if available
+      const fallbackContent = track.content_text || track.transcript;
       if (fallbackContent) {
         parts.push(`Content: ${stripHtmlTags(fallbackContent)}`);
       }
@@ -397,9 +422,10 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
   try {
     // Fetch all published, non-checkpoint tracks
     // Note: For stories, slides are in content_text as JSON
+    // Note: 'content' column doesn't exist - only content_text
     const { data: tracks, error } = await supabase
       .from('tracks')
-      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
       .eq('organization_id', organizationId)
       .eq('status', 'published')
       .not('type', 'eq', 'checkpoint');
@@ -414,7 +440,7 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
 
     for (const track of tracks) {
       try {
-        const trackType = track.track_type || track.type || 'article';
+        const trackType = track.type || 'article';
         
         // Skip checkpoints (double-check)
         if (SKIP_TRACK_TYPES.includes(trackType)) {
@@ -445,6 +471,121 @@ export async function indexAllPublishedTracks(organizationId: string): Promise<{
 }
 
 /**
+ * Force re-index ALL published tracks for an organization
+ * This clears existing embeddings first, then re-indexes everything
+ * Use when indexing logic has changed and you need fresh embeddings
+ */
+export async function reindexAllTracks(organizationId: string): Promise<{
+  cleared: number;
+  indexed: number;
+  skipped: number;
+  errors: string[];
+  details: Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>;
+}> {
+  const result = {
+    cleared: 0,
+    indexed: 0,
+    skipped: 0,
+    errors: [] as string[],
+    details: [] as Array<{ trackId: string; title: string; status: 'indexed' | 'skipped' | 'error' }>,
+  };
+
+  try {
+    console.log(`[Brain Reindex] Starting FULL re-index for organization ${organizationId}...`);
+
+    // Step 1: Clear ALL existing embeddings for this organization
+    console.log(`[Brain Reindex] Clearing existing embeddings...`);
+    const { data: deletedData, error: deleteError } = await supabase
+      .from('brain_embeddings')
+      .delete()
+      .eq('organization_id', organizationId)
+      .eq('content_type', 'track')
+      .select('id');
+
+    if (deleteError) {
+      console.warn('[Brain Reindex] Error clearing embeddings:', deleteError);
+      result.errors.push(`Failed to clear embeddings: ${deleteError.message}`);
+    } else {
+      result.cleared = deletedData?.length || 0;
+      console.log(`[Brain Reindex] Cleared ${result.cleared} existing embeddings`);
+    }
+
+    // Step 2: Get all published tracks for this organization
+    // Note: 'content' column doesn't exist in tracks table - only content_text
+    const { data: tracks, error: tracksError } = await supabase
+      .from('tracks')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
+      .eq('organization_id', organizationId)
+      .eq('status', 'published')
+      .not('type', 'eq', 'checkpoint');
+
+    if (tracksError) {
+      throw new Error(`Failed to fetch tracks: ${tracksError.message}`);
+    }
+
+    if (!tracks || tracks.length === 0) {
+      console.log('[Brain Reindex] No published tracks found');
+      return result;
+    }
+
+    console.log(`[Brain Reindex] Found ${tracks.length} published tracks to re-index`);
+
+    // Step 3: Re-index each track
+    for (const track of tracks) {
+      try {
+        const trackType = track.type || 'article';
+        const trackTitle = track.title || 'Untitled';
+
+        // Skip checkpoints (double-check)
+        if (SKIP_TRACK_TYPES.includes(trackType)) {
+          result.skipped++;
+          result.details.push({
+            trackId: track.id,
+            title: trackTitle,
+            status: 'skipped',
+          });
+          continue;
+        }
+
+        // Get transcript for videos
+        let transcript: string | undefined;
+        if (trackType === 'video') {
+          transcript = await getTrackTranscript(track.id);
+        }
+
+        // Index the track
+        await indexTrackToBrain(track, transcript);
+
+        result.indexed++;
+        result.details.push({
+          trackId: track.id,
+          title: trackTitle,
+          status: 'indexed',
+        });
+
+        console.log(`[Brain Reindex] ✓ Re-indexed: ${trackTitle} (${track.id})`);
+      } catch (error: any) {
+        const errorMsg = error.message || String(error);
+        result.errors.push(`${track.id}: ${errorMsg}`);
+        result.details.push({
+          trackId: track.id,
+          title: track.title || 'Untitled',
+          status: 'error',
+        });
+        console.error(`[Brain Reindex] ✗ Error re-indexing ${track.id}:`, error);
+      }
+    }
+
+    console.log(`[Brain Reindex] Complete: ${result.cleared} cleared, ${result.indexed} indexed, ${result.skipped} skipped, ${result.errors.length} errors`);
+  } catch (error: any) {
+    console.error('[Brain Reindex] Fatal error:', error);
+    result.errors.push(`Fatal: ${error.message || String(error)}`);
+  }
+
+  return result;
+}
+
+/**
  * Backfill brain index - only index tracks that aren't already indexed
  * Use for catching up on tracks that were published before brain indexing was enabled
  */
@@ -465,9 +606,10 @@ export async function backfillBrainIndex(organizationId: string): Promise<{
     console.log(`[Brain Backfill] Starting backfill for organization ${organizationId}...`);
 
     // Step 1: Get all published tracks for this organization
+    // Note: 'content' column doesn't exist - only content_text
     const { data: tracks, error: tracksError } = await supabase
       .from('tracks')
-      .select('id, title, description, content, content_text, transcript, track_type, type, status, organization_id, is_system_content')
+      .select('id, title, description, content_text, transcript, type, status, organization_id, is_system_content')
       .eq('organization_id', organizationId)
       .eq('status', 'published')
       .not('type', 'eq', 'checkpoint');
@@ -513,7 +655,7 @@ export async function backfillBrainIndex(organizationId: string): Promise<{
     // Step 4: Index each unindexed track
     for (const track of unindexedTracks) {
       try {
-        const trackType = track.track_type || track.type || 'article';
+        const trackType = track.type || 'article';
         const trackTitle = track.title || 'Untitled';
 
         // Skip checkpoints (double-check)

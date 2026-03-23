@@ -243,6 +243,28 @@ html {
   background: var(--color-muted-foreground);
 }
 
+/* Custom neon orange text selection for chunk content */
+.chunk-content-selectable::selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+.chunk-content-selectable::-moz-selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+/* Also style nested elements within chunk content */
+.chunk-content-selectable *::selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
+.chunk-content-selectable *::-moz-selection {
+  background-color: #FF6B35;
+  color: #ffffff;
+}
+
 /* Enhanced spacing utilities */
 .section-spacing {
   padding: 2rem 0;
@@ -252,6 +274,27 @@ html {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Shimmer animation for loading states */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Reduced motion - disable shimmer */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer {
+    animation: none;
   }
 }
 
@@ -553,6 +596,9 @@ html {
   border-radius: 4px;
   font-family: 'Courier New', monospace;
   font-size: 0.9em;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 .ProseMirror pre {
@@ -560,13 +606,19 @@ html {
   color: var(--color-foreground);
   padding: 1rem;
   border-radius: var(--radius-md);
-  overflow-x: auto;
   margin-bottom: 1rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .ProseMirror pre code {
   background: none;
   padding: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Article Content Styles - Match ProseMirror for display */
@@ -601,11 +653,18 @@ html {
   font-weight: var(--font-weight-bold);
 }
 
-.article-content ul,
+.article-content ul {
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+  color: var(--color-foreground);
+  list-style: disc outside !important;
+}
+
 .article-content ol {
   padding-left: 1.5rem;
   margin-bottom: 1rem;
   color: var(--color-foreground);
+  list-style: decimal outside !important;
 }
 
 .article-content li {
@@ -645,6 +704,10 @@ html {
   border-radius: 4px;
   font-family: 'Courier New', monospace;
   font-size: 0.9em;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
 }
 
 .article-content pre {
@@ -652,13 +715,56 @@ html {
   color: var(--color-foreground);
   padding: 1rem;
   border-radius: var(--radius-md);
-  overflow-x: auto;
   margin-bottom: 1rem;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow-x: hidden !important;
 }
 
 .article-content pre code {
   background: none;
   padding: 0;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Override Tailwind prose code/pre styles for word wrapping */
+.prose code,
+.prose pre,
+.prose pre code,
+.article-content.prose code,
+.article-content.prose pre,
+.article-content.prose pre code {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
+
+/* Force code blocks to respect container width */
+.article-content pre,
+.article-content code,
+.prose pre,
+.prose code {
+  max-width: 100% !important;
+  display: block !important;
+}
+
+/* Inline code should remain inline but still wrap */
+.article-content p code,
+.article-content li code,
+.prose p code,
+.prose li code {
+  display: inline !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
 }
 
 .article-content strong {

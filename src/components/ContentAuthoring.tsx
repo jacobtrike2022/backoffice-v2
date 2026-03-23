@@ -23,6 +23,7 @@ import { TrackDetailEdit } from './TrackDetailEdit';
 import { ArticleDetailEdit } from './ArticleDetailEdit';
 import { StoryEditor } from './content-authoring/StoryEditor';
 import { CheckpointEditor } from './content-authoring/CheckpointEditor';
+import { CreateVariantModal } from './content-authoring/CreateVariantModal';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -110,6 +111,9 @@ export function ContentAuthoring({
   const [hasUnsavedChangesCheckFn, setHasUnsavedChangesCheckFn] = useState<(() => boolean) | null>(null);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavAction, setPendingNavAction] = useState<(() => void) | null>(null);
+
+  // Create Variant modal state
+  const [createVariantModal, setCreateVariantModal] = useState<{ open: boolean; track: any }>({ open: false, track: null });
 
   const handleRegisterLocal = useCallback((checkFn: (() => boolean) | null) => {
     setHasUnsavedChangesCheckFn(() => checkFn);
@@ -230,7 +234,8 @@ export function ContentAuthoring({
       loadDraftTracks();
     } catch (error: any) {
       console.error('Error publishing track:', error);
-      toast.error('Failed to publish track');
+      // Show specific error message (includes publish validation messages like "Video transcription must complete")
+      toast.error(error.message || 'Failed to publish track');
     }
   };
 
@@ -289,50 +294,147 @@ export function ContentAuthoring({
 
     if (editingTrack.type === 'article') {
       return (
-        <ArticleDetailEdit
-          track={editingTrack}
-          onBack={handleClose}
-          onUpdate={handleUpdate}
-          isSuperAdminAuthenticated={isSuperAdmin}
-          isNewContent={false}
-          onNavigateToPlaylist={onNavigateToPlaylist}
-          registerUnsavedChangesCheck={handleRegisterLocal}
-        />
+        <>
+          <ArticleDetailEdit
+            track={editingTrack}
+            onBack={handleClose}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdmin}
+            isNewContent={false}
+            onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={handleRegisterLocal}
+            onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
+          />
+          <CreateVariantModal
+            isOpen={createVariantModal.open}
+            onClose={() => setCreateVariantModal({ open: false, track: null })}
+            sourceTrack={createVariantModal.track ? {
+              id: createVariantModal.track.id,
+              title: createVariantModal.track.title,
+              type: createVariantModal.track.type,
+              thumbnail_url: createVariantModal.track.thumbnail_url
+            } : undefined}
+            onVariantCreated={(newTrackId) => {
+              setCreateVariantModal({ open: false, track: null });
+              crud.getTrackById(newTrackId).then((updatedTrack) => {
+                setEditingTrack(updatedTrack);
+                setSelectedType(updatedTrack.type);
+              }).catch((err) => {
+                console.error('Error loading variant track:', err);
+                toast.error('Variant created but failed to load. Refresh to see it.');
+              });
+              toast.success('Variant created! Opening editor...');
+            }}
+          />
+        </>
       );
     } else if (editingTrack.type === 'video') {
       return (
-        <TrackDetailEdit
-          track={editingTrack}
-          onBack={handleClose}
-          onUpdate={handleUpdate}
-          isSuperAdminAuthenticated={isSuperAdmin}
-          isNewContent={false}
-          onNavigateToPlaylist={onNavigateToPlaylist}
-          registerUnsavedChangesCheck={handleRegisterLocal}
-        />
+        <>
+          <TrackDetailEdit
+            track={editingTrack}
+            onBack={handleClose}
+            onUpdate={handleUpdate}
+            isSuperAdminAuthenticated={isSuperAdmin}
+            isNewContent={false}
+            onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={handleRegisterLocal}
+            onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
+          />
+          <CreateVariantModal
+            isOpen={createVariantModal.open}
+            onClose={() => setCreateVariantModal({ open: false, track: null })}
+            sourceTrack={createVariantModal.track ? {
+              id: createVariantModal.track.id,
+              title: createVariantModal.track.title,
+              type: createVariantModal.track.type,
+              thumbnail_url: createVariantModal.track.thumbnail_url
+            } : undefined}
+            onVariantCreated={(newTrackId) => {
+              setCreateVariantModal({ open: false, track: null });
+              crud.getTrackById(newTrackId).then((updatedTrack) => {
+                setEditingTrack(updatedTrack);
+                setSelectedType(updatedTrack.type);
+              }).catch((err) => {
+                console.error('Error loading variant track:', err);
+                toast.error('Variant created but failed to load. Refresh to see it.');
+              });
+              toast.success('Variant created! Opening editor...');
+            }}
+          />
+        </>
       );
     } else if (editingTrack.type === 'story') {
       return (
-        <StoryEditor
-          track={editingTrack}
-          onBack={handleClose}
-          onUpdate={handleUpdate}
-          currentRole={currentRole}
-          isSuperAdminAuthenticated={isSuperAdmin}
-          onNavigateToPlaylist={onNavigateToPlaylist}
-          registerUnsavedChangesCheck={handleRegisterLocal}
-        />
+        <>
+          <StoryEditor
+            track={editingTrack}
+            onBack={handleClose}
+            onUpdate={handleUpdate}
+            currentRole={currentRole}
+            isSuperAdminAuthenticated={isSuperAdmin}
+            onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={handleRegisterLocal}
+            onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
+          />
+          <CreateVariantModal
+            isOpen={createVariantModal.open}
+            onClose={() => setCreateVariantModal({ open: false, track: null })}
+            sourceTrack={createVariantModal.track ? {
+              id: createVariantModal.track.id,
+              title: createVariantModal.track.title,
+              type: createVariantModal.track.type,
+              thumbnail_url: createVariantModal.track.thumbnail_url
+            } : undefined}
+            onVariantCreated={(newTrackId) => {
+              setCreateVariantModal({ open: false, track: null });
+              crud.getTrackById(newTrackId).then((updatedTrack) => {
+                setEditingTrack(updatedTrack);
+                setSelectedType(updatedTrack.type);
+              }).catch((err) => {
+                console.error('Error loading variant track:', err);
+                toast.error('Variant created but failed to load. Refresh to see it.');
+              });
+              toast.success('Variant created! Opening editor...');
+            }}
+          />
+        </>
       );
     } else if (editingTrack.type === 'checkpoint') {
       return (
-        <CheckpointEditor
-          onClose={handleClose}
-          trackId={editingTrack.id}
-          isNewContent={false}
-          currentRole={currentRole}
-          onNavigateToPlaylist={onNavigateToPlaylist}
-          registerUnsavedChangesCheck={handleRegisterLocal}
-        />
+        <>
+          <CheckpointEditor
+            onClose={handleClose}
+            track={editingTrack}
+            trackId={editingTrack.id}
+            isNewContent={false}
+            currentRole={currentRole}
+            onNavigateToPlaylist={onNavigateToPlaylist}
+            registerUnsavedChangesCheck={handleRegisterLocal}
+            onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
+          />
+          <CreateVariantModal
+            isOpen={createVariantModal.open}
+            onClose={() => setCreateVariantModal({ open: false, track: null })}
+            sourceTrack={createVariantModal.track ? {
+              id: createVariantModal.track.id,
+              title: createVariantModal.track.title,
+              type: createVariantModal.track.type,
+              thumbnail_url: createVariantModal.track.thumbnail_url
+            } : undefined}
+            onVariantCreated={(newTrackId) => {
+              setCreateVariantModal({ open: false, track: null });
+              crud.getTrackById(newTrackId).then((updatedTrack) => {
+                setEditingTrack(updatedTrack);
+                setSelectedType(updatedTrack.type);
+              }).catch((err) => {
+                console.error('Error loading variant track:', err);
+                toast.error('Variant created but failed to load. Refresh to see it.');
+              });
+              toast.success('Variant created! Opening editor...');
+            }}
+          />
+        </>
       );
     }
   }

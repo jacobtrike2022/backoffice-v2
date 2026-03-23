@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { signOut } from '../lib/hooks/useAuth';
 import { Button } from './ui/button';
-import { 
+import {
   Home,
   FileText,
   BarChart3,
@@ -9,6 +9,7 @@ import {
   Building,
   Building2,
   Shield,
+  ShieldCheck,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
@@ -26,7 +27,10 @@ import {
   Bell,
   Wrench,
   Zap,
-  LogOut
+  LogOut,
+  Briefcase,
+  ArrowLeft,
+  Eye
 } from 'lucide-react';
 import trikeLogo from '../assets/trike-logo.png';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
@@ -36,8 +40,16 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { APP_CONFIG } from '../lib/config';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
+
+interface OrgStatusInfo {
+  status: string | null;
+  demoExpiresAt: string | null;
+  isProspectOrg: boolean;
+  isDemoExpired: boolean;
+}
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -47,6 +59,10 @@ interface DashboardLayoutProps {
   onDarkModeToggle: () => void;
   currentView?: string;
   onNavigate?: (view: string) => void;
+  orgStatusInfo?: OrgStatusInfo;
+  viewingOrgId?: string | null;
+  viewingOrgName?: string | null;
+  onExitOrgPreview?: () => void;
 }
 
 interface NavigationGroup {
@@ -163,14 +179,25 @@ const navigationGroups: NavigationGroup[] = [
         id: 'compliance',
         label: 'Compliance',
         icon: UserCheck,
-        roles: ['admin', 'trike-super-admin'],
-        badge: '2'
+        roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'settings',
         label: 'Settings',
         icon: Settings,
         roles: ['admin', 'trike-super-admin']
+      },
+      {
+        id: 'trike-admin-functions',
+        label: 'Trike Admin Functions',
+        icon: Wrench,
+        roles: ['trike-super-admin']
+      },
+      {
+        id: 'trike-admin',
+        label: 'Prospect to Client',
+        icon: Briefcase,
+        roles: ['trike-super-admin']
       }
     ]
   }
@@ -183,7 +210,11 @@ export function DashboardLayout({
   darkMode, 
   onDarkModeToggle,
   currentView = 'dashboard',
-  onNavigate
+  onNavigate,
+  orgStatusInfo,
+  viewingOrgId,
+  viewingOrgName,
+  onExitOrgPreview,
 }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
@@ -195,6 +226,8 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const isPreviewingOrg = !!viewingOrgId && viewingOrgId !== APP_CONFIG.TRIKE_CO_ORG_ID;
+
   // Fetch organization name and logo
   useEffect(() => {
     const fetchOrganizationData = async () => {
@@ -204,7 +237,7 @@ export function DashboardLayout({
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, logo_dark_url, logo_light_url')
+          .select('name, logo_dark_url, logo_light_url, status, demo_expires_at')
           .eq('id', orgId)
           .single();
 
@@ -212,9 +245,8 @@ export function DashboardLayout({
           if (org.name) {
             setOrganizationName(org.name);
           }
-          
-          // Set logo based on current dark mode
-          const logoUrl = darkMode 
+
+          const logoUrl = darkMode
             ? (org.logo_dark_url || trikeLogo)
             : (org.logo_light_url || trikeLogo);
           setOrganizationLogo(logoUrl);
@@ -226,7 +258,6 @@ export function DashboardLayout({
 
     fetchOrganizationData();
 
-    // Listen for organization updates
     const handleOrgUpdate = () => {
       fetchOrganizationData();
     };
@@ -235,7 +266,7 @@ export function DashboardLayout({
     return () => {
       window.removeEventListener('organization-updated', handleOrgUpdate);
     };
-  }, [darkMode]);
+  }, [darkMode, viewingOrgId]);
 
   const roleLabels = {
     'admin': 'Administrator',
@@ -270,7 +301,25 @@ export function DashboardLayout({
     }
   };
 
+  const isProspectUser = orgStatusInfo?.isProspectOrg && currentRole !== 'trike-super-admin';
+
   const getFilteredGroups = () => {
+    if (isProspectUser) {
+      return [
+        {
+          label: 'Overview',
+          items: [
+            { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+          ],
+        },
+        {
+          label: 'Content',
+          items: [
+            { id: 'content', label: 'Content Library', icon: CheckSquare, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+          ],
+        },
+      ];
+    }
     return navigationGroups.map(group => ({
       ...group,
       items: group.items.filter(item => item.roles.includes(currentRole))
@@ -280,9 +329,9 @@ export function DashboardLayout({
   const filteredGroups = getFilteredGroups();
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <div className={`bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg ${
+    <div className="flex min-h-screen bg-background">
+      {/* Sidebar - Fixed position to extend full viewport height */}
+      <div className={`fixed top-0 left-0 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 shadow-lg z-40 ${
         sidebarCollapsed ? 'w-16' : 'w-72'
       }`}>
         <div className="flex flex-col h-full">
@@ -345,6 +394,21 @@ export function DashboardLayout({
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
+            </div>
+          )}
+
+          {/* Demo Expiry Badge for Prospects */}
+          {!sidebarCollapsed && isProspectUser && orgStatusInfo?.demoExpiresAt && (
+            <div className="px-6 py-3 border-b border-sidebar-border">
+              <div className="flex items-center gap-2 text-sm">
+                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-muted-foreground">
+                  Demo expires in{' '}
+                  <span className="font-semibold text-sidebar-foreground">
+                    {Math.max(0, Math.ceil((new Date(orgStatusInfo.demoExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days
+                  </span>
+                </span>
+              </div>
             </div>
           )}
 
@@ -451,6 +515,10 @@ export function DashboardLayout({
                               onNavigate('organization');
                             } else if (item.id === 'settings') {
                               onNavigate('settings');
+                            } else if (item.id === 'trike-admin-functions') {
+                              onNavigate('trike-admin-functions');
+                            } else if (item.id === 'trike-admin') {
+                              onNavigate('trike-admin');
                             } else {
                               onNavigate('dashboard');
                             }
@@ -507,8 +575,32 @@ export function DashboardLayout({
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Sidebar spacer - matches sidebar width to push content */}
+      <div className={`flex-shrink-0 transition-all duration-300 ${
+        sidebarCollapsed ? 'w-16' : 'w-72'
+      }`} />
+
+      {/* Main content - min-w-0 + overflow-x-hidden so wide tables scroll inside their container and don't overlap the sidebar */}
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 overflow-x-hidden">
+        {/* Org preview banner for Super Admin */}
+        {isPreviewingOrg && (
+          <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Eye className="h-4 w-4" />
+              <span>Previewing: <strong>{viewingOrgName || organizationName || 'Organization'}</strong></span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-white hover:bg-white/20 hover:text-white gap-1.5 h-7 text-xs font-semibold"
+              onClick={onExitOrgPreview}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Return to Trike
+            </Button>
+          </div>
+        )}
+
         {/* Enhanced Top bar */}
         <header className="bg-card border-b border-border px-8 py-4 shadow-sm">
           <div className="flex items-center justify-between">
@@ -610,8 +702,8 @@ export function DashboardLayout({
         </header>
 
         {/* Page content with enhanced spacing */}
-        <main className="flex-1 flex flex-col bg-background overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 bg-background">
+          <div className="p-8">
             {children}
           </div>
         </main>

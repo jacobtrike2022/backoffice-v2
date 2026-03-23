@@ -6,26 +6,45 @@ import { supabase } from '../supabase';
 
 export interface CreateNotificationInput {
   user_id: string;
-  type: 'assignment' | 'due-date' | 'completion' | 'certification-expiry' | 
-        'certification-expired' | 'certification-issued' | 'approval-required' | 
-        'form-submitted' | 'content-updated' | 'overdue';
+  organization_id?: string;  // Will be looked up from user if not provided
+  type: 'assignment' | 'due-date' | 'completion' | 'certification-expiry' |
+        'certification-expired' | 'certification-issued' | 'approval-required' |
+        'form-submitted' | 'content-updated' | 'overdue' | 'assignment_new';
   title: string;
   message: string;
-  link_url?: string;
+  link_type?: string;  // e.g. 'assignment', 'certification', 'form'
+  link_id?: string;    // the UUID of the linked entity
 }
 
 /**
  * Create a notification for a user
  */
 export async function createNotification(input: CreateNotificationInput) {
+  // Get organization_id from user if not provided
+  let organizationId = input.organization_id;
+  if (!organizationId) {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('organization_id')
+      .eq('id', input.user_id)
+      .single();
+    organizationId = userData?.organization_id;
+  }
+
+  if (!organizationId) {
+    throw new Error('Could not determine organization_id for notification');
+  }
+
   const { data, error } = await supabase
     .from('notifications')
     .insert({
+      organization_id: organizationId,
       user_id: input.user_id,
       type: input.type,
       title: input.title,
       message: input.message,
-      link_url: input.link_url,
+      link_type: input.link_type,
+      link_id: input.link_id,
       is_read: false
     })
     .select()
@@ -149,7 +168,8 @@ export async function checkOverdueAssignments() {
         .select('id')
         .eq('user_id', userId)
         .eq('type', 'overdue')
-        .eq('link_url', `/assignments/${assignment.id}`)
+        .eq('link_type', 'assignment')
+        .eq('link_id', assignment.id)
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Within last 24 hours
         .single();
 
@@ -160,7 +180,8 @@ export async function checkOverdueAssignments() {
             type: 'overdue',
             title: 'Assignment Overdue',
             message: `Your assignment "${assignment.title}" is overdue`,
-            link_url: `/assignments/${assignment.id}`
+            link_type: 'assignment',
+            link_id: assignment.id
           });
         } catch (error) {
           // Log error but don't fail the entire process
@@ -201,7 +222,8 @@ export async function checkApproachingDueDates(daysThreshold: number = 3) {
         .select('id')
         .eq('user_id', userId)
         .eq('type', 'due-date')
-        .eq('link_url', `/assignments/${assignment.id}`)
+        .eq('link_type', 'assignment')
+        .eq('link_id', assignment.id)
         .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
         .single();
 
@@ -216,7 +238,8 @@ export async function checkApproachingDueDates(daysThreshold: number = 3) {
             type: 'due-date',
             title: 'Assignment Due Soon',
             message: `Your assignment "${assignment.title}" is due in ${daysUntilDue} day(s)`,
-            link_url: `/assignments/${assignment.id}`
+            link_type: 'assignment',
+            link_id: assignment.id
           });
         } catch (error) {
           // Log error but don't fail the entire process

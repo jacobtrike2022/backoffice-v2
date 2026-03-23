@@ -12,6 +12,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { TrackScopeModal } from './content-authoring/TrackScopeModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import {
   Play,
@@ -34,11 +35,24 @@ import {
   Link as LinkIcon,
   History,
   Zap,
-  ThumbsUp
+  ThumbsUp,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch,
+  Image as ImageIcon,
+  Shield
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
 import * as crud from '../lib/crud';
+import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
+import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { InteractiveTranscript } from './InteractiveTranscript';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
@@ -52,9 +66,12 @@ interface TrackDetailEditProps {
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback - navigates back after archive
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: TrackDetailEditProps) {
+export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: TrackDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -67,6 +84,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     systemCategory: any;
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -78,13 +98,26 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track scope modal
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
+
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
-  
+  const [factsLoading, setFactsLoading] = useState(false);
+  const [factsLoadedForTrackId, setFactsLoadedForTrackId] = useState<string | null>(null);
+
   // Original facts loaded from DB (for edit mode comparison)
   const [originalFacts, setOriginalFacts] = useState<any[]>([]);
-  
+
+  // Track if user has explicitly modified the thumbnail
+  // This is loaded from DB (thumbnail_user_set) and persisted across sessions
+  // Prevents auto-extraction from overwriting user's thumbnail preference
+  const [thumbnailUserSet, setThumbnailUserSet] = useState(track.thumbnail_user_set || false);
+
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -94,44 +127,133 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     learning_objectives: [],
     tags: [],
     content_url: '',
+    thumbnail_user_set: false, // Persisted flag for user thumbnail preference
+    is_system_content: false,
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
 
+  // View mode transcript state (updated by polling when transcript becomes available)
+  const [viewModeTranscript, setViewModeTranscript] = useState<string | null>(track.transcript || null);
+  const [viewModeTranscriptData, setViewModeTranscriptData] = useState<any>(track.transcript_data || null);
+
   const isSystemContent = track.is_system_content;
 
+  // Compute if track is ready to publish (real-time check based on current state)
+  // This enables the publish button as soon as content/transcript is ready
+  const canPublish = React.useMemo(() => {
+    if (track.status === 'published') return true; // Already published, can always unpublish
+
+    const trackType = isEditMode ? editFormData.type : track.type;
+
+    switch (trackType) {
+      case 'video':
+        // Videos need transcript - check both view mode state and track data
+        const hasTranscript = isEditMode
+          ? (editFormData.transcript && editFormData.transcript.trim().length > 20)
+          : (viewModeTranscript && viewModeTranscript.trim().length > 20) || (track.transcript && track.transcript.trim().length > 20);
+        return hasTranscript;
+
+      case 'article':
+        // Articles store body in content_text (primary) or transcript (fallback)
+        const articleContent = isEditMode
+          ? (editFormData.content_text || editFormData.transcript)
+          : (track.content_text || track.transcript);
+        return articleContent && articleContent.trim().length > 20;
+
+      case 'story':
+        // Stories need slide data in transcript
+        const transcriptData = isEditMode ? editFormData.transcript : track.transcript;
+        if (!transcriptData) return false;
+        try {
+          const storyData = typeof transcriptData === 'string' ? JSON.parse(transcriptData) : transcriptData;
+          return storyData.slides && Array.isArray(storyData.slides) && storyData.slides.length > 0;
+        } catch {
+          return false;
+        }
+
+      case 'checkpoint':
+        // Checkpoints are always ready
+        return true;
+
+      default:
+        return true;
+    }
+  }, [track.status, track.type, track.transcript, track.content_text, isEditMode, editFormData.type, editFormData.transcript, editFormData.content_text, viewModeTranscript]);
+
+  // Reset facts cache when track changes
   useEffect(() => {
-    const loadKBTags = async () => {
-      try {
-        const hierarchy = await crud.getTagHierarchy('knowledge-base');
-        const names = new Set<string>();
-        const traverse = (nodes: any[]) => {
-          for (const node of nodes) {
-            names.add(node.name);
-            if (node.children) traverse(node.children);
-          }
-        };
-        traverse(hierarchy);
-        setKbTagNames(names);
-      } catch (e) {
-        console.error("Failed to load KB tags", e);
-      }
-    };
-    loadKBTags();
+    if (track.id !== factsLoadedForTrackId) {
+      setFactsLoadedForTrackId(null);
+      setViewModeFacts([]);
+    }
+  }, [track.id]);
+
+  // Function to load KB tags - extracted so it can be called on demand
+  const loadKBTags = useCallback(async () => {
+    try {
+      const hierarchy = await crud.getTagHierarchy('knowledge-base');
+      const names = new Set<string>();
+      const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+          names.add(node.name);
+          if (node.children) traverse(node.children);
+        }
+      };
+      traverse(hierarchy);
+      setKbTagNames(names);
+    } catch (e) {
+      console.error("Failed to load KB tags", e);
+    }
   }, []);
+
+  // Load KB tags on mount
+  useEffect(() => {
+    loadKBTags();
+  }, [loadKBTags]);
+
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
+
+  // Sync view mode transcript state when track prop changes
+  useEffect(() => {
+    console.log('[TrackDetailEdit] Sync transcript useEffect fired:', {
+      hasTrackTranscript: !!track.transcript,
+      hasTrackTranscriptData: !!track.transcript_data,
+      trackTranscriptDataKeys: track.transcript_data ? Object.keys(track.transcript_data) : []
+    });
+    if (track.transcript) {
+      setViewModeTranscript(track.transcript);
+    }
+    if (track.transcript_data) {
+      setViewModeTranscriptData(track.transcript_data);
+    }
+  }, [track.transcript, track.transcript_data]);
 
   // Auto-refresh transcript for video tracks that don't have one yet
   useEffect(() => {
     // Only poll if:
     // 1. It's a video track
     // 2. Has a content URL
-    // 3. Doesn't have a transcript yet
-    // 4. Not in edit mode (to avoid conflicts)
-    const shouldPoll = 
-      track.type === 'video' && 
-      (track.content_url || editFormData.content_url) && 
-      !track.transcript && 
-      !isEditMode;
+    // 3. Doesn't have a transcript yet (check editFormData in edit mode, track prop otherwise)
+    // Note: We poll in BOTH edit and view mode now - transcript should auto-display like key facts do
+    const hasTranscript = isEditMode ? editFormData.transcript : track.transcript;
+    const shouldPoll =
+      track.type === 'video' &&
+      (track.content_url || editFormData.content_url) &&
+      !hasTranscript;
 
     if (!shouldPoll) return;
 
@@ -158,6 +280,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // If transcript appeared, refresh the UI
         if (freshTrack.transcript) {
           console.log('[TrackDetailEdit] ✓ Transcript found! Refreshing UI...');
+          // Update local state so the transcript shows immediately
+          if (isEditMode) {
+            setEditFormData(prev => ({
+              ...prev,
+              transcript: freshTrack.transcript || '',
+              transcript_data: freshTrack.transcript_data || null,
+            }));
+          } else {
+            // In view mode, update local transcript state
+            setViewModeTranscript(freshTrack.transcript || null);
+            setViewModeTranscriptData(freshTrack.transcript_data || null);
+          }
           await onUpdate();
           return; // Stop polling
         }
@@ -184,7 +318,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [track.id, track.type, track.content_url, track.transcript, editFormData.content_url, isEditMode, onUpdate]);
+  }, [track.id, track.type, track.content_url, track.transcript, editFormData.content_url, editFormData.transcript, isEditMode, onUpdate]);
 
   // Helper function to detect and extract YouTube video ID
   const getYouTubeVideoId = (url: string): string | null => {
@@ -271,13 +405,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   useEffect(() => {
     if (isEditMode) {
       const loadTrackData = async () => {
-        // Fetch facts from database (new facts table)
+        setFactsLoading(true);
+
+        // Fetch facts AND tags in parallel for better performance
+        const [factsResult, tagsResult] = await Promise.allSettled([
+          factsCrud.getFactsForTrack(track.id),
+          tagsCrud.getTrackTagNames(track.id)
+        ]);
+
+        // Process facts result
         let facts: any[] = [];
-        try {
-          const dbFacts = await factsCrud.getFactsForTrack(track.id);
-          
-          // Convert DB facts to frontend format
-          facts = dbFacts.map((f: any) => ({
+        if (factsResult.status === 'fulfilled' && factsResult.value) {
+          facts = factsResult.value.map((f: any) => ({
             title: f.title,
             fact: f.content,
             content: f.content,
@@ -288,13 +427,25 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             _extractedBy: f.extracted_by,
           }));
           console.log(`📊 Loaded ${facts.length} facts from database for track ${track.id}`);
-        } catch (error) {
-          console.warn('Could not fetch facts from database:', error);
+        } else if (factsResult.status === 'rejected') {
+          console.warn('Could not fetch facts from database:', factsResult.reason);
         }
-        
-        // Store original facts for comparison
+
+        // Store original facts for comparison and also set view mode facts
         setOriginalFacts(facts);
-        
+        setViewModeFacts(facts);
+        setFactsLoadedForTrackId(track.id);
+        setFactsLoading(false);
+
+        // Process tags result
+        let tagNames: string[] = track.tags || [];
+        if (tagsResult.status === 'fulfilled' && tagsResult.value) {
+          tagNames = tagsResult.value;
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } else if (tagsResult.status === 'rejected') {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagsResult.reason);
+        }
+
         setEditFormData({
           title: String(track.title || ''),
           description: String(track.description || ''),
@@ -302,14 +453,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           transcript: String(track.transcript || ''),
           transcript_data: track.transcript_data || null,
           learning_objectives: facts,
-          tags: track.tags || [],
+          tags: tagNames,
           content_url: String(track.content_url || ''),
           thumbnail_url: String(track.thumbnail_url || ''),
+          thumbnail_user_set: track.thumbnail_user_set || false, // Load persisted user preference
           type: track.type || 'video',
-          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          is_system_content: track.is_system_content || false,
         });
+        // Also update the component state from DB
+        setThumbnailUserSet(track.thumbnail_user_set || false);
       };
-      
+
       loadTrackData();
     }
   }, [isEditMode, track]);
@@ -320,21 +475,31 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     if (isEditMode) {
       return;
     }
-    
+
     if (track.id) {
+      // Skip fetch if facts were already loaded for this track (e.g., from edit mode)
+      if (factsLoadedForTrackId === track.id && viewModeFacts.length > 0) {
+        console.log(`📊 Using cached ${viewModeFacts.length} facts for view mode`);
+        return;
+      }
+
+      // Use editFormData.learning_objectives as fallback if available (just exited edit mode)
+      const fallbackFacts = (editFormData.learning_objectives || []).length > 0
+        ? editFormData.learning_objectives
+        : null;
+
+      if (fallbackFacts) {
+        setViewModeFacts(fallbackFacts);
+        setFactsLoadedForTrackId(track.id);
+        console.log(`📊 Using ${fallbackFacts.length} facts from editFormData`);
+        return;
+      }
+
       const loadViewModeFacts = async () => {
-        // Use editFormData.learning_objectives as fallback if available (just exited edit mode)
-        const fallbackFacts = (editFormData.learning_objectives || []).length > 0 
-          ? editFormData.learning_objectives 
-          : null;
-        
-        if (fallbackFacts) {
-          setViewModeFacts(fallbackFacts);
-        }
-        
+        setFactsLoading(true);
         try {
           const dbFacts = await factsCrud.getFactsForTrack(track.id);
-          
+
           const facts = dbFacts.map((f: any) => ({
             title: f.title,
             fact: f.content,
@@ -343,26 +508,21 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             steps: f.steps || [],
             contexts: [f.context?.specificity || 'universal'],
           }));
-          
-          // Only update if API returned facts, or if we don't have fallback facts
-          if (facts.length > 0 || !fallbackFacts) {
-            setViewModeFacts(facts);
-            console.log(`📊 Loaded ${facts.length} facts for view mode`);
-          } else {
-            console.log(`📊 API returned 0 facts, keeping ${fallbackFacts.length} fallback facts from editFormData`);
-          }
+
+          setViewModeFacts(facts);
+          setFactsLoadedForTrackId(track.id);
+          console.log(`📊 Loaded ${facts.length} facts for view mode`);
         } catch (error) {
           console.warn('Could not fetch facts for view mode:', error);
-          // If we have fallback facts, keep them
-          if (!fallbackFacts) {
-            setViewModeFacts([]);
-          }
+          setViewModeFacts([]);
+        } finally {
+          setFactsLoading(false);
         }
       };
-      
+
       loadViewModeFacts();
     }
-  }, [isEditMode, track]);
+  }, [isEditMode, track.id, factsLoadedForTrackId]);
 
   // Debug: Log when editFormData changes
   useEffect(() => {
@@ -453,8 +613,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
+        thumbnail_user_set: editFormData.thumbnail_user_set || false, // Persist user's thumbnail preference
         type: editFormData.type,
         transcript_data: editFormData.transcript_data || track.transcript_data || null,
+        is_system_content: editFormData.is_system_content,
       };
 
       console.log('Saving track with data:', saveData);
@@ -480,7 +642,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       // Phase 4: Pre-publish guardrails
       const isPublishing = track.status === 'published' || (isNewContent && saveData.title);
-      if (saveData.tags.length === 0 && isPublishing) {
+      // Only offer AI tag suggestions if:
+      // 1. No tags exist
+      // 2. Publishing
+      // 3. For video/audio tracks: transcript must exist (AI needs transcript to analyze content)
+      const isMediaTrack = saveData.type === 'video' || saveData.type === 'audio';
+      const hasTranscriptForTagging = !isMediaTrack || (editFormData.transcript || track.transcript);
+
+      if (saveData.tags.length === 0 && isPublishing && hasTranscriptForTagging) {
         const confirmTagging = window.confirm(
           "✨ AI Recommendation:\nThis content doesn't have any training topic tags. " +
           "Proper tagging helps with reporting and search.\n\n" +
@@ -865,9 +1034,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   const handleKBToggle = async (checked: boolean) => {
     if (isEditMode) {
-      // In edit mode, update the form data
-      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
-      
+      // In edit mode, open modal immediately and update form data
       if (checked) {
         setTagSelectorConfig({
           systemCategory: 'knowledge-base',
@@ -875,8 +1042,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         });
         setIsTagSelectorOpen(true);
       }
+      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track.tags || []);
@@ -885,27 +1058,20 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         } else {
           currentTags.delete('system:show_in_knowledge_base');
         }
-        
+
         await crud.updateTrack({
           id: track.id,
           show_in_knowledge_base: checked,
           tags: Array.from(currentTags)
         });
-        
+
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
-        
-        // Refresh the track data
+
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         onUpdate();
-        
-        if (checked) {
-          setTagSelectorConfig({
-            systemCategory: 'knowledge-base',
-            restrictToParentName: 'KB Category'
-          });
-          setIsTagSelectorOpen(true);
-        }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });
@@ -1039,14 +1205,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       const data = await response.json();
       console.log('Upload successful:', data);
-      
-      // Upload thumbnail if we have one
+
+      // Upload thumbnail if we have one AND user hasn't explicitly set their preference
+      // This respects user's thumbnail choice (including explicitly removing it)
+      // thumbnailUserSet is persisted in DB, so it survives across sessions
       let thumbnailUrl = editFormData.thumbnail_url;
-      if (thumbnailBlob) {
-        console.log('Uploading thumbnail...');
+      const shouldAutoExtractThumbnail = thumbnailBlob && !thumbnailUserSet && !editFormData.thumbnail_url;
+
+      if (shouldAutoExtractThumbnail) {
+        console.log('Auto-extracting thumbnail (no user preference set, no existing thumbnail)...');
         const thumbnailFormData = new FormData();
         thumbnailFormData.append('file', thumbnailBlob, 'thumbnail.jpg');
-        
+
         const thumbnailResponse = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
@@ -1054,23 +1224,25 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           },
           body: thumbnailFormData,
         });
-        
+
         if (thumbnailResponse.ok) {
           const thumbnailData = await thumbnailResponse.json();
           thumbnailUrl = thumbnailData.url;
-          console.log('Thumbnail uploaded:', thumbnailUrl);
+          console.log('Thumbnail auto-extracted:', thumbnailUrl);
         }
+      } else if (thumbnailBlob) {
+        console.log('Skipping auto-extract: thumbnailUserSet=', thumbnailUserSet, ', existingThumbnail=', !!editFormData.thumbnail_url);
       }
-      
+
       // Update form with all metadata
-      setEditFormData({ 
-        ...editFormData, 
+      setEditFormData({
+        ...editFormData,
         content_url: data.url,
         duration_minutes: duration, // Always use extracted duration (don't fallback to old value)
         thumbnail_url: thumbnailUrl,
         type: isVideo ? 'video' : isAudio ? 'audio' : editFormData.type,
       });
-      
+
       console.log('Updated form with metadata:', { duration, thumbnailUrl, type: isVideo ? 'video' : 'audio' });
       toast.success('Media file uploaded successfully! Click \"Save Changes\" to persist.');
     } catch (error: any) {
@@ -1115,17 +1287,30 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
       const data = await response.json();
       console.log('Transcription successful:', data);
-      
+
+      // Normalize transcript data - extract transcript_json if nested (from media_transcripts)
+      let transcriptData = data.transcript;
+      if (transcriptData && transcriptData.transcript_json) {
+        transcriptData = transcriptData.transcript_json;
+      }
+
       // Auto-save the transcript directly to database (without requiring edit mode)
       await crud.updateTrack({
         id: track.id,
-        transcript: data.transcript.text,
-        transcript_data: data.transcript,
+        transcript: transcriptData.text,
+        transcript_data: transcriptData,
       });
-      
+
+      // Update editFormData so UI shows transcript immediately (works in both edit and view mode)
+      setEditFormData(prev => ({
+        ...prev,
+        transcript: transcriptData.text,
+        transcript_data: transcriptData,
+      }));
+
       toast.success('Transcript generated and saved!');
-      
-      // Trigger refetch to update UI
+
+      // Trigger refetch to sync track prop (transcript already shows via editFormData.transcript_data)
       await onUpdate();
     } catch (error: any) {
       console.error('Transcription error:', error);
@@ -1236,12 +1421,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         // learning_objectives removed - facts are now stored in the facts table
         tags: Array.from(currentTags),
         thumbnail_url: editFormData.thumbnail_url || track.thumbnail_url,
+        thumbnail_user_set: editFormData.thumbnail_user_set || false, // Persist user's thumbnail preference
         type: editFormData.type,
         transcript_data: editFormData.transcript_data || track.transcript_data || null,
       };
 
       // Check for meaningful content changes
-      const contentChanged = 
+      const contentChanged =
         saveData.title !== track.title ||
         saveData.description !== track.description ||
         saveData.duration_minutes !== (track.duration_minutes || 0) ||
@@ -1391,18 +1577,79 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={() => setIsEditMode(true)}
-                className="hero-primary"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Track
-                {isSystemContent && isSuperAdminAuthenticated && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button
+                  onClick={() => setIsEditMode(true)}
+                  className="hero-primary"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Track
+                  {isSystemContent && isSuperAdminAuthenticated && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         )}
@@ -1471,7 +1718,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       ref={videoRef}
                       controls
                       className="w-full h-full"
-                      poster={track.thumbnail_url || undefined}
+                      poster={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       src={track.content_url}
                       onTimeUpdate={handleVideoTimeUpdate}
                     >
@@ -1479,13 +1726,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     </video>
                   ) : (track.type === 'audio' || track.content_url.match(/\.(mp3|wav|ogg)$/i)) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
-                      {track.thumbnail_url && (
-                        <img 
-                          src={track.thumbnail_url} 
-                          alt={track.title}
-                          className="w-48 h-48 object-cover rounded-lg mb-4"
-                        />
-                      )}
+                      <img 
+                        src={getEffectiveThumbnailUrl(track.thumbnail_url)} 
+                        alt={track.title}
+                        className="w-48 h-48 object-cover rounded-lg mb-4"
+                      />
                       <audio
                         controls
                         className="w-full max-w-md"
@@ -1507,19 +1752,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 </div>
               ) : (
                 <div className="relative aspect-video bg-muted rounded-t-lg overflow-hidden">
-                  {track.thumbnail_url ? (
-                    <img 
-                      src={track.thumbnail_url} 
-                      alt={track.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
-                      <div className="text-primary opacity-40 scale-150">
-                        {getTypeIcon(track.type)}
-                      </div>
-                    </div>
-                  )}
+                  <img 
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)} 
+                    alt={track.title}
+                    className="w-full h-full object-cover"
+                  />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                     <Button size="lg" className="rounded-full h-16 w-16 hero-primary" disabled>
                       <Play className="h-8 w-8 text-white fill-white ml-1" />
@@ -1536,15 +1773,30 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           </Card>
 
           {/* Transcript Section - Moved under video player */}
-          {track.type !== 'article' && (
+          {track.type !== 'article' && (() => {
+            // Determine which transcript data to use
+            const transcriptData = isEditMode
+              ? (editFormData.transcript_data || track.transcript_data)
+              : (viewModeTranscriptData || track.transcript_data);
+
+            console.log('[TrackDetailEdit] Transcript render:', {
+              isEditMode,
+              hasEditFormTranscriptData: !!editFormData.transcript_data,
+              hasTrackTranscriptData: !!track.transcript_data,
+              hasViewModeTranscriptData: !!viewModeTranscriptData,
+              finalTranscriptData: !!transcriptData,
+              transcriptDataKeys: transcriptData ? Object.keys(transcriptData) : []
+            });
+
+            return (
             <InteractiveTranscript
-              transcript={track.transcript_data}
+              transcript={transcriptData}
               currentTime={currentTime}
               onSeek={handleSeek}
               canTranscribe={
-                !!track.content_url && 
-                !track.transcript_data && 
-                !isYouTubeUrl(track.content_url) && 
+                !!track.content_url &&
+                !transcriptData &&
+                !isYouTubeUrl(track.content_url) &&
                 !isVimeoUrl(track.content_url)
               }
               onTranscribe={handleTranscribe}
@@ -1553,7 +1805,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               onTranscriptEdit={handleTranscriptEdit}
               contentUrl={track.content_url}
             />
-          )}
+            );
+          })()}
 
           {/* Description */}
           <Card>
@@ -1607,7 +1860,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsTagSelectorOpen(true)}
+                      onClick={handleAddTag}
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />
@@ -1627,7 +1880,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsTagSelectorOpen(true)}
+                      onClick={handleAddTag}
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />
@@ -1802,30 +2055,51 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge 
-                    variant="outline"
-                    className={`cursor-pointer transition-colors ${
-                      track.status === 'published'
-                        ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
-                        : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
-                    }`}
-                    onClick={async () => {
-                      const newStatus = track.status === 'published' ? 'draft' : 'published';
-                      try {
-                        await crud.updateTrack({ id: track.id, status: newStatus });
-                        toast.success(`Track ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
-                        await onUpdate();
-                      } catch (error: any) {
-                        console.error('Error updating status:', error);
-                        toast.error('Failed to update status');
-                      }
-                    }}
-                  >
-                    {track.status === 'published' ? 'Published' : 'Draft'}
-                  </Badge>
+                  {/* Show popover with "Processing..." when trying to publish but not ready */}
+                  {track.status !== 'published' && !canPublish ? (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="cursor-not-allowed opacity-60 bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        >
+                          Draft
+                        </Badge>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-2 text-xs" side="left">
+                        Processing...
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={`cursor-pointer transition-colors ${
+                        track.status === 'published'
+                          ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200'
+                          : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200'
+                      }`}
+                      onClick={async () => {
+                        const newStatus = track.status === 'published' ? 'draft' : 'published';
+                        try {
+                          await crud.updateTrack({ id: track.id, status: newStatus });
+                          toast.success(`Track ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          await onUpdate();
+                        } catch (error: any) {
+                          console.error('Error updating status:', error);
+                          toast.error(error.message || 'Failed to update status');
+                        }
+                      }}
+                    >
+                      {track.status === 'published' ? 'Published' : 'Draft'}
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Click the status badge to {track.status === 'published' ? 'move to drafts' : 'publish'}
+                  {track.status === 'published'
+                    ? 'Click the status badge to move to drafts'
+                    : canPublish
+                      ? 'Click the status badge to publish'
+                      : 'Waiting for content to finish processing...'}
                 </p>
               </CardContent>
             </Card>
@@ -1857,24 +2131,22 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 
                 {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
                   <div className="pt-2">
-                     {isEditMode && (
-                       <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full mb-3"
-                          onClick={() => {
-                            setTagSelectorConfig({
-                               systemCategory: 'knowledge-base',
-                               restrictToParentName: 'KB Category'
-                            });
-                            setIsTagSelectorOpen(true);
-                          }}
-                       >
-                         <Tag className="h-4 w-4 mr-2" />
-                         Manage KB Tags
-                       </Button>
-                     )}
-                     
+                     <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mb-3"
+                        onClick={() => {
+                          setTagSelectorConfig({
+                             systemCategory: 'knowledge-base',
+                             restrictToParentName: 'KB Category'
+                          });
+                          setIsTagSelectorOpen(true);
+                        }}
+                     >
+                       <Tag className="h-4 w-4 mr-2" />
+                       Manage KB Tags
+                     </Button>
+
                      {/* Selected KB Tags Display */}
                      <div>
                        <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
@@ -1892,18 +2164,84 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                          )}
                        </div>
                      </div>
-                     
-                     {isEditMode && (
-                       <p className="text-xs text-muted-foreground mt-2">
-                         Select "KB Category" tags to organize this content in the Knowledge Base.
-                       </p>
-                     )}
+
+                     <p className="text-xs text-muted-foreground mt-2">
+                       Select "KB Category" tags to organize this content in the Knowledge Base.
+                     </p>
                   </div>
                 )}
               </CardContent>
             </Card>
           )}
           
+          {/* Content scope */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Content scope
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {track.scope ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{track.scope.scope_level}</Badge>
+                  {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
+                  {track.scope.state_name && <Badge variant="outline">{track.scope.state_name}</Badge>}
+                  {track.scope.industry_name && <Badge variant="outline">{track.scope.industry_name}</Badge>}
+                  {track.scope.company_name && <Badge variant="outline">{track.scope.company_name}</Badge>}
+                  {track.scope.program_name && <Badge variant="outline">{track.scope.program_name}</Badge>}
+                  {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
+                {track.scope ? 'Edit scope' : 'Set scope'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Super Admin Settings */}
+          {isSuperAdminAuthenticated && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-orange-500" />
+                  Super Admin Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark as Trike Library content
+                    </p>
+                  </div>
+                  <Switch
+                    id="system-content"
+                    checked={isEditMode ? editFormData.is_system_content : track.is_system_content}
+                    onCheckedChange={(checked) => {
+                      if (isEditMode) {
+                        setEditFormData({ ...editFormData, is_system_content: checked });
+                      } else {
+                        crud.updateTrack({ id: track.id, is_system_content: checked })
+                          .then(() => {
+                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            onUpdate();
+                          });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Stats */}
           <Card>
             <CardHeader>
@@ -1996,9 +2334,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     onChange={async (e) => {
                       const newUrl = e.target.value;
                       setEditFormData({ ...editFormData, content_url: newUrl });
-                      
+
                       // Auto-extract thumbnail for YouTube/Vimeo URLs
-                      if (newUrl && (isYouTubeUrl(newUrl) || isVimeoUrl(newUrl))) {
+                      // Only if user hasn't explicitly set thumbnail preference AND no existing thumbnail
+                      if (newUrl && (isYouTubeUrl(newUrl) || isVimeoUrl(newUrl)) && !thumbnailUserSet && !editFormData.thumbnail_url) {
                         const thumbnailUrl = await extractThumbnailFromUrl(newUrl);
                         if (thumbnailUrl) {
                           setEditFormData((prev: any) => ({ ...prev, thumbnail_url: thumbnailUrl }));
@@ -2044,6 +2383,124 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     Max size: 50MB
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Thumbnail - edit mode only */}
+          {isEditMode && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center">
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Thumbnail
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {editFormData.thumbnail_url ? (
+                  <div className="space-y-3">
+                    <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
+                      <img
+                        src={editFormData.thumbnail_url}
+                        alt="Track thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <label className="flex-1">
+                        <Button variant="outline" size="sm" className="w-full" asChild disabled={isUploading}>
+                          <span>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Replace
+                          </span>
+                        </Button>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              try {
+                                setIsUploading(true);
+                                const result = await crud.uploadTrackFile(track.id, file);
+                                setEditFormData((prev: any) => ({
+                                  ...prev,
+                                  thumbnail_url: result.url,
+                                  thumbnail_user_set: true // User explicitly set thumbnail
+                                }));
+                                setThumbnailUserSet(true); // Update component state too
+                                toast.success('Thumbnail updated!');
+                              } catch (error: any) {
+                                console.error('Error uploading thumbnail:', error);
+                                toast.error('Failed to upload thumbnail');
+                              } finally {
+                                setIsUploading(false);
+                              }
+                            }
+                          }}
+                          disabled={isUploading}
+                        />
+                      </label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditFormData((prev: any) => ({
+                            ...prev,
+                            thumbnail_url: '',
+                            thumbnail_user_set: true // User explicitly removed thumbnail
+                          }));
+                          setThumbnailUserSet(true); // Update component state too
+                        }}
+                        disabled={isUploading}
+                        title="Remove thumbnail"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <label>
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
+                      <div className="text-center">
+                        <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
+                        <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                      </div>
+                    </div>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          try {
+                            setIsUploading(true);
+                            const result = await crud.uploadTrackFile(track.id, file);
+                            setEditFormData((prev: any) => ({
+                              ...prev,
+                              thumbnail_url: result.url,
+                              thumbnail_user_set: true // User explicitly uploaded thumbnail
+                            }));
+                            setThumbnailUserSet(true); // Update component state too
+                            toast.success('Thumbnail uploaded!');
+                          } catch (error: any) {
+                            console.error('Error uploading thumbnail:', error);
+                            toast.error('Failed to upload thumbnail');
+                          } finally {
+                            setIsUploading(false);
+                          }
+                        }
+                      }}
+                      disabled={isUploading}
+                    />
+                  </label>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Used in playlists, library views, and video player poster
+                </p>
               </CardContent>
             </Card>
           )}
@@ -2114,27 +2571,34 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       {/* Tag Selector Dialog */}
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
-        onClose={() => setIsTagSelectorOpen(false)}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          // Refresh KB tags in case new tags were created
+          loadKBTags();
+        }}
         selectedTags={isEditMode ? (editFormData.tags || []) : (track.tags || [])}
         onTagsChange={async (tags) => {
           if (isEditMode) {
             setEditFormData({ ...editFormData, tags });
           } else {
-            // In view mode, save directly to database
+            // In view mode, save directly to database using junction table
             try {
-              await crud.updateTrack({
-                id: track.id,
-                tags: tags
-              });
-              toast.success('KB categories updated');
+              // Use assignTrackTagsByName which writes to junction table AND syncs legacy column
+              const { unrecognizedNames } = await tagsCrud.assignTrackTagsByName(track.id, tags, true);
+              if (unrecognizedNames.length > 0) {
+                console.warn('Some tags were not recognized:', unrecognizedNames);
+              }
+              toast.success('Tags updated');
               onUpdate(); // Refresh track data
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update KB categories', {
+              toast.error('Failed to update tags', {
                 description: error.message || 'Please try again'
               });
             }
           }
+          // Refresh KB tags to include any newly created tags
+          loadKBTags();
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
@@ -2191,6 +2655,16 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       />
       
       {/* Unsaved Changes Dialog */}
+      <TrackScopeModal
+        isOpen={isScopeModalOpen}
+        onClose={() => setIsScopeModalOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
+        organizationId={track.organization_id}
+        allowAllOrgs={isSuperAdminAuthenticated}
+        onSaved={onUpdate}
+      />
+
       <UnsavedChangesDialog
         open={showUnsavedDialog}
         onOpenChange={setShowUnsavedDialog}

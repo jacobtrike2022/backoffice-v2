@@ -44,7 +44,10 @@ import {
 import { toast } from 'sonner';
 import * as albumsCrud from '../lib/crud/albums';
 import * as crud from '../lib/crud';
+import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
 import type { Album, AlbumTrack } from '../lib/crud/albums';
+import { getAlbumScope, type AlbumScopeEnriched } from '../lib/crud/albumScopes';
+import { AlbumScopeModal } from './content-authoring/AlbumScopeModal';
 
 interface AlbumDetailViewProps {
   album: Album;
@@ -74,6 +77,8 @@ export function AlbumDetailView({
   const [draggedTrackId, setDraggedTrackId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [localTracks, setLocalTracks] = useState<AlbumTrack[]>([]);
+  const [albumScope, setAlbumScope] = useState<AlbumScopeEnriched | null>(null);
+  const [scopeModalOpen, setScopeModalOpen] = useState(false);
 
   // Sync editForm when album changes
   useEffect(() => {
@@ -83,10 +88,12 @@ export function AlbumDetailView({
     });
   }, [album]);
 
-  // Sync localTracks when album changes
+  // Sync localTracks when album changes (filter out archived tracks)
   useEffect(() => {
     if (album.tracks) {
-      const sorted = [...album.tracks].sort((a, b) => a.display_order - b.display_order);
+      const sorted = [...album.tracks]
+        .filter((at) => at.track?.status !== 'archived')
+        .sort((a, b) => a.display_order - b.display_order);
       setLocalTracks(sorted);
     }
   }, [album]);
@@ -147,6 +154,10 @@ export function AlbumDetailView({
       setTrackSearchQuery('');
     }
   }, [showAddTracksDialog]);
+
+  useEffect(() => {
+    getAlbumScope(album.id).then(setAlbumScope).catch(() => setAlbumScope(null));
+  }, [album.id]);
 
   const handleAddSelectedTracks = async () => {
     if (selectedTrackIds.size === 0) return;
@@ -324,6 +335,31 @@ export function AlbumDetailView({
         </div>
       </div>
 
+      {/* Scope: who can see this album (Universal / State / Company) */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium mb-1">Scope</h3>
+              <p className="text-sm text-muted-foreground">
+                {albumScope
+                  ? albumScope.scope_level === 'UNIVERSAL'
+                    ? 'Universal (visible to all organizations)'
+                    : albumScope.scope_level === 'STATE' && albumScope.state_code
+                      ? `State: ${albumScope.state_code}${albumScope.state_name ? ` – ${albumScope.state_name}` : ''}`
+                      : albumScope.scope_level === 'COMPANY' && albumScope.company_name
+                        ? `Company: ${albumScope.company_name}`
+                        : albumScope.scope_level
+                  : 'Universal (default)'}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setScopeModalOpen(true)}>
+              Edit scope
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Description (editable) */}
       {isEditing && (
         <Card>
@@ -338,6 +374,19 @@ export function AlbumDetailView({
           </CardContent>
         </Card>
       )}
+
+      <AlbumScopeModal
+        isOpen={scopeModalOpen}
+        onClose={() => setScopeModalOpen(false)}
+        albumId={album.id}
+        albumTitle={album.title}
+        organizationId={album.organization_id}
+        allowAllOrgs={false}
+        onSaved={() => {
+          getAlbumScope(album.id).then(setAlbumScope).catch(() => setAlbumScope(null));
+          onUpdate();
+        }}
+      />
 
       {!isEditing && album.description && (
         <Card>
@@ -391,13 +440,11 @@ export function AlbumDetailView({
                     <span className="text-sm w-6 text-center">{index + 1}</span>
                   </div>
                   
-                  {albumTrack.track?.thumbnail_url && (
-                    <img
-                      src={albumTrack.track.thumbnail_url}
-                      alt=""
-                      className="w-12 h-12 rounded object-cover"
-                    />
-                  )}
+                  <img
+                    src={getEffectiveThumbnailUrl(albumTrack.track?.thumbnail_url)}
+                    alt=""
+                    className="w-12 h-12 rounded object-cover bg-muted"
+                  />
                   
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{albumTrack.track?.title || 'Untitled'}</p>
@@ -473,13 +520,11 @@ export function AlbumDetailView({
                     onChange={() => toggleTrackSelection(track.id)}
                     className="h-4 w-4"
                   />
-                  {track.thumbnail_url && (
-                    <img
-                      src={track.thumbnail_url}
-                      alt=""
-                      className="w-10 h-10 rounded object-cover"
-                    />
-                  )}
+                  <img
+                    src={getEffectiveThumbnailUrl(track.thumbnail_url)}
+                    alt=""
+                    className="w-10 h-10 rounded object-cover bg-muted"
+                  />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{track.title}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">

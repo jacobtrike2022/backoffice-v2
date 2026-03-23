@@ -4,14 +4,52 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
-import { X, Tag as TagIcon, Folder, FolderOpen, AlertCircle } from 'lucide-react';
+import { X, Tag as TagIcon, Folder, FolderOpen, AlertCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { createTag, updateTag, type Tag, type TagType } from '../lib/crud/tags';
+
+const RECENT_COLORS_KEY = 'trike-tag-recent-colors';
+const MAX_RECENT_COLORS = 10;
+
+function getRecentColors(): string[] {
+  try {
+    const stored = localStorage.getItem(RECENT_COLORS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentColor(color: string, predefinedColors: string[]): void {
+  // Don't save predefined colors to recent colors
+  if (predefinedColors.includes(color.toUpperCase()) || predefinedColors.includes(color.toLowerCase())) {
+    return;
+  }
+
+  const normalizedColor = color.toUpperCase();
+  const recent = getRecentColors();
+
+  // Remove if already exists (will re-add at front)
+  const filtered = recent.filter(c => c.toUpperCase() !== normalizedColor);
+
+  // Add to front, limit to max
+  const updated = [normalizedColor, ...filtered].slice(0, MAX_RECENT_COLORS);
+
+  try {
+    localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(updated));
+  } catch {
+    // localStorage might be full or unavailable
+  }
+}
+
+function isValidHexColor(color: string): boolean {
+  return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color);
+}
 
 interface CreateTagModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (createdTagName?: string) => void;  // Pass tag name for auto-selection
   categories: Tag[];
   preselectedCategoryId?: string;
   preselectedParentId?: string;
@@ -19,6 +57,7 @@ interface CreateTagModalProps {
   tagToEdit?: Tag | null;
   initialTagName?: string;
   initialDescription?: string;
+  canEditSystemTags?: boolean; // Trike Super Admin can edit system-locked tags
 }
 
 export function CreateTagModal({
@@ -32,6 +71,7 @@ export function CreateTagModal({
   tagToEdit,
   initialTagName,
   initialDescription,
+  canEditSystemTags = false,
 }: CreateTagModalProps) {
   const isEditing = !!tagToEdit;
   
@@ -50,7 +90,15 @@ export function CreateTagModal({
   const [tagName, setTagName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState('#F74A05');
+  const [customHexInput, setCustomHexInput] = useState('');
+  const [hexInputError, setHexInputError] = useState('');
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Load recent colors on mount
+  useEffect(() => {
+    setRecentColors(getRecentColors());
+  }, [isOpen]);
 
   const findTagById = (id?: string): Tag | undefined => {
     if (!id) return undefined;
@@ -118,18 +166,43 @@ export function CreateTagModal({
       setDescription(initialDescription || '');
       setColor('#F74A05');
       const parentTag = findTagById(preselectedParentId);
-      const derivedCategoryId =
-        parentTag?.type === 'system-category'
-          ? parentTag.id
-          : parentTag?.parent_id || preselectedCategoryId || '';
 
-      setTagType(
-        defaultType && defaultType !== 'system-category'
-          ? defaultType
-          : preselectedParentId
-            ? 'child'
-            : 'parent'
-      );
+      console.log('[CreateTagModal] Initializing with:', {
+        preselectedParentId,
+        parentTag,
+        defaultType,
+        categoriesLength: categories.length
+      });
+
+      // Derive the system category ID by traversing up the hierarchy
+      // For AI suggestions: Subcategory (e.g., Compliance) → Parent (Training Topics) → System (Content)
+      let derivedCategoryId = preselectedCategoryId || '';
+      if (parentTag) {
+        if (parentTag.type === 'system-category') {
+          derivedCategoryId = parentTag.id;
+        } else if (parentTag.type === 'subcategory') {
+          // Subcategory → find its parent (Training Topics) → find grandparent (Content)
+          const parentOfSubcat = findTagById(parentTag.parent_id);
+          console.log('[CreateTagModal] Subcategory parent (should be Training Topics):', parentOfSubcat);
+          if (parentOfSubcat?.parent_id) {
+            derivedCategoryId = parentOfSubcat.parent_id;
+            console.log('[CreateTagModal] Derived system category ID:', derivedCategoryId);
+          }
+        } else if (parentTag.type === 'parent') {
+          // Parent tag → its parent is the system category
+          derivedCategoryId = parentTag.parent_id || '';
+        }
+      }
+
+      const finalTagType = defaultType && defaultType !== 'system-category'
+        ? defaultType
+        : preselectedParentId
+          ? 'child'
+          : 'parent';
+
+      console.log('[CreateTagModal] Setting state:', { derivedCategoryId, preselectedParentId, finalTagType });
+
+      setTagType(finalTagType);
       setSelectedCategoryId(derivedCategoryId);
       setSelectedParentId(preselectedParentId || '');
     }
@@ -169,13 +242,19 @@ export function CreateTagModal({
     try {
       setIsSubmitting(true);
 
+      // Save custom color to recent colors before creating/updating
+      saveRecentColor(color, predefinedColors);
+      setRecentColors(getRecentColors());
+
       if (isEditing && tagToEdit) {
         // UPDATE EXISTING TAG
+        // Pass bypass flag for Super Admin editing system-locked tags
+        const bypassSystemLock = canEditSystemTags && tagToEdit.is_system_locked;
         await updateTag(tagToEdit.id, {
           name: tagName.trim(),
           description: description.trim() || undefined,
           color: color,
-        });
+        }, bypassSystemLock);
         toast.success('Tag updated successfully');
       } else {
         // CREATE NEW TAG
@@ -203,8 +282,13 @@ export function CreateTagModal({
         await createTag(tagData);
         const label = tagType === 'parent' ? 'Parent' : tagType === 'subcategory' ? 'Subcategory' : 'Child';
         toast.success(`${label} tag created successfully`);
+
+        // Pass the created tag name for auto-selection
+        onSuccess(tagName.trim());
+        onClose();
+        return;
       }
-      
+
       onSuccess();
       onClose();
     } catch (error: any) {
@@ -476,17 +560,24 @@ export function CreateTagModal({
             </div>
 
             {/* Color Picker */}
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Tag Color</Label>
-              <div className="flex items-center gap-3">
+
+              {/* Predefined Colors */}
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Preset colors</span>
                 <div className="flex flex-wrap gap-2">
                   {predefinedColors.map((c) => (
                     <button
                       key={c}
                       type="button"
-                      onClick={() => setColor(c)}
+                      onClick={() => {
+                        setColor(c);
+                        setCustomHexInput('');
+                        setHexInputError('');
+                      }}
                       className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                        color === c
+                        color.toUpperCase() === c.toUpperCase()
                           ? 'border-foreground scale-110'
                           : 'border-border hover:scale-105'
                       }`}
@@ -495,17 +586,97 @@ export function CreateTagModal({
                     />
                   ))}
                 </div>
-                <div className="flex items-center gap-2 ml-auto">
+              </div>
+
+              {/* Recent Colors */}
+              {recentColors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Recent custom colors</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {recentColors.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          setColor(c);
+                          setCustomHexInput('');
+                          setHexInputError('');
+                        }}
+                        className={`w-8 h-8 rounded-lg border-2 transition-all ${
+                          color.toUpperCase() === c.toUpperCase()
+                            ? 'border-foreground scale-110'
+                            : 'border-border hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: c }}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Color Input */}
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Custom color (hex)</span>
+                <div className="flex items-center gap-3">
                   <Input
                     type="color"
                     value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="w-12 h-10 cursor-pointer"
+                    onChange={(e) => {
+                      const hexColor = e.target.value.toUpperCase();
+                      setColor(hexColor);
+                      setCustomHexInput(hexColor);
+                      setHexInputError('');
+                    }}
+                    className="w-12 h-10 cursor-pointer p-1"
+                    title="Click to open color picker"
                   />
-                  <span className="text-sm text-muted-foreground font-mono">
-                    {color}
-                  </span>
+                  <div className="flex-1 flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={customHexInput || color.toUpperCase()}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        // Add # if user pastes without it
+                        if (val && !val.startsWith('#')) {
+                          val = '#' + val;
+                        }
+                        setCustomHexInput(val);
+                        setHexInputError('');
+
+                        // Auto-apply if valid
+                        if (isValidHexColor(val)) {
+                          setColor(val.toUpperCase());
+                        }
+                      }}
+                      onFocus={(e) => {
+                        // Select all text on focus for easy replacement
+                        e.target.select();
+                      }}
+                      onBlur={() => {
+                        if (customHexInput && !isValidHexColor(customHexInput)) {
+                          setHexInputError('Invalid hex color (e.g., #FF5733)');
+                        }
+                      }}
+                      placeholder="#FF5733"
+                      className={`font-mono text-sm w-32 ${hexInputError ? 'border-destructive' : ''}`}
+                    />
+                  </div>
+                  <div
+                    className="w-10 h-10 rounded-lg border-2 border-foreground shadow-sm"
+                    style={{ backgroundColor: color }}
+                    title={`Current: ${color.toUpperCase()}`}
+                  />
                 </div>
+                {hexInputError && (
+                  <p className="text-xs text-destructive">{hexInputError}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Paste or type a hex color code, or use the picker. Current: <span className="font-mono font-medium">{color.toUpperCase()}</span>
+                </p>
               </div>
             </div>
 

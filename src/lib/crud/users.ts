@@ -13,6 +13,7 @@ export interface CreateUserInput {
   employee_id?: string;
   hire_date?: string;
   phone?: string;
+  organization_id?: string;
 }
 
 /**
@@ -42,11 +43,9 @@ export async function createUser(input: CreateUserInput) {
     throw new Error('Invalid hire_date: must be in YYYY-MM-DD format');
   }
 
-  const orgId = await getCurrentUserOrgId();
-  if (!orgId) throw new Error('User not authenticated');
+  const orgId = input.organization_id || await getCurrentUserOrgId();
+  if (!orgId) throw new Error('User not authenticated or no organization specified');
 
-  // Create auth user via Supabase Admin API (server-side only)
-  // This should be called from a server-side function
   const inviteUrl = await inviteUserViaEmail(input.email);
 
   // Create user record

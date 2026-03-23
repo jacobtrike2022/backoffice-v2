@@ -12,7 +12,7 @@ let healthStatus: ServerHealthStatus = {
   warningShown: false,
 };
 
-const HEALTH_CHECK_INTERVAL = 60000; // Check every 60 seconds
+const HEALTH_CHECK_INTERVAL = 30000; // Check every 30 seconds (faster recheck after deployment)
 
 /**
  * Check if the server is deployed and healthy
@@ -30,9 +30,10 @@ export async function checkServerHealth(): Promise<boolean> {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
+        'apikey': publicAnonKey,
       },
-      // Short timeout for health check
-      signal: AbortSignal.timeout(3000),
+      // Allow more time for cold starts (Supabase Edge Functions can take 5-10s on cold start)
+      signal: AbortSignal.timeout(10000),
     });
     
     healthStatus.isHealthy = response.ok;
@@ -85,8 +86,9 @@ export async function isServerAvailable(): Promise<boolean> {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
+        'apikey': publicAnonKey,
       },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(10000),
     });
     return response.ok;
   } catch {

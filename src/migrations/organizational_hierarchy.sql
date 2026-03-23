@@ -75,9 +75,10 @@ CREATE POLICY "Admins can manage roles in their organization"
   ON roles FOR ALL
   USING (
     organization_id IN (
-      SELECT organization_id FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name IN ('Admin', 'Trike Super Admin')
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 
@@ -136,9 +137,10 @@ CREATE POLICY "Admins and District Managers can manage districts"
   ON districts FOR ALL
   USING (
     organization_id IN (
-      SELECT organization_id FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name IN ('Admin', 'District Manager', 'Trike Super Admin')
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'District Manager', 'Trike Super Admin')
     )
   );
 
@@ -212,9 +214,10 @@ CREATE POLICY "Admins can manage all stores in their organization"
   ON stores FOR ALL
   USING (
     organization_id IN (
-      SELECT organization_id FROM users 
-      WHERE auth_user_id = auth.uid() 
-      AND role_name IN ('Admin', 'Trike Super Admin')
+      SELECT u.organization_id FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 

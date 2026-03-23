@@ -14,6 +14,7 @@ import { VersionHistory } from './content-authoring/VersionHistory';
 import { AssociatedPlaylists } from './content-authoring/AssociatedPlaylists';
 import { TrackRelationships } from './content-authoring/TrackRelationships';
 import { VersionDecisionModal } from './content-authoring/VersionDecisionModal';
+import { TrackScopeModal } from './content-authoring/TrackScopeModal';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { TTSPlayer } from './content/TTSPlayer';
 import {
@@ -39,15 +40,27 @@ import {
   ExternalLink,
   History,
   Zap,
-  ThumbsUp
+  ThumbsUp,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch,
+  Shield
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from './ui/popover';
 import * as crud from '../lib/crud';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
+import * as tagsCrud from '../lib/crud/tags';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
-import defaultThumbnail from '../assets/default-thumbnail.jpg';
+import { supabase } from '../lib/supabase';
+import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -58,9 +71,12 @@ interface ArticleDetailEditProps {
   isNewContent?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck }: ArticleDetailEditProps) {
+export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: ArticleDetailEditProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -73,6 +89,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
   const [isFormDataLoaded, setIsFormDataLoaded] = useState(false); // Track if form data is ready
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   
   // Versioning state
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -84,7 +103,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   
   // AI Key Facts generation
   const [isGeneratingKeyFacts, setIsGeneratingKeyFacts] = useState(false);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
+  // Track scope modal
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
+
   // Facts loaded from database (for view mode)
   const [viewModeFacts, setViewModeFacts] = useState<any[]>([]);
   
@@ -93,7 +118,15 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   
   // TTS refresh key - increment this to force TTS player to refresh
   const [ttsRefreshKey, setTtsRefreshKey] = useState(0);
-  
+
+  // Source document info (if track was generated from a source chunk)
+  const [sourceDocumentInfo, setSourceDocumentInfo] = useState<{
+    sourceFileId: string;
+    sourceFileName: string;
+    sourceChunkId: string;
+    chunkTitle: string;
+  } | null>(null);
+
   const [editFormData, setEditFormData] = useState<any>({
     title: '',
     description: '',
@@ -102,29 +135,48 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     tags: [],
     content_url: '',
     article_body: '',
+    is_system_content: false,
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const loadKBTags = async () => {
-      try {
-        const hierarchy = await crud.getTagHierarchy('knowledge-base');
-        const names = new Set<string>();
-        const traverse = (nodes: any[]) => {
-          for (const node of nodes) {
-            names.add(node.name);
-            if (node.children) traverse(node.children);
-          }
-        };
-        traverse(hierarchy);
-        setKbTagNames(names);
-      } catch (e) {
-        console.error("Failed to load KB tags", e);
-      }
-    };
-    loadKBTags();
+  // Function to load KB tags - extracted so it can be called on demand
+  const loadKBTags = useCallback(async () => {
+    try {
+      const hierarchy = await crud.getTagHierarchy('knowledge-base');
+      const names = new Set<string>();
+      const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+          names.add(node.name);
+          if (node.children) traverse(node.children);
+        }
+      };
+      traverse(hierarchy);
+      setKbTagNames(names);
+    } catch (e) {
+      console.error("Failed to load KB tags", e);
+    }
   }, []);
+
+  // Load KB tags on mount
+  useEffect(() => {
+    loadKBTags();
+  }, [loadKBTags]);
+
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
 
   const isSystemContent = track.is_system_content;
 
@@ -154,8 +206,59 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         console.error('Error loading attachments:', error);
       }
     };
-    
+
     loadAttachments();
+  }, [track.id]);
+
+  // Load source document info (if track was generated from a source chunk)
+  useEffect(() => {
+    const loadSourceDocumentInfo = async () => {
+      try {
+        // Query track_source_chunks to find the source chunk
+        const { data: trackChunks, error: chunkError } = await supabase
+          .from('track_source_chunks')
+          .select(`
+            source_chunk_id,
+            source_chunks!inner (
+              id,
+              title,
+              source_file_id,
+              source_files!inner (
+                id,
+                file_name
+              )
+            )
+          `)
+          .eq('track_id', track.id)
+          .limit(1);
+
+        if (chunkError) {
+          // Table might not exist yet - that's fine
+          console.log('Could not load source document info:', chunkError.message);
+          return;
+        }
+
+        if (trackChunks && trackChunks.length > 0) {
+          const chunk = trackChunks[0];
+          const sourceChunk = chunk.source_chunks as any;
+          const sourceFile = sourceChunk?.source_files as any;
+
+          if (sourceFile) {
+            setSourceDocumentInfo({
+              sourceFileId: sourceFile.id,
+              sourceFileName: sourceFile.file_name,
+              sourceChunkId: sourceChunk.id,
+              chunkTitle: sourceChunk.title || 'Untitled chunk',
+            });
+          }
+        }
+      } catch (error) {
+        // Silently fail - source document info is optional
+        console.log('Source document lookup failed:', error);
+      }
+    };
+
+    loadSourceDocumentInfo();
   }, [track.id]);
 
   // Calculate reading time based on word count
@@ -203,24 +306,35 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         
         // Store original facts for comparison
         setOriginalFacts(facts);
-        
+
+        // Load tags from junction table (source of truth)
+        let tagNames: string[] = track.tags || [];
+        try {
+          tagNames = await tagsCrud.getTrackTagNames(track.id);
+          console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+        } catch (tagError) {
+          console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+          tagNames = track.tags || [];
+        }
+
         setEditFormData({
           title: track.title || '',
           description: track.description || '',
           duration_minutes: track.duration_minutes || '',
           learning_objectives: facts,
-          tags: track.tags || [],
+          tags: tagNames,
           content_url: track.content_url || '',
-          thumbnail_url: (track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png') ? track.thumbnail_url : '',
+          thumbnail_url: getEffectiveThumbnailUrl(track.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (track.thumbnail_url || '') : '',
           type: track.type || 'article',
           article_body: track.transcript || '', // Article body is stored in transcript field
-          show_in_knowledge_base: (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          show_in_knowledge_base: tagNames.includes('system:show_in_knowledge_base') || track.show_in_knowledge_base || false,
+          is_system_content: track.is_system_content || false,
         });
-        
+
         console.log('📝 Form data initialized with article_body:', track.transcript || '');
         setIsFormDataLoaded(true); // Mark form data as loaded
       };
-      
+
       loadArticleData();
     }
   }, [isEditMode, track]);
@@ -433,6 +547,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         type: editFormData.type,
         tags: Array.from(currentTags),
         transcript: editFormData.article_body || '', // Store article body as transcript
+        is_system_content: editFormData.is_system_content,
         // learning_objectives removed - facts are now stored in the facts table
       };
 
@@ -540,10 +655,16 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       toast.success(contentChanged ? 'Article updated successfully!' : 'Settings updated!');
       setIsEditMode(false);
       
-      // Force TTS player to refresh if content changed
-      if (contentChanged && track.transcript) {
-        console.log('🔊 Content changed, forcing TTS refresh...');
+      // Force TTS player to refresh ONLY if the actual text content changed
+      // TTS is only affected by transcript/content_text changes, not metadata (tags, title, thumbnail, etc.)
+      // The backend uses content hashing to determine if regeneration is actually needed,
+      // so we just need to trigger a refresh when content changes
+      const ttsContentChanged = updateData.transcript !== (track.transcript || '');
+      if (ttsContentChanged) {
+        console.log('🔊 TTS content changed, forcing TTS refresh (backend will hash-check)...');
         setTtsRefreshKey(prev => prev + 1);
+      } else {
+        console.log('🔊 TTS content unchanged, skipping TTS refresh (metadata-only change)');
       }
       
       // Call onUpdate to refresh the parent component's data
@@ -551,13 +672,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       await onUpdate();
       console.log('onUpdate complete, track should be refreshed');
 
-      // Auto-generate key facts if this is the first save and no facts exist
+      // Auto-generate key facts only when: no facts in DB AND none in form (first save, user didn't use bolt)
       try {
         const existingFacts = await factsCrud.getFactsForTrack(track.id);
         const hasContent = editFormData.article_body && editFormData.article_body.trim().length > 150;
+        const hasFactsInForm = (editFormData.learning_objectives?.length ?? 0) > 0;
         
-        // Check if no facts exist and there's content to extract from
-        if (existingFacts.length === 0 && hasContent) {
+        if (existingFacts.length === 0 && !hasFactsInForm && hasContent) {
           console.log('🤖 Auto-generating key facts for first save...');
           
           // Strip HTML from article body to get clean text
@@ -587,34 +708,26 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             
             if (response.ok) {
               const data = await response.json();
-              console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
-              toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
-              
-              // Reload facts to update the UI
-              const updatedFacts = await factsCrud.getFactsForTrack(track.id);
-              setEditFormData(prev => ({
-                ...prev,
-                learning_objectives: updatedFacts.map((f: any) => ({
-                  title: f.title,
-                  fact: f.content,
-                  content: f.content,
-                  type: f.type,
-                  steps: f.steps || [],
-                  contexts: [f.context?.specificity || 'universal'],
-                  _dbId: f.id,
-                  _extractedBy: f.extracted_by,
-                }))
-              }));
-              setOriginalFacts(updatedFacts.map((f: any) => ({
+              if (data.skipped) {
+                console.log('✅ Key facts already exist for this track (skipped duplicate generation)');
+              } else {
+                console.log(`✅ Auto-generated ${data.enriched?.length || 0} key facts`);
+                toast.success(`✨ Auto-generated ${data.enriched?.length || 0} key facts from your content`);
+              }
+              const enriched = data.enriched || [];
+              const normalized = enriched.map((f: any) => ({
+                ...f,
                 title: f.title,
-                fact: f.content,
-                content: f.content,
+                fact: f.content ?? f.fact ?? f.title ?? '',
+                content: f.content ?? f.fact ?? f.title ?? '',
                 type: f.type,
                 steps: f.steps || [],
                 contexts: [f.context?.specificity || 'universal'],
                 _dbId: f.id,
                 _extractedBy: f.extracted_by,
-              })));
+              }));
+              setEditFormData(prev => ({ ...prev, learning_objectives: normalized }));
+              setOriginalFacts(normalized);
             } else {
               console.error('Failed to auto-generate key facts:', await response.json());
             }
@@ -659,7 +772,12 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   const handleUpdateLearningObjective = (index: number, value: string) => {
     const newObjectives = [...(editFormData.learning_objectives || [])];
-    newObjectives[index] = value;
+    const current = newObjectives[index];
+    if (typeof current === 'object' && current !== null && !Array.isArray(current)) {
+      newObjectives[index] = { ...current, fact: value, content: value };
+    } else {
+      newObjectives[index] = value;
+    }
     setEditFormData({
       ...editFormData,
       learning_objectives: newObjectives
@@ -769,10 +887,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         const updatedFacts = shouldReplace 
@@ -834,10 +953,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           return;
         }
         
-        // Add database IDs to new facts (returned from API)
+        // Add database IDs and normalize for display (API returns content/title; UI expects fact)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
-          _dbId: data.factIds?.[index], // Add the database UUID
+          _dbId: data.factIds?.[index],
+          fact: fact.content ?? fact.fact ?? fact.title ?? '',
         }));
         
         setEditFormData({
@@ -988,9 +1108,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
 
   const handleKBToggle = async (checked: boolean) => {
     if (isEditMode) {
-      // In edit mode, update the form data
-      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
-      
+      // In edit mode, open modal immediately and update form data
       if (checked) {
         setTagSelectorConfig({
           systemCategory: 'knowledge-base',
@@ -998,8 +1116,14 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         });
         setIsTagSelectorOpen(true);
       }
+      setEditFormData({ ...editFormData, show_in_knowledge_base: checked });
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track.tags || []);
@@ -1008,27 +1132,20 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         } else {
           currentTags.delete('system:show_in_knowledge_base');
         }
-        
+
         await crud.updateTrack({
           id: track.id,
           show_in_knowledge_base: checked,
           tags: Array.from(currentTags)
         });
-        
+
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
-        
-        // Refresh the track data
+
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         onUpdate();
-        
-        if (checked) {
-          setTagSelectorConfig({
-            systemCategory: 'knowledge-base',
-            restrictToParentName: 'KB Category'
-          });
-          setIsTagSelectorOpen(true);
-        }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });
@@ -1060,31 +1177,54 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
     }, 0);
   };
 
-  // Simple markdown-to-HTML renderer for preview
-  const renderMarkdown = (markdown: string) => {
-    if (!markdown) return '<p class="text-muted-foreground">No content</p>';
-    
-    let html = markdown
+  // Simple markdown-to-HTML renderer for preview - also handles content that might be markdown
+  const renderMarkdown = (content: string) => {
+    if (!content) return '<p class="text-muted-foreground">No content</p>';
+
+    // Check if content already has HTML tags
+    const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(content);
+    if (hasHtmlTags) {
+      // Already HTML, return as-is
+      return content;
+    }
+
+    // Convert Markdown to HTML
+    let html = content
+      // Code blocks (```) - with inline styles for word wrapping
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; max-width: 100%; overflow-x: hidden;"><code class="language-$1" style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$2</code></pre>')
+      // Inline code (`) - with inline styles for word wrapping
+      .replace(/`([^`]+)`/g, '<code style="white-space: pre-wrap; word-wrap: break-word; word-break: break-word;">$1</code>')
       // Headers
-      .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-6 mb-3">$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-8 mb-4">$1</h1>')
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
       // Bold
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.*?)__/g, '<strong>$1</strong>')
       // Italic
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      // Lists
-      .replace(/^\* (.*$)/gim, '<li>$1</li>')
-      .replace(/(<li>.*<\/li>)/s, '<ul class="list-disc ml-6 my-2">$1</ul>')
+      .replace(/_(.*?)_/g, '<em>$1</em>')
+      // Blockquotes
+      .replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>')
+      // Unordered Lists
+      .replace(/^[-*]\s+(.*)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+      // Ordered Lists
+      .replace(/^\d+\.\s+(.*)$/gm, '<li>$1</li>')
       // Images
-      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="max-w-full h-auto rounded-lg my-4" />')
+      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" />')
       // Links
-      .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" class="text-primary hover:underline">$1</a>')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>')
       // Line breaks
-      .replace(/\n\n/g, '</p><p class="mb-4">')
+      .replace(/\n\n+/g, '</p><p>')
       .replace(/\n/g, '<br/>');
 
-    return `<div class="prose prose-sm max-w-none"><p class="mb-4">${html}</p></div>`;
+    // Wrap in paragraph if not already wrapped
+    if (!html.startsWith('<')) {
+      html = '<p>' + html + '</p>';
+    }
+
+    return html;
   };
 
   // Handle back button with unsaved changes check
@@ -1272,18 +1412,79 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={() => setIsEditMode(true)}
-                className="hero-primary"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Article
-                {isSystemContent && isSuperAdminAuthenticated && (
-                  <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
-                  </Badge>
-                )}
-              </Button>
+              <>
+                <Button
+                  onClick={() => setIsEditMode(true)}
+                  className="hero-primary"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Article
+                  {isSystemContent && isSuperAdminAuthenticated && (
+                    <Badge className="ml-2 bg-orange-100 text-orange-800">
+                      Super Admin
+                    </Badge>
+                  )}
+                </Button>
+                {/* Actions Menu */}
+                <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      title="More actions"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="end">
+                    <div className="flex flex-col">
+                      {onDuplicate && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDuplicate(track);
+                          }}
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicate
+                        </Button>
+                      )}
+                      {onCreateVariant && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onCreateVariant(track);
+                          }}
+                        >
+                          <GitBranch className="h-4 w-4 mr-2" />
+                          Create Variant
+                        </Button>
+                      )}
+                      {(onDuplicate || onCreateVariant) && onArchive && (
+                        <Separator className="my-1" />
+                      )}
+                      {onArchive && (
+                        <Button
+                          variant="ghost"
+                          className="justify-start h-9"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onArchive(track);
+                          }}
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </>
             )}
           </div>
         )}
@@ -1432,8 +1633,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   <TTSPlayer
                     key={`${track.id}-${ttsRefreshKey}`}
                     trackId={track.id}
-                    initialAudioUrl={undefined}
-                    initialVoice={'alloy'}
+                    initialAudioUrl={(track as any).tts_audio_url || undefined}
+                    initialVoice={(track as any).tts_voice || 'alloy'}
                     showVoiceSelector={true}
                   />
                 </div>
@@ -1441,9 +1642,9 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               
               <Card>
                 <CardContent className="p-8">
-                  <div 
-                    className="article-content"
-                    dangerouslySetInnerHTML={{ __html: track.transcript || '<p class="text-muted-foreground">No content available</p>' }}
+                  <div
+                    className="article-content prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg prose-p:text-base prose-p:leading-7 prose-ul:list-disc prose-ul:pl-6 prose-ul:my-3 prose-ol:list-decimal prose-ol:pl-6 prose-ol:my-3 prose-li:text-base prose-li:my-0.5 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:whitespace-pre-wrap prose-code:break-words prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg prose-pre:whitespace-pre-wrap prose-pre:break-words prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:pl-4 prose-blockquote:italic prose-strong:font-bold prose-a:text-primary prose-img:rounded-lg [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3 [&_li]:my-0.5 [&_li>p]:my-0.5"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(track.transcript || '') }}
                   />
                 </CardContent>
               </Card>
@@ -1522,9 +1723,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       }
                     }
                     
-                    // Check if this is an enriched KeyFact object
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'fact' in parsed;
-                    const displayValue = isEnriched ? parsed.fact : parsed;
+                    // Check if this is an enriched KeyFact object (API returns content/title; loaded facts have fact)
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('fact' in parsed || 'content' in parsed || 'title' in parsed);
+                    const displayValue = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     const isProcedure = isEnriched && parsed.type === 'Procedure';
                     
                     return (
@@ -1576,9 +1779,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     }
                     
                     // Check if this is an enriched KeyFact object with type and steps
-                    const isEnriched = typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+                    const isEnriched = typeof parsed === 'object' && parsed !== null && ('type' in parsed || 'content' in parsed);
                     const isProcedure = isEnriched && parsed.type === 'Procedure' && parsed.steps;
-                    const displayText = isEnriched ? parsed.fact : parsed;
+                    const displayText = isEnriched
+                      ? (parsed.fact ?? parsed.content ?? parsed.title ?? '')
+                      : (typeof parsed === 'string' ? parsed : '');
                     
                     return (
                       <li key={index} className="flex items-start gap-3 text-sm">
@@ -1676,24 +1881,22 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 
                 {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
                   <div className="pt-2">
-                     {isEditMode && (
-                       <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full mb-3"
-                          onClick={() => {
-                            setTagSelectorConfig({
-                               systemCategory: 'knowledge-base',
-                               restrictToParentName: 'KB Category'
-                            });
-                            setIsTagSelectorOpen(true);
-                          }}
-                       >
-                         <Tag className="h-4 w-4 mr-2" />
-                         Manage KB Tags
-                       </Button>
-                     )}
-                     
+                     <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mb-3"
+                        onClick={() => {
+                          setTagSelectorConfig({
+                             systemCategory: 'knowledge-base',
+                             restrictToParentName: 'KB Category'
+                          });
+                          setIsTagSelectorOpen(true);
+                        }}
+                     >
+                       <Tag className="h-4 w-4 mr-2" />
+                       Manage KB Tags
+                     </Button>
+
                      {/* Selected KB Tags Display */}
                      <div>
                        <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
@@ -1711,18 +1914,84 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                          )}
                        </div>
                      </div>
-                     
-                     {isEditMode && (
-                       <p className="text-xs text-muted-foreground mt-2">
-                         Select "KB Category" tags to organize this content in the Knowledge Base.
-                       </p>
-                     )}
+
+                     <p className="text-xs text-muted-foreground mt-2">
+                       Select "KB Category" tags to organize this content in the Knowledge Base.
+                     </p>
                   </div>
                 )}
               </CardContent>
             </Card>
           )}
-          
+
+          {/* Content scope */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <LinkIcon className="h-4 w-4" />
+                Content scope
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {track.scope ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{track.scope.scope_level}</Badge>
+                  {track.scope.sector && <Badge variant="outline">{track.scope.sector}</Badge>}
+                  {track.scope.state_name && <Badge variant="outline">{track.scope.state_name}</Badge>}
+                  {track.scope.industry_name && <Badge variant="outline">{track.scope.industry_name}</Badge>}
+                  {track.scope.company_name && <Badge variant="outline">{track.scope.company_name}</Badge>}
+                  {track.scope.program_name && <Badge variant="outline">{track.scope.program_name}</Badge>}
+                  {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
+                {track.scope ? 'Edit scope' : 'Set scope'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Super Admin Settings */}
+          {isSuperAdminAuthenticated && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-orange-500" />
+                  Super Admin Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark as Trike Library content
+                    </p>
+                  </div>
+                  <Switch
+                    id="system-content"
+                    checked={isEditMode ? editFormData.is_system_content : track.is_system_content}
+                    onCheckedChange={(checked) => {
+                      if (isEditMode) {
+                        setEditFormData({ ...editFormData, is_system_content: checked });
+                      } else {
+                        crud.updateTrack({ id: track.id, is_system_content: checked })
+                          .then(() => {
+                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            onUpdate();
+                          });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Quick Stats */}
           <Card>
             <CardHeader>
@@ -1793,7 +2062,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <ImageIcon className="h-4 w-4" />
                     Header Image
                   </label>
-                  {editFormData.thumbnail_url && editFormData.thumbnail_url !== '/default-thumbnail.png' ? (
+                  {editFormData.thumbnail_url && getEffectiveThumbnailUrl(editFormData.thumbnail_url) !== DEFAULT_THUMBNAIL_URL ? (
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
@@ -1816,7 +2085,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '/default-thumbnail.png' })}
+                          onClick={() => setEditFormData({ ...editFormData, thumbnail_url: '' })}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -1826,7 +2095,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                     <div className="space-y-2">
                       <div className="relative aspect-video rounded-lg overflow-hidden border">
                         <img
-                          src={defaultThumbnail}
+                          src={DEFAULT_THUMBNAIL_URL}
                           alt="Default Header"
                           className="w-full h-full object-cover"
                         />
@@ -1882,7 +2151,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </label>
                   <div className="relative aspect-video rounded-lg overflow-hidden border">
                     <img
-                      src={track.thumbnail_url && track.thumbnail_url !== '/default-thumbnail.png' ? track.thumbnail_url : defaultThumbnail}
+                      src={getEffectiveThumbnailUrl(track.thumbnail_url)}
                       alt="Header"
                       className="w-full h-full object-cover"
                     />
@@ -1910,6 +2179,28 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   {track.updated_at ? new Date(track.updated_at).toLocaleDateString() : 'N/A'}
                 </span>
               </div>
+
+              {/* Source Document Link */}
+              {sourceDocumentInfo && (
+                <>
+                  <Separator />
+                  <button
+                    onClick={() => {
+                      window.location.href = `/?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}`;
+                    }}
+                    className="flex items-center gap-2 w-full text-left hover:bg-muted/50 rounded-md p-1 -mx-1 transition-colors"
+                  >
+                    <span className="text-sm text-muted-foreground flex items-center gap-2 shrink-0">
+                      <FileText className="h-4 w-4" />
+                      Source Document
+                    </span>
+                    <span className="text-sm font-medium truncate flex-1 text-right" title={sourceDocumentInfo.sourceFileName}>
+                      {sourceDocumentInfo.sourceFileName}
+                    </span>
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -2058,7 +2349,11 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
       {/* Tag Selector Dialog */}
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
-        onClose={() => setIsTagSelectorOpen(false)}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          // Refresh KB tags in case new tags were created
+          loadKBTags();
+        }}
         selectedTags={isEditMode ? (editFormData.tags || []) : (track.tags || [])}
         onTagsChange={async (tags) => {
           if (isEditMode) {
@@ -2079,6 +2374,8 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
               });
             }
           }
+          // Refresh KB tags to include any newly created tags
+          loadKBTags();
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
@@ -2134,6 +2431,16 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
             console.log('✅ Track data refreshed with new version');
           }, 300);
         }}
+      />
+
+      <TrackScopeModal
+        isOpen={isScopeModalOpen}
+        onClose={() => setIsScopeModalOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
+        organizationId={track.organization_id}
+        allowAllOrgs={isSuperAdminAuthenticated}
+        onSaved={onUpdate}
       />
 
       {/* Unsaved Changes Dialog */}

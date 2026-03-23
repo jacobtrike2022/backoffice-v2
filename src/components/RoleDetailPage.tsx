@@ -31,6 +31,9 @@ import {
   ChevronRight,
   Zap,
   HardHat,
+  Upload,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { rolesApi } from '../lib/api/roles';
@@ -46,7 +49,9 @@ import {
   type MergedWorkStyle,
   type WorkContextItem,
 } from '../lib/api/onet-local';
-import { getCurrentUserOrgId } from '../lib/supabase';
+import { getCurrentUserOrgId, supabase, supabaseAnonKey } from '../lib/supabase';
+import { getServerUrl } from '../utils/supabase/info';
+import { uploadSourceFileWithRecord } from '../lib/services/uploadService';
 import type { Role, UpdateRoleInput } from '../types/roles';
 import { SmartProfileCard } from './SmartProfileCard';
 import { ProfilePreviewDrawer } from './ProfilePreviewDrawer';
@@ -135,6 +140,21 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [capabilityExcludedExpanded, setCapabilityExcludedExpanded] = useState<Record<string, boolean>>({});
   const [directReports, setDirectReports] = useState<{ id: string; name: string }[]>([]);
 
+  // JD Upload state
+  const [uploadingJd, setUploadingJd] = useState(false);
+  const [extractingJd, setExtractingJd] = useState(false);
+  const jdFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [sourceFileInfo, setSourceFileInfo] = useState<{
+    id: string;
+    file_name: string;
+  } | null>(null);
+  const [sourceChunkInfo, setSourceChunkInfo] = useState<{
+    id: string;
+    title: string;
+    source_file_id: string;
+    file_name: string;
+  } | null>(null);
+
   const toPercentFromFive = (value?: number | null) =>
     value === undefined || value === null ? undefined : Number(value) * 20;
 
@@ -201,6 +221,20 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       loadWorkContext(role.onet_code);
     }
   }, [role?.onet_code, roleId]);
+
+  // Load source file info when role changes
+  useEffect(() => {
+    if (role) {
+      loadSourceFileInfo();
+    }
+  }, [role?.source_file_id]);
+
+  // Load source chunk info when role changes (for JD hotlink)
+  useEffect(() => {
+    if (role) {
+      loadSourceChunkInfo();
+    }
+  }, [role?.source_chunk_id]);
 
   // Auto-search profiles when role name changes (only if no profile selected or changing profile)
   useEffect(() => {
@@ -322,6 +356,179 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Load source file info if role has source_file_id
+  async function loadSourceFileInfo() {
+    if (!role?.source_file_id) {
+      setSourceFileInfo(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('source_files')
+        .select('id, file_name')
+        .eq('id', role.source_file_id)
+        .single();
+      if (!error && data) {
+        setSourceFileInfo(data);
+      }
+    } catch (error) {
+      console.error('Error loading source file info:', error);
+    }
+  }
+
+  // Load source chunk info if role has source_chunk_id (for JD hotlink)
+  async function loadSourceChunkInfo() {
+    if (!role?.source_chunk_id) {
+      setSourceChunkInfo(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('source_chunks')
+        .select('id, title, source_file_id, source_files(file_name)')
+        .eq('id', role.source_chunk_id)
+        .single();
+      if (!error && data) {
+        setSourceChunkInfo({
+          id: data.id,
+          // Use role name for a cleaner hotlink display: "Job Description: [Role Name]"
+          title: `Job Description: ${role.name}`,
+          source_file_id: data.source_file_id,
+          file_name: (data.source_files as any)?.file_name || 'Source Document',
+        });
+      }
+    } catch (error) {
+      console.error('Error loading source chunk info:', error);
+    }
+  }
+
+  // Handle JD file upload
+  async function handleJdUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type', {
+        description: 'Please upload a PDF, Word document, or text file.',
+      });
+      return;
+    }
+
+    setUploadingJd(true);
+    try {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) throw new Error('No organization found');
+
+      // Upload file and create database record
+      const uploadResult = await uploadSourceFileWithRecord(file, orgId, 'job_description');
+
+      if (!uploadResult.success || !uploadResult.file) {
+        throw new Error(uploadResult.error || 'Upload failed');
+      }
+
+      const uploadedFile = uploadResult.file;
+
+      // Extract text from the document (use anon key in demo when no session)
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || supabaseAnonKey;
+
+      const serverUrl = getServerUrl();
+      const extractResponse = await fetch(`${serverUrl}/extract-source`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: uploadedFile.id }),
+      });
+
+      if (!extractResponse.ok) {
+        const errData = await extractResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'Text extraction failed');
+      }
+
+      setExtractingJd(true);
+      toast.success('File uploaded', { description: 'Extracting job description...' });
+
+      // Now extract JD data using AI
+      const jdResponse = await fetch(`${serverUrl}/extract-job-description`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({ source_file_id: uploadedFile.id }),
+      });
+
+      const jdData = await jdResponse.json();
+      if (!jdResponse.ok) {
+        throw new Error(jdData.error || 'JD extraction failed');
+      }
+
+      // Build job description text from extracted data
+      const extractedJd = jdData.extracted_data || {};
+      const jdText = [
+        extractedJd.job_summary,
+        extractedJd.essential_functions?.length ?
+          `Essential Functions:\n${extractedJd.essential_functions.map((f: string) => `• ${f}`).join('\n')}` : '',
+        extractedJd.qualifications?.length ?
+          `Qualifications:\n${extractedJd.qualifications.map((q: string) => `• ${q}`).join('\n')}` : '',
+        extractedJd.skills?.length ?
+          `Skills:\n${extractedJd.skills.map((s: string) => `• ${s}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n');
+
+      // Update the role with the extracted JD
+      if (roleId !== 'new' && role) {
+        const updatedRole = await rolesApi.update({
+          id: roleId,
+          job_description: jdText || formData.job_description,
+          job_description_source: 'uploaded' as const,
+          source_file_id: uploadedFile.id,
+        });
+        setRole(updatedRole);
+        setFormData(prev => ({
+          ...prev,
+          job_description: jdText || prev.job_description,
+          job_description_source: 'uploaded',
+        }));
+        setSourceFileInfo({ id: uploadedFile.id, file_name: uploadedFile.file_name });
+        toast.success('Job description updated', {
+          description: `Extracted from ${file.name}`,
+        });
+
+        // If there are O*NET suggestions, trigger a new search
+        if (jdData.onet_suggestions?.length > 0) {
+          const keywords = jdData.onet_suggestions.slice(0, 3).map((s: any) => s.keyword).join(' ');
+          searchProfiles(keywords);
+        }
+      } else {
+        // For new role, just update the form
+        setFormData(prev => ({
+          ...prev,
+          job_description: jdText,
+          job_description_source: 'uploaded',
+        }));
+        toast.success('Job description extracted', {
+          description: 'Review and save the role to apply.',
+        });
+      }
+    } catch (error: any) {
+      console.error('JD upload error:', error);
+      toast.error('Upload failed', { description: error.message });
+    } finally {
+      setUploadingJd(false);
+      setExtractingJd(false);
+      // Reset file input
+      if (jdFileInputRef.current) {
+        jdFileInputRef.current.value = '';
+      }
     }
   }
 
@@ -1072,6 +1279,53 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Hidden file input for JD upload */}
+          <input
+            type="file"
+            ref={jdFileInputRef}
+            onChange={handleJdUpload}
+            accept=".pdf,.doc,.docx,.txt"
+            className="hidden"
+          />
+          {/* Show JD chunk hotlink if role has linked source chunk, otherwise show upload button */}
+          {sourceChunkInfo ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Navigate to Organization > Sources tab with this file open and chunk highlighted
+                const url = `/organization?tab=sources&sourceFileId=${sourceChunkInfo.source_file_id}&chunkId=${sourceChunkInfo.id}`;
+                window.location.href = url;
+              }}
+              className="gap-2 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="max-w-[200px] truncate">{sourceChunkInfo.title}</span>
+              <ExternalLink className="w-3 h-3 opacity-60" />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => jdFileInputRef.current?.click()}
+              disabled={uploadingJd || extractingJd}
+            >
+              {uploadingJd ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              ) : extractingJd ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Extracting...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  {role?.job_description || formData.job_description ? 'Replace Job Description' : 'Upload Job Description'}
+                </>
+              )}
+            </Button>
+          )}
           <Button
             onClick={handleSave}
             disabled={saving}

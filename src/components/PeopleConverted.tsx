@@ -34,7 +34,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
-import { useUsers, useCurrentUser } from '../lib/hooks/useSupabase';
+import { useUsers, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
 
@@ -68,8 +68,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
     hire_date: new Date().toISOString().split('T')[0]
   });
 
-  // Get current user for organization context
+  // Get current user and effective org (respects demo_org_id and Super Admin preview)
   const { user: currentUser } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   // Fetch users from Supabase
   const { users, loading, error, refetch } = useUsers({
@@ -119,7 +120,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   };
 
   const handleCreateUser = async () => {
-    if (!currentUser?.organization_id) {
+    if (!effectiveOrgId) {
       toast.error('Organization not found');
       return;
     }
@@ -133,7 +134,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       setCreating(true);
       const result = await crud.createUser({
         ...newUser,
-        organization_id: currentUser.organization_id
+        organization_id: effectiveOrgId
       });
       
       toast.success(`User created! Invite link: ${result.inviteUrl}`);

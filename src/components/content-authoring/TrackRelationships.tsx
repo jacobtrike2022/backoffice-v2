@@ -4,6 +4,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { ArrowRight, ArrowLeft, ExternalLink, GitBranch, MapPin, Building2, Store } from 'lucide-react';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import { getEffectiveThumbnailUrl } from '../../lib/crud/tracks';
 import type { TrackRelationship, VariantType } from '../../lib/crud/trackRelationships';
 
 interface TrackRelationshipsProps {
@@ -13,7 +14,7 @@ interface TrackRelationshipsProps {
 }
 
 export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: TrackRelationshipsProps) {
-  const [sourceTrack, setSourceTrack] = useState<TrackRelationship | null>(null);
+  const [sourceTracks, setSourceTracks] = useState<TrackRelationship[]>([]);
   const [derivedTracks, setDerivedTracks] = useState<TrackRelationship[]>([]);
   const [variants, setVariants] = useState<TrackRelationship[]>([]);
   const [baseTrack, setBaseTrack] = useState<TrackRelationship | null>(null);
@@ -28,10 +29,10 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
     try {
       console.log(`[TrackRelationships] Loading relationships for trackId: ${trackId}`);
 
-      // Fetch source track (parent)
-      const source = await trackRelCrud.getSourceTrack(trackId, 'source');
-      console.log(`[TrackRelationships] Source track:`, source);
-      setSourceTrack(source);
+      // Fetch source tracks (parents) - supports multiple sources
+      const sources = await trackRelCrud.getSourceTracks(trackId, 'source');
+      console.log(`[TrackRelationships] Source tracks:`, sources, `(count: ${sources?.length || 0})`);
+      setSourceTracks(sources || []);
 
       // Fetch derived tracks (children)
       const derived = await trackRelCrud.getDerivedTracks(trackId, 'source');
@@ -65,7 +66,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
   }
 
   // Don't render if no relationships
-  if (!isLoading && !sourceTrack && !baseTrack && derivedTracks.length === 0 && variants.length === 0) {
+  if (!isLoading && sourceTracks.length === 0 && !baseTrack && derivedTracks.length === 0 && variants.length === 0) {
     return null;
   }
 
@@ -161,42 +162,45 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
 
   return (
     <div className="space-y-4">
-      {/* Source Track (Parent) */}
-      {sourceTrack?.source_track && (
+      {/* Source Tracks (Parents) - supports multiple sources */}
+      {sourceTracks.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Sourced From
+              Sourced From{sourceTracks.length > 1 ? ` (${sourceTracks.length})` : ''}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div 
-              className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
-              onClick={() => onNavigateToTrack && onNavigateToTrack(sourceTrack.source_track!.id)}
-            >
-              {sourceTrack.source_track.thumbnail_url && (
-                <img
-                  src={sourceTrack.source_track.thumbnail_url}
-                  alt=""
-                  className="size-16 rounded object-cover shrink-0"
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
+          <CardContent className="space-y-2">
+            {sourceTracks.map((sourceRel) => (
+              sourceRel.source_track && (
+                <div
+                  key={sourceRel.id}
+                  className={`flex items-start gap-3 p-3 rounded-lg border ${sourceTracks.length === 1 ? 'bg-accent/30' : 'bg-white dark:bg-accent/20'} hover:bg-accent/50 transition-all cursor-pointer`}
+                  onClick={() => onNavigateToTrack && onNavigateToTrack(sourceRel.source_track!.id)}
+                >
+                  <img
+                    src={getEffectiveThumbnailUrl(sourceRel.source_track.thumbnail_url)}
+                    alt=""
+                    className={`${sourceTracks.length === 1 ? 'size-16' : 'size-12'} rounded object-cover shrink-0`}
+                  />
                   <div className="flex-1 min-w-0">
-                    <h4 className="truncate font-medium">{sourceTrack.source_track.title}</h4>
-                    <div className="flex items-center gap-2 mt-2">
-                      {getTrackTypeBadge(sourceTrack.source_track.type)}
-                      {getStatusBadge(sourceTrack.source_track.status)}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className={`truncate font-medium ${sourceTracks.length > 1 ? 'text-sm' : ''}`}>{sourceRel.source_track.title}</h4>
+                        <div className="flex items-center gap-2 mt-2">
+                          {getTrackTypeBadge(sourceRel.source_track.type)}
+                          {getStatusBadge(sourceRel.source_track.status)}
+                        </div>
+                      </div>
+                      {onNavigateToTrack && (
+                        <ExternalLink className="size-4 text-muted-foreground shrink-0" />
+                      )}
                     </div>
                   </div>
-                  {onNavigateToTrack && (
-                    <ExternalLink className="size-4 text-muted-foreground shrink-0" />
-                  )}
                 </div>
-              </div>
-            </div>
+              )
+            ))}
           </CardContent>
         </Card>
       )}
@@ -217,13 +221,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
-                {rel.derived_track?.thumbnail_url && (
-                  <img
-                    src={rel.derived_track.thumbnail_url}
-                    alt=""
-                    className="size-12 rounded object-cover shrink-0"
-                  />
-                )}
+                <img
+                  src={getEffectiveThumbnailUrl(rel.derived_track?.thumbnail_url)}
+                  alt=""
+                  className="size-12 rounded object-cover shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -260,13 +262,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                 className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-accent/20 hover:bg-accent/50 transition-all cursor-pointer"
                 onClick={() => onNavigateToTrack && rel.derived_track && onNavigateToTrack(rel.derived_track.id)}
               >
-                {rel.derived_track?.thumbnail_url && (
-                  <img
-                    src={rel.derived_track.thumbnail_url}
-                    alt=""
-                    className="size-12 rounded object-cover shrink-0"
-                  />
-                )}
+                <img
+                  src={getEffectiveThumbnailUrl(rel.derived_track?.thumbnail_url)}
+                  alt=""
+                  className="size-12 rounded object-cover shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -308,13 +308,11 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
               className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
               onClick={() => onNavigateToTrack && onNavigateToTrack(baseTrack.source_track!.id)}
             >
-              {baseTrack.source_track.thumbnail_url && (
-                <img
-                  src={baseTrack.source_track.thumbnail_url}
-                  alt=""
-                  className="size-16 rounded object-cover shrink-0"
-                />
-              )}
+              <img
+                src={getEffectiveThumbnailUrl(baseTrack.source_track.thumbnail_url)}
+                alt=""
+                className="size-16 rounded object-cover shrink-0"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">

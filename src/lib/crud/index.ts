@@ -24,6 +24,14 @@ export * from './forms';
 // Certifications
 export * from './certifications';
 
+// Compliance
+export * from './compliance';
+export * from './complianceAssignments';
+export * from './industries';
+
+// Programs
+export * from './programs';
+
 // Users
 export * from './users';
 
@@ -53,3 +61,9 @@ export * from './brain';
 
 // Email System
 export * from './email';
+
+// Reports
+export * from './reports';
+
+// Journey Checklist
+export * from './journeyChecklist';

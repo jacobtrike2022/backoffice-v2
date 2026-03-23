@@ -5,6 +5,7 @@ import { TagsManagement } from './TagsManagement';
 import { RolesManagement } from './RolesManagement';
 import { RoleDetailPage } from './RoleDetailPage';
 import { SourcesManagement } from './SourcesManagement';
+import { DocumentIntelligenceEditor } from './DocumentIntelligenceEditor';
 import { Card, CardContent } from './ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Input } from './ui/input';
@@ -18,12 +19,18 @@ type OrganizationTab = 'tags' | 'roles' | 'districts' | 'sources';
 interface OrganizationProps {
   currentRole?: string;
   role?: string;
+  /** From SPA path /roles/:id — open Roles tab on that role */
+  initialRoleId?: string | null;
   onBackToDashboard?: () => void;
   onNavigate?: (view: string) => void;
+  onStartPlaybook?: (sourceFileId: string) => void;
+  onNavigateToTrack?: (trackId: string) => void;
 }
 
-export function Organization({ currentRole, role, onBackToDashboard, onNavigate }: OrganizationProps) {
-  const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
+export function Organization({ currentRole, role, initialRoleId, onBackToDashboard, onNavigate, onStartPlaybook, onNavigateToTrack }: OrganizationProps) {
+  const [activeTab, setActiveTab] = useState<OrganizationTab>(() =>
+    initialRoleId ? 'roles' : 'tags',
+  );
   const [tagSystems, setTagSystems] = useState<TagType[]>([]);
   const [activeTagSystem, setActiveTagSystem] = useState<string>('');
 
@@ -38,7 +45,9 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   const [newDistrictName, setNewDistrictName] = useState('');
   const [editDistrictName, setEditDistrictName] = useState('');
   const [unassignedStores, setUnassignedStores] = useState<any[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(() => initialRoleId ?? null);
+  const [editingSourceFileId, setEditingSourceFileId] = useState<string | null>(null);
+  const [highlightChunkId, setHighlightChunkId] = useState<string | null>(null);
 
   const tabs = [
     { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
@@ -47,6 +56,35 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
     { id: 'sources' as OrganizationTab, label: 'Sources', icon: FileText },
   ];
 
+
+  // Deep link: /roles/:roleId (set by App after Vercel serves index.html for that path)
+  useEffect(() => {
+    if (initialRoleId) {
+      setSelectedRoleId(initialRoleId);
+      setActiveTab('roles');
+    }
+  }, [initialRoleId]);
+
+  // Handle URL parameters for deep linking to source files
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sourceFileIdParam = urlParams.get('sourceFileId');
+    const chunkIdParam = urlParams.get('chunkId');
+    const tabParam = urlParams.get('tab');
+
+    // If navigating to sources tab with a specific file
+    if (tabParam === 'sources') {
+      setActiveTab('sources');
+      if (sourceFileIdParam) {
+        setEditingSourceFileId(sourceFileIdParam);
+        if (chunkIdParam) {
+          setHighlightChunkId(chunkIdParam);
+        }
+        // Clean up URL params after navigation
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   // Fetch districts when tab is active
   useEffect(() => {
@@ -229,7 +267,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
   };
 
   return (
-    <div className="space-y-6 w-full max-w-full overflow-hidden">
+    <div className="space-y-6 w-full max-w-full">
       {/* Header - Match Dashboard Design */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -371,8 +409,8 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-gradient-to-r from-[#F64A05] to-[#FF733C] flex items-center justify-center">
-                              <Building2 className="h-5 w-5 text-white" />
+                            <div className="h-10 w-10 flex items-center justify-center">
+                              <Building2 className="h-5 w-5 text-[#F64A05]" />
                             </div>
                             <div>
                               <h3 className="font-semibold">{district.name}</h3>
@@ -442,15 +480,40 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate 
         )}
 
         {activeTab === 'sources' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold">Source Files</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Upload and manage source documents for content generation
-              </p>
+          editingSourceFileId ? (
+            <DocumentIntelligenceEditor
+              sourceFileId={editingSourceFileId}
+              onBack={() => {
+                setEditingSourceFileId(null);
+                setHighlightChunkId(null);
+              }}
+              onViewRole={(roleId) => {
+                setActiveTab('roles');
+                setSelectedRoleId(roleId);
+              }}
+              onCreateRole={(prefillData) => {
+                // Store prefill data and navigate to role creation
+                setActiveTab('roles');
+                setSelectedRoleId('new');
+                // TODO: Pass prefill data to RoleDetailPage
+              }}
+              highlightChunkId={highlightChunkId}
+              onStartPlaybook={onStartPlaybook}
+              onNavigateToTrack={onNavigateToTrack}
+            />
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold">Source Files</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Upload and manage source documents for content generation
+                </p>
+              </div>
+              <SourcesManagement
+                onOpenEditor={(sourceFileId) => setEditingSourceFileId(sourceFileId)}
+              />
             </div>
-            <SourcesManagement />
-          </div>
+          )
         )}
       </div>
 

@@ -1,13 +1,46 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
+import { APP_CONFIG } from './lib/config';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
+import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
+import { supabase, getCurrentUserOrgId, setViewingOrgOverride, getUserHomeOrgId } from './lib/supabase';
+
+// Expose brain indexing utilities globally for console access
+// Usage: window.brainUtils.reindexAll() or window.brainUtils.backfill()
+if (typeof window !== 'undefined') {
+  (window as any).brainUtils = {
+    reindexAll: async () => {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) {
+        console.error('Not logged in or no organization found');
+        return;
+      }
+      console.log(`Starting re-index for org: ${orgId}`);
+      return reindexAllTracks(orgId);
+    },
+    backfill: async () => {
+      const orgId = await getCurrentUserOrgId();
+      if (!orgId) {
+        console.error('Not logged in or no organization found');
+        return;
+      }
+      console.log(`Starting backfill for org: ${orgId}`);
+      return backfillBrainIndex(orgId);
+    },
+    reindexAllTracks,
+    backfillBrainIndex,
+  };
+  console.log('[Brain] Utils available at window.brainUtils - use window.brainUtils.reindexAll() to re-index all content');
+}
 import { Reports } from "./components/Reports";
 import { Analytics } from "./components/Analytics";
 import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
-import { ComplianceDashboard } from "./components/ComplianceDashboard";
+import { ComplianceDashboard } from "./components/compliance/ComplianceDashboard";
 import { ComplianceAudit } from "./components/ComplianceAudit";
+import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
+import { ProgramsManagement, TrikeAdminFunctions } from "./components/admin";
 import { People } from "./components/People";
 import { Units } from "./components/Units";
 import { NewUnit } from "./components/NewUnit";
@@ -26,9 +59,12 @@ import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { PublicKBViewer } from "./components/PublicKBViewer";
 import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
-import { toast } from "sonner@2.0.3";
+import { TrikeAdminPage } from "./components/trike-admin";
+import { toast } from "sonner";
 import { checkServerHealth } from "./lib/serverHealth";
+
 
 type UserRole =
   | "admin"
@@ -41,10 +77,14 @@ type AppView =
   | "analytics"
   | "compliance"
   | "compliance-audit"
+  | "compliance-management"
+  | "programs-management"
+  | "trike-admin-functions"
   | "content"
   | "assignments"
   | "assignment"
   | "playlist-wizard"
+  | "playbook-build"
   | "people"
   | "units"
   | "new-unit"
@@ -53,7 +93,19 @@ type AppView =
   | "ai-review"
   | "forms"
   | "knowledge-base"
-  | "settings";
+  | "settings"
+  | "trike-admin";
+
+/**
+ * Deep link: /roles/:roleId (and /roles/new). Without a Vercel SPA fallback this path 404s;
+ * after rewrite to index.html we still need to open Organization → Roles with the right id.
+ */
+function getRolePathFromLocation(): { view: AppView; roleId: string | null } {
+  if (typeof window === "undefined") return { view: "dashboard", roleId: null };
+  const m = window.location.pathname.match(/^\/roles\/([^/]+)\/?$/);
+  if (m) return { view: "organization", roleId: m[1] };
+  return { view: "dashboard", roleId: null };
+}
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
@@ -69,8 +121,13 @@ export default function App() {
     },
   );
   const [darkMode, setDarkMode] = useState(true);
-  const [currentView, setCurrentView] =
-    useState<AppView>("dashboard");
+  const [currentView, setCurrentView] = useState<AppView>(
+    () => getRolePathFromLocation().view,
+  );
+  /** One-shot deep link from URL /roles/:id; cleared when leaving Organization */
+  const [organizationDeepLinkRoleId, setOrganizationDeepLinkRoleId] = useState<
+    string | null
+  >(() => getRolePathFromLocation().roleId);
   const [showAssignmentWizard, setShowAssignmentWizard] =
     useState(false);
   const [editingArticle, setEditingArticle] =
@@ -82,6 +139,7 @@ export default function App() {
     string | undefined
   >(undefined);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [assignmentsInitialTab, setAssignmentsInitialTab] = useState<'playlists' | 'albums'>('playlists');
   const [editingPlaylistId, setEditingPlaylistId] = useState<
     string | undefined
   >(undefined);
@@ -95,6 +153,21 @@ export default function App() {
     useState<AppView | null>(null); // Track where user came from
   const [contentLibraryKey, setContentLibraryKey] = useState(0); // Key to force ContentLibrary reset
   const [knowledgeBaseKey, setKnowledgeBaseKey] = useState(0); // Key to force KnowledgeBase reset
+  const [playlistsRefreshKey, setPlaylistsRefreshKey] = useState(0); // Key to force Playlists refresh after wizard
+  const [playbookSourceFileId, setPlaybookSourceFileId] = useState<string | null>(null); // For playbook build view
+
+  // Org status for prospect/frozen/onboarding detection
+  const [orgStatusInfo, setOrgStatusInfo] = useState<{
+    status: string | null;
+    demoExpiresAt: string | null;
+    isProspectOrg: boolean;
+    isDemoExpired: boolean;
+  }>({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
+
+  // Org preview state for Super Admin
+  const [viewingOrgId, setViewingOrgId] = useState<string | null>(null);
+  const [viewingOrgName, setViewingOrgName] = useState<string | null>(null);
+
   const [
     isSuperAdminAuthenticated,
     setIsSuperAdminAuthenticated,
@@ -137,20 +210,114 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Server health check on mount
+  // Server health check on mount (silent - warnings are logged to console only)
   useEffect(() => {
-    checkServerHealth()
-      .then((healthy) => {
-        if (!healthy) {
-          toast.error(
-            "Server connection issues detected. Some features may not work properly.",
-          );
-        }
-      })
-      .catch(() => {
-        // Silent catch
-      });
+    checkServerHealth().catch(() => {});
   }, []);
+
+  // After first successful auth (null → user), apply /roles/:id from URL. Do not re-run on
+  // user object reference changes (token refresh) or we would yank users back to /roles/... while on dashboard.
+  const hadUserRef = useRef(false);
+  useEffect(() => {
+    if (user && !hadUserRef.current) {
+      const { view, roleId } = getRolePathFromLocation();
+      if (roleId) {
+        setCurrentView(view);
+        setOrganizationDeepLinkRoleId(roleId);
+      }
+    }
+    hadUserRef.current = !!user;
+  }, [user]);
+
+  // Read demo_org_id from URL on mount — activates org preview for demo links
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+    if (!demoOrgId || viewingOrgId === demoOrgId) return;
+
+    (async () => {
+      try {
+        // Fetch org name for the sidebar
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', demoOrgId)
+          .single();
+
+        if (org) {
+          setViewingOrgOverride(demoOrgId);
+          setViewingOrgId(demoOrgId);
+          setViewingOrgName(org.name);
+          window.dispatchEvent(new Event('organization-updated'));
+        }
+      } catch {
+        // Silent — demo_org_id may be invalid
+      }
+    })();
+  }, [user]); // Only run when user auth state changes, not on viewingOrgId change
+
+  // Handle previewing an org as Super Admin
+  const handlePreviewOrg = async (orgId: string, orgName: string) => {
+    setViewingOrgOverride(orgId);
+    setViewingOrgId(orgId);
+    setViewingOrgName(orgName);
+    window.dispatchEvent(new Event('organization-updated'));
+  };
+
+  const handleExitOrgPreview = async () => {
+    // Clear demo_org_id from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('demo_org_id');
+    window.history.replaceState({}, '', url.pathname + url.search);
+
+    // Return to trike.co (main) — same as clicking "Return to main" for trike.co row
+    const trikeCoId = APP_CONFIG.TRIKE_CO_ORG_ID;
+    try {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', trikeCoId)
+        .single();
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName(org?.name ?? 'Trike');
+    } catch {
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName('Trike');
+    }
+    setOrgStatusInfo({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
+    window.dispatchEvent(new Event('organization-updated'));
+  };
+
+  // Fetch org status for prospect/frozen detection
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const orgId = await getCurrentUserOrgId();
+        if (!orgId) return;
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('status, demo_expires_at')
+          .eq('id', orgId)
+          .single();
+        if (org) {
+          const isProspect = org.status === 'demo';
+          const expired = org.demo_expires_at ? new Date(org.demo_expires_at) < new Date() : false;
+          setOrgStatusInfo({
+            status: org.status,
+            demoExpiresAt: org.demo_expires_at,
+            isProspectOrg: isProspect,
+            isDemoExpired: isProspect && expired,
+          });
+        }
+      } catch {
+        // Silent - org status is optional context
+      }
+    })();
+  }, [user, viewingOrgId]);
 
   // URL parsing for direct deep links (e.g. /?track=abc&type=article)
   useEffect(() => {
@@ -213,6 +380,13 @@ export default function App() {
         "",
         window.location.pathname,
       );
+    }
+
+    // Check for tab=sources navigation (deep link to source document)
+    const tab = urlParams.get("tab");
+    if (tab === "sources") {
+      setCurrentView("organization");
+      // Don't clear params here - Organization component will handle sourceFileId
     }
   }, []);
 
@@ -317,6 +491,9 @@ export default function App() {
 
     // Store previous view for back navigation
     setPreviousView(currentView);
+    if (view !== "organization") {
+      setOrganizationDeepLinkRoleId(null);
+    }
     setCurrentView(view);
   };
 
@@ -383,6 +560,36 @@ export default function App() {
   }, []);
 
   const renderContent = () => {
+    const isTrikeSuperAdmin = currentRole === 'trike-super-admin';
+
+    // Frozen demo: show frozen screen regardless of view
+    if (orgStatusInfo.isDemoExpired && !isTrikeSuperAdmin) {
+      const FrozenDemoScreen = React.lazy(() =>
+        import('./components/prospect/FrozenDemoScreen').then(m => ({ default: m.FrozenDemoScreen }))
+      );
+      return (
+        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+          <FrozenDemoScreen />
+        </React.Suspense>
+      );
+    }
+
+    // Prospect org: show journey view on dashboard, content library on content
+    if (orgStatusInfo.isProspectOrg && !isTrikeSuperAdmin && currentView === 'dashboard') {
+      const ProspectJourneyView = React.lazy(() =>
+        import('./components/prospect/ProspectJourneyView').then(m => ({ default: m.ProspectJourneyView }))
+      );
+      return (
+        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+          <ProspectJourneyView
+            onNavigate={requestNavigate}
+          />
+        </React.Suspense>
+      );
+    }
+
+    // Client onboarding view
+    // Live orgs see full dashboard (no separate onboarding status)
     switch (currentView) {
       case "dashboard":
         return (
@@ -396,14 +603,45 @@ export default function App() {
       case "analytics":
         return <Analytics role={currentRole} />;
       case "compliance":
+        return <ComplianceDashboard />;
+      case "compliance-audit":
+        return <ComplianceAudit role={currentRole} />;
+      case "compliance-management":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
         return (
-          <ComplianceDashboard
+          <ComplianceManagement
             currentRole={currentRole}
             onNavigate={requestNavigate}
           />
         );
-      case "compliance-audit":
-        return <ComplianceAudit role={currentRole} />;
+      case "programs-management":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <ProgramsManagement
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
+      case "trike-admin-functions":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return (
+          <TrikeAdminFunctions
+            currentRole={currentRole}
+            onNavigate={requestNavigate}
+          />
+        );
       case "content":
         return (
           <ContentLibrary
@@ -412,14 +650,31 @@ export default function App() {
             isSuperAdminAuthenticated={isSuperAdminAuthenticated}
             initialTrackId={initialTrackId}
             onBackToLibrary={handleBackFromContentAuthoring}
+            isProspectOrg={orgStatusInfo.isProspectOrg && currentRole !== 'trike-super-admin'}
             registerUnsavedChangesCheck={handleRegisterUnsavedChangesCheck}
             onNavigateToPlaylist={(playlistId: string) => {
               setSelectedPlaylistId(playlistId);
+              setAssignmentsInitialTab('playlists');
               setPreviousView('content');
               requestNavigate("assignments");
             }}
             onNavigateToAlbum={(albumId: string) => {
               setSelectedAlbumId(albumId);
+              setAssignmentsInitialTab('albums');
+              setPreviousView('content');
+              requestNavigate("assignments");
+            }}
+            onNavigateToPlaylistsTab={() => {
+              setSelectedPlaylistId(undefined);
+              setSelectedAlbumId(null);
+              setAssignmentsInitialTab('playlists');
+              setPreviousView('content');
+              requestNavigate("assignments");
+            }}
+            onNavigateToAlbumsTab={() => {
+              setSelectedPlaylistId(undefined);
+              setSelectedAlbumId(null);
+              setAssignmentsInitialTab('albums');
               setPreviousView('content');
               requestNavigate("assignments");
             }}
@@ -437,6 +692,7 @@ export default function App() {
       case "assignments":
         return (
           <Playlists
+            key={`playlists-${playlistsRefreshKey}`}
             currentRole={currentRole}
             onOpenPlaylistWizard={() => {
               setEditingPlaylistId(undefined);
@@ -448,7 +704,7 @@ export default function App() {
             }}
             selectedPlaylistId={selectedPlaylistId || undefined}
             selectedAlbumId={selectedAlbumId || undefined}
-            initialTab={selectedAlbumId ? 'albums' : 'playlists'}
+            initialTab={assignmentsInitialTab}
             previousView={previousView}
             onBackToPreviousView={() => {
               setSelectedPlaylistId(undefined);
@@ -460,6 +716,7 @@ export default function App() {
       case "assignment":
         return (
           <Playlists
+            key={`playlists-${playlistsRefreshKey}`}
             currentRole={currentRole}
             onOpenPlaylistWizard={() => {
               setEditingPlaylistId(undefined);
@@ -478,12 +735,37 @@ export default function App() {
             existingPlaylistId={editingPlaylistId}
             onClose={() => {
               setEditingPlaylistId(undefined);
-              requestNavigate("assignments");
+              // Increment refresh key to force Playlists component to re-fetch data
+              setPlaylistsRefreshKey(prev => prev + 1);
+              // Use handleNavigate directly to bypass unsaved changes check
+              // The wizard clears the check before calling onClose, but React state
+              // updates are async so requestNavigate might still see stale state
+              handleNavigate("assignments");
             }}
             registerUnsavedChangesCheck={(checkFn) =>
               setHasUnsavedChangesRef(() => checkFn)
             }
           />
+        );
+      case "playbook-build":
+        console.log('[App] playbook-build view - playbookSourceFileId:', playbookSourceFileId);
+        return playbookSourceFileId ? (
+          <PlaybookBuildView
+            sourceFileId={playbookSourceFileId}
+            onBack={() => {
+              setPlaybookSourceFileId(null);
+              requestNavigate("organization");
+            }}
+            onComplete={(albumId: string) => {
+              setPlaybookSourceFileId(null);
+              setSelectedAlbumId(albumId);
+              requestNavigate("assignments");
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-gray-500">No source file selected</p>
+          </div>
         );
       case "people":
         return <People currentRole={currentRole} onBackToDashboard={() => requestNavigate("dashboard")} />;
@@ -507,7 +789,23 @@ export default function App() {
           />
         );
       case "organization":
-        return <Organization role={currentRole} onNavigate={requestNavigate} />;
+        return (
+          <Organization
+            role={currentRole}
+            initialRoleId={organizationDeepLinkRoleId}
+            onNavigate={requestNavigate}
+            onStartPlaybook={(sourceFileId: string) => {
+              console.log('[App] onStartPlaybook called with sourceFileId:', sourceFileId);
+              setPlaybookSourceFileId(sourceFileId);
+              requestNavigate("playbook-build");
+            }}
+            onNavigateToTrack={(trackId: string) => {
+              setInitialTrackId(trackId);
+              setPreviousView('organization');
+              requestNavigate("content");
+            }}
+          />
+        );
       case "authoring":
         return (
           <ContentAuthoring
@@ -541,6 +839,13 @@ export default function App() {
         );
       case "settings":
         return <Settings role={currentRole} />;
+      case "trike-admin":
+        // Only Trike Super Admin can access this
+        if (currentRole !== 'trike-super-admin') {
+          requestNavigate('dashboard');
+          return null;
+        }
+        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} darkMode={darkMode} />;
       default:
         return (
           <Dashboard
@@ -598,11 +903,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Show login if not authenticated */}
-      {!authLoading && !user && <Login />}
+      {/* Show login if not authenticated (skip in demo mode) */}
+      {!authLoading && !user && !APP_CONFIG.DEMO_MODE && <Login />}
 
-      {/* Normal authenticated dashboard view */}
-      {!authLoading && user && (() => {
+      {/* Normal authenticated dashboard view (or demo mode) */}
+      {!authLoading && (user || APP_CONFIG.DEMO_MODE) && (() => {
 
         return (
           <>
@@ -613,7 +918,10 @@ export default function App() {
               onRoleChange={handleRoleChange}
               darkMode={darkMode}
               onDarkModeToggle={() => setDarkMode(!darkMode)}
-              isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+              orgStatusInfo={orgStatusInfo}
+              viewingOrgId={viewingOrgId}
+              viewingOrgName={viewingOrgName}
+              onExitOrgPreview={handleExitOrgPreview}
             >
               {renderContent()}
             </DashboardLayout>

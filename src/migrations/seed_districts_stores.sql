@@ -9,7 +9,7 @@ BEGIN
   -- Get Demo Company org ID
   SELECT organization_id INTO demo_org_id
   FROM roles
-  WHERE role_name = 'Trike Super Admin'
+  WHERE name = 'Trike Super Admin'
   LIMIT 1;
 
   -- Insert Districts

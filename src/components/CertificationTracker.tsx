@@ -1,191 +1,78 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
-import { 
-  Award, 
-  Search, 
+import {
+  Award,
+  Search,
   Calendar,
   MapPin,
   AlertTriangle,
   CheckCircle,
   Clock,
   Filter,
-  Download
+  Download,
+  Loader2
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { getCertificationsForTracker } from '../lib/crud/certifications';
 
 interface Certification {
   id: string;
   employeeName: string;
   employeeId: string;
   location: string;
-  district: string;
   certificationName: string;
   earnedDate: string;
   expirationDate: string;
   daysUntilExpiration: number;
   autoReassign: boolean;
+  status: string;
+  role?: string;
 }
 
-// Mock certification data
-const mockCertifications: Certification[] = [
-  {
-    id: '1',
-    employeeName: 'Sarah Johnson',
-    employeeId: 'EMP001',
-    location: 'Store A',
-    district: 'North',
-    certificationName: 'Fire Safety Certification',
-    earnedDate: '2024-06-15',
-    expirationDate: '2025-06-15',
-    daysUntilExpiration: 210,
-    autoReassign: true
-  },
-  {
-    id: '2',
-    employeeName: 'Mike Rodriguez',
-    employeeId: 'EMP002',
-    location: 'Store B',
-    district: 'South',
-    certificationName: 'Food Handler Certification',
-    earnedDate: '2024-05-10',
-    expirationDate: '2025-05-10',
-    daysUntilExpiration: 174,
-    autoReassign: true
-  },
-  {
-    id: '3',
-    employeeName: 'Emily Chen',
-    employeeId: 'EMP003',
-    location: 'Store C',
-    district: 'East',
-    certificationName: 'Customer Service Pro',
-    earnedDate: '2024-06-28',
-    expirationDate: '2025-06-28',
-    daysUntilExpiration: 223,
-    autoReassign: false
-  },
-  {
-    id: '4',
-    employeeName: 'David Thompson',
-    employeeId: 'EMP004',
-    location: 'Store D',
-    district: 'North',
-    certificationName: 'Equipment Safety Certification',
-    earnedDate: '2024-03-15',
-    expirationDate: '2024-12-15',
-    daysUntilExpiration: 28,
-    autoReassign: true
-  },
-  {
-    id: '5',
-    employeeName: 'Lisa Park',
-    employeeId: 'EMP005',
-    location: 'Store A',
-    district: 'North',
-    certificationName: 'Product Expert Certification',
-    earnedDate: '2024-06-22',
-    expirationDate: '2025-06-22',
-    daysUntilExpiration: 217,
-    autoReassign: true
-  },
-  {
-    id: '6',
-    employeeName: 'James Wilson',
-    employeeId: 'EMP006',
-    location: 'Store E',
-    district: 'South',
-    certificationName: 'Emergency Response Certification',
-    earnedDate: '2024-06-30',
-    expirationDate: '2024-12-30',
-    daysUntilExpiration: 43,
-    autoReassign: true
-  },
-  {
-    id: '7',
-    employeeName: 'Maria Garcia',
-    employeeId: 'EMP007',
-    location: 'Store A',
-    district: 'North',
-    certificationName: 'Food Handler Certification',
-    earnedDate: '2024-02-01',
-    expirationDate: '2024-11-20',
-    daysUntilExpiration: 3,
-    autoReassign: false
-  },
-  {
-    id: '8',
-    employeeName: 'Robert Brown',
-    employeeId: 'EMP008',
-    location: 'Store B',
-    district: 'South',
-    certificationName: 'Leadership Certification',
-    earnedDate: '2024-06-18',
-    expirationDate: '2025-06-18',
-    daysUntilExpiration: 213,
-    autoReassign: true
-  },
-  {
-    id: '9',
-    employeeName: 'Amanda Lee',
-    employeeId: 'EMP009',
-    location: 'Store C',
-    district: 'East',
-    certificationName: 'Fire Safety Certification',
-    earnedDate: '2024-04-10',
-    expirationDate: '2024-12-10',
-    daysUntilExpiration: 23,
-    autoReassign: true
-  },
-  {
-    id: '10',
-    employeeName: 'Kevin Nguyen',
-    employeeId: 'EMP010',
-    location: 'Store B',
-    district: 'South',
-    certificationName: 'Safety Certification',
-    earnedDate: '2024-06-21',
-    expirationDate: '2025-06-21',
-    daysUntilExpiration: 216,
-    autoReassign: true
-  },
-  {
-    id: '11',
-    employeeName: 'Jessica Martinez',
-    employeeId: 'EMP011',
-    location: 'Store D',
-    district: 'North',
-    certificationName: 'First Aid Certification',
-    earnedDate: '2024-01-15',
-    expirationDate: '2024-11-25',
-    daysUntilExpiration: 8,
-    autoReassign: false
-  },
-  {
-    id: '12',
-    employeeName: 'Christopher Davis',
-    employeeId: 'EMP014',
-    location: 'Store C',
-    district: 'East',
-    certificationName: 'Leadership Certification',
-    earnedDate: '2024-06-24',
-    expirationDate: '2025-06-24',
-    daysUntilExpiration: 219,
-    autoReassign: true
-  }
-];
-
 interface CertificationTrackerProps {
-  currentRole?: 'admin' | 'district-manager' | 'store-manager';
+  currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 }
 
 export function CertificationTracker({ currentRole = 'admin' }: CertificationTrackerProps) {
-  const [certifications, setCertifications] = useState<Certification[]>(mockCertifications);
+  const [certifications, setCertifications] = useState<Certification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  // Fetch certifications from database
+  useEffect(() => {
+    async function fetchCertifications() {
+      setLoading(true);
+      try {
+        const data = await getCertificationsForTracker();
+        // Transform to match component interface
+        const transformed: Certification[] = data.map((cert: any) => ({
+          id: cert.id,
+          employeeName: cert.employee,
+          employeeId: cert.employeeId,
+          location: cert.store,
+          certificationName: cert.name,
+          earnedDate: cert.issueDate,
+          expirationDate: cert.expirationDate,
+          daysUntilExpiration: cert.daysUntilExpiration,
+          autoReassign: false, // Default, can be wired to database later
+          status: cert.status,
+          role: cert.role
+        }));
+        setCertifications(transformed);
+      } catch (error) {
+        console.error('Error fetching certifications:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchCertifications();
+  }, []);
 
   const getExpirationStatus = (days: number): { status: string; color: string; bgColor: string } => {
     if (days < 0) {
@@ -241,12 +128,21 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
   // Calculate summary stats
   const stats = {
     total: certifications.length,
-    expired: certifications.filter(c => c.daysUntilExpiration < 0).length,
-    critical: certifications.filter(c => c.daysUntilExpiration >= 0 && c.daysUntilExpiration <= 30).length,
+    expired: certifications.filter(c => c.daysUntilExpiration < 0 || c.status === 'expired').length,
+    critical: certifications.filter(c => c.daysUntilExpiration >= 0 && c.daysUntilExpiration <= 30 && c.status !== 'expired').length,
     warning: certifications.filter(c => c.daysUntilExpiration > 30 && c.daysUntilExpiration <= 60).length,
     active: certifications.filter(c => c.daysUntilExpiration > 60).length,
     autoReassignEnabled: certifications.filter(c => c.autoReassign).length
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -398,7 +294,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
                             <MapPin className="h-4 w-4 text-muted-foreground" />
                             <div>
                               <p className="text-sm text-foreground">{cert.location}</p>
-                              <p className="text-xs text-muted-foreground">{cert.district}</p>
+                              {cert.role && <p className="text-xs text-muted-foreground">{cert.role}</p>}
                             </div>
                           </div>
                         </td>

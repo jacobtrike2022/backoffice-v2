@@ -36,12 +36,43 @@ interface Message {
 }
 
 interface Industry {
+  id: string;
   slug: string;
   name: string;
   description?: string;
-  default_services: string[];
-  icon?: string;
+  code?: string;
   sort_order: number;
+}
+
+interface ComplianceTopic {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  sort_order: number;
+}
+
+interface ProgramCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  sort_order: number;
+}
+
+interface Program {
+  id: string;
+  category_id: string;
+  name: string;
+  slug: string;
+  display_name?: string;
+  vendor_name?: string;
+  sort_order: number;
+}
+
+interface IndustryDefaults {
+  topicIds: string[];
+  programIds: string[];
 }
 
 interface ServiceDefinition {
@@ -50,7 +81,6 @@ interface ServiceDefinition {
   description?: string;
   compliance_domains: string[];
   requires_license: boolean;
-  icon?: string;
   sort_order: number;
 }
 
@@ -65,10 +95,14 @@ interface CollectedData {
   logo_url?: string;
   brand_colors?: { primary?: string; secondary?: string };
   industry?: string;
+  industry_id?: string;
   services?: string[];
+  compliance_topic_ids?: string[];
+  program_ids?: string[];
   operating_states?: string[];
   stores?: any[];
   store_count?: number;
+  relay_run_id?: string;
   employee_count?: number;
   description?: string;
   contact_name?: string;
@@ -81,23 +115,33 @@ interface OnboardingChatProps {
 }
 
 type OnboardingStep =
-  | 'website'       // Enter website URL
-  | 'scraping'      // Loading state while scraping
-  | 'confirm'       // Confirm scraped company info
-  | 'industry'      // Select industry
-  | 'services'      // Select services offered
-  | 'locations'     // Confirm/enter location count & states
-  | 'company_size'  // Number of employees
-  | 'contact'       // Contact info
-  | 'review'        // Final review before creating account
-  | 'creating'      // Creating account
-  | 'complete';     // Done!
+  | 'website'           // Enter website URL
+  | 'scraping'          // Loading state while scraping
+  | 'confirm'           // Confirm scraped company info
+  | 'company_name'      // Manual company name (when website lookup fails — matches Create Demo flow)
+  | 'industry'          // Select industry
+  | 'compliance_topics' // Select compliance topics (with industry defaults)
+  | 'programs'          // Select programs/vendors (with industry defaults)
+  | 'locations'         // Confirm/enter location count & states
+  | 'company_size'      // Number of employees
+  | 'contact'           // Contact info
+  | 'review'            // Final review before creating account
+  | 'creating'          // Creating account
+  | 'complete';         // Done!
 
 export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) => {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    // Show initial message immediately for better perceived performance
+    {
+      role: 'assistant',
+      content: "Hi there! I'm here to help you get set up with Trike. Let's start by pulling in your company info.",
+      timestamp: new Date(),
+    },
+  ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [collectedData, setCollectedData] = useState<CollectedData>({});
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -112,21 +156,30 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   // Options from database
   const [industries, setIndustries] = useState<Industry[]>([]);
-  const [services, setServices] = useState<ServiceDefinition[]>([]);
+  const [complianceTopics, setComplianceTopics] = useState<ComplianceTopic[]>([]);
+  const [programCategories, setProgramCategories] = useState<ProgramCategory[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [industryDefaults, setIndustryDefaults] = useState<Record<string, IndustryDefaults>>({});
+  const [services, setServices] = useState<ServiceDefinition[]>([]);  // Legacy
   const [states, setStates] = useState<USState[]>([]);
 
   // Current step in the flow
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('website');
 
   // Form state for each step
-  const [selectedIndustry, setSelectedIndustry] = useState<string>('');
-  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [selectedIndustryId, setSelectedIndustryId] = useState<string>('');
+  const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
+  const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
+  const [currentProgramCategoryIndex, setCurrentProgramCategoryIndex] = useState(0);  // Track which category we're showing
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);  // Legacy
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
   const [locationCount, setLocationCount] = useState<string>('');
   const [employeeCount, setEmployeeCount] = useState<string>('');
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactRole, setContactRole] = useState('');
+  const [companyNameManual, setCompanyNameManual] = useState('');
+  const [websiteFailed, setWebsiteFailed] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -136,24 +189,49 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     scrollToBottom();
   }, [messages, currentStep]);
 
-  // Start session and fetch options on mount
+  // Start session and fetch options on mount (in parallel)
   useEffect(() => {
-    startSession();
-    fetchOptions();
+    const init = async () => {
+      setIsInitializing(true);
+      try {
+        // Use allSettled so one failure doesn't block the other
+        await Promise.allSettled([startSession(), fetchOptions()]);
+      } catch (err) {
+        console.error('Error during initialization:', err);
+      } finally {
+        // Always set initializing to false so the UI is usable
+        setIsInitializing(false);
+      }
+    };
+    init();
   }, []);
 
   const fetchOptions = async () => {
     try {
-      const response = await fetch(`${getServerUrl()}/onboarding/options`, {
+      // Add cache-busting timestamp to ensure fresh data
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      // Note: Cache-Control headers removed to avoid CORS preflight issues
+      // The timestamp parameter provides cache-busting instead
+      const response = await fetch(`${getServerUrl()}/onboarding/options?_t=${Date.now()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       if (data.industries) setIndustries(data.industries);
-      if (data.services) setServices(data.services);
+      if (data.complianceTopics) setComplianceTopics(data.complianceTopics);
+      if (data.programCategories) setProgramCategories(data.programCategories);
+      if (data.programs) setPrograms(data.programs);
+      if (data.industryDefaults) setIndustryDefaults(data.industryDefaults);
+      if (data.services) setServices(data.services);  // Legacy
       if (data.states) setStates(data.states);
     } catch (err) {
       console.error('Failed to fetch options:', err);
@@ -162,6 +240,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const startSession = async () => {
     try {
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch(`${getServerUrl()}/onboarding/start`, {
         method: 'POST',
         headers: {
@@ -172,23 +254,25 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           referrer: document.referrer,
           utm_params: Object.fromEntries(new URLSearchParams(window.location.search)),
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       if (data.success) {
         setSessionToken(data.session_token);
-        setMessages([
-          {
-            role: 'assistant',
-            content: "Hi there! I'm here to help you get set up with Trike. Let's start by pulling in your company info.",
-            timestamp: new Date(),
-          },
-        ]);
+        // Message already shown on mount for instant UX
       } else {
         throw new Error(data.error || 'Failed to start session');
       }
     } catch (err: any) {
-      setError(err.message);
+      if (err.name === 'AbortError') {
+        console.error('Session start timed out');
+        setError('Connection timed out. Please refresh and try again.');
+      } else {
+        setError(err.message);
+      }
     }
   };
 
@@ -223,11 +307,28 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
         // Pre-populate form fields from scraped data
         if (data.industry) {
-          setSelectedIndustry(data.industry);
-          // Pre-select default services for the industry
-          const industry = industries.find(i => i.slug === data.industry);
-          if (industry?.default_services) {
-            setSelectedServices(data.services || industry.default_services);
+          // Find industry by slug/code - try multiple matching strategies
+          const industrySlug = data.industry.toLowerCase().trim();
+          let industry = industries.find(i => i.slug?.toLowerCase() === industrySlug);
+
+          // Fallback: try matching by code field
+          if (!industry) {
+            industry = industries.find(i => i.code?.toLowerCase() === industrySlug);
+          }
+
+          // Fallback: try partial name match (e.g., "convenience" matches "Convenience Stores")
+          if (!industry) {
+            industry = industries.find(i =>
+              i.name.toLowerCase().includes(industrySlug) ||
+              industrySlug.includes(i.name.toLowerCase().split(' ')[0])
+            );
+          }
+
+          if (industry) {
+            // Use handleIndustrySelect to set industry and load defaults
+            handleIndustrySelect(industry.id);
+          } else {
+            console.warn(`[Onboarding] Could not match industry: ${data.industry}`);
           }
         }
         if (data.services) setSelectedServices(data.services);
@@ -238,12 +339,19 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
         let responseMsg = `I found **${data.company_name}**!`;
 
         if (data.industry) {
-          const industryName = industries.find(i => i.slug === data.industry)?.name || data.industry;
+          const industrySlug = data.industry.toLowerCase().trim();
+          const matchedIndustry = industries.find(i =>
+            i.slug?.toLowerCase() === industrySlug ||
+            i.code?.toLowerCase() === industrySlug
+          );
+          const industryName = matchedIndustry?.name || data.industry;
           responseMsg += ` Looks like you're in the ${industryName} industry.`;
         }
 
         if (data.store_count && data.store_count > 0) {
           responseMsg += ` I found ${data.store_count} store locations.`;
+        } else if (data.relay_run_id) {
+          responseMsg += ` Location data is being fetched (2–3 min).`;
         }
 
         responseMsg += '\n\nDoes this look right?';
@@ -266,7 +374,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           timestamp: new Date(),
         },
       ]);
-      setCurrentStep('industry');
+      setWebsiteFailed(true);
+      setCurrentStep('company_name');
     } finally {
       setIsLoading(false);
     }
@@ -312,14 +421,34 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     }
   };
 
-  const handleIndustrySelect = (industrySlug: string) => {
-    setSelectedIndustry(industrySlug);
-    const industry = industries.find(i => i.slug === industrySlug);
-    if (industry?.default_services) {
-      // Merge with any existing selections
-      const merged = [...new Set([...selectedServices, ...industry.default_services])];
-      setSelectedServices(merged);
+  const handleIndustrySelect = (industryId: string) => {
+    setSelectedIndustryId(industryId);
+
+    // Pre-select industry defaults for compliance topics and programs
+    const defaults = industryDefaults[industryId];
+    if (defaults) {
+      setSelectedTopicIds(defaults.topicIds || []);
+      setSelectedProgramIds(defaults.programIds || []);
+    } else {
+      setSelectedTopicIds([]);
+      setSelectedProgramIds([]);
     }
+  };
+
+  const handleTopicToggle = (topicId: string) => {
+    setSelectedTopicIds(prev =>
+      prev.includes(topicId)
+        ? prev.filter(id => id !== topicId)
+        : [...prev, topicId]
+    );
+  };
+
+  const handleProgramToggle = (programId: string) => {
+    setSelectedProgramIds(prev =>
+      prev.includes(programId)
+        ? prev.filter(id => id !== programId)
+        : [...prev, programId]
+    );
   };
 
   const handleServiceToggle = (serviceSlug: string) => {
@@ -340,19 +469,47 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleNextStep = () => {
     switch (currentStep) {
+      case 'company_name':
+        setCollectedData((prev) => ({ ...prev, company_name: companyNameManual.trim() }));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', content: companyNameManual.trim(), timestamp: new Date() },
+          { role: 'assistant', content: "What industry are you in?", timestamp: new Date() },
+        ]);
+        setCurrentStep('industry');
+        break;
       case 'industry':
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: "Now let's confirm what services you offer.", timestamp: new Date() },
+          { role: 'assistant', content: "Based on your industry, here are the typical compliance topics. Adjust as needed for your organization.", timestamp: new Date() },
         ]);
-        setCurrentStep('services');
+        setCurrentStep('compliance_topics');
         break;
-      case 'services':
+      case 'compliance_topics':
+        // Reset to first category when entering programs step
+        setCurrentProgramCategoryIndex(0);
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: "Where do you operate?", timestamp: new Date() },
+          { role: 'assistant', content: "Now let's confirm what programs, vendors, and equipment you use. We'll go through each category one at a time.", timestamp: new Date() },
         ]);
-        setCurrentStep('locations');
+        setCurrentStep('programs');
+        break;
+      case 'programs':
+        // Get categories that have programs
+        const categoriesWithPrograms = programCategories.filter(cat =>
+          programs.some(p => p.category_id === cat.id)
+        );
+        // If not on the last category, move to next category
+        if (currentProgramCategoryIndex < categoriesWithPrograms.length - 1) {
+          setCurrentProgramCategoryIndex(prev => prev + 1);
+        } else {
+          // On last category, move to locations step
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: "Where do you operate?", timestamp: new Date() },
+          ]);
+          setCurrentStep('locations');
+        }
         break;
       case 'locations':
         setMessages((prev) => [
@@ -376,11 +533,33 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const handleBackStep = () => {
     switch (currentStep) {
-      case 'services':
+      case 'company_name':
+        setCurrentStep('website');
+        break;
+      case 'industry':
+        if (websiteFailed) {
+          setCurrentStep('company_name');
+        }
+        break;
+      case 'compliance_topics':
         setCurrentStep('industry');
         break;
+      case 'programs':
+        // If not on the first category, go back to previous category
+        if (currentProgramCategoryIndex > 0) {
+          setCurrentProgramCategoryIndex(prev => prev - 1);
+        } else {
+          // On first category, go back to compliance_topics
+          setCurrentStep('compliance_topics');
+        }
+        break;
       case 'locations':
-        setCurrentStep('services');
+        // Go back to last program category
+        const categoriesWithProgramsBack = programCategories.filter(cat =>
+          programs.some(p => p.category_id === cat.id)
+        );
+        setCurrentProgramCategoryIndex(categoriesWithProgramsBack.length - 1);
+        setCurrentStep('programs');
         break;
       case 'company_size':
         setCurrentStep('locations');
@@ -402,10 +581,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     setError(null);
 
     // First update the session with all collected data
+    const selectedIndustry = industries.find(i => i.id === selectedIndustryId);
     const finalData: CollectedData = {
       ...collectedData,
-      industry: selectedIndustry,
-      services: selectedServices,
+      industry: selectedIndustry?.slug,
+      industry_id: selectedIndustryId,
+      compliance_topic_ids: selectedTopicIds,
+      program_ids: selectedProgramIds,
+      services: selectedServices,  // Legacy
       operating_states: selectedStates,
       store_count: locationCount ? parseInt(locationCount) : undefined,
       employee_count: employeeCount ? parseInt(employeeCount) : undefined,
@@ -477,7 +660,11 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
     return content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   };
 
-  const getIndustryName = (slug: string) => {
+  const getIndustryName = (id: string) => {
+    return industries.find(i => i.id === id)?.name || id;
+  };
+
+  const getIndustryNameBySlug = (slug: string) => {
     return industries.find(i => i.slug === slug)?.name || slug;
   };
 
@@ -487,10 +674,14 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
 
   const canProceed = () => {
     switch (currentStep) {
+      case 'company_name':
+        return !!companyNameManual.trim();
       case 'industry':
-        return !!selectedIndustry;
-      case 'services':
-        return selectedServices.length > 0;
+        return !!selectedIndustryId;
+      case 'compliance_topics':
+        return selectedTopicIds.length > 0;
+      case 'programs':
+        return true;  // Programs are optional
       case 'locations':
         return selectedStates.length > 0;
       case 'company_size':
@@ -506,7 +697,8 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const steps = [
     { key: 'website', label: 'Website' },
     { key: 'industry', label: 'Industry' },
-    { key: 'services', label: 'Services' },
+    { key: 'compliance_topics', label: 'Compliance' },
+    { key: 'programs', label: 'Programs' },
     { key: 'locations', label: 'Locations' },
     { key: 'company_size', label: 'Team Size' },
     { key: 'contact', label: 'Contact' },
@@ -515,6 +707,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
   const currentStepIndex = steps.findIndex(s =>
     s.key === currentStep ||
     (currentStep === 'confirm' && s.key === 'website') ||
+    (currentStep === 'company_name' && s.key === 'website') ||
     (currentStep === 'scraping' && s.key === 'website') ||
     (currentStep === 'review' && s.key === 'contact') ||
     (currentStep === 'creating' && s.key === 'contact') ||
@@ -639,14 +832,18 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  disabled={isLoading}
+                  disabled={isLoading || isInitializing}
                   className="flex-1"
                 />
                 <Button
                   onClick={handleWebsiteSubmit}
-                  disabled={!inputValue.trim() || isLoading}
+                  disabled={!inputValue.trim() || isLoading || isInitializing}
                 >
-                  <ArrowRight className="h-4 w-4" />
+                  {isInitializing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
@@ -689,6 +886,12 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                     {collectedData.store_count} locations
                   </Badge>
                 )}
+                {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                  <Badge variant="outline" className="gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Location data fetching (2–3 min)
+                  </Badge>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -712,6 +915,38 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           </Card>
         )}
 
+        {/* Company Name (manual entry when website lookup fails — matches Create Demo flow) */}
+        {currentStep === 'company_name' && (
+          <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                What's your company name?
+              </CardTitle>
+              <CardDescription>We'll use this to set up your account.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                placeholder="e.g., Acme Convenience"
+                value={companyNameManual}
+                onChange={(e) => setCompanyNameManual(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && canProceed() && handleNextStep()}
+                className="text-base"
+              />
+              <div className="flex justify-between pt-2">
+                <Button variant="ghost" onClick={handleBackStep}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+                <Button onClick={handleNextStep} disabled={!canProceed()}>
+                  Continue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Industry Selection */}
         {currentStep === 'industry' && (
           <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -725,10 +960,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               <div className="grid grid-cols-1 gap-2">
                 {industries.map((industry) => (
                   <Button
-                    key={industry.slug}
-                    variant={selectedIndustry === industry.slug ? 'default' : 'outline'}
+                    key={industry.id}
+                    variant={selectedIndustryId === industry.id ? 'default' : 'outline'}
                     className="justify-start h-auto py-3"
-                    onClick={() => handleIndustrySelect(industry.slug)}
+                    onClick={() => handleIndustrySelect(industry.id)}
                   >
                     <div className="text-left">
                       <div className="font-medium">{industry.name}</div>
@@ -741,7 +976,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </div>
 
               <div className="flex justify-between pt-2">
-                <Button variant="ghost" onClick={handleBackStep} disabled>
+                <Button variant="ghost" onClick={handleBackStep} disabled={!websiteFailed}>
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
                 </Button>
@@ -754,36 +989,51 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           </Card>
         )}
 
-        {/* Services Selection */}
-        {currentStep === 'services' && (
+        {/* Compliance Topics Selection */}
+        {currentStep === 'compliance_topics' && (
           <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
-                <Store className="h-5 w-5" />
-                What services do you offer?
+                <CheckCircle className="h-5 w-5" />
+                Compliance Topics
               </CardTitle>
-              <CardDescription>Select all that apply</CardDescription>
+              <CardDescription>
+                These are typical compliance areas for your industry. Adjust as needed.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {services.map((service) => (
-                  <div
-                    key={service.slug}
-                    className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedServices.includes(service.slug)
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/50'
-                    }`}
-                    onClick={() => handleServiceToggle(service.slug)}
-                  >
-                    <Checkbox
-                      checked={selectedServices.includes(service.slug)}
-                      onCheckedChange={() => handleServiceToggle(service.slug)}
-                    />
-                    <Label className="cursor-pointer flex-1">{service.name}</Label>
-                  </div>
-                ))}
-              </div>
+              <ScrollArea className="h-64">
+                <div className="grid grid-cols-1 gap-2 pr-4">
+                  {complianceTopics.map((topic) => (
+                    <div
+                      key={topic.id}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedTopicIds.includes(topic.id)
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      onClick={() => handleTopicToggle(topic.id)}
+                    >
+                      <Checkbox
+                        checked={selectedTopicIds.includes(topic.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onCheckedChange={() => handleTopicToggle(topic.id)}
+                      />
+                      <div className="flex-1">
+                        <Label className="cursor-pointer font-medium">{topic.name}</Label>
+                        {topic.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{topic.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              {selectedTopicIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {selectedTopicIds.length} topic{selectedTopicIds.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
 
               <div className="flex justify-between pt-2">
                 <Button variant="ghost" onClick={handleBackStep}>
@@ -799,6 +1049,111 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
           </Card>
         )}
 
+        {/* Programs Selection - One category at a time */}
+        {currentStep === 'programs' && (() => {
+          // Get categories that have programs
+          const categoriesWithPrograms = programCategories.filter(cat =>
+            programs.some(p => p.category_id === cat.id)
+          );
+          const currentCategory = categoriesWithPrograms[currentProgramCategoryIndex];
+          const currentCategoryPrograms = currentCategory
+            ? programs.filter(p => p.category_id === currentCategory.id)
+            : [];
+          const isFirstCategory = currentProgramCategoryIndex === 0;
+          const isLastCategory = currentProgramCategoryIndex === categoriesWithPrograms.length - 1;
+          const selectedInCurrentCategory = currentCategoryPrograms.filter(p => selectedProgramIds.includes(p.id)).length;
+
+          if (!currentCategory) return null;
+
+          return (
+            <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Store className="h-5 w-5" />
+                    {currentCategory.name}
+                  </CardTitle>
+                  <Badge variant="outline" className="text-xs">
+                    {currentProgramCategoryIndex + 1} of {categoriesWithPrograms.length}
+                  </Badge>
+                </div>
+                <CardDescription>
+                  {currentCategory.description || `Select the ${currentCategory.name.toLowerCase()} your organization uses.`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Progress dots */}
+                <div className="flex justify-center gap-1.5">
+                  {categoriesWithPrograms.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`h-1.5 rounded-full transition-all ${
+                        idx === currentProgramCategoryIndex
+                          ? 'w-6 bg-primary'
+                          : idx < currentProgramCategoryIndex
+                          ? 'w-1.5 bg-primary/50'
+                          : 'w-1.5 bg-muted'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <ScrollArea className="h-64">
+                  <div className="grid grid-cols-2 gap-2 pr-4">
+                    {currentCategoryPrograms.map((program) => (
+                      <div
+                        key={program.id}
+                        className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          selectedProgramIds.includes(program.id)
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                        onClick={() => handleProgramToggle(program.id)}
+                      >
+                        <Checkbox
+                          checked={selectedProgramIds.includes(program.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => handleProgramToggle(program.id)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <Label className="cursor-pointer text-sm truncate block">
+                            {program.display_name || program.name}
+                          </Label>
+                          {program.vendor_name && (
+                            <span className="text-xs text-muted-foreground">{program.vendor_name}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {selectedInCurrentCategory} of {currentCategoryPrograms.length} selected
+                  </span>
+                  {selectedProgramIds.length > 0 && (
+                    <span className="text-primary font-medium">
+                      {selectedProgramIds.length} total selected
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-between pt-2">
+                  <Button variant="ghost" onClick={handleBackStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    {isFirstCategory ? 'Back' : 'Previous'}
+                  </Button>
+                  <Button onClick={handleNextStep}>
+                    {isLastCategory ? 'Continue' : 'Next Category'}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {/* Locations & States */}
         {currentStep === 'locations' && (
           <Card className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -809,8 +1164,16 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Location count - only show if we didn't find any */}
-              {(!collectedData.store_count || collectedData.store_count === 0) && (
+              {/* Location data being fetched via Relay */}
+              {collectedData.relay_run_id && (!collectedData.store_count || collectedData.store_count === 0) && (
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                  <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
+                  <span className="text-sm">Location data is being fetched (2–3 min)</span>
+                </div>
+              )}
+
+              {/* Location count - only show if we didn't find any and Relay isn't fetching */}
+              {(!collectedData.store_count || collectedData.store_count === 0) && !collectedData.relay_run_id && (
                 <div className="space-y-2">
                   <Label>How many locations do you have?</Label>
                   <Input
@@ -858,6 +1221,7 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                       >
                         <Checkbox
                           checked={selectedStates.includes(state.code)}
+                          onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => handleStateToggle(state.code)}
                           className={selectedStates.includes(state.code) ? 'border-primary-foreground' : ''}
                         />
@@ -1013,15 +1377,19 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                 )}
                 <div>
                   <div className="font-semibold">{collectedData.company_name || 'Your Company'}</div>
-                  <div className="text-sm text-muted-foreground">{getIndustryName(selectedIndustry)}</div>
+                  <div className="text-sm text-muted-foreground">{getIndustryName(selectedIndustryId)}</div>
                 </div>
               </div>
 
               {/* Summary Grid */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="p-2 bg-muted/50 rounded">
-                  <div className="text-muted-foreground">Services</div>
-                  <div className="font-medium">{selectedServices.length} selected</div>
+                  <div className="text-muted-foreground">Compliance Topics</div>
+                  <div className="font-medium">{selectedTopicIds.length} selected</div>
+                </div>
+                <div className="p-2 bg-muted/50 rounded">
+                  <div className="text-muted-foreground">Programs</div>
+                  <div className="font-medium">{selectedProgramIds.length} selected</div>
                 </div>
                 <div className="p-2 bg-muted/50 rounded">
                   <div className="text-muted-foreground">Locations</div>
@@ -1135,7 +1503,10 @@ export const OnboardingChat: React.FC<OnboardingChatProps> = ({ onComplete }) =>
                       </a>
                     </Button>
                   ) : (
-                    <Button size="lg" onClick={() => window.location.href = '/'}>
+                    <Button size="lg" onClick={() => {
+                      const demoOrgId = createdAccount?.organization?.id;
+                      window.location.href = demoOrgId ? `/?demo_org_id=${demoOrgId}` : '/';
+                    }}>
                       <ArrowRight className="mr-2 h-4 w-4" />
                       Go to Login
                     </Button>

@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { 
-  LineChart, 
-  Line, 
-  ResponsiveContainer, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import {
+  LineChart,
+  Line,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   Legend,
   BarChart,
   Bar,
@@ -20,21 +21,44 @@ import {
   Area,
   AreaChart
 } from 'recharts';
-import { 
-  UserCheck, 
-  AlertTriangle, 
-  Clock, 
-  CheckCircle, 
-  FileText, 
+import {
+  UserCheck,
+  AlertTriangle,
+  Clock,
+  CheckCircle,
+  FileText,
   Calendar,
   TrendingUp,
   TrendingDown,
   Eye,
   Download,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Loader2,
+  Upload,
+  Award
 } from 'lucide-react';
 import { CertificationTracker } from './CertificationTracker';
+import { CertificationApprovalQueue } from './compliance/CertificationApprovalQueue';
+import { ExternalCertificationUpload } from './compliance/ExternalCertificationUpload';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import {
+  getComplianceDashboardMetrics,
+  getComplianceByCategory,
+  getExpiringCertificationsForOrg,
+  getStoreRiskAssessment,
+  getComplianceTrendData,
+  type ComplianceDashboardMetrics,
+  type ComplianceByCategory as ComplianceByCategoryType,
+  type ExpiringCertification,
+  type StoreRiskAssessment
+} from '../lib/crud/compliance';
+import { getPendingUploadsCount } from '../lib/crud/certifications';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -61,40 +85,6 @@ const CustomTick = ({ x, y, payload, axis }: any) => {
   );
 };
 
-// Mock compliance data
-const complianceOverviewData = [
-  { month: 'Jul', company: 88, district: 85, unit: 82 },
-  { month: 'Aug', company: 90, district: 87, unit: 85 },
-  { month: 'Sep', company: 92, district: 89, unit: 88 },
-  { month: 'Oct', company: 89, district: 91, unit: 90 },
-  { month: 'Nov', company: 91, district: 88, unit: 85 },
-  { month: 'Dec', company: 94, district: 92, unit: 89 }
-];
-
-const complianceByCategory = [
-  { category: 'Safety Training', required: 142, completed: 138, overdue: 4, rate: 97.2 },
-  { category: 'Data Protection', required: 142, completed: 125, overdue: 17, rate: 88.0 },
-  { category: 'Harassment Prevention', required: 142, completed: 142, overdue: 0, rate: 100.0 },
-  { category: 'Fire Safety', required: 142, completed: 134, overdue: 8, rate: 94.4 },
-  { category: 'First Aid', required: 95, completed: 89, overdue: 6, rate: 93.7 }
-];
-
-const upcomingDeadlines = [
-  { training: 'Annual Safety Certification', dueDate: 'Jan 15, 2025', affected: 24, priority: 'high' },
-  { training: 'Data Protection Refresh', dueDate: 'Jan 20, 2025', affected: 17, priority: 'medium' },
-  { training: 'Emergency Procedures', dueDate: 'Feb 01, 2025', affected: 8, priority: 'low' },
-  { training: 'Code of Conduct', dueDate: 'Feb 15, 2025', affected: 12, priority: 'medium' }
-];
-
-const riskAssessment = [
-  { unit: 'Store A', riskLevel: 'low', score: 95, issues: 1 },
-  { unit: 'Store B', riskLevel: 'low', score: 98, issues: 0 },
-  { unit: 'Store C', riskLevel: 'high', score: 78, issues: 4 },
-  { unit: 'Store D', riskLevel: 'medium', score: 88, issues: 2 },
-  { unit: 'Store E', riskLevel: 'low', score: 96, issues: 1 },
-  { unit: 'Store F', riskLevel: 'high', score: 72, issues: 6 }
-];
-
 const getRiskColor = (level: string) => {
   switch (level) {
     case 'low':
@@ -103,6 +93,8 @@ const getRiskColor = (level: string) => {
       return 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800';
     case 'high':
       return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800';
+    case 'critical':
+      return 'bg-red-200 text-red-900 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/20 dark:text-gray-400 dark:border-gray-800';
   }
@@ -122,101 +114,91 @@ const getPriorityColor = (priority: string) => {
 };
 
 export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate }: ComplianceDashboardProps) {
-  // Only admins and trike-super-admin see full compliance dashboard
-  if (currentRole !== 'admin' && currentRole !== 'trike-super-admin') {
+  // Only admins, district managers, and trike-super-admin see full compliance dashboard
+  if (currentRole !== 'admin' && currentRole !== 'trike-super-admin' && currentRole !== 'district-manager') {
     return null;
   }
 
-  const { user } = useCurrentUser();
-  const [compliantEmployees, setCompliantEmployees] = useState<number>(0);
-  const [totalEmployees, setTotalEmployees] = useState<number>(0);
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
+  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState<ComplianceDashboardMetrics | null>(null);
+  const [categoryData, setCategoryData] = useState<ComplianceByCategoryType[]>([]);
+  const [expiringCerts, setExpiringCerts] = useState<ExpiringCertification[]>([]);
+  const [riskData, setRiskData] = useState<StoreRiskAssessment[]>([]);
+  const [trendData, setTrendData] = useState<Array<{ month: string; company: number; district: number; unit: number }>>([]);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
-  // Fetch compliant employees count
+  // Check if user can approve (only Admin and Trike Super Admin)
+  const canApprove = currentRole === 'admin' || currentRole === 'trike-super-admin';
+
+  // Fetch all compliance data
   useEffect(() => {
-    async function fetchCompliantCount() {
-      if (!user?.organization_id) return;
+    async function fetchComplianceData() {
+      if (!effectiveOrgId) return;
 
+      setLoading(true);
       try {
-        // Get all active employees
-        const { data: employees, error: empError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('organization_id', user.organization_id)
-          .eq('status', 'active');
+        // Fetch all data in parallel
+        const [metricsResult, categoryResult, expiringResult, riskResult, trendResult, pendingCountResult] = await Promise.all([
+          getComplianceDashboardMetrics().catch(err => {
+            console.error('Error fetching metrics:', err);
+            return null;
+          }),
+          getComplianceByCategory().catch(err => {
+            console.error('Error fetching category data:', err);
+            return [];
+          }),
+          getExpiringCertificationsForOrg(30).catch(err => {
+            console.error('Error fetching expiring certs:', err);
+            return [];
+          }),
+          getStoreRiskAssessment().catch(err => {
+            console.error('Error fetching risk data:', err);
+            return [];
+          }),
+          getComplianceTrendData(6).catch(err => {
+            console.error('Error fetching trend data:', err);
+            return [];
+          }),
+          getPendingUploadsCount().catch(err => {
+            console.error('Error fetching pending count:', err);
+            return 0;
+          })
+        ]);
 
-        if (empError) throw empError;
-        if (!employees || employees.length === 0) {
-          setTotalEmployees(0);
-          setCompliantEmployees(0);
-          return;
-        }
-
-        setTotalEmployees(employees.length);
-        const userIds = employees.map(e => e.id);
-
-        // Get all assignments
-        const { data: assignments } = await supabase
-          .from('assignments')
-          .select('id, user_id, playlist_id')
-          .in('user_id', userIds);
-
-        // Get all playlist tracks
-        const playlistIds = [...new Set((assignments || []).map(a => a.playlist_id).filter(Boolean))];
-        const { data: playlistTracks } = await supabase
-          .from('playlist_tracks')
-          .select('track_id, playlist_id')
-          .in('playlist_id', playlistIds.length > 0 ? playlistIds : ['00000000-0000-0000-0000-000000000000']);
-
-        // Get all track completions
-        const trackIds = [...new Set((playlistTracks || []).map(pt => pt.track_id).filter(Boolean))];
-        const { data: completions } = await supabase
-          .from('track_completions')
-          .select('track_id, user_id, status')
-          .in('user_id', userIds)
-          .in('track_id', trackIds.length > 0 ? trackIds : ['00000000-0000-0000-0000-000000000000'])
-          .in('status', ['completed', 'passed']);
-
-        // Build track assignment map per user
-        const tracksByUser: Record<string, Set<string>> = {};
-        (assignments || []).forEach(assignment => {
-          if (!tracksByUser[assignment.user_id]) {
-            tracksByUser[assignment.user_id] = new Set();
-          }
-          (playlistTracks || []).forEach(pt => {
-            if (pt.playlist_id === assignment.playlist_id) {
-              tracksByUser[assignment.user_id].add(pt.track_id);
-            }
-          });
-        });
-
-        // Count compliant employees (those who completed all assigned tracks)
-        let compliantCount = 0;
-        userIds.forEach(userId => {
-          const assignedTracks = tracksByUser[userId] || new Set();
-          if (assignedTracks.size === 0) {
-            // No assignments = compliant (nothing required)
-            compliantCount++;
-            return;
-          }
-          
-          const userCompletions = (completions || []).filter(c => c.user_id === userId);
-          const completedTrackIds = new Set(userCompletions.map(c => c.track_id));
-          
-          // Check if all assigned tracks are completed
-          const allCompleted = Array.from(assignedTracks).every(trackId => completedTrackIds.has(trackId));
-          if (allCompleted) {
-            compliantCount++;
-          }
-        });
-
-        setCompliantEmployees(compliantCount);
+        setMetrics(metricsResult);
+        setCategoryData(categoryResult);
+        setExpiringCerts(expiringResult);
+        setRiskData(riskResult);
+        setTrendData(trendResult);
+        setPendingCount(pendingCountResult);
       } catch (error) {
-        console.error('Error fetching compliant employees:', error);
+        console.error('Error fetching compliance data:', error);
+      } finally {
+        setLoading(false);
       }
     }
 
-    fetchCompliantCount();
-  }, [user?.organization_id]);
+    fetchComplianceData();
+  }, [effectiveOrgId]);
+
+  // Calculate derived metrics
+  const compliantEmployees = metrics?.compliantEmployees ?? 0;
+  const totalEmployees = metrics?.totalEmployees ?? 0;
+  const complianceRate = metrics?.complianceRate ?? 0;
+  const expiringSoonCount = metrics?.expiringSoonCount ?? 0;
+  const highRiskCount = riskData.filter(r => r.riskLevel === 'high' || r.riskLevel === 'critical').length;
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -230,12 +212,16 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowUploadDialog(true)}>
+              <Upload className="w-4 h-4 mr-1.5" />
+              Upload Certification
+            </Button>
             <Button variant="outline" size="sm">
               <Download className="w-4 h-4 mr-1.5" />
               Export Report
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               className="hero-primary shadow-brand"
               onClick={() => onNavigate?.('compliance-audit')}
             >
@@ -246,7 +232,34 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         </div>
       )}
 
-      {/* Hero Metrics */}
+      {/* Tab Navigation */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+          <TabsTrigger value="overview" className="gap-2">
+            <CheckCircle className="h-4 w-4" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="certifications" className="gap-2">
+            <Award className="h-4 w-4" />
+            Certifications
+          </TabsTrigger>
+          <TabsTrigger value="approvals" className="gap-2 relative">
+            <Clock className="h-4 w-4" />
+            Pending Approvals
+            {pendingCount > 0 && (
+              <Badge
+                variant="destructive"
+                className="ml-1 h-5 min-w-[20px] px-1.5 text-xs"
+              >
+                {pendingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="mt-6 space-y-6">
+          {/* Hero Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Overall Compliance - Hero Card */}
         <Card className="border-border/40 shadow-sm hover:shadow-md transition-all duration-200 bg-card">
@@ -255,13 +268,15 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
                 <CheckCircle className="h-5 w-5" />
               </div>
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                <ArrowUpRight className="h-3 w-3" />
-                <span>+3%</span>
-              </div>
+              {complianceRate > 0 && (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                  <ArrowUpRight className="h-3 w-3" />
+                  <span>Live</span>
+                </div>
+              )}
             </div>
             <div className="space-y-1">
-              <div className="text-3xl font-bold text-foreground leading-none">94%</div>
+              <div className="text-3xl font-bold text-foreground leading-none">{complianceRate}%</div>
               <h3 className="text-sm font-medium text-muted-foreground mt-2">Overall Compliance</h3>
               <p className="text-xs text-muted-foreground/80">System-wide</p>
             </div>
@@ -275,10 +290,12 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
                 <UserCheck className="h-5 w-5" />
               </div>
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
-                <ArrowUpRight className="h-3 w-3" />
-                <span>+8%</span>
-              </div>
+              {compliantEmployees > 0 && (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
+                  <ArrowUpRight className="h-3 w-3" />
+                  <span>Live</span>
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <div className="text-3xl font-bold text-foreground leading-none">{compliantEmployees}</div>
@@ -288,20 +305,22 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
           </CardContent>
         </Card>
 
-        {/* Upcoming Deadlines */}
+        {/* Expiring Soon */}
         <Card className="border-border/40 shadow-sm hover:shadow-md transition-all duration-200 bg-card">
           <CardContent className="p-6">
             <div className="flex items-start justify-between mb-4">
               <div className="p-2.5 rounded-xl bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400">
                 <Clock className="h-5 w-5" />
               </div>
-              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs dark:bg-yellow-900/10 dark:text-yellow-400">
-                Due Soon
-              </Badge>
+              {expiringSoonCount > 0 && (
+                <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs dark:bg-yellow-900/10 dark:text-yellow-400">
+                  Due Soon
+                </Badge>
+              )}
             </div>
             <div className="space-y-1">
-              <div className="text-3xl font-bold text-foreground leading-none">4</div>
-              <h3 className="text-sm font-medium text-muted-foreground mt-2">Upcoming Deadlines</h3>
+              <div className="text-3xl font-bold text-foreground leading-none">{expiringSoonCount}</div>
+              <h3 className="text-sm font-medium text-muted-foreground mt-2">Expiring Soon</h3>
               <p className="text-xs text-muted-foreground/80">Next 30 days</p>
             </div>
           </CardContent>
@@ -314,12 +333,14 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               <div className="p-2.5 rounded-xl bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400">
                 <AlertTriangle className="h-5 w-5" />
               </div>
-              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs dark:bg-red-900/10 dark:text-red-400">
-                Critical
-              </Badge>
+              {highRiskCount > 0 && (
+                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs dark:bg-red-900/10 dark:text-red-400">
+                  Critical
+                </Badge>
+              )}
             </div>
             <div className="space-y-1">
-              <div className="text-3xl font-bold text-foreground leading-none">2</div>
+              <div className="text-3xl font-bold text-foreground leading-none">{highRiskCount}</div>
               <h3 className="text-sm font-medium text-muted-foreground mt-2">High-Risk Units</h3>
               <p className="text-xs text-muted-foreground/80">Require attention</p>
             </div>
@@ -344,7 +365,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         <CardContent className="p-6">
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={complianceOverviewData}>
+              <AreaChart data={trendData}>
                 <defs>
                   <linearGradient id="companyGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#F74A05" stopOpacity={0.3}/>
@@ -425,21 +446,21 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-5">
-              {complianceByCategory.map((item, idx) => (
+              {categoryData.length > 0 ? categoryData.map((item, idx) => (
                 <div key={idx} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-2 rounded-full ${
-                        item.rate >= 95 ? 'bg-green-500' : 
-                        item.rate >= 85 ? 'bg-yellow-500' : 
+                        item.rate >= 95 ? 'bg-green-500' :
+                        item.rate >= 85 ? 'bg-yellow-500' :
                         'bg-red-500'
                       }`} />
                       <span className="font-medium text-sm text-foreground">{item.category}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={`text-sm font-semibold ${
-                        item.rate >= 95 ? 'text-green-600 dark:text-green-400' : 
-                        item.rate >= 85 ? 'text-yellow-600 dark:text-yellow-400' : 
+                        item.rate >= 95 ? 'text-green-600 dark:text-green-400' :
+                        item.rate >= 85 ? 'text-yellow-600 dark:text-yellow-400' :
                         'text-red-600 dark:text-red-400'
                       }`}>
                         {item.rate.toFixed(1)}%
@@ -449,8 +470,8 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                       </span>
                     </div>
                   </div>
-                  <Progress 
-                    value={item.rate} 
+                  <Progress
+                    value={item.rate}
                     className="h-2"
                   />
                   {item.overdue > 0 && (
@@ -460,7 +481,9 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                     </p>
                   )}
                 </div>
-              ))}
+              )) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No compliance categories found</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -473,44 +496,46 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {upcomingDeadlines.map((item, idx) => (
-                <div 
-                  key={idx} 
+              {expiringCerts.length > 0 ? expiringCerts.slice(0, 5).map((cert, idx) => (
+                <div
+                  key={cert.id || idx}
                   className="flex items-start gap-4 p-4 rounded-xl border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors"
                 >
                   <div className={`p-2.5 rounded-lg ${
-                    item.priority === 'high' ? 'bg-red-100 dark:bg-red-900/20' :
-                    item.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/20' :
+                    cert.priority === 'high' ? 'bg-red-100 dark:bg-red-900/20' :
+                    cert.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-900/20' :
                     'bg-green-100 dark:bg-green-900/20'
                   }`}>
                     <Calendar className={`h-4 w-4 ${
-                      item.priority === 'high' ? 'text-red-600 dark:text-red-400' :
-                      item.priority === 'medium' ? 'text-yellow-600 dark:text-yellow-400' :
+                      cert.priority === 'high' ? 'text-red-600 dark:text-red-400' :
+                      cert.priority === 'medium' ? 'text-yellow-600 dark:text-yellow-400' :
                       'text-green-600 dark:text-green-400'
                     }`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <h4 className="font-medium text-sm text-foreground line-clamp-1">
-                        {item.training}
+                        {cert.certificationName}
                       </h4>
-                      <Badge variant="outline" className={`text-xs shrink-0 ${getPriorityColor(item.priority)}`}>
-                        {item.priority}
+                      <Badge variant="outline" className={`text-xs shrink-0 ${getPriorityColor(cert.priority)}`}>
+                        {cert.priority}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-4 mt-2">
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {item.dueDate}
+                        {cert.daysUntilExpiration} days
                       </p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <UserCheck className="h-3 w-3" />
-                        {item.affected} employees
+                        {cert.userName}
                       </p>
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No certifications expiring in the next 30 days</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -553,35 +578,35 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {riskAssessment.map((unit, idx) => (
-                  <tr key={idx} className="hover:bg-muted/20 transition-colors">
+                {riskData.length > 0 ? riskData.map((store, idx) => (
+                  <tr key={store.storeId || idx} className="hover:bg-muted/20 transition-colors">
                     <td className="px-6 py-4">
-                      <span className="font-medium text-sm text-foreground">{unit.unit}</span>
+                      <span className="font-medium text-sm text-foreground">{store.storeName}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <Badge variant="outline" className={getRiskColor(unit.riskLevel)}>
-                        {unit.riskLevel.toUpperCase()}
+                      <Badge variant="outline" className={getRiskColor(store.riskLevel)}>
+                        {store.riskLevel.toUpperCase()}
                       </Badge>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 max-w-[120px]">
-                          <Progress value={unit.score} className="h-2" />
+                          <Progress value={store.score} className="h-2" />
                         </div>
                         <span className={`text-sm font-semibold ${
-                          unit.score >= 95 ? 'text-green-600 dark:text-green-400' :
-                          unit.score >= 85 ? 'text-yellow-600 dark:text-yellow-400' :
+                          store.score >= 95 ? 'text-green-600 dark:text-green-400' :
+                          store.score >= 85 ? 'text-yellow-600 dark:text-yellow-400' :
                           'text-red-600 dark:text-red-400'
                         }`}>
-                          {unit.score}%
+                          {store.score}%
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {unit.issues > 0 ? (
+                      {store.issues > 0 ? (
                         <span className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400 font-medium">
                           <AlertTriangle className="h-3.5 w-3.5" />
-                          {unit.issues}
+                          {store.issues}
                         </span>
                       ) : (
                         <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400 font-medium">
@@ -597,15 +622,51 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                       </Button>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                      No stores found for risk assessment
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
-      {/* Employee Certifications Tracker */}
-      <CertificationTracker currentRole={currentRole} />
+        {/* Certifications Tab */}
+        <TabsContent value="certifications" className="mt-6">
+          <CertificationTracker currentRole={currentRole} />
+        </TabsContent>
+
+        {/* Pending Approvals Tab */}
+        <TabsContent value="approvals" className="mt-6">
+          <CertificationApprovalQueue
+            canApprove={canApprove}
+            showAllStatuses={true}
+            onCountChange={(count) => setPendingCount(count)}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Upload Certification Dialog */}
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Upload External Certification</DialogTitle>
+          </DialogHeader>
+          <ExternalCertificationUpload
+            onSuccess={() => {
+              setShowUploadDialog(false);
+              // Refresh pending count
+              getPendingUploadsCount().then(setPendingCount);
+            }}
+            onCancel={() => setShowUploadDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

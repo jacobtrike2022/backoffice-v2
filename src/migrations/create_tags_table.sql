@@ -39,9 +39,10 @@ CREATE POLICY "Admins can manage tags"
   ON tags FOR ALL
   USING (
     EXISTS (
-      SELECT 1 FROM users
-      WHERE auth_user_id = auth.uid()
-      AND role_name IN ('Admin', 'Trike Super Admin')
+      SELECT 1 FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE u.auth_user_id = auth.uid()
+      AND r.name IN ('Admin', 'Trike Super Admin')
     )
   );
 
@@ -68,9 +69,10 @@ CREATE POLICY "Admins can manage unit tags"
     store_id IN (
       SELECT id FROM stores
       WHERE organization_id IN (
-        SELECT organization_id FROM users
-        WHERE auth_user_id = auth.uid()
-        AND role_name IN ('Admin', 'Trike Super Admin')
+        SELECT u.organization_id FROM users u
+        JOIN roles r ON u.role_id = r.id
+        WHERE u.auth_user_id = auth.uid()
+        AND r.name IN ('Admin', 'Trike Super Admin')
       )
     )
   );

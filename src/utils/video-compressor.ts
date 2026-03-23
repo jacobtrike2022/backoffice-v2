@@ -43,8 +43,11 @@ export async function compressVideo(
 
   // Create video element to load the file
   const video = document.createElement('video');
-  video.muted = true;
+  // IMPORTANT: Do NOT mute - we need audio to flow through captureStream()
+  video.muted = false;
   video.playsInline = true;
+  // Set volume to 0 so user doesn't hear playback, but audio still captures
+  video.volume = 0;
   
   const videoUrl = URL.createObjectURL(file);
   video.src = videoUrl;
@@ -90,24 +93,46 @@ export async function compressVideo(
 
   console.log(`Target bitrate: ${(targetBitrate / 1000000).toFixed(2)} Mbps`);
 
-  // Set up MediaRecorder with canvas stream
-  const stream = canvas.captureStream(30); // 30 fps
-  
-  // Add audio from original video if it exists
+  // Set up MediaRecorder with canvas stream for video
+  const canvasStream = canvas.captureStream(30); // 30 fps
+
+  // Create combined stream - start with video track from canvas
+  const combinedStream = new MediaStream();
+  canvasStream.getVideoTracks().forEach(track => {
+    combinedStream.addTrack(track);
+  });
+
+  // Add audio from original video using captureStream() on the video element
+  // This is more reliable than createMediaElementSource which has issues
+  let hasAudio = false;
   try {
-    const audioContext = new AudioContext();
-    const source = audioContext.createMediaElementSource(video);
-    const dest = audioContext.createMediaStreamDestination();
-    source.connect(dest);
-    
-    if (dest.stream.getAudioTracks().length > 0) {
-      dest.stream.getAudioTracks().forEach(track => {
-        stream.addTrack(track);
-      });
+    // captureStream() on HTMLVideoElement captures both video and audio tracks
+    // We only want the audio tracks (video comes from canvas for resizing)
+    const videoStream = (video as any).captureStream ?
+      (video as any).captureStream() :
+      (video as any).mozCaptureStream?.();
+
+    if (videoStream) {
+      const audioTracks = videoStream.getAudioTracks();
+      console.log(`Found ${audioTracks.length} audio track(s) in source video`);
+
+      if (audioTracks.length > 0) {
+        audioTracks.forEach((track: MediaStreamTrack) => {
+          combinedStream.addTrack(track);
+          hasAudio = true;
+        });
+        console.log('✅ Audio tracks added to compressed video stream');
+      } else {
+        console.log('⚠️ Source video has no audio tracks');
+      }
+    } else {
+      console.warn('⚠️ captureStream() not supported on video element');
     }
   } catch (audioError) {
-    console.warn('Could not extract audio, proceeding without:', audioError);
+    console.warn('Could not extract audio from video:', audioError);
   }
+
+  const stream = combinedStream;
 
   // Determine the best codec and bitrate
   const mimeType = getSupportedMimeType();
@@ -125,7 +150,7 @@ export async function compressVideo(
     }
   };
 
-  onProgress?.(40, 'Compressing video...');
+  onProgress?.(40, 'Processing video...');
 
   // Start recording
   recorder.start(100); // Collect data every 100ms
@@ -143,7 +168,7 @@ export async function compressVideo(
     // Update progress based on video playback
     const progress = 40 + Math.min(50, (video.currentTime / duration) * 50);
     const timeRemaining = Math.ceil((duration - video.currentTime) * 1000);
-    onProgress?.(progress, `Compressing... ${Math.ceil(video.currentTime)}s / ${Math.ceil(duration)}s`);
+    onProgress?.(progress, `Processing... ${Math.ceil(video.currentTime)}s / ${Math.ceil(duration)}s`);
 
     requestAnimationFrame(drawFrame);
   };
@@ -176,7 +201,7 @@ export async function compressVideo(
   const compressedSizeMB = compressedBlob.size / (1024 * 1024);
   const compressionRatio = compressedSizeMB / originalSizeMB;
 
-  console.log(`Compression complete: ${originalSizeMB.toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB (${(compressionRatio * 100).toFixed(1)}%)`);
+  console.log(`Compression complete: ${originalSizeMB.toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB (${(compressionRatio * 100).toFixed(1)}%) | Audio preserved: ${hasAudio ? 'Yes' : 'No'}`);
 
   return {
     blob: compressedBlob,

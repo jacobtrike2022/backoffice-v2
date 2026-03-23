@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -15,10 +15,11 @@ import { VersionDecisionModal } from './VersionDecisionModal';
 import { UnsavedChangesDialog } from '../UnsavedChangesDialog';
 import { StoryPreview } from './StoryPreview';
 import { StoryTranscript } from './StoryTranscript';
-import { 
-  ArrowLeft, 
-  Save, 
+import {
+  ArrowLeft,
+  Save,
   Upload,
+  Shield,
   Image as ImageIcon,
   Video as VideoIcon,
   X,
@@ -40,12 +41,22 @@ import {
   CheckCircle2,
   Eye,
   ThumbsUp,
-  Clock
+  Clock,
+  MoreVertical,
+  Copy,
+  Archive,
+  GitBranch
 } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../ui/popover';
 import { toast } from 'sonner@2.0.3';
 import * as crud from '../../lib/crud';
 import * as factsCrud from '../../lib/crud/facts';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
+import * as tagsCrud from '../../lib/crud/tags';
 import { compressVideo, shouldCompressVideo } from '../../utils/video-compressor';
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
@@ -77,26 +88,33 @@ interface StoryEditorProps {
   isSuperAdminAuthenticated?: boolean;
   onNavigateToPlaylist?: (playlistId: string) => void;
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
+  onArchive?: (track: any) => void; // Archive callback
+  onDuplicate?: (track: any) => void; // Duplicate callback
+  onCreateVariant?: (track: any) => void; // Create variant callback
 }
 
-export function StoryEditor({ 
-  onClose, 
-  trackId, 
-  track, 
-  isNewContent = false, 
-  currentRole, 
-  onBack, 
+export function StoryEditor({
+  onClose,
+  trackId,
+  track,
+  isNewContent = false,
+  currentRole,
+  onBack,
   onUpdate,
-  onVersionClick, 
+  onVersionClick,
   isSuperAdminAuthenticated,
   onNavigateToPlaylist,
-  registerUnsavedChangesCheck
+  registerUnsavedChangesCheck,
+  onArchive,
+  onDuplicate,
+  onCreateVariant
 }: StoryEditorProps) {
   const [isEditMode, setIsEditMode] = useState(isNewContent);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [existingTrack, setExistingTrack] = useState<any>(null);
+  const [isSystemContentLocal, setIsSystemContentLocal] = useState(false);
   
   // Compression state
   const [isCompressing, setIsCompressing] = useState(false);
@@ -120,6 +138,9 @@ export function StoryEditor({
     restrictToParentName?: string;
   }>({ systemCategory: 'content' });
   const [showInKnowledgeBase, setShowInKnowledgeBase] = useState(false);
+
+  // Ref to track pending KB modal open (persists across re-renders from onUpdate)
+  const pendingKBModalOpen = useRef(false);
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
   
   // Preview state
@@ -134,7 +155,10 @@ export function StoryEditor({
   // Unsaved changes dialog
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
-  
+
+  // Actions menu popover state
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+
   // Track initial state for unsaved changes detection
   const [initialState, setInitialState] = useState<any>(null);
   
@@ -179,26 +203,43 @@ export function StoryEditor({
   
   const storyDuration = calculateStoryDuration();
 
-  // Load KB tags
-  useEffect(() => {
-    const loadKBTags = async () => {
-      try {
-        const hierarchy = await crud.getTagHierarchy('knowledge-base');
-        const names = new Set<string>();
-        const traverse = (nodes: any[]) => {
-          for (const node of nodes) {
-            names.add(node.name);
-            if (node.children) traverse(node.children);
-          }
-        };
-        traverse(hierarchy);
-        setKbTagNames(names);
-      } catch (e) {
-        console.error("Failed to load KB tags", e);
-      }
-    };
-    loadKBTags();
+  // Function to load KB tags - extracted so it can be called on demand
+  const loadKBTags = useCallback(async () => {
+    try {
+      const hierarchy = await crud.getTagHierarchy('knowledge-base');
+      const names = new Set<string>();
+      const traverse = (nodes: any[]) => {
+        for (const node of nodes) {
+          names.add(node.name);
+          if (node.children) traverse(node.children);
+        }
+      };
+      traverse(hierarchy);
+      setKbTagNames(names);
+    } catch (e) {
+      console.error("Failed to load KB tags", e);
+    }
   }, []);
+
+  // Load KB tags on mount
+  useEffect(() => {
+    loadKBTags();
+  }, [loadKBTags]);
+
+  // Effect to open KB modal after track data refreshes (handles view mode toggle)
+  useEffect(() => {
+    if (pendingKBModalOpen.current) {
+      pendingKBModalOpen.current = false;
+      // Small delay to ensure render is complete
+      setTimeout(() => {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }, 100);
+    }
+  }, [track]); // Runs when track data changes (after onUpdate)
 
   // Load existing story
   useEffect(() => {
@@ -365,6 +406,58 @@ export function StoryEditor({
     }
   }, [isEditMode, track?.id, trackId]);
 
+  // Load facts from DB when entering edit mode
+  useEffect(() => {
+    if (isEditMode && currentTrackId) {
+      const loadEditModeFacts = async () => {
+        try {
+          const dbFacts = await factsCrud.getFactsForTrack(currentTrackId);
+          
+          if (dbFacts.length > 0) {
+            // Map DB facts to objectives format with IDs and metadata
+            const factsWithIds = dbFacts.map((f: any) => {
+              const factObj: any = {
+                _dbId: f.id,
+                fact: f.content || f.title,
+                title: f.title,
+                type: f.type,
+              };
+              
+              // Preserve slide association if it exists
+              if (f.usage && f.usage.length > 0) {
+                const usage = f.usage[0];
+                if (usage.source_media_id) {
+                  factObj.slideId = usage.source_media_id;
+                  factObj.slideIndex = usage.display_order || 0;
+                  
+                  // Try to find slide name
+                  if (slides.length > 0) {
+                    const slide = slides.find((s: any) => s.id === usage.source_media_id);
+                    if (slide) {
+                      factObj.slideName = slide.name || `Slide ${factObj.slideIndex + 1}`;
+                    }
+                  }
+                }
+              }
+              
+              return factObj;
+            });
+            
+            setObjectives(factsWithIds);
+            console.log(`📊 Edit mode: Loaded ${factsWithIds.length} facts from DB with IDs`);
+          } else {
+            // No DB facts, keep existing objectives (might be from transcript JSON)
+            console.log(`📊 Edit mode: No DB facts found, keeping existing objectives`);
+          }
+        } catch (error) {
+          console.warn('Could not fetch facts for edit mode:', error);
+        }
+      };
+      
+      loadEditModeFacts();
+    }
+  }, [isEditMode, currentTrackId]);
+
   const loadStory = async () => {
     if (!trackId) return;
     
@@ -384,18 +477,38 @@ export function StoryEditor({
   const loadStoryData = async (trackData: any) => {
     setTitle(trackData.title || '');
     setDescription(trackData.description || '');
-    setTags(trackData.tags || []);
+
+    // Load tags from junction table (source of truth)
+    let tagNames: string[] = trackData.tags || [];
+    if (trackData.id) {
+      try {
+        tagNames = await tagsCrud.getTrackTagNames(trackData.id);
+        console.log(`🏷️ Loaded ${tagNames.length} tags from track_tags junction table`);
+      } catch (tagError) {
+        console.warn('Could not fetch tags from junction table, falling back to track.tags:', tagError);
+        tagNames = trackData.tags || [];
+      }
+    }
+    setTags(tagNames);
     setThumbnailUrl(trackData.thumbnail_url || '');
+    setIsSystemContentLocal(trackData.is_system_content || false);
     setNotes(trackData.content_text || '');
-    setShowInKnowledgeBase((trackData.tags || []).includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
+    setShowInKnowledgeBase(tagNames.includes('system:show_in_knowledge_base') || trackData.show_in_knowledge_base || false);
     
     // Parse story data from transcript field
     let parsedSlides: any[] = [];
     let parsedObjectives: string[] = [];
+    console.log('📖 [loadStoryData] Loading story, transcript field exists:', !!trackData.transcript);
     if (trackData.transcript) {
+      console.log('📖 [loadStoryData] Transcript preview:', trackData.transcript.substring(0, 200) + '...');
       try {
         const storyData = JSON.parse(trackData.transcript);
+        console.log('📖 [loadStoryData] Parsed storyData, slides count:', storyData.slides?.length || 0);
         if (storyData.slides && Array.isArray(storyData.slides)) {
+          storyData.slides.forEach((slide: any, i: number) => {
+            console.log(`  📸 Loaded Slide ${i + 1}: type=${slide.type}, hasUrl=${!!slide.url}, name=${slide.name}`);
+            if (slide.url) console.log(`     URL: ${slide.url.substring(0, 80)}...`);
+          });
           setSlides(storyData.slides);
           parsedSlides = storyData.slides;
         }
@@ -406,6 +519,8 @@ export function StoryEditor({
       } catch (e) {
         console.error('Error parsing story data:', e);
       }
+    } else {
+      console.warn('⚠️ [loadStoryData] No transcript field found in track data!');
     }
     
     // Load objectives from facts table for comparison
@@ -425,7 +540,7 @@ export function StoryEditor({
     setInitialState({
       title: trackData.title || '',
       description: trackData.description || '',
-      tags: trackData.tags || [],
+      tags: tagNames,
       thumbnailUrl: trackData.thumbnail_url || '',
       notes: trackData.content_text || '',
       slides: parsedSlides,
@@ -447,6 +562,7 @@ export function StoryEditor({
       description !== initialState.description ||
       !arraysEqual(tags, initialState.tags) ||
       thumbnailUrl !== initialState.thumbnailUrl ||
+      isSystemContentLocal !== initialState.isSystemContent ||
       notes !== initialState.notes ||
       JSON.stringify(slides) !== JSON.stringify(initialState.slides) ||
       JSON.stringify(objectives) !== JSON.stringify(initialState.objectives)
@@ -679,25 +795,37 @@ export function StoryEditor({
     setDraggedSlideId(null);
   };
 
-  const handleKBToggle = async (checked: boolean) => {
-    // If toggling ON, open modal immediately (before database update)
-    if (checked) {
-      setTagSelectorConfig({
-        systemCategory: 'knowledge-base',
-        restrictToParentName: 'KB Category'
-      });
-      setIsTagSelectorOpen(true);
-    }
+  // Handler for opening content tags modal (not KB category picker)
+  const handleAddTag = () => {
+    setTagSelectorConfig({
+      systemCategory: 'content',
+      restrictToParentName: undefined
+    });
+    setIsTagSelectorOpen(true);
+  };
 
+  const handleKBToggle = async (checked: boolean) => {
     if (isEditMode) {
-      // In edit mode, update the local state
+      // In edit mode, open modal immediately and update local state
+      if (checked) {
+        setTagSelectorConfig({
+          systemCategory: 'knowledge-base',
+          restrictToParentName: 'KB Category'
+        });
+        setIsTagSelectorOpen(true);
+      }
       setShowInKnowledgeBase(checked);
     } else {
       // In view mode, update the track directly in the database
+      // Set the ref BEFORE the async operation so the modal opens after onUpdate refreshes the component
+      if (checked) {
+        pendingKBModalOpen.current = true;
+      }
+
       try {
         const currentTrackId = track?.id || trackId;
         if (!currentTrackId) return;
-        
+
         // Update tags array to include/remove the system tag
         const currentTags = new Set<string>(track?.tags || []);
         if (checked) {
@@ -705,25 +833,26 @@ export function StoryEditor({
         } else {
           currentTags.delete('system:show_in_knowledge_base');
         }
-        
+
         await crud.updateTrack({
           id: currentTrackId,
           show_in_knowledge_base: checked,
           tags: Array.from(currentTags)
         });
-        
+
         toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
-        
+
         // Update local state to reflect the change
         setShowInKnowledgeBase(checked);
         setTags(Array.from(currentTags));
-        
-        // Refresh the track data
+
+        // Refresh the track data - the useEffect watching 'track' will open the modal
         if (onUpdate) {
           onUpdate();
         }
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
+        pendingKBModalOpen.current = false; // Reset on error
         toast.error('Failed to update Knowledge Base setting', {
           description: error.message || 'Please try again'
         });
@@ -809,7 +938,10 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(),
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
+        // This respects when user explicitly removes the thumbnail
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -920,6 +1052,13 @@ export function StoryEditor({
         })
       };
 
+      // Debug: Log what we're saving
+      console.log('📝 [handleSave] Saving story with', slides.length, 'slides');
+      slides.forEach((slide, i) => {
+        console.log(`  📸 Slide ${i + 1}: type=${slide.type}, hasUrl=${!!slide.url}, name=${slide.name}`);
+        if (slide.url) console.log(`     URL: ${slide.url.substring(0, 80)}...`);
+      });
+
       // Prepare tags including the system KB tag
       const currentTags = new Set<string>(tags || []);
       if (showInKnowledgeBase) {
@@ -936,7 +1075,10 @@ export function StoryEditor({
         content_text: notes,
         duration_minutes: calculateStoryDuration(), // Use actual calculated duration
         tags: Array.from(currentTags),
-        thumbnail_url: thumbnailUrl || (slides.length > 0 ? slides[0].url : '')
+        // Use thumbnailUrl as-is (even if empty) - don't auto-fallback to slide URL
+        // This respects when user explicitly removes the thumbnail
+        thumbnail_url: thumbnailUrl,
+        is_system_content: isSystemContentLocal
       };
 
       if (currentTrackId) {
@@ -1023,7 +1165,15 @@ export function StoryEditor({
         }
         
         // If no assignments or not published OR only metadata changed, update normally
+        console.log('💾 [handleSave] About to call crud.updateTrack with:', {
+          id: currentTrackId,
+          title: trackData.title,
+          transcriptLength: trackData.transcript?.length,
+          transcriptPreview: trackData.transcript?.substring(0, 200),
+          hasSlides: trackData.transcript?.includes('slides'),
+        });
         await crud.updateTrack({ id: currentTrackId, ...trackData });
+        console.log('✅ [handleSave] crud.updateTrack completed successfully');
         toast.success(contentChanged ? 'Changes saved!' : 'Settings updated!');
         
         setIsEditMode(false);
@@ -1140,11 +1290,28 @@ export function StoryEditor({
     setObjectives(updated);
   };
 
-  const removeObjective = (index: number) => {
+  const removeObjective = async (index: number) => {
     if (objectives.length === 1) {
       toast.error('Story must have at least one learning objective');
       return;
     }
+    
+    const factToRemove = objectives[index];
+    
+    // If fact has a database ID and track exists, delete from database
+    if (factToRemove && typeof factToRemove === 'object' && factToRemove._dbId && currentTrackId) {
+      try {
+        console.log(`🗑️ Deleting fact ${factToRemove._dbId} from database...`);
+        await factsCrud.deleteFactFromTrack(factToRemove._dbId, currentTrackId);
+        toast.success('Key fact removed');
+      } catch (error: any) {
+        console.error('Failed to delete fact:', error);
+        toast.error('Failed to remove fact from database');
+        return; // Don't remove from UI if database delete failed
+      }
+    }
+    
+    // Remove from UI state (always remove, even if no DB ID - might be unsaved fact)
     setObjectives(objectives.filter((_, i) => i !== index));
   };
 
@@ -1176,7 +1343,7 @@ export function StoryEditor({
     const hasExistingFacts = existingFactsCount > 0;
     if (hasExistingFacts) {
       const action = confirm(
-        `You currently have ${objectives.filter(o => o.trim()).length} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
+        `You currently have ${existingFactsCount} key fact(s).\n\nWhat would you like to do?\n\nOK = Replace all existing facts\nCancel = Add to existing facts`
       );
       
       const shouldReplace = action;
@@ -1184,6 +1351,25 @@ export function StoryEditor({
       setIsGeneratingKeyFacts(true);
       
       try {
+        // If replacing, delete all existing facts from database first
+        if (shouldReplace && currentTrackId) {
+          console.log('🗑️ Deleting existing facts before replacing...');
+          
+          for (const existingFact of objectives) {
+            if (existingFact && typeof existingFact === 'object' && existingFact._dbId) {
+              try {
+                await factsCrud.deleteFactFromTrack(existingFact._dbId, currentTrackId);
+                console.log(`   ✓ Deleted fact: ${existingFact._dbId}`);
+              } catch (error) {
+                console.error('Error deleting fact:', error);
+                // Continue with others
+              }
+            }
+          }
+          
+          console.log('✅ Old facts deleted, generating new ones...');
+        }
+        
         console.log('🎬 Step 1: Transcribing all story videos...');
         
         // Step 1: Transcribe all videos in the story
@@ -1196,7 +1382,8 @@ export function StoryEditor({
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              storyData: slides,
+              trackId: currentTrackId,
+              slides,
             }),
           }
         );
@@ -1266,13 +1453,20 @@ export function StoryEditor({
           return;
         }
         
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: factsData.factIds?.[index], // Add the database UUID
+          fact: fact.content || fact.fact || fact.title, // Normalize to 'fact' property
+        }));
+        
         const updatedFacts = shouldReplace 
-          ? newFacts
+          ? newFactsWithIds
           : [...objectives.filter((o: any) => {
               if (typeof o === 'string') return o.trim();
               if (typeof o === 'object' && o?.fact) return o.fact.trim();
               return false;
-            }), ...newFacts];
+            }), ...newFactsWithIds];
         
         setObjectives(updatedFacts);
         
@@ -1301,7 +1495,8 @@ export function StoryEditor({
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              storyData: slides,
+              trackId: currentTrackId,
+              slides,
             }),
           }
         );
@@ -1368,9 +1563,16 @@ export function StoryEditor({
           return;
         }
         
-        setObjectives(newFacts);
+        // Add database IDs to new facts (returned from API)
+        const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
+          ...fact,
+          _dbId: factsData.factIds?.[index], // Add the database UUID
+          fact: fact.content || fact.fact || fact.title, // Normalize to 'fact' property
+        }));
         
-        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
+        setObjectives(newFactsWithIds);
+        
+        toast.success(`✨ Generated ${newFactsWithIds.length} key fact${newFactsWithIds.length > 1 ? 's' : ''}!`);
         
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
@@ -1395,6 +1597,7 @@ export function StoryEditor({
   // View Mode
   if (!isEditMode && existingTrack) {
     return (
+      <>
       <div className="space-y-6">
         {/* Old Version Banner - Show when viewing a non-latest version */}
         {existingTrack.version_number && !existingTrack.is_latest_version && (
@@ -1464,15 +1667,76 @@ export function StoryEditor({
             </div>
           </div>
           {(!isSystemContent || isSuperAdmin) && (
-            <Button onClick={() => setIsEditMode(true)} className="hero-primary">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Track
-              {isSystemContent && isSuperAdmin && (
-                <Badge className="ml-2 bg-orange-100 text-orange-800">
-                  Super Admin
-                </Badge>
-              )}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setIsEditMode(true)} className="hero-primary">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Track
+                {isSystemContent && isSuperAdmin && (
+                  <Badge className="ml-2 bg-orange-100 text-orange-800">
+                    Super Admin
+                  </Badge>
+                )}
+              </Button>
+              {/* Actions Menu */}
+              <Popover open={isActionsMenuOpen} onOpenChange={setIsActionsMenuOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    title="More actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-1" align="end">
+                  <div className="flex flex-col">
+                    {onDuplicate && (
+                      <Button
+                        variant="ghost"
+                        className="justify-start h-9"
+                        onClick={() => {
+                          setIsActionsMenuOpen(false);
+                          onDuplicate(existingTrack || track);
+                        }}
+                      >
+                        <Copy className="h-4 w-4 mr-2" />
+                        Duplicate
+                      </Button>
+                    )}
+                    {onCreateVariant && (
+                      <Button
+                        variant="ghost"
+                        className="justify-start h-9"
+                        onClick={() => {
+                          setIsActionsMenuOpen(false);
+                          onCreateVariant(existingTrack || track);
+                        }}
+                      >
+                        <GitBranch className="h-4 w-4 mr-2" />
+                        Create Variant
+                      </Button>
+                    )}
+                    {(onDuplicate || onCreateVariant) && onArchive && (
+                      <Separator className="my-1" />
+                    )}
+                    {onArchive && (
+                      <Button
+                        variant="ghost"
+                        className="justify-start h-9"
+                        onClick={() => {
+                          setIsActionsMenuOpen(false);
+                          onArchive(existingTrack || track);
+                        }}
+                      >
+                        <Archive className="h-4 w-4 mr-2" />
+                        Archive
+                      </Button>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           )}
         </div>
 
@@ -1608,6 +1872,43 @@ export function StoryEditor({
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Super Admin Settings */}
+            {isSuperAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-orange-500" />
+                    Super Admin Settings
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="system-content-view" className="text-sm font-medium">System Template</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Mark as Trike Library content
+                      </p>
+                    </div>
+                    <Switch
+                      id="system-content-view"
+                      checked={isEditMode ? isSystemContentLocal : (existingTrack?.is_system_content || isSystemContentLocal)}
+                      onCheckedChange={(checked) => {
+                        if (isEditMode) {
+                          setIsSystemContentLocal(checked);
+                        } else if (currentTrackId) {
+                          crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                            .then(() => {
+                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              if (onUpdate) onUpdate();
+                            });
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Publishing Status */}
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
@@ -1675,6 +1976,22 @@ export function StoryEditor({
                 
                 {showInKnowledgeBase && (
                   <div className="pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mb-3"
+                      onClick={() => {
+                        setTagSelectorConfig({
+                          systemCategory: 'knowledge-base',
+                          restrictToParentName: 'KB Category'
+                        });
+                        setIsTagSelectorOpen(true);
+                      }}
+                    >
+                      <TagIcon className="h-4 w-4 mr-2" />
+                      Manage KB Tags
+                    </Button>
+
                     <div>
                       <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
                       <div className="flex flex-wrap gap-2">
@@ -1690,6 +2007,10 @@ export function StoryEditor({
                         )}
                       </div>
                     </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Select "KB Category" tags to organize this content in the Knowledge Base.
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -1787,6 +2108,49 @@ export function StoryEditor({
           </div>
         </div>
       </div>
+
+      {/* Tag Selector Dialog for View Mode */}
+      <TagSelectorDialog
+        isOpen={isTagSelectorOpen}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          loadKBTags();
+        }}
+        selectedTags={tags}
+        onTagsChange={async (newTags) => {
+          // In view mode, save directly to database
+          try {
+            const currentTrackId = existingTrack?.id || trackId;
+            if (!currentTrackId) return;
+
+            await crud.updateTrack({
+              id: currentTrackId,
+              tags: newTags
+            });
+            setTags(newTags);
+            toast.success('KB categories updated');
+            if (onUpdate) {
+              onUpdate();
+            }
+          } catch (error: any) {
+            console.error('Error updating tags:', error);
+            toast.error('Failed to update KB categories', {
+              description: error.message || 'Please try again'
+            });
+          }
+          loadKBTags();
+        }}
+        systemCategory={tagSelectorConfig.systemCategory}
+        restrictToParentName={tagSelectorConfig.restrictToParentName}
+        showAISuggest={tagSelectorConfig.systemCategory === 'content'}
+        contentContext={{
+          title: existingTrack?.title || '',
+          description: existingTrack?.description || '',
+          transcript: existingTrack?.transcript || '',
+          keyFacts: existingTrack?.learning_objectives || [],
+        }}
+      />
+      </>
     );
   }
 
@@ -2149,8 +2513,8 @@ export function StoryEditor({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => {
-                                    setObjectives(objectives.filter((_, i) => i !== index));
+                                  onClick={async () => {
+                                    await removeObjective(index);
                                   }}
                                   className="flex-shrink-0"
                                 >
@@ -2194,8 +2558,8 @@ export function StoryEditor({
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      setObjectives(objectives.filter((_, i) => i !== index));
+                                    onClick={async () => {
+                                      await removeObjective(index);
                                     }}
                                     className="flex-shrink-0"
                                   >
@@ -2222,13 +2586,13 @@ export function StoryEditor({
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
-                {((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
+                {(showInKnowledgeBase || (existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
                     In Knowledge Base
                   </Badge>
                 )}
-                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
                   <Badge
                     key={index}
                     variant="secondary"
@@ -2236,16 +2600,61 @@ export function StoryEditor({
                     {tag}
                   </Badge>
                 ))}
-                {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
+                {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
                   <p className="text-sm text-muted-foreground">No tags added</p>
                 )}
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddTag}
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tags
+              </Button>
             </CardContent>
           </Card>
         </div>
 
         {/* Live Preview Sidebar */}
         <div className="xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)] xl:overflow-y-auto space-y-6">
+          {/* Super Admin Settings */}
+          {isSuperAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-orange-500" />
+                  Super Admin Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="system-content-edit" className="text-sm font-medium">System Template</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark as Trike Library content
+                    </p>
+                  </div>
+                  <Switch
+                    id="system-content-edit"
+                    checked={isSystemContentLocal}
+                    onCheckedChange={(checked) => {
+                      setIsSystemContentLocal(checked);
+                      if (!isEditMode && currentTrackId) {
+                        crud.updateTrack({ id: currentTrackId, is_system_content: checked })
+                          .then(() => {
+                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            if (onUpdate) onUpdate();
+                          });
+                      }
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Publishing Status - Always show for new content */}
           {(!isSystemContent || isSuperAdmin) && (
             <Card>
@@ -2467,7 +2876,7 @@ export function StoryEditor({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsTagSelectorOpen(true)}
+                  onClick={handleAddTag}
                   className="w-full mt-2"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -2736,7 +3145,11 @@ export function StoryEditor({
 
       <TagSelectorDialog
         isOpen={isTagSelectorOpen}
-        onClose={() => setIsTagSelectorOpen(false)}
+        onClose={() => {
+          setIsTagSelectorOpen(false);
+          // Refresh KB tags in case new tags were created
+          loadKBTags();
+        }}
         selectedTags={tags}
         onTagsChange={async (newTags) => {
           if (isEditMode) {
@@ -2746,7 +3159,7 @@ export function StoryEditor({
             try {
               const currentTrackId = track?.id || trackId;
               if (!currentTrackId) return;
-              
+
               await crud.updateTrack({
                 id: currentTrackId,
                 tags: newTags
@@ -2763,6 +3176,8 @@ export function StoryEditor({
               });
             }
           }
+          // Refresh KB tags to include any newly created tags
+          loadKBTags();
         }}
         systemCategory={tagSelectorConfig.systemCategory}
         restrictToParentName={tagSelectorConfig.restrictToParentName}
@@ -2849,7 +3264,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Loader2 className="h-5 w-5 mr-2 animate-spin text-primary" />
-                Compressing Video
+                Processing Video
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">

@@ -38,6 +38,7 @@ interface FilterState {
   employees: string[];
   certifications: string[];
   completionStatus: string[];
+  playlistStatus: string[];
 }
 
 interface FilterDialogProps {
@@ -141,6 +142,37 @@ export function FilterDialog({
                     {option}
                   </Checkbox>
                 ))}
+              </div>
+            </div>
+          )}
+          {property.type === 'multi-select' && (
+            <div className="space-y-2">
+              <div className="max-h-[300px] overflow-y-auto space-y-2">
+                {property.options && property.options.length > 0 ? (
+                  property.options.map((option) => {
+                    const filterArray = filters[property.id as keyof FilterState];
+                    const isChecked = Array.isArray(filterArray) && filterArray.includes(option);
+                    return (
+                      <div key={option} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`${property.id}-${option}`}
+                          checked={isChecked}
+                          onCheckedChange={() => onOptionSelect(property.id as keyof FilterState, option)}
+                        />
+                        <Label
+                          htmlFor={`${property.id}-${option}`}
+                          className="text-sm font-normal cursor-pointer flex-1"
+                        >
+                          {option}
+                        </Label>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No options available
+                  </p>
+                )}
               </div>
             </div>
           )}

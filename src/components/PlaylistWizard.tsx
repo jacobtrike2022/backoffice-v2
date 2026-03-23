@@ -31,7 +31,11 @@ import {
   Play,
   Trash2,
   Search,
-  ArrowDown
+  ArrowDown,
+  Download,
+  AlertTriangle,
+  UserCheck,
+  UserMinus
 } from 'lucide-react';
 import {
   Select,
@@ -45,8 +49,17 @@ import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Switch } from './ui/switch';
 import { Progress } from './ui/progress';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
+import {
+  runPlaylistTrigger,
+  getMatchingUsersPreview,
+  getMatchingUsersForExport,
+  compareTriggerRulesImpact,
+  archiveOrphanedAssignments,
+  type MatchingUser,
+  type TriggerRulesImpact
+} from '../lib/crud/assignments';
 import { toast } from 'sonner@2.0.3';
 import { supabase } from '../lib/supabase';
 import { TagSelectorDialog } from './TagSelectorDialog';
@@ -69,8 +82,8 @@ const WIZARD_STEPS = [
   { id: 'review', label: 'Review & Publish', icon: CheckCircle2 }
 ];
 
-// Mock data for dropdowns
-const ROLES = ['Store Manager', 'Sales Associate', 'Assistant Manager', 'Department Lead', 'Cashier', 'Stock Clerk'];
+// Fallback data for dropdowns (used if database fetch fails)
+const FALLBACK_ROLES = ['Store Manager', 'Sales Associate', 'Assistant Manager', 'Department Lead', 'Cashier', 'Stock Clerk'];
 const DEPARTMENTS = ['Front End', 'Grocery', 'Deli', 'Bakery', 'Meat', 'Produce', 'Management'];
 const LOCATIONS = ['Store #001 - Downtown', 'Store #002 - Westside', 'Store #003 - Northgate', 'Store #004 - Southpoint'];
 const EMPLOYMENT_TYPES = ['Full-Time', 'Part-Time', 'Seasonal', 'Temporary'];
@@ -175,6 +188,24 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [minFinalScore, setMinFinalScore] = useState(85);
   const [completionDeadlineDays, setCompletionDeadlineDays] = useState(30);
 
+  // Matching users preview state
+  const [matchingUsers, setMatchingUsers] = useState<MatchingUser[]>([]);
+  const [matchingUsersCount, setMatchingUsersCount] = useState(0);
+  const [matchingUsersLoading, setMatchingUsersLoading] = useState(false);
+
+  // Edit mode: trigger rules impact state
+  const [originalTriggerRules, setOriginalTriggerRules] = useState<any>(null);
+  const [triggerRulesImpact, setTriggerRulesImpact] = useState<{
+    orphaned: TriggerRulesImpact[];
+    newMatches: TriggerRulesImpact[];
+  } | null>(null);
+  const [keepOrphanedAssignments, setKeepOrphanedAssignments] = useState(true);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+
+  // Dynamically loaded roles from database
+  const [availableRoles, setAvailableRoles] = useState<string[]>(FALLBACK_ROLES);
+  const [rolesLoading, setRolesLoading] = useState(true);
+
   const isStepComplete = (stepIndex: number) => {
     switch (stepIndex) {
       case 0: // Trigger
@@ -210,6 +241,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   };
 
   const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
@@ -217,11 +249,41 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [tracks, setTracks] = useState<any[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
 
+  // Fetch roles from database - run FIRST before other data loads
+  useEffect(() => {
+    const fetchRoles = async () => {
+      if (!effectiveOrgId) return;
+
+      setRolesLoading(true);
+      try {
+        const { data: roles, error } = await supabase
+          .from('roles')
+          .select('id, name')
+          .eq('organization_id', effectiveOrgId)
+          .order('name');
+
+        if (!error && roles && roles.length > 0) {
+          // Use role names for display and matching
+          setAvailableRoles(roles.map(r => r.name));
+          console.log('🎭 Loaded', roles.length, 'roles from database');
+        } else {
+          console.log('⚠️ No roles found, using fallback roles');
+        }
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, [effectiveOrgId]);
+
   // Fetch real employees from database
   useEffect(() => {
     const fetchEmployees = async () => {
-      if (!user?.organization_id) return;
-      
+      if (!effectiveOrgId) return;
+
       setLoadingEmployees(true);
       try {
         const data = await crud.getUsers({ status: 'active' });
@@ -235,13 +297,13 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchEmployees();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   // Fetch real albums and tracks from database
   useEffect(() => {
     const fetchContent = async () => {
-      if (!user?.organization_id) return;
-      
+      if (!effectiveOrgId) return;
+
       setLoadingContent(true);
       try {
         // Fetch albums (only published)
@@ -260,12 +322,149 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchContent();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
+
+  // Build trigger rules from conditions (helper function)
+  const buildTriggerRules = useCallback(() => {
+    const rules: any = {};
+    triggerConditions.forEach(condition => {
+      if (condition.value) {
+        if (condition.field === 'role') {
+          rules.role_ids = rules.role_ids || [];
+          rules.role_ids.push(condition.value);
+        } else if (condition.field === 'hire-date') {
+          rules.hire_days = parseInt(condition.value) || 7;
+        } else if (condition.field === 'location') {
+          rules.store_ids = rules.store_ids || [];
+          rules.store_ids.push(condition.value);
+        } else if (condition.field === 'department') {
+          rules.department_ids = rules.department_ids || [];
+          rules.department_ids.push(condition.value);
+        }
+      }
+    });
+    return Object.keys(rules).length > 0 ? rules : null;
+  }, [triggerConditions]);
+
+  // Fetch matching users when trigger conditions change (for auto-assignment preview)
+  useEffect(() => {
+    const fetchMatchingUsers = async () => {
+      if (assignmentType !== 'auto') {
+        setMatchingUsers([]);
+        setMatchingUsersCount(0);
+        return;
+      }
+
+      const triggerRules = buildTriggerRules();
+      console.log('🎯 Built trigger rules:', triggerRules);
+      console.log('🎯 Current trigger conditions:', triggerConditions);
+
+      if (!triggerRules) {
+        setMatchingUsers([]);
+        setMatchingUsersCount(0);
+        return;
+      }
+
+      setMatchingUsersLoading(true);
+      try {
+        console.log('📡 Calling getMatchingUsersPreview with:', triggerRules);
+        const result = await getMatchingUsersPreview(triggerRules, 20);
+        console.log('📡 Result:', result);
+        setMatchingUsers(result.users);
+        setMatchingUsersCount(result.totalCount);
+      } catch (error) {
+        console.error('Error fetching matching users:', error);
+        // Don't show toast for preview errors - just fail silently
+      } finally {
+        setMatchingUsersLoading(false);
+      }
+    };
+
+    // Debounce the fetch
+    const timeoutId = setTimeout(fetchMatchingUsers, 500);
+    return () => clearTimeout(timeoutId);
+  }, [assignmentType, triggerConditions, buildTriggerRules]);
+
+  // In edit mode, compare trigger rules impact when they change
+  useEffect(() => {
+    const checkTriggerRulesImpact = async () => {
+      if (mode !== 'edit' || !existingPlaylistId || assignmentType !== 'auto') {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      // Only check if we have original rules to compare against
+      if (!originalTriggerRules) return;
+
+      const newRules = buildTriggerRules();
+      if (!newRules) {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      // Check if rules actually changed
+      const rulesChanged = JSON.stringify(originalTriggerRules) !== JSON.stringify(newRules);
+      if (!rulesChanged) {
+        setTriggerRulesImpact(null);
+        return;
+      }
+
+      setLoadingImpact(true);
+      try {
+        const impact = await compareTriggerRulesImpact(existingPlaylistId, newRules);
+        setTriggerRulesImpact(impact);
+      } catch (error) {
+        console.error('Error comparing trigger rules impact:', error);
+      } finally {
+        setLoadingImpact(false);
+      }
+    };
+
+    const timeoutId = setTimeout(checkTriggerRulesImpact, 500);
+    return () => clearTimeout(timeoutId);
+  }, [mode, existingPlaylistId, assignmentType, triggerConditions, originalTriggerRules, buildTriggerRules]);
+
+  // CSV export function
+  const handleExportMatchingUsersCSV = async () => {
+    try {
+      const triggerRules = buildTriggerRules();
+      if (!triggerRules) return;
+
+      const users = await getMatchingUsersForExport(triggerRules);
+
+      // Build CSV content
+      const headers = ['Name', 'Email', 'Role', 'Location', 'Hire Date'];
+      const rows = users.map(u => [
+        `${u.first_name} ${u.last_name}`,
+        u.email,
+        u.role_name || '',
+        u.store_name || '',
+        u.hire_date || ''
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `matching-employees-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+
+      toast.success(`Exported ${users.length} employees to CSV`);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      toast.error('Failed to export CSV');
+    }
+  };
 
         // Load existing playlist data when in edit mode
   useEffect(() => {
     const loadPlaylist = async () => {
-      if (!existingPlaylistId || mode !== 'edit' || !user?.organization_id) return;
+      if (!existingPlaylistId || mode !== 'edit' || !effectiveOrgId) return;
       
       setIsLoadingPlaylist(true);
       try {
@@ -297,65 +496,87 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         // Set trigger conditions for auto playlists
+        let loadedTriggerConditions = [{ field: 'role', operator: 'equals', value: '' }];
         if (playlist.type === 'auto' && playlist.trigger_rules) {
-          // TODO: Parse trigger_rules and populate triggerConditions
-          // For now, just set a default
-          setTriggerConditions([{ field: 'role', operator: 'equals', value: '' }]);
+          // Save original trigger rules for impact comparison
+          setOriginalTriggerRules(playlist.trigger_rules);
+
+          // Parse role_ids into trigger conditions
+          if (playlist.trigger_rules.role_ids && playlist.trigger_rules.role_ids.length > 0) {
+            loadedTriggerConditions = playlist.trigger_rules.role_ids.map((roleId: string) => ({
+              field: 'role',
+              operator: 'equals',
+              value: roleId
+            }));
+            console.log('🎯 Loaded trigger conditions:', loadedTriggerConditions);
+          }
         }
+        setTriggerConditions(loadedTriggerConditions);
 
         // Load assigned employees for manual playlists
+        let loadedEmployeeIds: string[] = [];
         if (playlist.type === 'manual') {
           const { data: assignments } = await supabase
             .from('assignments')
             .select('user_id')
             .eq('playlist_id', existingPlaylistId)
-            .eq('organization_id', user.organization_id);
+            .eq('organization_id', effectiveOrgId);
 
           if (assignments && assignments.length > 0) {
-            const employeeIds = assignments.map(a => a.user_id);
-            setSelectedEmployees(employeeIds);
-            console.log('👥 Loaded', employeeIds.length, 'assigned employees');
+            loadedEmployeeIds = assignments.map(a => a.user_id);
+            setSelectedEmployees(loadedEmployeeIds);
+            console.log('👥 Loaded', loadedEmployeeIds.length, 'assigned employees');
           }
         }
 
-        // Load tracks and albums into stages
-        const loadedStages = [{
-          id: 's1',
-          name: 'Stage 1',
-          albums: [],
-          tracks: [],
-          unlockType: 'immediate',
-          unlockDays: 0,
-          unlockAfterStage: '',
-          unlockAssignment: '',
-          unlockAssignmentCompleter: 'learner',
-          allowManagerOverride: false,
-          allowAdminOverride: true,
-        }];
+        // Load stages from release_schedule if available
+        let loadedStages: any[] = [];
 
-        // Load track and album IDs (stages store IDs, not full objects)
-        if (playlist.track_ids && playlist.track_ids.length > 0) {
-          loadedStages[0].tracks = playlist.track_ids;
-          console.log('🎵 Loaded', playlist.track_ids.length, 'tracks');
-        }
-
-        if (playlist.album_ids && playlist.album_ids.length > 0) {
-          loadedStages[0].albums = playlist.album_ids;
-          console.log('💿 Loaded', playlist.album_ids.length, 'albums');
+        if (playlist.release_schedule?.stages && playlist.release_schedule.stages.length > 0) {
+          // Load stages from the saved release_schedule
+          loadedStages = playlist.release_schedule.stages.map((stage: any) => ({
+            id: stage.id || `s${Math.random().toString(36).substr(2, 9)}`,
+            name: stage.name || 'Stage',
+            albums: stage.albumIds || [],
+            tracks: stage.trackIds || [],
+            unlockType: stage.unlockDays > 0 ? 'days-after-stage' : 'immediate',
+            unlockDays: stage.unlockDays || 0,
+            unlockAfterStage: stage.unlockAfterStage || '',
+            unlockAssignment: '',
+            unlockAssignmentCompleter: 'learner',
+            allowManagerOverride: false,
+            allowAdminOverride: true,
+            notifyOnUnlock: stage.notifyOnUnlock || false,
+          }));
+          console.log('📊 Loaded', loadedStages.length, 'stages from release_schedule');
+        } else {
+          // Fallback: create a single stage with all content
+          loadedStages = [{
+            id: 's1',
+            name: 'Stage 1',
+            albums: playlist.album_ids || [],
+            tracks: playlist.standalone_track_ids || [],
+            unlockType: 'immediate',
+            unlockDays: 0,
+            unlockAfterStage: '',
+            unlockAssignment: '',
+            unlockAssignmentCompleter: 'learner',
+            allowManagerOverride: false,
+            allowAdminOverride: true,
+          }];
+          console.log('📊 Created fallback stage with', playlist.album_ids?.length || 0, 'albums,', playlist.standalone_track_ids?.length || 0, 'tracks');
         }
 
         setStages(loadedStages);
-        
+
         // Save original state for unsaved changes detection
         setOriginalState({
           playlistName: playlist.title || '',
           playlistDescription: playlist.description || '',
           assignmentType: playlist.type || 'manual',
           playlistTags: loadedTags.map(t => t.name),
-          triggerConditions: playlist.type === 'auto' && playlist.trigger_rules 
-            ? [{ field: 'role', operator: 'equals', value: '' }] 
-            : [{ field: 'role', operator: 'equals', value: '' }],
-          selectedEmployees: assignments?.map(a => a.user_id) || [],
+          triggerConditions: loadedTriggerConditions,
+          selectedEmployees: loadedEmployeeIds,
           stages: loadedStages,
           startImmediately,
           startDelayDays,
@@ -376,7 +597,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
     
     loadPlaylist();
-  }, [existingPlaylistId, mode, user?.organization_id]);
+  }, [existingPlaylistId, mode, effectiveOrgId]);
   
   // Save initial state for create mode
   useEffect(() => {
@@ -489,29 +710,43 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     setIsSubmitting(true);
 
     try {
+      // Debug: log stages state before collecting IDs
+      console.log('🔍 Stages before collecting IDs:', JSON.stringify(stages, null, 2));
+
       // Collect album and track IDs from all stages
       const allAlbumIds: string[] = [];
       const allTrackIds: string[] = [];
 
-      stages.forEach(stage => {
-        // Albums are stored as IDs (strings)
-        stage.albums.forEach((albumId: string) => {
+      stages.forEach((stage, stageIndex) => {
+        console.log(`🔍 Stage ${stageIndex} albums:`, stage.albums);
+        console.log(`🔍 Stage ${stageIndex} tracks:`, stage.tracks);
+
+        // Albums can be stored as IDs (strings) or objects with id property
+        (stage.albums || []).forEach((album: any) => {
+          const albumId = typeof album === 'string' ? album : album?.id;
           if (albumId && !allAlbumIds.includes(albumId)) {
             allAlbumIds.push(albumId);
           }
         });
-        // Tracks are stored as IDs (strings)
-        stage.tracks.forEach((trackId: string) => {
+        // Tracks can be stored as IDs (strings) or objects with id property
+        (stage.tracks || []).forEach((track: any) => {
+          const trackId = typeof track === 'string' ? track : track?.id;
           if (trackId && !allTrackIds.includes(trackId)) {
             allTrackIds.push(trackId);
           }
         });
       });
 
+      console.log('🔍 Collected allAlbumIds:', allAlbumIds);
+      console.log('🔍 Collected allTrackIds:', allTrackIds);
+
       // Build trigger rules for auto-assignment
       let triggerRules = null;
       if (assignmentType === 'auto') {
-        triggerRules = {};
+        triggerRules = {
+          // Store due_days for calculating assignment due dates
+          due_days: completionDeadlineDays,
+        };
         triggerConditions.forEach(condition => {
           if (condition.value) {
             if (condition.field === 'role') {
@@ -533,16 +768,24 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       }
 
       // Build release schedule for progressive playlists
+      // Store full stage data including names and content associations
       let releaseSchedule = null;
-      const releaseType = stages.length > 1 && stages.some(s => s.unlockType !== 'immediate') 
-        ? 'progressive' 
+      const releaseType = stages.length > 1 && stages.some(s => s.unlockType !== 'immediate')
+        ? 'progressive'
         : 'immediate';
 
-      if (releaseType === 'progressive') {
-        releaseSchedule = {};
-        stages.forEach((stage, index) => {
-          releaseSchedule[`stage${index + 1}`] = stage.unlockDays || index;
-        });
+      if (releaseType === 'progressive' || stages.length > 0) {
+        // Store full stage data for display in view mode
+        releaseSchedule = {
+          stages: stages.map((stage, index) => ({
+            id: stage.id,
+            name: stage.name || `Stage ${index + 1}`,
+            unlockDays: stage.unlockDays || 0,
+            unlockType: stage.unlockType || 'immediate',
+            albumIds: stage.albums.map((a: any) => typeof a === 'string' ? a : a.id),
+            trackIds: stage.tracks.map((t: any) => typeof t === 'string' ? t : t.id),
+          })),
+        };
       }
 
       // 1. Create or update the playlist
@@ -601,8 +844,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         await assignTags(playlist.id, 'playlist', []);
       }
 
-      // 2. Handle manual assignment for employees
+      // 2. Handle assignments based on type
       if (assignmentType === 'manual' && selectedEmployees.length > 0) {
+        // Manual assignment: assign to selected employees
         console.log(`📋 ${mode === 'edit' ? 'Updating' : 'Creating'} ${selectedEmployees.length} assignments...`);
 
         // Calculate due date based on completion deadline
@@ -618,7 +862,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         const assignmentRecords = selectedEmployees.map(userId => ({
-          organization_id: user.organization_id,
+          organization_id: effectiveOrgId,
           user_id: userId,
           playlist_id: playlist.id,
           status: 'assigned',
@@ -636,13 +880,46 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         }
 
         console.log('✅ All assignments created');
+      } else if (assignmentType === 'auto' && triggerRules) {
+        // Handle orphaned assignments in edit mode if user chose to archive them
+        if (mode === 'edit' && !keepOrphanedAssignments && triggerRulesImpact?.orphaned.length) {
+          console.log('🗄️ Archiving orphaned assignments...');
+          try {
+            const orphanedUserIds = triggerRulesImpact.orphaned.map(u => u.user_id);
+            const archivedCount = await archiveOrphanedAssignments(existingPlaylistId!, orphanedUserIds);
+            console.log(`✅ Archived ${archivedCount} orphaned assignments`);
+          } catch (archiveError) {
+            console.error('⚠️ Failed to archive orphaned assignments:', archiveError);
+          }
+        }
+
+        // Auto-assignment: run trigger to assign to all current matching users
+        console.log('🎯 Running auto-assignment trigger for current matching users...');
+        try {
+          const assignments = await runPlaylistTrigger(playlist.id);
+          console.log(`✅ Auto-assigned to ${assignments.length} matching users`);
+        } catch (triggerError) {
+          // Log but don't fail - playlist is still created, trigger can be run later
+          console.error('⚠️ Auto-assignment trigger failed:', triggerError);
+        }
+      }
+
+      // Build success message
+      let successDescription = '';
+      if (assignmentType === 'manual') {
+        successDescription = `Assigned to ${selectedEmployees.length} employees`;
+      } else if (assignmentType === 'auto') {
+        successDescription = 'Auto-assigned to matching employees. New hires matching criteria will be assigned automatically.';
       }
 
       toast.success(`Playlist "${playlistName}" ${mode === 'edit' ? 'updated' : 'published'} successfully!`, {
-        description: assignmentType === 'manual' 
-          ? `Assigned to ${selectedEmployees.length} employees` 
-          : 'Auto-assignment configured',
+        description: successDescription,
       });
+
+      // Clear unsaved changes check before closing to allow navigation
+      if (registerUnsavedChangesCheck) {
+        registerUnsavedChangesCheck(null);
+      }
 
       // Close the wizard
       onClose();
@@ -658,7 +935,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
   const getFieldOptions = (field: string) => {
     switch (field) {
-      case 'role': return ROLES;
+      case 'role': return availableRoles;
       case 'department': return DEPARTMENTS;
       case 'location': return LOCATIONS;
       case 'employment-type': return EMPLOYMENT_TYPES;
@@ -706,6 +983,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     const albums = stage.albums.includes(albumId)
       ? stage.albums.filter((id: string) => id !== albumId)
       : [...stage.albums, albumId];
+    console.log(`📀 toggleAlbumInStage: stageIndex=${stageIndex}, albumId=${albumId}, newAlbums=`, albums);
     updateStage(stageIndex, { albums });
   };
 
@@ -752,8 +1030,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
   const getTotalContentInStage = (stage: any) => {
     const albumTracks = stage.albums.reduce((acc: number, albumId: string) => {
-      const album = AVAILABLE_ALBUMS.find(a => a.id === albumId);
-      return acc + (album?.trackCount || 0);
+      // Use real albums state instead of mock data
+      const album = albums.find(a => a.id === albumId);
+      // Use track_count if available, otherwise count album_tracks array
+      const trackCount = album?.track_count ?? album?.album_tracks?.length ?? 0;
+      return acc + trackCount;
     }, 0);
     return albumTracks + stage.tracks.length;
   };
@@ -889,7 +1170,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Roles</SelectItem>
-                        {ROLES.map(role => (
+                        {availableRoles.map(role => (
                           <SelectItem key={role} value={role}>{role}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1015,7 +1296,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <CardDescription>Define the conditions that trigger automatic assignment</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {triggerConditions.map((condition, index) => (
+                    {(rolesLoading || isLoadingPlaylist) ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full mr-2" />
+                        <span className="text-sm text-muted-foreground">Loading trigger conditions...</span>
+                      </div>
+                    ) : triggerConditions.map((condition, index) => (
                       <div key={index} className="flex items-center space-x-2">
                         <Select 
                           value={condition.field} 
@@ -1088,25 +1374,212 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       </div>
                     ))}
 
-                    <Button variant="outline" onClick={addTriggerCondition} className="w-full">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Condition
-                    </Button>
+                    {!(rolesLoading || isLoadingPlaylist) && (
+                      <>
+                        <Button variant="outline" onClick={addTriggerCondition} className="w-full">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Condition
+                        </Button>
 
-                    {triggerConditions.some(c => c.value !== '') && (
-                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">
-                          This playlist will auto-assign when:
-                        </p>
-                        <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1">
-                          {triggerConditions.filter(c => c.value !== '').map((c, i) => (
-                            <li key={i}>→ {c.field} {c.operator} "{c.value}"</li>
-                          ))}
-                        </ul>
-                      </div>
+                        {triggerConditions.some(c => c.value !== '') && (
+                          <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
+                            <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">
+                              This playlist will auto-assign when:
+                            </p>
+                            <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1">
+                              {triggerConditions.filter(c => c.value !== '').map((c, i) => (
+                                <li key={i}>→ {c.field} {c.operator} "{c.value}"</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Matching Employees Preview */}
+                {triggerConditions.some(c => c.value !== '') && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UserCheck className="h-5 w-5 text-green-600" />
+                          <CardTitle className="text-base">
+                            {mode === 'edit' && triggerRulesImpact ? 'New Employees to Assign' : 'Employees Matching Criteria'}
+                          </CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {matchingUsersLoading ? (
+                            <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                          ) : (
+                            <Badge variant="secondary">
+                              {mode === 'edit' && triggerRulesImpact
+                                ? triggerRulesImpact.newMatches.length
+                                : matchingUsersCount} employees
+                            </Badge>
+                          )}
+                          {matchingUsersCount > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleExportMatchingUsersCSV}
+                              className="h-8"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              Export CSV
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <CardDescription>
+                        {mode === 'edit' && triggerRulesImpact
+                          ? 'These employees will be newly assigned when you save'
+                          : 'Preview of employees who will be assigned this playlist'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {matchingUsersLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                        </div>
+                      ) : matchingUsersCount === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground">
+                          <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No employees match the current criteria</p>
+                        </div>
+                      ) : (
+                        <div className="border rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="text-left px-3 py-2 font-medium">Name</th>
+                                <th className="text-left px-3 py-2 font-medium">Role</th>
+                                <th className="text-left px-3 py-2 font-medium">Location</th>
+                                <th className="text-left px-3 py-2 font-medium">Hire Date</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {(mode === 'edit' && triggerRulesImpact
+                                ? triggerRulesImpact.newMatches.slice(0, 20)
+                                : matchingUsers
+                              ).map((user: any) => (
+                                <tr key={user.user_id} className="hover:bg-muted/50">
+                                  <td className="px-3 py-2">
+                                    {user.first_name} {user.last_name}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.role_name || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.store_name || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {user.hire_date ? new Date(user.hire_date).toLocaleDateString() : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {matchingUsersCount > 20 && (
+                            <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
+                              Showing 20 of {matchingUsersCount} employees • Download CSV for full list
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Orphaned Assignments Warning (Edit Mode Only) */}
+                {mode === 'edit' && triggerRulesImpact && triggerRulesImpact.orphaned.length > 0 && (
+                  <Card className="border-amber-200 dark:border-amber-900/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UserMinus className="h-5 w-5 text-amber-600" />
+                          <CardTitle className="text-base text-amber-900 dark:text-amber-100">
+                            Employees No Longer Matching
+                          </CardTitle>
+                        </div>
+                        <Badge variant="outline" className="border-amber-300 text-amber-700">
+                          {triggerRulesImpact.orphaned.length} employees
+                        </Badge>
+                      </div>
+                      <CardDescription>
+                        These employees have active assignments but no longer match the new criteria
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-amber-50 dark:bg-amber-900/20">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Name</th>
+                              <th className="text-left px-3 py-2 font-medium">Role</th>
+                              <th className="text-left px-3 py-2 font-medium">Status</th>
+                              <th className="text-left px-3 py-2 font-medium">Progress</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {triggerRulesImpact.orphaned.slice(0, 10).map((user) => (
+                              <tr key={user.user_id} className="hover:bg-muted/50">
+                                <td className="px-3 py-2">
+                                  {user.first_name} {user.last_name}
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {user.role_name || '—'}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {user.current_status}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-2 text-muted-foreground">
+                                  {user.progress_percent || 0}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {triggerRulesImpact.orphaned.length > 10 && (
+                          <div className="px-3 py-2 bg-amber-50/50 dark:bg-amber-900/10 text-center text-sm text-muted-foreground border-t">
+                            +{triggerRulesImpact.orphaned.length - 10} more employees
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium">What should happen to these assignments?</p>
+                          <p className="text-xs text-muted-foreground">
+                            {keepOrphanedAssignments
+                              ? 'They will keep their active assignments and can complete them'
+                              : 'Their assignments will be archived/expired'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant={keepOrphanedAssignments ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setKeepOrphanedAssignments(true)}
+                          >
+                            Keep Active
+                          </Button>
+                          <Button
+                            variant={!keepOrphanedAssignments ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setKeepOrphanedAssignments(false)}
+                            className={!keepOrphanedAssignments ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                          >
+                            Archive
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <Card>
                   <CardHeader>
@@ -1323,9 +1796,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <div className="flex-1">
                               <p className="font-medium text-sm">{album.title}</p>
                               <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
-                                <span>{album.duration_minutes || 0} min</span>
+                                <span>{album.track_count || 0} tracks</span>
                                 <span>•</span>
-                                <span>{new Date(album.updated_at || album.created_at).toLocaleDateString()}</span>
+                                <span>{album.total_duration_minutes || album.duration_minutes || 0} min</span>
                                 {album.version_number && album.version_number > 1 && (
                                   <>
                                     <span>•</span>
