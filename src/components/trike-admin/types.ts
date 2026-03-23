@@ -11,17 +11,8 @@ export type DealStage =
 
 export type DealType = 'new' | 'upsell' | 'renewal' | 'expansion';
 
-export type OrganizationStatus =
-  | 'lead'
-  | 'prospect'
-  | 'evaluating'
-  | 'closing'
-  | 'onboarding'
-  | 'live'
-  | 'churned'
-  | 'suspended'
-  | 'frozen'
-  | 'renewing';
+/** Only two org states: demo = prospect portal + timer; live = full org until deactivated */
+export type OrganizationStatus = 'demo' | 'live';
 
 export interface Deal {
   id: string;
@@ -63,10 +54,18 @@ export interface Organization {
   demo_expires_at: string | null;
   brand_primary_color: string | null;
   brand_secondary_color: string | null;
+  logo_url?: string | null;
   logo_dark_url: string | null;
   logo_light_url: string | null;
   onboarding_source: string | null;
   created_at: string;
+
+  // Enrichment data from AI scraping (batch demo creation)
+  scraped_data: {
+    store_count?: number;
+    employee_count?: number;
+    [key: string]: any;
+  } | null;
 
   // Deal-related fields on org
   deal_value: number | null;

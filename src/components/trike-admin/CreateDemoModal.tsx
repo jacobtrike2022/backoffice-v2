@@ -12,6 +12,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Loader2, Copy, Check, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey } from '../../utils/supabase/info';
 
 interface CreateDemoModalProps {
   isOpen: boolean;
@@ -68,13 +69,18 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
       setCreating(true);
       const resp = await fetch(`${TRIKE_SERVER_URL}/demo/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+          'apikey': publicAnonKey,
+        },
         body: JSON.stringify({
           url: domainUrl.trim() || undefined,
           organization_name: companyName.trim() || undefined,
           contact_email: contactEmail.trim(),
           contact_name: contactName.trim() || undefined,
           demo_days: parseInt(demoDays) || 14,
+          origin: window.location.origin,
         }),
       });
 
@@ -86,7 +92,7 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
       setResult({
         orgId: data.organization.id,
         orgName: data.organization.name,
-        magicLink: data.magic_link,
+        magicLink: data.magic_link || (data.organization?.id ? `${window.location.origin}/?demo_org_id=${data.organization.id}` : null),
         enrichedData: data.enriched_data,
       });
 
@@ -208,6 +214,12 @@ export function CreateDemoModal({ isOpen, onClose, onCreated }: CreateDemoModalP
                   )}
                   {result.enrichedData.operating_states?.length > 0 && (
                     <p>States: {result.enrichedData.operating_states.join(', ')}</p>
+                  )}
+                  {result.enrichedData.relay_run_id && (
+                    <p className="flex items-center gap-1.5 pt-1">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      Location data is being fetched (2–3 min)
+                    </p>
                   )}
                 </div>
               )}

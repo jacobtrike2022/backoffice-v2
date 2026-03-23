@@ -19,14 +19,18 @@ type OrganizationTab = 'tags' | 'roles' | 'districts' | 'sources';
 interface OrganizationProps {
   currentRole?: string;
   role?: string;
+  /** From SPA path /roles/:id — open Roles tab on that role */
+  initialRoleId?: string | null;
   onBackToDashboard?: () => void;
   onNavigate?: (view: string) => void;
   onStartPlaybook?: (sourceFileId: string) => void;
   onNavigateToTrack?: (trackId: string) => void;
 }
 
-export function Organization({ currentRole, role, onBackToDashboard, onNavigate, onStartPlaybook, onNavigateToTrack }: OrganizationProps) {
-  const [activeTab, setActiveTab] = useState<OrganizationTab>('tags');
+export function Organization({ currentRole, role, initialRoleId, onBackToDashboard, onNavigate, onStartPlaybook, onNavigateToTrack }: OrganizationProps) {
+  const [activeTab, setActiveTab] = useState<OrganizationTab>(() =>
+    initialRoleId ? 'roles' : 'tags',
+  );
   const [tagSystems, setTagSystems] = useState<TagType[]>([]);
   const [activeTagSystem, setActiveTagSystem] = useState<string>('');
 
@@ -41,7 +45,7 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate,
   const [newDistrictName, setNewDistrictName] = useState('');
   const [editDistrictName, setEditDistrictName] = useState('');
   const [unassignedStores, setUnassignedStores] = useState<any[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(() => initialRoleId ?? null);
   const [editingSourceFileId, setEditingSourceFileId] = useState<string | null>(null);
   const [highlightChunkId, setHighlightChunkId] = useState<string | null>(null);
 
@@ -52,6 +56,14 @@ export function Organization({ currentRole, role, onBackToDashboard, onNavigate,
     { id: 'sources' as OrganizationTab, label: 'Sources', icon: FileText },
   ];
 
+
+  // Deep link: /roles/:roleId (set by App after Vercel serves index.html for that path)
+  useEffect(() => {
+    if (initialRoleId) {
+      setSelectedRoleId(initialRoleId);
+      setActiveTab('roles');
+    }
+  }, [initialRoleId]);
 
   // Handle URL parameters for deep linking to source files
   useEffect(() => {

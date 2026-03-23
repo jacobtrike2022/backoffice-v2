@@ -165,10 +165,10 @@ export async function createDistrict(districtData: {
   district_code: string;
 }) {
   try {
-    // Get the current user's session
+    // Use session when authenticated; anon key in demo so districts API works
     const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.access_token) {
+    const token = session?.access_token || publicAnonKey;
+    if (!token) {
       throw new Error('You must be logged in to create a district');
     }
 
@@ -177,7 +177,7 @@ export async function createDistrict(districtData: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({
         name: districtData.district_name,
@@ -437,18 +437,20 @@ export async function getStores(filters?: {
   is_active?: boolean;
 }) {
   try {
+    // Always filter by org - use passed value or fall back to current user's effective org
+    const orgId = filters?.organization_id || await getCurrentUserOrgId();
+    if (!orgId) throw new Error('Organization ID required for store listing');
+
     let query = supabase
       .from('stores')
       .select(`
         *,
         district:districts(id, name, code),
         manager:users!fk_stores_manager(id, first_name, last_name, email)
-      `);
+      `)
+      .eq('organization_id', orgId);
 
-    // Apply filters
-    if (filters?.organization_id) {
-      query = query.eq('organization_id', filters.organization_id);
-    }
+    // Apply additional filters
     if (filters?.district_id) {
       query = query.eq('district_id', filters.district_id);
     }

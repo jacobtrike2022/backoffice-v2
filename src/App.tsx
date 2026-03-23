@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
 import { APP_CONFIG } from './lib/config';
@@ -96,6 +96,17 @@ type AppView =
   | "settings"
   | "trike-admin";
 
+/**
+ * Deep link: /roles/:roleId (and /roles/new). Without a Vercel SPA fallback this path 404s;
+ * after rewrite to index.html we still need to open Organization → Roles with the right id.
+ */
+function getRolePathFromLocation(): { view: AppView; roleId: string | null } {
+  if (typeof window === "undefined") return { view: "dashboard", roleId: null };
+  const m = window.location.pathname.match(/^\/roles\/([^/]+)\/?$/);
+  if (m) return { view: "organization", roleId: m[1] };
+  return { view: "dashboard", roleId: null };
+}
+
 export default function App() {
   const { user, loading: authLoading } = useAuth();
 
@@ -110,8 +121,13 @@ export default function App() {
     },
   );
   const [darkMode, setDarkMode] = useState(true);
-  const [currentView, setCurrentView] =
-    useState<AppView>("dashboard");
+  const [currentView, setCurrentView] = useState<AppView>(
+    () => getRolePathFromLocation().view,
+  );
+  /** One-shot deep link from URL /roles/:id; cleared when leaving Organization */
+  const [organizationDeepLinkRoleId, setOrganizationDeepLinkRoleId] = useState<
+    string | null
+  >(() => getRolePathFromLocation().roleId);
   const [showAssignmentWizard, setShowAssignmentWizard] =
     useState(false);
   const [editingArticle, setEditingArticle] =
@@ -199,6 +215,48 @@ export default function App() {
     checkServerHealth().catch(() => {});
   }, []);
 
+  // After first successful auth (null → user), apply /roles/:id from URL. Do not re-run on
+  // user object reference changes (token refresh) or we would yank users back to /roles/... while on dashboard.
+  const hadUserRef = useRef(false);
+  useEffect(() => {
+    if (user && !hadUserRef.current) {
+      const { view, roleId } = getRolePathFromLocation();
+      if (roleId) {
+        setCurrentView(view);
+        setOrganizationDeepLinkRoleId(roleId);
+      }
+    }
+    hadUserRef.current = !!user;
+  }, [user]);
+
+  // Read demo_org_id from URL on mount — activates org preview for demo links
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+    if (!demoOrgId || viewingOrgId === demoOrgId) return;
+
+    (async () => {
+      try {
+        // Fetch org name for the sidebar
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', demoOrgId)
+          .single();
+
+        if (org) {
+          setViewingOrgOverride(demoOrgId);
+          setViewingOrgId(demoOrgId);
+          setViewingOrgName(org.name);
+          window.dispatchEvent(new Event('organization-updated'));
+        }
+      } catch {
+        // Silent — demo_org_id may be invalid
+      }
+    })();
+  }, [user]); // Only run when user auth state changes, not on viewingOrgId change
+
   // Handle previewing an org as Super Admin
   const handlePreviewOrg = async (orgId: string, orgName: string) => {
     setViewingOrgOverride(orgId);
@@ -207,10 +265,28 @@ export default function App() {
     window.dispatchEvent(new Event('organization-updated'));
   };
 
-  const handleExitOrgPreview = () => {
-    setViewingOrgOverride(null);
-    setViewingOrgId(null);
-    setViewingOrgName(null);
+  const handleExitOrgPreview = async () => {
+    // Clear demo_org_id from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('demo_org_id');
+    window.history.replaceState({}, '', url.pathname + url.search);
+
+    // Return to trike.co (main) — same as clicking "Return to main" for trike.co row
+    const trikeCoId = APP_CONFIG.TRIKE_CO_ORG_ID;
+    try {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', trikeCoId)
+        .single();
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName(org?.name ?? 'Trike');
+    } catch {
+      setViewingOrgOverride(trikeCoId);
+      setViewingOrgId(trikeCoId);
+      setViewingOrgName('Trike');
+    }
     setOrgStatusInfo({ status: null, demoExpiresAt: null, isProspectOrg: false, isDemoExpired: false });
     window.dispatchEvent(new Event('organization-updated'));
   };
@@ -228,8 +304,7 @@ export default function App() {
           .eq('id', orgId)
           .single();
         if (org) {
-          const prospectStatuses = ['prospect', 'evaluating', 'closing'];
-          const isProspect = prospectStatuses.includes(org.status);
+          const isProspect = org.status === 'demo';
           const expired = org.demo_expires_at ? new Date(org.demo_expires_at) < new Date() : false;
           setOrgStatusInfo({
             status: org.status,
@@ -416,6 +491,9 @@ export default function App() {
 
     // Store previous view for back navigation
     setPreviousView(currentView);
+    if (view !== "organization") {
+      setOrganizationDeepLinkRoleId(null);
+    }
     setCurrentView(view);
   };
 
@@ -511,17 +589,7 @@ export default function App() {
     }
 
     // Client onboarding view
-    if (orgStatusInfo.status === 'onboarding' && !isTrikeSuperAdmin && currentView === 'dashboard') {
-      const ClientOnboardingView = React.lazy(() =>
-        import('./components/prospect/ClientOnboardingView').then(m => ({ default: m.ClientOnboardingView }))
-      );
-      return (
-        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
-          <ClientOnboardingView onNavigate={(v) => setCurrentView(v as any)} />
-        </React.Suspense>
-      );
-    }
-
+    // Live orgs see full dashboard (no separate onboarding status)
     switch (currentView) {
       case "dashboard":
         return (
@@ -724,6 +792,7 @@ export default function App() {
         return (
           <Organization
             role={currentRole}
+            initialRoleId={organizationDeepLinkRoleId}
             onNavigate={requestNavigate}
             onStartPlaybook={(sourceFileId: string) => {
               console.log('[App] onStartPlaybook called with sourceFileId:', sourceFileId);
@@ -776,7 +845,7 @@ export default function App() {
           requestNavigate('dashboard');
           return null;
         }
-        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} />;
+        return <TrikeAdminPage onPreviewOrg={handlePreviewOrg} darkMode={darkMode} />;
       default:
         return (
           <Dashboard

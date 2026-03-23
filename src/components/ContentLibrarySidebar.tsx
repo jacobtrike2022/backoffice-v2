@@ -2,7 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Play, FolderOpen, ChevronDown, ChevronUp, Edit, Filter } from 'lucide-react';
 import { getRecentAlbums, type Album } from '../lib/crud/albums';
 import { getPlaylists } from '../lib/crud/playlists';
+import { getCurrentUserOrgId } from '../lib/supabase';
+import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { cn } from './ui/utils';
+
+const SEED_PLAYLIST_STORAGE_KEY = 'trike_seed_playlist_tried_';
 
 interface ContentLibrarySidebarProps {
   onPlaylistClick: (playlistId: string) => void;
@@ -60,7 +65,35 @@ export function ContentLibrarySidebar({
       setAllAlbums(allAlbumsData);
 
       // Fetch all playlists and sort by updated_at
-      const allPlaylistsData = await getPlaylists({});
+      let allPlaylistsData = await getPlaylists({});
+      // If demo org has no playlists, try to create seed playlist once per session
+      if (allPlaylistsData.length === 0 && typeof sessionStorage !== 'undefined') {
+        const orgId = await getCurrentUserOrgId();
+        if (orgId && !sessionStorage.getItem(SEED_PLAYLIST_STORAGE_KEY + orgId)) {
+          sessionStorage.setItem(SEED_PLAYLIST_STORAGE_KEY + orgId, '1');
+          try {
+            const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+            const url = `https://${projectId}.supabase.co/functions/v1/trike-server/demo/seed-playlist`;
+            const { data: { session } } = await supabase.auth.getSession();
+            const authToken = session?.access_token || publicAnonKey;
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+                'apikey': publicAnonKey,
+              },
+              body: JSON.stringify({ organization_id: orgId }),
+            });
+            const data = await resp.json();
+            if (resp.ok && (data.created || data.playlist_id)) {
+              allPlaylistsData = await getPlaylists({});
+            }
+          } catch {
+            // Ignore; we already marked as tried
+          }
+        }
+      }
       // Sort by updated_at descending, fallback to created_at
       const sortedPlaylists = allPlaylistsData.sort((a: any, b: any) => {
         const aDate = a.updated_at || a.created_at || '';

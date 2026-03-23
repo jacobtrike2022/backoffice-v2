@@ -6,6 +6,20 @@ alwaysApply: false
 
 # Seed Data Instructions
 
+## Demo Account Seed Data (New Demos)
+
+When `POST /demo/create` runs, it automatically seeds:
+- **5 people** (placeholder employees, `is_seed=true`)
+- **5 units** (stores, `is_seed=true`)
+- **2 districts** (North/South regions, `is_seed=true`)
+- **Dummy activity** (activity_logs, activity_events, track_completions) for dashboard charts
+
+When the org transitions prospect → onboarding (`POST /org/transition-to-onboarding`):
+- All `is_seed=true` rows are removed (people, units, districts, activity, demo tracks)
+- User-entered data is preserved
+
+Migration: `supabase/migrations/20260310100001_demo_seed_data_flags.sql`
+
 ## Run Migrations in Order
 
 1. **First:** `/migrations/organizational_hierarchy.sql`

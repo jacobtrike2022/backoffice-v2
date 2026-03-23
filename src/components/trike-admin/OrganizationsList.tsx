@@ -17,6 +17,7 @@ import {
   Save,
   Plus,
   Eye,
+  Users,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -60,55 +61,50 @@ import {
   SheetHeader,
   SheetTitle,
 } from '../ui/sheet';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '../ui/hover-card';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { supabase } from '../../lib/supabase';
+import { publicAnonKey } from '../../utils/supabase/info';
+import trikeLogo from '../../assets/trike-logo.png';
 import { toast } from 'sonner';
 import type { Organization, OrganizationStatus } from './types';
+
+const TRIKE_CO_ORG_ID = '10000000-0000-0000-0000-000000000001';
 
 interface OrganizationsListProps {
   onViewJourney?: (orgId: string, orgName: string, orgStatus?: OrganizationStatus) => void;
   onProvisionDemo?: (orgId: string, orgName: string) => void;
   onPreviewOrg?: (orgId: string, orgName: string) => void;
+  darkMode?: boolean;
 }
 
 const STATUS_CONFIG: Record<
   OrganizationStatus,
   { label: string; color: string; bgColor: string }
 > = {
-  lead: { label: 'Lead', color: 'text-slate-600 dark:text-slate-400', bgColor: 'bg-slate-100 dark:bg-slate-800' },
-  prospect: { label: 'Prospect', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
-  evaluating: { label: 'Evaluating', color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-950' },
-  closing: { label: 'Closing', color: 'text-amber-600 dark:text-amber-400', bgColor: 'bg-amber-50 dark:bg-amber-950' },
-  onboarding: { label: 'Onboarding', color: 'text-purple-600 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-950' },
+  demo: { label: 'Demo', color: 'text-blue-600 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-950' },
   live: { label: 'Live', color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-50 dark:bg-emerald-950' },
-  churned: { label: 'Churned', color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-950' },
-  suspended: { label: 'Suspended', color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-950' },
-  frozen: { label: 'Frozen', color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-50 dark:bg-cyan-950' },
-  renewing: { label: 'Renewing', color: 'text-teal-600 dark:text-teal-400', bgColor: 'bg-teal-50 dark:bg-teal-950' },
 };
 
 const STATUS_FILTER_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'active-pipeline', label: 'Active Pipeline' },
-  { value: 'lead', label: 'Lead' },
-  { value: 'prospect', label: 'Prospect' },
-  { value: 'evaluating', label: 'Evaluating' },
-  { value: 'closing', label: 'Closing' },
-  { value: 'onboarding', label: 'Onboarding' },
+  { value: 'demo', label: 'Demo' },
   { value: 'live', label: 'Live' },
-  { value: 'churned', label: 'Churned' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'frozen', label: 'Frozen' },
-  { value: 'renewing', label: 'Renewing' },
 ];
 
-const ACTIVE_PIPELINE_STATUSES: OrganizationStatus[] = [
-  'lead', 'prospect', 'evaluating', 'closing', 'onboarding',
-];
+/** Industry display: joined industries.name, or singular relation industry.name, or legacy org.industry string */
+function getOrgIndustryDisplay(org: Organization & { industries?: { name: string } | null; industry?: { name: string } | null }): string {
+  const o = org as { industries?: { name: string } | null; industry?: { name: string } | null; industry_id?: string | null };
+  return o.industries?.name ?? (o.industry && typeof o.industry === 'object' && 'name' in o.industry ? (o.industry as { name: string }).name : null) ?? (typeof org.industry === 'string' ? org.industry : '') ?? '';
+}
 
-export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg }: OrganizationsListProps) {
+export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg, darkMode }: OrganizationsListProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,6 +112,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const [deleteOrgId, setDeleteOrgId] = useState<string | null>(null);
   const [deleteOrgName, setDeleteOrgName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [assigningOrgId, setAssigningOrgId] = useState<string | null>(null);
+  const [seedingPlaylistOrgId, setSeedingPlaylistOrgId] = useState<string | null>(null);
 
   // Edit sheet state
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
@@ -123,7 +121,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     name: '',
     website: '',
     subdomain: '',
-    status: 'lead' as OrganizationStatus,
+    status: 'demo' as OrganizationStatus,
     industry: '',
     operating_states: [] as string[],
     next_action: '',
@@ -143,8 +141,12 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           name,
           subdomain,
           website,
+          logo_url,
+          logo_dark_url,
+          logo_light_url,
           status,
           industry,
+          industry_id,
           industries(name),
           services_offered,
           operating_states,
@@ -154,14 +156,13 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           last_activity_at,
           next_action,
           next_action_date,
+          scraped_data,
           stores(count)
         `)
         .order('created_at', { ascending: false });
 
       // Apply status filter
-      if (statusFilter === 'active-pipeline') {
-        query = query.in('status', ACTIVE_PIPELINE_STATUSES);
-      } else if (statusFilter !== 'all') {
+      if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
 
@@ -172,7 +173,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
         return;
       }
 
-      setOrganizations((data as Organization[]) || []);
+      setOrganizations((data as unknown as Organization[]) || []);
     } catch (err) {
       console.error('Error loading organizations:', err);
     } finally {
@@ -188,7 +189,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const filteredOrgs = organizations.filter((org) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    const industryDisplay = (org as { industries?: { name: string } | null }).industries?.name || org.industry || '';
+    const industryDisplay = getOrgIndustryDisplay(org);
     return (
       org.name.toLowerCase().includes(q) ||
       industryDisplay.toLowerCase().includes(q) ||
@@ -224,6 +225,68 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     });
   };
 
+  const handleAssignSeedPeopleToStores = async (orgId: string, orgName: string) => {
+    setAssigningOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/admin/assign-seed-people-to-stores`;
+      // Use anon key when no session (demo mode) so the request is not rejected with 401
+      const authToken = session?.access_token || publicAnonKey;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to assign seed people');
+      }
+      toast.success(`Assigned ${data.assigned ?? 0} seed people to stores for ${orgName}`);
+      loadOrganizations();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to assign seed people to stores');
+    } finally {
+      setAssigningOrgId(null);
+    }
+  };
+
+  const handleDemoSeedPlaylist = async (orgId: string, orgName: string) => {
+    setSeedingPlaylistOrgId(orgId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'kgzhlvxzdlexsrozbbxs';
+      const url = `https://${projectId}.supabase.co/functions/v1/trike-server/demo/seed-playlist`;
+      const authToken = session?.access_token || publicAnonKey;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
+        },
+        body: JSON.stringify({ organization_id: orgId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || 'Failed to create demo playlist');
+      }
+      if (data.created) {
+        toast.success(`Created "CORE Playlist" for ${orgName} (${data.tracks} tracks, ${data.assignments} assignments)`);
+      } else {
+        toast.success(`CORE Playlist already exists for ${orgName}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create demo playlist');
+    } finally {
+      setSeedingPlaylistOrgId(null);
+    }
+  };
+
   const handleDeleteOrg = async () => {
     if (!deleteOrgId) return;
     setIsDeleting(true);
@@ -250,12 +313,13 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   // ── Edit org handlers ──
   const openEditSheet = (org: Organization) => {
     setEditingOrg(org);
+    const industryDisplay = getOrgIndustryDisplay(org as Organization & { industries?: { name: string } | null; industry?: { name: string } | null });
     setEditFormData({
       name: org.name || '',
       website: org.website || '',
       subdomain: org.subdomain || '',
-      status: org.status || 'lead',
-      industry: org.industry || '',
+      status: org.status || 'demo',
+      industry: industryDisplay || org.industry || '',
       operating_states: org.operating_states || [],
       next_action: org.next_action || '',
       next_action_date: org.next_action_date || '',
@@ -344,8 +408,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
 
       <div className="p-6 space-y-6">
         {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-3">
-          {(['lead', 'prospect', 'evaluating', 'closing', 'live'] as OrganizationStatus[]).map(
+        <div className="grid grid-cols-2 gap-3">
+          {(['demo', 'live'] as OrganizationStatus[]).map(
             (status) => {
               const config = STATUS_CONFIG[status];
               return (
@@ -412,7 +476,8 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                   <TableHead className="w-[250px]">Organization</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Industry</TableHead>
-                  <TableHead>Locations</TableHead>
+                  <TableHead># Locations</TableHead>
+                  <TableHead>States</TableHead>
                   <TableHead>Demo</TableHead>
                   <TableHead>Demo Link</TableHead>
                   <TableHead>Next Action</TableHead>
@@ -452,13 +517,15 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                           <div className="flex items-center gap-3">
                             <div
                               className={cn(
-                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0',
-                                statusConfig.bgColor
+                                'h-9 w-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden',
+                                darkMode ? 'bg-muted/50' : statusConfig.bgColor
                               )}
                             >
-                              <Building2
-                                className={cn('h-4 w-4', statusConfig.color)}
-                              />
+                              {(() => {
+                                const logoUrl = (darkMode ? (org.logo_dark_url || org.logo_light_url) : (org.logo_light_url || org.logo_dark_url)) || org.logo_url;
+                                const src = logoUrl || trikeLogo;
+                                return <img src={src} alt="" className="h-9 w-9 object-contain" />;
+                              })()}
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-sm truncate">
@@ -486,22 +553,69 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
 
                         {/* Industry */}
                         <TableCell className="text-sm text-muted-foreground">
-                          {(org as { industries?: { name: string } | null }).industries?.name || org.industry || '-'}
+                          {getOrgIndustryDisplay(org) || '-'}
                         </TableCell>
 
-                        {/* Locations & States */}
+                        {/* # Locations */}
                         <TableCell>
                           {(() => {
-                            const storeCount = (org as any).stores?.[0]?.count || 0;
-                            const stateCount = org.operating_states?.length || 0;
-                            if (!storeCount && !stateCount) return <span className="text-muted-foreground text-sm">-</span>;
+                            const actualStoreCount = (org as any).stores?.[0]?.count || 0;
+                            const estimatedCount = (org as any).scraped_data?.store_count || 0;
+                            const scrapedTotal = (org as any).scraped_data?.relay_locations_total;
+                            const storeCount = actualStoreCount || estimatedCount;
+                            const isEstimated = actualStoreCount === 0 && estimatedCount > 0;
+                            const showScraped = scrapedTotal != null && scrapedTotal > 0 && scrapedTotal !== storeCount;
+                            if (!storeCount && !scrapedTotal) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayCount = storeCount || scrapedTotal;
                             return (
                               <Badge variant="outline" className="text-xs font-normal gap-1 whitespace-nowrap">
                                 <MapPin className="h-3 w-3 shrink-0" />
-                                {storeCount > 0 && `${storeCount} loc${storeCount !== 1 ? 's' : ''}`}
-                                {storeCount > 0 && stateCount > 0 && ' · '}
-                                {stateCount > 0 && `${stateCount} state${stateCount !== 1 ? 's' : ''}`}
+                                {`${isEstimated ? '~' : ''}${displayCount} loc${displayCount !== 1 ? 's' : ''}`}
+                                {showScraped && (
+                                  <span className="text-muted-foreground ml-0.5" title={`${storeCount} imported, ${scrapedTotal} scraped by Relay`}>
+                                    ({scrapedTotal} scraped)
+                                  </span>
+                                )}
                               </Badge>
+                            );
+                          })()}
+                        </TableCell>
+
+                        {/* States - pills with hover popup */}
+                        <TableCell>
+                          {(() => {
+                            const states = org.operating_states || [];
+                            const stateCount = states.length;
+                            if (stateCount === 0) return <span className="text-muted-foreground text-sm">-</span>;
+                            const displayStates = states.slice(0, 3);
+                            const overflowCount = stateCount - displayStates.length;
+                            return (
+                              <HoverCard openDelay={200}>
+                                <HoverCardTrigger asChild>
+                                  <div className="flex flex-wrap gap-1 cursor-default">
+                                    {displayStates.map((s) => (
+                                      <Badge key={s} variant="secondary" className="text-xs font-normal">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                    {overflowCount > 0 && (
+                                      <Badge variant="outline" className="text-xs font-normal bg-muted">
+                                        +{overflowCount}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-auto p-2" align="start" side="bottom">
+                                  <div className="text-xs font-medium text-muted-foreground mb-1">Operating states</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {states.map((s) => (
+                                      <Badge key={s} variant="outline" className="text-xs">
+                                        {s}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </HoverCardContent>
+                              </HoverCard>
                             );
                           })()}
                         </TableCell>
@@ -571,7 +685,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                   onClick={() => onPreviewOrg(org.id, org.name)}
                                 >
                                   <Eye className="h-4 w-4 mr-2" />
-                                  Preview as this org
+                                  {org.id === TRIKE_CO_ORG_ID ? 'Return to main' : 'Preview as this org'}
                                 </DropdownMenuItem>
                               )}
                               {onViewJourney && (
@@ -585,7 +699,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                 </DropdownMenuItem>
                               )}
                               {onProvisionDemo &&
-                                ['prospect', 'evaluating'].includes(org.status) && (
+                                org.status === 'demo' && (
                                   <DropdownMenuItem
                                     onClick={() =>
                                       onProvisionDemo(org.id, org.name)
@@ -595,6 +709,24 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                     Provision demo
                                   </DropdownMenuItem>
                                 )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleAssignSeedPeopleToStores(org.id, org.name)}
+                                  disabled={assigningOrgId === org.id}
+                                >
+                                  <Users className="h-4 w-4 mr-2" />
+                                  {assigningOrgId === org.id ? 'Assigning...' : 'Fix store assignments'}
+                                </DropdownMenuItem>
+                              )}
+                              {org.status === 'demo' && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDemoSeedPlaylist(org.id, org.name)}
+                                  disabled={seedingPlaylistOrgId === org.id}
+                                >
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  {seedingPlaylistOrgId === org.id ? 'Creating...' : 'Create CORE Playlist'}
+                                </DropdownMenuItem>
+                              )}
                               {org.website && (
                                 <DropdownMenuItem asChild>
                                   <a

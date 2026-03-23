@@ -178,7 +178,7 @@ export function TrikeAdminFunctions({ currentRole, onNavigate }: TrikeAdminFunct
         </TabsContent>
 
         {/* Content Management Section */}
-        <TabsContent value="content" className="mt-6 space-y-6">
+        <TabsContent value="content" className="mt-6 space-y-6 min-w-0 max-w-full">
           <SystemContentManager />
         </TabsContent>
       </Tabs>

@@ -6222,6 +6222,104 @@ export type Database = {
           },
         ]
       }
+      track_scopes: {
+        Row: {
+          id: string
+          track_id: string
+          organization_id: string
+          scope_level: string
+          sector: string | null
+          industry_id: string | null
+          state_id: string | null
+          company_id: string | null
+          program_id: string | null
+          unit_id: string | null
+          metadata: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          track_id: string
+          organization_id: string
+          scope_level: string
+          sector?: string | null
+          industry_id?: string | null
+          state_id?: string | null
+          company_id?: string | null
+          program_id?: string | null
+          unit_id?: string | null
+          metadata?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          track_id?: string
+          organization_id?: string
+          scope_level?: string
+          sector?: string | null
+          industry_id?: string | null
+          state_id?: string | null
+          company_id?: string | null
+          program_id?: string | null
+          unit_id?: string | null
+          metadata?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "track_scopes_track_id_fkey"
+            columns: ["track_id"]
+            isOneToOne: true
+            referencedRelation: "tracks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_industry_id_fkey"
+            columns: ["industry_id"]
+            isOneToOne: false
+            referencedRelation: "industries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_state_id_fkey"
+            columns: ["state_id"]
+            isOneToOne: false
+            referencedRelation: "us_states"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "track_scopes_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       track_tags: {
         Row: {
           created_at: string
@@ -6724,6 +6822,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      us_states: {
+        Row: {
+          id: string
+          code: string
+          name: string
+          is_active: boolean | null
+          sort_order: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          code: string
+          name: string
+          is_active?: boolean | null
+          sort_order?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          code?: string
+          name?: string
+          is_active?: boolean | null
+          sort_order?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
       }
       users: {
         Row: {

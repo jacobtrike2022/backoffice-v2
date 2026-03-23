@@ -55,14 +55,7 @@ interface ProspectJourneyPanelProps {
  * These will eventually be dynamic based on org status and completion state
  */
 const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
-  const statusOrder: OrganizationStatus[] = [
-    'prospect',
-    'evaluating',
-    'closing',
-    'onboarding',
-    'live',
-  ];
-
+  const statusOrder: OrganizationStatus[] = ['demo', 'live'];
   const currentIndex = statusOrder.indexOf(currentStatus);
 
   const steps: JourneyStep[] = [
@@ -71,7 +64,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Explore the Platform',
       description: 'Watch demo videos and explore sales content',
       icon: Play,
-      stage: 'prospect',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -79,7 +72,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Calculate Your ROI',
       description: 'Input your data to see projected savings',
       icon: Calculator,
-      stage: 'prospect',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -87,7 +80,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Invite Your Team',
       description: 'Share with decision makers and stakeholders',
       icon: Users,
-      stage: 'evaluating',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -95,7 +88,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Review Proposal',
       description: 'Review pricing and terms',
       icon: FileText,
-      stage: 'closing',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -103,7 +96,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Sign Agreement',
       description: 'E-sign your service agreement',
       icon: FileText,
-      stage: 'closing',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -111,7 +104,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Setup Payment',
       description: 'Configure billing and payment method',
       icon: CreditCard,
-      stage: 'closing',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -119,7 +112,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Configure Account',
       description: 'Set up locations, users, and integrations',
       icon: Settings,
-      stage: 'onboarding',
+      stage: 'demo',
       status: 'upcoming',
     },
     {
@@ -127,7 +120,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
       title: 'Launch',
       description: 'Go live with your team',
       icon: Rocket,
-      stage: 'onboarding',
+      stage: 'live',
       status: 'upcoming',
     },
   ];
@@ -160,7 +153,7 @@ const getJourneySteps = (currentStatus: OrganizationStatus): JourneyStep[] => {
 export function ProspectJourneyPanel({
   isOpen,
   onClose,
-  currentStatus = 'prospect',
+  currentStatus = 'demo',
   organizationName = 'Demo Company',
   organizationId,
   onStepClick,

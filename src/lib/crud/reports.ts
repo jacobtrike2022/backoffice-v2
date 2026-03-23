@@ -121,7 +121,6 @@ export interface UnitReportRow {
 export async function getReportFilterOptions(): Promise<FilterOptions> {
   try {
     const orgId = await getCurrentUserOrgId();
-    console.log('[Reports] getReportFilterOptions - orgId:', orgId);
     if (!orgId) throw new Error('User not authenticated');
 
     // Run all queries in parallel for efficiency
@@ -181,16 +180,6 @@ export async function getReportFilterOptions(): Promise<FilterOptions> {
       tracks: (tracks.data || []).map(t => ({ id: t.id, name: t.title })),
       certifications: (certifications.data || []).map(c => ({ id: c.id, name: c.name })),
     };
-
-    console.log('[Reports] Filter options loaded:', {
-      albums: result.albums.length,
-      districts: result.districts.length,
-      stores: result.stores.length,
-      roles: result.roles.length,
-      playlists: result.playlists.length,
-      tracks: result.tracks.length,
-      certifications: result.certifications.length,
-    });
 
     return result;
   } catch (error) {
@@ -309,13 +298,16 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
 
     if (tracksError) throw tracksError;
 
-    // Get all track completions
+    // Get all track completions (when no assignments, fetch all completions for users so we can show activity)
     const trackIds = [...new Set((playlistTracks || []).map(pt => pt.track_id).filter(Boolean))];
-    const { data: completions, error: completionsError } = await supabase
+    const completionsQuery = supabase
       .from('track_completions')
       .select('track_id, user_id, status, completed_at, score, attempts, time_spent_minutes')
-      .in('user_id', userIds)
-      .in('track_id', trackIds.length > 0 ? trackIds : ['00000000-0000-0000-0000-000000000000']);
+      .in('user_id', userIds);
+    if (trackIds.length > 0) {
+      completionsQuery.in('track_id', trackIds);
+    }
+    const { data: completions, error: completionsError } = await completionsQuery;
 
     if (completionsError) throw completionsError;
 
@@ -418,9 +410,12 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
     users.forEach(user => {
       const userAssignments = (assignments || []).filter(a => a.user_id === user.id);
 
-      // Skip users with no assignments
-      if (userAssignments.length === 0) return;
+      // Exclude orphaned assignments (playlist was deleted - would show as N/A)
+      const validAssignments = userAssignments.filter(
+        a => (a.playlist as { title?: string } | null)?.title
+      );
 
+      // Include users with no assignments (e.g. demo seed people) so People/Units tabs show data
       const userCerts = certificationsByUser.get(user.id) || [];
       const latestCert = userCerts.length > 0
         ? userCerts.sort((a, b) =>
@@ -435,15 +430,22 @@ export async function getLearnerRecords(storeFilter?: string): Promise<LearnerRe
       let totalTimeSpent = 0;
       let totalAttempts = 0;
       let scoreCount = 0;
-      let latestActivity: string | null = null;
+      // For users with no assignments, derive latestActivity from track_completions
+      let latestActivity: string | null = (() => {
+        const dates = (completions || [])
+          .filter(c => c.user_id === user.id && c.completed_at)
+          .map(c => c.completed_at!)
+          .sort();
+        return dates.length > 0 ? dates[dates.length - 1] : null;
+      })();
       const allAlbums: string[] = [];
       const allPlaylists: string[] = [];
       const allTracks: string[] = [];
 
-      userAssignments.forEach(assignment => {
-        // Get album name (if any)
-        const album = albumMap.get(assignment.playlist_id) || (assignment.playlist as any)?.title || 'N/A';
-        const playlistTitle = (assignment.playlist as any)?.title || 'N/A';
+      validAssignments.forEach(assignment => {
+        // Get album name (if any) - playlist exists (we filtered orphans above)
+        const playlistTitle = (assignment.playlist as { title?: string })?.title ?? '';
+        const album = albumMap.get(assignment.playlist_id) || playlistTitle || 'N/A';
 
         // Calculate progress for the playlist
         const totalTracksInPlaylist = trackCountByPlaylist.get(assignment.playlist_id) || 0;

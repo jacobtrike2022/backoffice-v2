@@ -63,7 +63,7 @@ import {
   type UpcomingExpiration,
   type AssignmentPipelineStats
 } from '../../lib/crud/complianceAssignments';
-import { getComplianceRequirements, type ComplianceRequirement } from '../../lib/crud/compliance';
+import { getComplianceRequirementsForOrg, type ComplianceRequirement } from '../../lib/crud/compliance';
 import { getSystemLockedPlaylists, type SystemLockedAlbum } from '../../lib/crud/albums';
 import { formatDate } from '../../lib/utils/dateFormat';
 
@@ -515,7 +515,7 @@ export function ComplianceDashboard() {
       try {
         const [assignmentStats, requirements, lockedPlaylists, coverage, expirations, pipeline] = await Promise.all([
           getComplianceAssignmentStats(),
-          getComplianceRequirements(),
+          getComplianceRequirementsForOrg(),
           getSystemLockedPlaylists(),
           getComplianceCoverage(),
           getUpcomingExpirations(90),
@@ -627,7 +627,7 @@ export function ComplianceDashboard() {
                       setLoading(true);
                       Promise.all([
                         getComplianceAssignmentStats(),
-                        getComplianceRequirements(),
+                        getComplianceRequirementsForOrg(),
                         getSystemLockedPlaylists(),
                         getComplianceCoverage(),
                         getUpcomingExpirations(90),
@@ -669,7 +669,7 @@ export function ComplianceDashboard() {
             setLoading(true);
             Promise.all([
               getComplianceAssignmentStats(),
-              getComplianceRequirements(),
+              getComplianceRequirementsForOrg(),
               getSystemLockedPlaylists(),
               getComplianceCoverage(),
               getUpcomingExpirations(90),
@@ -729,7 +729,7 @@ export function ComplianceDashboard() {
           </TabsContent>
 
           <TabsContent value="requirements" className="m-0">
-            <RequirementsManager />
+            <RequirementsManager useOrgScope />
           </TabsContent>
 
           <TabsContent value="playlists" className="m-0">

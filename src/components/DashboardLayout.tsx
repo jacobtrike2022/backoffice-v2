@@ -40,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { APP_CONFIG } from '../lib/config';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -225,7 +226,7 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const isPreviewingOrg = !!viewingOrgId;
+  const isPreviewingOrg = !!viewingOrgId && viewingOrgId !== APP_CONFIG.TRIKE_CO_ORG_ID;
 
   // Fetch organization name and logo
   useEffect(() => {
@@ -579,8 +580,8 @@ export function DashboardLayout({
         sidebarCollapsed ? 'w-16' : 'w-72'
       }`} />
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      {/* Main content - min-w-0 + overflow-x-hidden so wide tables scroll inside their container and don't overlap the sidebar */}
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 overflow-x-hidden">
         {/* Org preview banner for Super Admin */}
         {isPreviewingOrg && (
           <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">

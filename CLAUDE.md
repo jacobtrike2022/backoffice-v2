@@ -111,6 +111,24 @@ USING (
 );
 ```
 
+### Tracks table - Article body in `transcript`
+- **Article-type tracks:** The main body content is stored in the **`transcript`** column (not only in `content_text`). When displaying or validating article content (previews, KB viewer, publish checks), read body from **`transcript` first, then `content_text`**, e.g. `transcript || content_text || article_body`.
+- For `type === 'article'`, treat `transcript` as the primary body field. (Videos use `transcript` for speech-to-text; stories use it for JSON slide data.)
+
+---
+
+## CRITICAL: Demo Mode - Edge Function Calls
+
+**While building demo mode**, there is no real Supabase auth session. If you call an Edge Function with `Authorization: Bearer ` (empty), Supabase returns **401 Unauthorized**.
+
+**ALWAYS** use the anon key as fallback:
+```typescript
+const authToken = session?.access_token || publicAnonKey;
+headers: { 'Authorization': `Bearer ${authToken}`, 'apikey': publicAnonKey }
+```
+
+See `docs/DEMO_MODE_DEVELOPMENT.md` for full pattern. Reference: `src/lib/crud/brain.ts`, `OrganizationsList.tsx`.
+
 ---
 
 ## CRITICAL: Radix UI Select Component Rules
@@ -199,6 +217,9 @@ roles (
 - `District Manager` - Manages multiple stores
 - `Store Manager` - Manages single store
 - `Team Member` - Regular employee
+
+### Tracks table - Article body in `transcript`
+- Article-type tracks store body content in **`transcript`** (and sometimes `content_text`). For display/validation use: `transcript || content_text || article_body`.
 
 ---
 
@@ -314,8 +335,9 @@ All database operations are in `/src/lib/crud/`:
 - etc.
 
 ### Migrations
-- Main migrations: `/src/migrations/`
-- Supabase-specific: `/src/supabase/migrations/`
+- Supabase migrations: `supabase/migrations/` (use these for schema/RLS changes and `supabase db push`).
+- Make migrations idempotent: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies don't fail.
+- If `db push` says "local migration files to be inserted before": use `supabase migration repair <version> --status applied` only when the remote already has that schema; then run `db push` again. See `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ---
 
@@ -329,10 +351,14 @@ Before submitting code, verify:
 4. [ ] Type assertions for joined Supabase data: `(user.role as any)?.name`
 5. [ ] Null checks for optional joined relations
 6. [ ] No references to `user_profiles` table - use `users` table
+7. [ ] New Supabase migrations: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE` so migrations are idempotent
 
 ---
 
 ## Deployment Commands
+
+### Supabase database migrations
+Run `supabase db push` to apply migrations. If the CLI reports "local migration files to be inserted before", use `supabase migration repair <version> --status applied` only when the remote already has that schema; then run `db push` again. See `.cursor/docs/README_MIGRATIONS.mdc`.
 
 ### Deploy Supabase Edge Functions
 After modifying any file in `supabase/functions/trike-server/`, deploy with:

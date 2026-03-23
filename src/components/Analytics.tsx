@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useCurrentUser } from '../lib/hooks/useSupabase';
+import { useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { getOrganizationStats } from '../lib/crud/dashboard';
 import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -126,11 +126,12 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [activeLearners, setActiveLearners] = useState<number>(0);
   const { user } = useCurrentUser();
+  const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   // Fetch active learners count (users with recent activity or active assignments)
   useEffect(() => {
     async function fetchActiveLearners() {
-      if (!user?.organization_id) return;
+      if (!effectiveOrgId) return;
       
       try {
         // Get users with active assignments or recent track completions (last 30 days)
@@ -141,14 +142,14 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
         const { data: usersWithAssignments } = await supabase
           .from('assignments')
           .select('user_id')
-          .eq('organization_id', user.organization_id)
+          .eq('organization_id', effectiveOrgId)
           .in('status', ['assigned', 'in_progress', 'completed']);
 
         // Get users with recent completions
         const { data: orgUsers } = await supabase
           .from('users')
           .select('id')
-          .eq('organization_id', user.organization_id)
+          .eq('organization_id', effectiveOrgId)
           .eq('status', 'active');
 
         const userIds = orgUsers?.map(u => u.id) || [];
@@ -171,7 +172,7 @@ export function Analytics({ currentRole, onBackToDashboard }: AnalyticsProps) {
     }
 
     fetchActiveLearners();
-  }, [user?.organization_id]);
+  }, [effectiveOrgId]);
 
   const handleExport = (format: 'pdf' | 'excel' | 'csv') => {
     toast.success(`Exporting analytics as ${format.toUpperCase()}...`, {

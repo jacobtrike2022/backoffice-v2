@@ -101,17 +101,16 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
       if (filteredTracks.length > 0) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
-          const accessToken = session?.access_token;
-          
-          if (accessToken) {
-            const response = await fetch(
-              `${getServerUrl()}/track-relationships/batch`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${accessToken}`
-                },
+          const accessToken = session?.access_token || publicAnonKey;
+
+          const response = await fetch(
+            `${getServerUrl()}/track-relationships/batch`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`
+              },
                 body: JSON.stringify({ 
                   trackIds: filteredTracks.map((t: any) => t.id) 
                 })
@@ -120,28 +119,15 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
 
             if (response.ok) {
               const { relationships } = await response.json();
-              
-              console.log('🔗 Raw relationships response:', relationships);
-              console.log('🔗 Sample relationship:', Object.keys(relationships).length > 0 ? relationships[Object.keys(relationships)[0]] : 'none');
-              
-              // Merge relationship data with tracks
               const tracksWithRelationships = filteredTracks.map((track: any) => ({
                 ...track,
                 relationshipCount: relationships[track.id]?.derivedCount || 0,
                 relatedTracks: relationships[track.id]?.derivedTracks || []
               }));
-              
-              console.log('🔗 Tracks with counts:', tracksWithRelationships.filter(t => t.relationshipCount > 0).map(t => ({ title: t.title, count: t.relationshipCount })));
-              
               setTracks(tracksWithRelationships);
             } else {
-              // If relationship fetch fails, still show tracks without counts
-              console.warn('Failed to fetch relationships');
               setTracks(filteredTracks.map((t: any) => ({ ...t, relationshipCount: 0, relatedTracks: [] })));
             }
-          } else {
-            setTracks(filteredTracks.map((t: any) => ({ ...t, relationshipCount: 0, relatedTracks: [] })));
-          }
         } catch (relError) {
           console.error('Error fetching relationships:', relError);
           // Still show tracks without relationship counts
