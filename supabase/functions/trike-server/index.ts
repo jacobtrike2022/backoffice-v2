@@ -1299,6 +1299,37 @@ function cleanExtractedText(text: string): string {
     .trim();
 }
 
+/** True if buffer looks like a real PDF (starts with %PDF- after optional BOM/whitespace). */
+function isPdfMagicBytes(buf: Uint8Array): boolean {
+  let i = 0;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    i = 3;
+  }
+  while (
+    i < buf.length &&
+    (buf[i] === 0x20 || buf[i] === 0x09 || buf[i] === 0x0a || buf[i] === 0x0d)
+  ) {
+    i++;
+  }
+  const sig = [0x25, 0x50, 0x44, 0x46]; // %PDF
+  if (i + sig.length > buf.length) return false;
+  for (let j = 0; j < sig.length; j++) {
+    if (buf[i + j] !== sig[j]) return false;
+  }
+  return true;
+}
+
+/** DOCX is a ZIP file (PK\x03\x04). */
+function isDocxMagicBytes(buf: Uint8Array): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
+}
+
 // =============================================================================
 // SOURCE FILE EXTRACTION HANDLER
 // =============================================================================
@@ -1408,9 +1439,32 @@ async function handleExtractSource(req: Request): Promise<Response> {
         console.log('[extract-source] Extracting text from PDF...');
         extractionMethod = 'pdf-parse';
 
-        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
         const arrayBuffer = await fileData.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isPdfMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid PDF (wrong format or corrupt). It may be HTML or another file renamed to .pdf. Export with Print → Save as PDF, or upload a real PDF.";
+          console.error('[extract-source] Invalid PDF magic bytes (not %PDF-)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_PDF",
+            },
+            400,
+          );
+        }
+
+        const pdfParse = (await import("npm:pdf-parse@1.1.1")).default;
         const pdfData = await pdfParse(uint8Array);
         extractedText = pdfData.text;
 
@@ -1418,10 +1472,34 @@ async function handleExtractSource(req: Request): Promise<Response> {
         console.log('[extract-source] Extracting text from DOCX...');
         extractionMethod = 'mammoth';
 
-        const mammoth = await import("npm:mammoth@1.8.0");
         const arrayBuffer = await fileData.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (!isDocxMagicBytes(uint8Array)) {
+          const msg =
+            "This file is not a valid Word document (.docx). It may be an old .doc file or another format—save as .docx from Word or Google Docs, or upload a PDF.";
+          console.error('[extract-source] Invalid DOCX magic bytes (not a ZIP)');
+          await supabase
+            .from("source_files")
+            .update({
+              is_processed: false,
+              processing_error: msg,
+            })
+            .eq("id", source_file_id);
+
+          return jsonResponse(
+            {
+              success: false,
+              error: msg,
+              code: "INVALID_DOCX",
+            },
+            400,
+          );
+        }
+
+        const mammoth = await import("npm:mammoth@1.8.0");
         const result = await mammoth.extractRawText({
-          buffer: new Uint8Array(arrayBuffer)
+          buffer: uint8Array,
         });
         extractedText = result.value;
 
@@ -1434,7 +1512,11 @@ async function handleExtractSource(req: Request): Promise<Response> {
 
       console.log('[extract-source] Raw extracted text length:', extractedText.length, 'characters');
 
-    } catch (extractError) {
+    } catch (extractError: unknown) {
+      const extractMsg =
+        extractError instanceof Error
+          ? extractError.message
+          : String(extractError);
       console.error('[extract-source] Extraction error:', extractError);
 
       // Update the record with the error
@@ -1442,15 +1524,19 @@ async function handleExtractSource(req: Request): Promise<Response> {
         .from("source_files")
         .update({
           is_processed: false,
-          processing_error: `Text extraction failed: ${extractError.message}`
+          processing_error: `Text extraction failed: ${extractMsg}`,
         })
         .eq("id", source_file_id);
 
-      return jsonResponse({
-        success: false,
-        error: `Text extraction failed: ${extractError.message}`,
-        code: "EXTRACTION_FAILED"
-      }, 500);
+      // Bad or unsupported files are client/content issues — avoid 500 so demos don't look "broken"
+      return jsonResponse(
+        {
+          success: false,
+          error: `Could not read this file as ${sourceFile.file_type === "application/pdf" ? "a PDF" : "that document type"}. It may be corrupt, password-protected, or not the format it claims. ${extractMsg}`,
+          code: "EXTRACTION_FAILED",
+        },
+        400,
+      );
     }
 
     // Clean the extracted text
@@ -1535,7 +1621,8 @@ async function handleExtractSource(req: Request): Promise<Response> {
       }
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
     console.error('[extract-source] Unexpected error:', error);
 
     // Try to update the record with the error if we have a source_file_id
@@ -1546,7 +1633,7 @@ async function handleExtractSource(req: Request): Promise<Response> {
           .from("source_files")
           .update({
             is_processed: false,
-            processing_error: `Unexpected error: ${error.message}`
+            processing_error: `Unexpected error: ${errMsg}`,
           })
           .eq("id", body.source_file_id);
       }
@@ -1556,8 +1643,8 @@ async function handleExtractSource(req: Request): Promise<Response> {
 
     return jsonResponse({
       success: false,
-      error: error.message || "An unexpected error occurred",
-      code: "INTERNAL_ERROR"
+      error: errMsg || "An unexpected error occurred",
+      code: "INTERNAL_ERROR",
     }, 500);
   }
 }
@@ -10898,13 +10985,13 @@ async function handleVariantResearch(
   track: { title: string; type: string },
   sourceContent: string
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
 
   // Build search queries based on content topics
   const topicAnalysis = analyzeContentTopics(sourceContent);
-  const searchQueries = buildSearchQueries(topicAnalysis, stateName, variantType);
+  const searchQueries = buildSearchQueries(topicAnalysis, targetLabel, variantType);
 
-  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${stateName}`);
+  console.log(`🔍 [VariantResearch] Researching ${variantType} variant for ${targetLabel}`);
   console.log(`📋 [VariantResearch] Topics detected: ${topicAnalysis.join(', ')}`);
   console.log(`🔎 [VariantResearch] Search queries: ${searchQueries.join(' | ')}`);
 
@@ -10977,11 +11064,12 @@ async function handleVariantResearchFallback(
   sourceContent: string,
   topicAnalysis: string[]
 ): Promise<Response> {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const focusLabel = getVariantFocusLabel(variantType);
 
   const fallbackMessage = `⚠️ **Web research unavailable** - Using knowledge-based adaptation
 
-I was unable to perform live web research for current ${stateName} regulations. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
+I was unable to perform live web research for current ${targetLabel} ${focusLabel}. I'll proceed using my training knowledge, but **this content should be flagged for human review** before publishing.
 
 **Topics identified in source content:**
 ${topicAnalysis.map(t => `• ${t}`).join('\n')}
@@ -11280,7 +11368,11 @@ function buildResearchPrompt(
   sourceContent: string,
   topicAnalysis: string[]
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const targetTypeLabel =
+    variantType === 'geographic' ? 'state regulations' :
+    variantType === 'company' ? 'company policies and standards' :
+    'store/location operating procedures';
 
   // Derive audience from source content
   const audience = deriveAudienceFromContent(sourceContent);
@@ -11291,7 +11383,7 @@ function buildResearchPrompt(
       ? '(Medium confidence)'
       : '(Low confidence - minimal adaptation)';
 
-  return `You are researching ${stateName} state regulations to adapt training content.
+  return `You are researching ${targetLabel} ${targetTypeLabel} to adapt training content.
 
 ## AUDIENCE DERIVATION
 **Derived Role:** ${roleLabel} ${confidenceNote}
@@ -11301,7 +11393,7 @@ ${audience.evidence.slice(0, 4).map(e => `- ${e}`).join('\n') || '- No strong ro
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- General compliance actions'}
 
 ## SCOPE LOCK (HARD RULE)
-You may ONLY add state-specific rules that directly modify one of the learner actions above.
+You may ONLY add variant-specific rules that directly modify one of the learner actions above.
 
 For any proposed rule, you MUST identify:
 - **SourceAction:** Which learner action it modifies
@@ -11312,8 +11404,8 @@ If you cannot map a rule to a SourceAction, DISCARD it. No exceptions.
 ## SOURCE REQUIREMENTS
 
 **TIER 1 (Required - need at least 2):**
-- State legislature / compiled statutes (.gov domains)
-- State administrative code / regulations
+- Authoritative source(s) appropriate to the variant context
+- Prefer official or first-party sources over summaries/blogs
 
 **DO NOT USE:**
 - SEO blogs, law firm marketing, "compliance checklist" sites
@@ -11342,7 +11434,7 @@ Then list 0-3 COMPANY-SPECIFIC questions only:
 - ID scanning technology in use?
 - "Card everyone" policy beyond legal minimum?
 
-DO NOT ask about state laws, age requirements, or penalties - YOU research those.`;
+DO NOT ask the user to provide legal rules directly - YOU research those.`;
 }
 
 /**
@@ -11492,12 +11584,16 @@ function formatResearchResult(
   variantContext: any,
   sourceContent?: string
 ): string {
-  const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+  const targetLabel = getVariantTargetLabel(variantType, variantContext);
+  const contextRuleLabel =
+    variantType === 'geographic' ? `${targetLabel}-Specific Rules` :
+    variantType === 'company' ? `${targetLabel} Policy/Standards Adaptations` :
+    `${targetLabel} Unit-Specific Adaptations`;
 
   // Derive audience for display
   const audience = sourceContent ? deriveAudienceFromContent(sourceContent) : null;
 
-  let result = `## Research Findings: ${stateName}\n\n`;
+  let result = `## Research Findings: ${targetLabel}\n\n`;
 
   // Show derived audience
   if (audience) {
@@ -11517,7 +11613,7 @@ function formatResearchResult(
   }
 
   // Main research findings
-  result += `### ${stateName}-Specific Rules\n\n`;
+  result += `### ${contextRuleLabel}\n\n`;
   result += outputText + '\n\n';
 
   // Sources
@@ -11535,7 +11631,7 @@ function formatResearchResult(
   result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
   result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
   result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
-  result += `\n*These are optional. Type "proceed" to generate with standard ${stateName} regulations.*\n\n`;
+  result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
   // Status indicator for UI
   if (!qualityCheck.passed) {
@@ -11600,7 +11696,11 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     const learnerActionsStr = audience.learnerActions.length
       ? audience.learnerActions.join(', ')
       : 'check id, verify age, refuse sale';
-    const stateName = variantContext.state_name || variantContext.state_code || 'the specified state';
+    const targetLabel = getVariantTargetLabel(variantType, variantContext);
+    const adaptationFocus =
+      variantType === 'geographic' ? `${targetLabel} laws/regulations` :
+      variantType === 'company' ? `${targetLabel} company policies/terminology` :
+      `${targetLabel} store/location procedures`;
 
     // Enhanced generation prompt with structured output format
     const generationPrompt = `
@@ -11609,21 +11709,21 @@ ${sourceContent}
 
 ## VARIANT CONTEXT
 - Type: ${variantType}
-- Target: ${stateName}
+- Target: ${targetLabel}
 - Derived Learner Role: ${roleLabel} (${audience.roleConfidence} confidence)
 - Learner Actions: ${learnerActionsStr}
 
 ## COMPANY-SPECIFIC CONTEXT (from user)
 ${qaContent}
 
-## TASK: Generate ${stateName} State Variant
+## TASK: Generate ${targetLabel} ${variantType} Variant
 
-Apply the MINIMAL-DELTA principle: change ONLY what ${stateName} law requires you to change.
+Apply the MINIMAL-DELTA principle: change ONLY what ${adaptationFocus} requires you to change.
 Do NOT add new topics, warnings, or "nice to know" information not in the source.
 
 ### SCOPE LOCK (HARD RULE)
 
-You may ONLY include state-specific rules that modify one of these learner actions:
+You may ONLY include variant-specific rules that modify one of these learner actions:
 ${audience.learnerActions.map(a => `- ${a}`).join('\n') || '- check id\n- verify age\n- refuse sale'}
 
 For each rule, identify:
@@ -11640,7 +11740,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 ### RETURN THIS JSON STRUCTURE:
 {
-  "generatedTitle": "${track.title} - ${stateName}",
+  "generatedTitle": "${track.title} - ${targetLabel}",
   "researchFindings": [
     {
       "rule": "Actionable rule for ${roleLabelLower}",
@@ -11656,7 +11756,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
     {
       "section": "Section name",
       "originalText": "Original text from source",
-      "adaptedText": "New text for ${stateName}",
+      "adaptedText": "New text for ${targetLabel}",
       "reason": "Why this change was needed (cite specific law/regulation)",
       "sourceAction": "Which learner action this adapts"
     }
@@ -11673,7 +11773,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
 
 IMPORTANT:
 - researchFindings should have 3-8 rules MAX, each mapped to a learner action
-- generatedContent should be nearly identical to source, with only ${stateName}-specific swaps
+- generatedContent should be nearly identical to source, with only target-context-specific swaps
 - adaptations should list EVERY change made, with reason and source action
 - openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
 - Set needsReview: true if any claim lacks Tier-1 citation
@@ -11835,7 +11935,7 @@ Structure your variant generation response as:
 1. **Research Findings (Relevant Only)** — 3-8 bullet rules max
    Each rule: maps to learner action, has citation, includes effective date if known
 
-2. **${variantContext.state_name || 'State'}-Specific Draft Script** — Rewritten transcript
+2. **${getVariantTargetLabel(variantType, variantContext)}-Specific Draft Script** — Rewritten transcript
    Minimal changes from source. Track what was adapted and why.
 
 3. **Open Questions (Company-Specific Only)** — 0-3 questions max
@@ -11843,6 +11943,32 @@ Structure your variant generation response as:
    NEVER: state laws, regulations, age requirements (you already have those)
 
 BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
+}
+
+function getVariantTargetLabel(variantType: string, variantContext: any): string {
+  switch (variantType) {
+    case 'geographic':
+      return variantContext?.state_name || variantContext?.state_code || 'the specified state';
+    case 'company':
+      return variantContext?.org_name || 'the target organization';
+    case 'unit':
+      return variantContext?.store_name || variantContext?.store_id || 'the target unit';
+    default:
+      return 'the target context';
+  }
+}
+
+function getVariantFocusLabel(variantType: string): string {
+  switch (variantType) {
+    case 'geographic':
+      return 'regulations';
+    case 'company':
+      return 'company policies and standards';
+    case 'unit':
+      return 'location procedures';
+    default:
+      return 'requirements';
+  }
 }
 
 /**

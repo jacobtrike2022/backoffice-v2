@@ -373,6 +373,19 @@ export function VariantGenerationChat({
     return <Badge variant="secondary" className="bg-orange-100 text-orange-700">{label}</Badge>;
   };
 
+  const getResearchingLabel = () => {
+    switch (variantType) {
+      case 'geographic':
+        return `Researching ${(variantContext.state_name || variantContext.state_code || 'state')} regulations`;
+      case 'company':
+        return `Analyzing ${(variantContext.org_name || 'organization')} policies and standards`;
+      case 'unit':
+        return `Analyzing ${(variantContext.store_name || 'store')} local operating context`;
+      default:
+        return 'Researching variant context';
+    }
+  };
+
   if (state === 'PREVIEW' && generatedData) {
     return (
       <div className="flex flex-col h-full space-y-4">
@@ -500,7 +513,7 @@ export function VariantGenerationChat({
               </div>
               <div className="bg-zinc-800 rounded-2xl rounded-tl-none p-3 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-zinc-300">
-                  <span>Researching {variantContext.state_name || 'state'} regulations</span>
+                  <span>{getResearchingLabel()}</span>
                   <span className="inline-flex gap-1">
                     <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
                     <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" style={{ animationDelay: '200ms' }} />

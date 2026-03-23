@@ -130,6 +130,70 @@ function uploadWithXHR(
   });
 }
 
+function isPdfMagicBytes(buf: Uint8Array): boolean {
+  let i = 0;
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    i = 3;
+  }
+  while (
+    i < buf.length &&
+    (buf[i] === 0x20 || buf[i] === 0x09 || buf[i] === 0x0a || buf[i] === 0x0d)
+  ) {
+    i++;
+  }
+  const sig = [0x25, 0x50, 0x44, 0x46];
+  if (i + sig.length > buf.length) return false;
+  for (let j = 0; j < sig.length; j++) {
+    if (buf[i + j] !== sig[j]) return false;
+  }
+  return true;
+}
+
+function isDocxMagicBytes(buf: Uint8Array): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
+}
+
+/**
+ * Reject HTML/other content saved as .pdf or mislabeled .docx before storage upload.
+ */
+async function validateSourceFileMagicBytes(
+  file: File
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const name = file.name.toLowerCase();
+  const treatAsPdf = file.type === 'application/pdf' || name.endsWith('.pdf');
+  const treatAsDocx =
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    name.endsWith('.docx');
+
+  if (treatAsPdf) {
+    const buf = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+    if (!isPdfMagicBytes(buf)) {
+      return {
+        ok: false,
+        error:
+          'This file is not a valid PDF. It may be HTML or another format with a .pdf name. Use Print → Save as PDF or export a real PDF.',
+      };
+    }
+  }
+  if (treatAsDocx) {
+    const buf = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    if (!isDocxMagicBytes(buf)) {
+      return {
+        ok: false,
+        error:
+          'This file is not a valid Word document (.docx). Save as .docx from Word or Google Docs, or upload a PDF.',
+      };
+    }
+  }
+  return { ok: true };
+}
+
 /**
  * Upload a source file with all the proper handling (storage only)
  */
@@ -138,6 +202,11 @@ export async function uploadSourceFile(
   organizationId: string,
   onProgress?: (progress: number) => void
 ): Promise<UploadResult> {
+  const magic = await validateSourceFileMagicBytes(file);
+  if (!magic.ok) {
+    return { success: false, error: magic.error };
+  }
+
   const fileExt = file.name.split('.').pop() || 'bin';
   const fileName = `${organizationId}/${crypto.randomUUID()}.${fileExt}`;
 

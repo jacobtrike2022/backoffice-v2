@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
 import { APP_CONFIG } from './lib/config';
@@ -96,6 +96,17 @@ type AppView =
   | "settings"
   | "trike-admin";
 
+/**
+ * Deep link: /roles/:roleId (and /roles/new). Without a Vercel SPA fallback this path 404s;
+ * after rewrite to index.html we still need to open Organization → Roles with the right id.
+ */
+function getRolePathFromLocation(): { view: AppView; roleId: string | null } {
+  if (typeof window === "undefined") return { view: "dashboard", roleId: null };
+  const m = window.location.pathname.match(/^\/roles\/([^/]+)\/?$/);
+  if (m) return { view: "organization", roleId: m[1] };
+  return { view: "dashboard", roleId: null };
+}
+
 export default function App() {
   const { user, loading: authLoading } = useAuth();
 
@@ -110,8 +121,13 @@ export default function App() {
     },
   );
   const [darkMode, setDarkMode] = useState(true);
-  const [currentView, setCurrentView] =
-    useState<AppView>("dashboard");
+  const [currentView, setCurrentView] = useState<AppView>(
+    () => getRolePathFromLocation().view,
+  );
+  /** One-shot deep link from URL /roles/:id; cleared when leaving Organization */
+  const [organizationDeepLinkRoleId, setOrganizationDeepLinkRoleId] = useState<
+    string | null
+  >(() => getRolePathFromLocation().roleId);
   const [showAssignmentWizard, setShowAssignmentWizard] =
     useState(false);
   const [editingArticle, setEditingArticle] =
@@ -198,6 +214,20 @@ export default function App() {
   useEffect(() => {
     checkServerHealth().catch(() => {});
   }, []);
+
+  // After first successful auth (null → user), apply /roles/:id from URL. Do not re-run on
+  // user object reference changes (token refresh) or we would yank users back to /roles/... while on dashboard.
+  const hadUserRef = useRef(false);
+  useEffect(() => {
+    if (user && !hadUserRef.current) {
+      const { view, roleId } = getRolePathFromLocation();
+      if (roleId) {
+        setCurrentView(view);
+        setOrganizationDeepLinkRoleId(roleId);
+      }
+    }
+    hadUserRef.current = !!user;
+  }, [user]);
 
   // Read demo_org_id from URL on mount — activates org preview for demo links
   useEffect(() => {
@@ -461,6 +491,9 @@ export default function App() {
 
     // Store previous view for back navigation
     setPreviousView(currentView);
+    if (view !== "organization") {
+      setOrganizationDeepLinkRoleId(null);
+    }
     setCurrentView(view);
   };
 
@@ -759,6 +792,7 @@ export default function App() {
         return (
           <Organization
             role={currentRole}
+            initialRoleId={organizationDeepLinkRoleId}
             onNavigate={requestNavigate}
             onStartPlaybook={(sourceFileId: string) => {
               console.log('[App] onStartPlaybook called with sourceFileId:', sourceFileId);
