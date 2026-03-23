@@ -77,6 +77,29 @@ import {
 } from './ui/alert-dialog';
 import { X } from 'lucide-react';
 
+const MAX_ONET_SEARCH_LEN = 1800;
+
+/**
+ * Combine role title + job description for O*NET trigram search so "Acme Corp Sales Associate Role"
+ * still matches retail/sales occupations when the JD mentions sales floor, customers, etc.
+ */
+function buildOnetSearchTerm(roleName: string, jobDescription?: string | null): string {
+  let base = (roleName || '').trim();
+  base = base
+    .replace(/\b(acme|corp|corporation|company|inc|llc|ltd)\b/gi, ' ')
+    .replace(/\b(the)\b/gi, ' ')
+    .replace(/\b(role|position|opening)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const jd = (jobDescription || '').trim();
+  if (jd.length > 0) {
+    const snippet = jd.slice(0, 700).replace(/\s+/g, ' ');
+    const combined = `${base} ${snippet}`.trim();
+    return combined.slice(0, MAX_ONET_SEARCH_LEN);
+  }
+  return base.slice(0, MAX_ONET_SEARCH_LEN);
+}
+
 interface RoleDetailPageProps {
   roleId: string | 'new';
   onBack: () => void;
@@ -240,18 +263,27 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   useEffect(() => {
     if (roleId === 'new' && formData.name && !selectedProfile) {
       const timer = setTimeout(() => {
-        searchProfiles(formData.name);
+        searchProfiles(buildOnetSearchTerm(formData.name, formData.job_description));
       }, 500); // Debounce 500ms
 
       return () => clearTimeout(timer);
     } else if (role?.name && (!role.onet_code || isChangingProfile)) {
       const timer = setTimeout(() => {
-        searchProfiles(role.name);
+        searchProfiles(buildOnetSearchTerm(role.name, role.job_description));
       }, 500); // Debounce 500ms
 
       return () => clearTimeout(timer);
     }
-  }, [role?.name, formData.name, roleId, selectedProfile, isChangingProfile, role?.onet_code]);
+  }, [
+    role?.name,
+    formData.name,
+    formData.job_description,
+    role?.job_description,
+    roleId,
+    selectedProfile,
+    isChangingProfile,
+    role?.onet_code,
+  ]);
 
   // Load profile details when a profile is selected (for preview only)
   useEffect(() => {
@@ -342,7 +374,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           });
         } else {
           // fallback to search-based match
-          const matches = await onetLocal.searchProfiles(data.name || '', 4);
+          const matches = await onetLocal.searchProfiles(
+            buildOnetSearchTerm(data.name || '', data.job_description),
+            4,
+          );
           const match = matches.find((m) => m.onet_code === data.onet_code);
           if (match) {
             setSelectedProfile(match);
@@ -610,7 +645,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     } catch (error: any) {
       console.error('Error loading profile details:', error);
       toast.error('Failed to load profile details', {
-        description: error.message || 'An unexpected error occurred',
+        description:
+          error?.message ||
+          'Could not load O*NET data. In demo mode, O*NET tables must allow read access (see migrations).',
       });
       return null;
     }
@@ -649,7 +686,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         }
         // Trigger profile search based on role name
         if (newRole.name) {
-          searchProfiles(newRole.name);
+          searchProfiles(buildOnetSearchTerm(newRole.name, newRole.job_description));
         }
         // Update the URL to reflect the new role ID (but stay on same page)
         // The parent component should handle navigation if needed
@@ -746,7 +783,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       if (details) {
         setPreviewProfile(details);
       } else {
-        toast.error('Failed to load profile details');
+        toast.error('Could not load O*NET profile details', {
+          description:
+            'This match is from search, but full occupation data is missing for this code. If you are in demo mode, ensure database migrations are applied.',
+        });
         setIsPreviewOpen(false);
       }
     } catch (error) {
@@ -1897,7 +1937,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             <p className="text-sm text-muted-foreground mt-1">
               {role?.onet_code && !isChangingProfile
                 ? 'Current role profile match'
-                : 'Automatically matched profiles based on role name'}
+                : 'Automatically matched using role name and job description text'}
             </p>
           </div>
           {role?.onet_code && !isChangingProfile ? (
@@ -1908,7 +1948,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 setIsChangingProfile(true);
                 // Re-search to show suggestions
                 if (role?.name) {
-                  searchProfiles(role.name);
+                  searchProfiles(buildOnetSearchTerm(role.name, role.job_description));
                 }
               }}
             >
@@ -1926,7 +1966,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     if (e.target.value.trim()) {
                       searchProfiles(e.target.value);
                     } else if (role?.name || formData.name) {
-                      searchProfiles(role?.name || formData.name);
+                      searchProfiles(
+                        buildOnetSearchTerm(
+                          role?.name || formData.name,
+                          role?.job_description ?? formData.job_description,
+                        ),
+                      );
                     }
                   }, 500);
                   return () => clearTimeout(timer);
@@ -1940,7 +1985,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   if (searchTerm.trim()) {
                     searchProfiles(searchTerm);
                   } else if (role?.name || formData.name) {
-                    searchProfiles(role?.name || formData.name);
+                    searchProfiles(
+                      buildOnetSearchTerm(
+                        role?.name || formData.name,
+                        role?.job_description ?? formData.job_description,
+                      ),
+                    );
                   }
                 }}
               >
