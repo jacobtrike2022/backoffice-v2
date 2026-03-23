@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -91,6 +91,8 @@ function buildOnetSearchTerm(roleName: string, jobDescription?: string | null): 
     .replace(/\b(acme|corp|corporation|company|inc|llc|ltd)\b/gi, ' ')
     .replace(/\b(the)\b/gi, ' ')
     .replace(/\b(role|position|opening)\b/gi, ' ')
+    // Remove workflow suffixes that pollute retrieval for generated demo role names
+    .replace(/\b(job\s*desc(ription)?|jd|extract(ed)?|example|demo)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   const jd = (jobDescription || '').trim();
@@ -120,6 +122,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewProfile, setPreviewProfile] = useState<ProfileDetails | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const searchRequestSeq = useRef(0);
+  const lastSearchError = useRef<string>('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -264,15 +268,20 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
   // Auto-search profiles when role name changes (only if no profile selected or changing profile)
   useEffect(() => {
+    // Manual input takes precedence; avoid overlapping auto RPCs that flood toasts.
+    if (searchTerm.trim().length > 0) {
+      return;
+    }
+
     if (roleId === 'new' && formData.name && !selectedProfile) {
       const timer = setTimeout(() => {
-        searchProfiles(buildOnetSearchTerm(formData.name, formData.job_description));
+        searchProfiles(buildOnetSearchTerm(formData.name, formData.job_description), { silent: true });
       }, 500); // Debounce 500ms
 
       return () => clearTimeout(timer);
     } else if (role?.name && (!role.onet_code || isChangingProfile)) {
       const timer = setTimeout(() => {
-        searchProfiles(buildOnetSearchTerm(role.name, role.job_description));
+        searchProfiles(buildOnetSearchTerm(role.name, role.job_description), { silent: true });
       }, 500); // Debounce 500ms
 
       return () => clearTimeout(timer);
@@ -286,6 +295,39 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     selectedProfile,
     isChangingProfile,
     role?.onet_code,
+    searchTerm,
+  ]);
+
+  // Debounced manual search in the input field.
+  useEffect(() => {
+    const isSearchInputVisible = !(role?.onet_code && !isChangingProfile);
+    if (!isSearchInputVisible) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (searchTerm.trim()) {
+        searchProfiles(searchTerm, { silent: true });
+      } else if (role?.name || formData.name) {
+        searchProfiles(
+          buildOnetSearchTerm(
+            role?.name || formData.name,
+            role?.job_description ?? formData.job_description,
+          ),
+          { silent: true },
+        );
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    searchTerm,
+    role?.onet_code,
+    isChangingProfile,
+    role?.name,
+    role?.job_description,
+    formData.name,
+    formData.job_description,
   ]);
 
   // Load profile details when a profile is selected (for preview only)
@@ -620,23 +662,39 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     }
   }
 
-  async function searchProfiles(term: string) {
+  async function searchProfiles(term: string, options?: { silent?: boolean }) {
     if (!term || term.trim().length === 0) {
       setProfileMatches([]);
       return;
     }
 
+    const requestId = ++searchRequestSeq.current;
+
     try {
       setIsSearching(true);
       const matches = await onetLocal.searchProfiles(term, 4);
+      if (requestId !== searchRequestSeq.current) {
+        return;
+      }
+      lastSearchError.current = '';
       setProfileMatches(matches);
     } catch (error: any) {
+      if (requestId !== searchRequestSeq.current) {
+        return;
+      }
       console.error('Error searching profiles:', error);
-      toast.error('Failed to search profiles', {
-        description: error.message || 'An unexpected error occurred',
-      });
+      const message = error.message || 'An unexpected error occurred';
+      if (!options?.silent || message !== lastSearchError.current) {
+        toast.error('Failed to search profiles', {
+          id: 'onet-search-error',
+          description: message,
+        });
+      }
+      lastSearchError.current = message;
     } finally {
-      setIsSearching(false);
+      if (requestId === searchRequestSeq.current) {
+        setIsSearching(false);
+      }
     }
   }
 
@@ -1963,11 +2021,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               <Input
                 placeholder="Search profiles..."
                 value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  const timer = setTimeout(() => {
-                    if (e.target.value.trim()) {
-                      searchProfiles(e.target.value);
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (searchTerm.trim()) {
+                      searchProfiles(searchTerm);
                     } else if (role?.name || formData.name) {
                       searchProfiles(
                         buildOnetSearchTerm(
@@ -1976,8 +2034,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                         ),
                       );
                     }
-                  }, 500);
-                  return () => clearTimeout(timer);
+                  }
                 }}
                 className="w-64"
               />
