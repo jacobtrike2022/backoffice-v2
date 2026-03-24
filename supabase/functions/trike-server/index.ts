@@ -18537,6 +18537,14 @@ async function handlePlaybookConfirmTrack(req: Request): Promise<Response> {
       }, 400);
     }
 
+    const assignedChunkCount = (track.playbook_track_chunks || []).length;
+    if (assignedChunkCount === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Cannot confirm track with no chunks. Drag at least one chunk into this track first."
+      }, 400);
+    }
+
     // Update track status
     const { data: updatedTrack, error: updateError } = await supabase
       .from("playbook_tracks")
@@ -18615,11 +18623,14 @@ async function handlePlaybookGenerateDraft(req: Request): Promise<Response> {
         .from("playbook_tracks")
         .update({
           status: 'confirmed',
-          generation_error: 'No chunks found for this track'
+          generation_error: 'No chunks found for this track. Assign chunks before generating draft.'
         })
         .eq("id", playbook_track_id);
 
-      return jsonResponse({ success: false, error: "No chunks found for this track" }, 400);
+      return jsonResponse({
+        success: false,
+        error: "No chunks found for this track. Drag chunks into this track first, then Generate Draft."
+      }, 400);
     }
 
     console.log('[playbook/generate-draft] Generating draft from', sortedChunks.length, 'chunks');

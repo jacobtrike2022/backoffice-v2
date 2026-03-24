@@ -50,6 +50,7 @@ import {
   PlaybookTrackChunk,
   PlaybookConflict,
   analyzeSource,
+  getPlaybooks,
   getPlaybookById,
   updateGroupings,
   confirmTrack,
@@ -117,14 +118,25 @@ const initialState: PlaybookState = {
   draftPreviewTrackId: null,
 };
 
+function hasAssignedChunks(track?: PlaybookTrack | null): boolean {
+  if (!track) return false;
+  if ((track.chunk_count || 0) > 0) return true;
+  return (track.chunks?.length || 0) > 0;
+}
+
 function playbookReducer(state: PlaybookState, action: PlaybookAction): PlaybookState {
   switch (action.type) {
     case 'SET_PLAYBOOK':
+      const firstTrackWithChunks = action.playbook.tracks?.find((t) => hasAssignedChunks(t));
       return {
         ...state,
         playbook: action.playbook,
         loading: false,
-        selectedTrackId: state.selectedTrackId || action.playbook.tracks?.[0]?.id || null,
+        selectedTrackId:
+          state.selectedTrackId ||
+          firstTrackWithChunks?.id ||
+          action.playbook.tracks?.[0]?.id ||
+          null,
       };
     case 'SET_LOADING':
       return { ...state, loading: action.loading };
@@ -238,29 +250,49 @@ export function PlaybookBuildView({
 
     async function initializePlaybook() {
       try {
-        // For now, always trigger new analysis
-        // TODO: Check for existing playbook for this source file
         setAnalyzing(true);
         dispatch({ type: 'SET_LOADING', loading: true });
 
+        // Resume latest unfinished playbook for this source file when available.
+        const existing = await getPlaybooks({
+          source_file_id: sourceFileId,
+          organizationId: organizationId!,
+        });
+        const resumable = existing.find(
+          (p) => p.status !== 'completed' && p.status !== 'cancelled',
+        );
+
+        if (resumable?.id) {
+          const playbook = await getPlaybookById(resumable.id);
+          if (playbook) {
+            dispatch({ type: 'SET_PLAYBOOK', playbook });
+            setAlbumTitle(playbook.title);
+            toast.success('Resumed existing playbook');
+            return;
+          }
+        }
+
+        // No resumable playbook found: create a fresh analysis.
         const result = await analyzeSource(sourceFileId, organizationId!, {
           checkDuplicates: true,
         });
 
-        if (result.playbook_id) {
-          // In demo mode, PostgREST + RLS visibility can lag briefly right after analyze creates rows.
-          let playbook = null;
-          for (let attempt = 0; attempt < 5; attempt++) {
-            playbook = await getPlaybookById(result.playbook_id);
-            if (playbook) break;
-            await new Promise((resolve) => setTimeout(resolve, 400));
-          }
-          if (playbook) {
-            dispatch({ type: 'SET_PLAYBOOK', playbook });
-            setAlbumTitle(playbook.title);
-          } else {
-            throw new Error('Playbook created but not yet readable');
-          }
+        if (!result.playbook_id) {
+          throw new Error('No playbook id returned from analysis');
+        }
+
+        // In demo mode, PostgREST + RLS visibility can lag briefly right after analyze creates rows.
+        let playbook = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          playbook = await getPlaybookById(result.playbook_id);
+          if (playbook) break;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        if (playbook) {
+          dispatch({ type: 'SET_PLAYBOOK', playbook });
+          setAlbumTitle(playbook.title);
+        } else {
+          throw new Error('Playbook created but not yet readable');
         }
       } catch (error) {
         console.error('Failed to initialize playbook:', error);
@@ -293,6 +325,11 @@ export function PlaybookBuildView({
 
   const handleGenerateDraft = useCallback(async (trackId: string) => {
     try {
+      const track = state.playbook?.tracks?.find((t) => t.id === trackId);
+      if (!hasAssignedChunks(track)) {
+        toast.error('No chunks assigned to this track');
+        return;
+      }
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'generating' } });
       const result = await generateDraft(trackId);
       dispatch({
@@ -311,7 +348,7 @@ export function PlaybookBuildView({
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'confirmed' } });
       toast.error('Failed to generate draft');
     }
-  }, []);
+  }, [state.playbook]);
 
   const handleApproveTrack = useCallback(async (trackId: string, editedContent?: string) => {
     try {
@@ -720,6 +757,7 @@ function TrackEditor({
   onChunkDragStart,
 }: TrackEditorProps) {
   const [selectedResolution, setSelectedResolution] = useState<string | null>(null);
+  const hasChunks = (track.chunk_count || 0) > 0 || (track.chunks?.length || 0) > 0;
 
   const statusConfig = STATUS_CONFIG[track.status] || STATUS_CONFIG.suggestion;
 
@@ -835,7 +873,8 @@ function TrackEditor({
           {track.status === 'suggestion' && (
             <Button
               onClick={() => onConfirm(track.id, selectedResolution || undefined)}
-              disabled={track.has_conflicts && !selectedResolution}
+              disabled={!hasChunks || (track.has_conflicts && !selectedResolution)}
+              title={!hasChunks ? 'Assign at least one chunk before confirming' : undefined}
             >
               <Check className="h-4 w-4 mr-2" />
               Confirm Grouping
@@ -844,6 +883,8 @@ function TrackEditor({
           {track.status === 'confirmed' && (
             <Button
               onClick={() => onGenerateDraft(track.id)}
+              disabled={!hasChunks}
+              title={!hasChunks ? 'Assign at least one chunk before generating a draft' : undefined}
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C]"
             >
               <Sparkles className="h-4 w-4 mr-2" />
