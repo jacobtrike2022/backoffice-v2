@@ -738,26 +738,26 @@ export interface RetrievalResponse {
 }
 
 /**
- * Build a Research Plan from a Scope Contract.
+ * Build a Research Plan from a Scope Contract (server accepts contractId only).
  */
 export async function buildResearchPlan(
-  contractIdOrContract: string | ScopeContract,
+  contractId: string,
   stateCode: string,
   stateName?: string,
-  useLLM: boolean = false
+  useLLM: boolean = false,
+  avoidTopics?: string
 ): Promise<ResearchPlanResponse> {
   const accessToken = await getAccessToken();
 
   const body: Record<string, unknown> = {
+    contractId,
     stateCode,
     stateName,
     useLLM,
   };
 
-  if (typeof contractIdOrContract === 'string') {
-    body.contractId = contractIdOrContract;
-  } else {
-    body.scopeContract = contractIdOrContract;
+  if (avoidTopics?.trim()) {
+    body.avoidTopics = avoidTopics.trim();
   }
 
   const response = await fetch(`${getServerUrl()}/track-relationships/variant/research-plan`, {
@@ -775,28 +775,19 @@ export async function buildResearchPlan(
 }
 
 /**
- * Execute a Research Plan and retrieve evidence.
+ * Execute a Research Plan and retrieve evidence (server accepts planId + contractId only).
  */
 export async function retrieveEvidence(
-  planIdOrPlan: string | ResearchPlan,
-  contractIdOrContract: string | ScopeContract,
+  planId: string,
+  contractId: string,
   sourceContent?: string
 ): Promise<RetrievalResponse> {
   const accessToken = await getAccessToken();
 
-  const body: Record<string, unknown> = {};
-
-  if (typeof planIdOrPlan === 'string') {
-    body.planId = planIdOrPlan;
-  } else {
-    body.researchPlan = planIdOrPlan;
-  }
-
-  if (typeof contractIdOrContract === 'string') {
-    body.contractId = contractIdOrContract;
-  } else {
-    body.scopeContract = contractIdOrContract;
-  }
+  const body: Record<string, unknown> = {
+    planId,
+    contractId,
+  };
 
   if (sourceContent) {
     body.sourceContent = sourceContent;
@@ -916,11 +907,11 @@ export interface KeyFactsExtractionResponse {
 }
 
 /**
- * Extract Key Facts from evidence blocks.
+ * Extract Key Facts from evidence blocks (server accepts contractId + planId only).
  */
 export async function extractKeyFacts(
-  contractIdOrContract: string | ScopeContract,
-  planIdOrPlan: string | ResearchPlan,
+  contractId: string,
+  planId: string,
   evidenceBlocks: EvidenceBlock[],
   stateCode: string,
   stateName?: string,
@@ -929,22 +920,12 @@ export async function extractKeyFacts(
   const accessToken = await getAccessToken();
 
   const body: Record<string, unknown> = {
+    contractId,
+    planId,
     stateCode,
     stateName,
     evidenceBlocks,
   };
-
-  if (typeof contractIdOrContract === 'string') {
-    body.contractId = contractIdOrContract;
-  } else {
-    body.scopeContract = contractIdOrContract;
-  }
-
-  if (typeof planIdOrPlan === 'string') {
-    body.planId = planIdOrPlan;
-  } else {
-    body.researchPlan = planIdOrPlan;
-  }
 
   if (sourceContent) {
     body.sourceContent = sourceContent;
@@ -1129,6 +1110,8 @@ export interface ChangeNote {
   anchorMatches: string[];
   affectedRangeStart: number;
   affectedRangeEnd: number;
+  /** Optional legacy shape from some API paths */
+  affectedRange?: { start: number; end: number };
   keyFactIds: string[];
   citations: CitationRef[];
   status: ChangeNoteStatus;
@@ -1186,6 +1169,7 @@ export interface ApplyInstructionsResponse {
   blockedChanges?: Array<{
     reason: string;
     suggestedText: string;
+    instruction?: string;
   }>;
   message?: string;
 }

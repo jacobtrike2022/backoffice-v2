@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/lib/utils/sanitizeHtml.ts",
+    "src/lib/utils/variantChatMeta.ts",
+    "src/lib/utils/sanitizeHtml.test.ts",
+    "src/lib/utils/variantChatMeta.test.ts",
+    "src/components/state-variant/__tests__/**/*.ts",
+    "src/utils/variantTrackBody.test.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "build"]
+}

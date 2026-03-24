@@ -1,6 +1,6 @@
 
   import { createRoot } from "react-dom/client";
-  import App from "./App.tsx";
+  import App from "./App";
   import "./index.css";
 
   // Global error handlers to catch unhandled errors and prevent white screens

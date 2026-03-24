@@ -20,6 +20,8 @@ import { toast } from 'sonner';
 import { getServerUrl, publicAnonKey } from '../../utils/supabase/info';
 import { getSupabaseClient } from '../../utils/supabase/client';
 import { getTrackBodyForAdaptation } from '../../utils/variantTrackBody';
+import { sanitizeHtml } from '../../lib/utils/sanitizeHtml';
+import { parseVariantAssistantContent } from '../../lib/utils/variantChatMeta';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -271,36 +273,31 @@ export function VariantGenerationChat({
         const chunk = decoder.decode(value, { stream: true });
         assistantContent += chunk;
 
-        // Check for special markers
-        if (assistantContent.includes('[READY_TO_GENERATE]')) {
-          const cleanContent = assistantContent.replace('[READY_TO_GENERATE]', '').trim();
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1].content = cleanContent;
-            return newMessages;
-          });
-          setNeedsReview(false);
-          setState('READY_TO_GENERATE');
-          break;
-        }
-
-        if (assistantContent.includes('[NEEDS_REVIEW]')) {
-          const cleanContent = assistantContent.replace('[NEEDS_REVIEW]', '').trim();
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1].content = cleanContent;
-            return newMessages;
-          });
-          setNeedsReview(true);
-          setState('READY_TO_GENERATE'); // Still allow generation, but flagged
-          break;
-        }
-
+        const { display } = parseVariantAssistantContent(assistantContent);
         setMessages(prev => {
           const newMessages = [...prev];
-          newMessages[newMessages.length - 1].content = assistantContent;
+          newMessages[newMessages.length - 1].content = display;
           return newMessages;
         });
+      }
+
+      const { display, meta, legacyReady, legacyNeedsReview } =
+        parseVariantAssistantContent(assistantContent);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1].content = display;
+        return newMessages;
+      });
+
+      const hasStructured =
+        meta &&
+        (meta.status === 'READY_TO_GENERATE' || meta.status === 'NEEDS_REVIEW');
+      const needsRev =
+        meta?.needsReview === true || (!meta && legacyNeedsReview);
+
+      if (hasStructured || legacyReady || legacyNeedsReview) {
+        setNeedsReview(needsRev);
+        setState('READY_TO_GENERATE');
       }
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -411,7 +408,7 @@ export function VariantGenerationChat({
           <h1 className="text-2xl font-bold mb-4">{generatedData.generatedTitle}</h1>
           <div 
             className="prose dark:prose-invert max-w-none"
-            dangerouslySetInnerHTML={{ __html: generatedData.generatedContent }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(generatedData.generatedContent) }}
           />
 
           {(generatedData.adaptations || []).length > 0 && (
@@ -641,7 +638,9 @@ export function VariantGenerationChat({
         <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
           <div className="flex gap-3">
             <button 
-              className="hover:text-orange-500 transition-colors"
+              type="button"
+              className="hover:text-orange-500 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              disabled={isLoading || state === 'GENERATING'}
               onClick={handleGenerate}
             >
               Skip to Generate

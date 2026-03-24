@@ -237,6 +237,17 @@ export function VariantEditorLayout({
         </div>
       </header>
 
+      {/* No validated key facts: draft is a source copy — explain so users do not think the pipeline failed silently */}
+      {draft.appliedKeyFactIds.length === 0 && (
+        <div className="px-4 py-2.5 bg-sky-500/10 border-b border-sky-500/25 flex items-start gap-2">
+          <FileText className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-sky-100/90">
+            No state-specific key facts were verified for this run, so the draft is a copy of the source for you to edit manually.
+            If you expected automatic rewrites, check pipeline details (rejected facts, gates) from the previous step or try different scope or evidence.
+          </p>
+        </div>
+      )}
+
       {/* Review warning banner */}
       {draft.status === 'generated_needs_review' && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">

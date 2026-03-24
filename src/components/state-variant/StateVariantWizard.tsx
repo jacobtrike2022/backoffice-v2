@@ -38,6 +38,7 @@ import { RolePillsSelector } from './RolePillsSelector';
 import { ResearchPlanPreview } from './ResearchPlanPreview';
 import { ProgressZapScreen } from './ProgressZapScreen';
 import { VariantEditorLayout } from './VariantEditorLayout';
+import { VariantPipelineFailureDetails } from './VariantPipelineFailureDetails';
 
 import {
   buildScopeContract,
@@ -199,6 +200,11 @@ export function StateVariantWizard({
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [failureDetailsOpen, setFailureDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setFailureDetailsOpen(false);
+  }, [isOpen]);
 
   // Auto-fetch scope contract when initialState is provided
   useEffect(() => {
@@ -302,7 +308,8 @@ export function StateVariantWizard({
         state.contractId,
         state.selectedState!.code,
         state.selectedState!.name,
-        true
+        true,
+        state.avoidTopics
       );
 
       setState(prev => ({
@@ -397,6 +404,16 @@ export function StateVariantWizard({
         return;
       }
 
+      if (
+        keyFactsResult.overallStatus === 'PASS_WITH_REVIEW' &&
+        keyFactsResult.keyFactsCount === 0
+      ) {
+        toast.info('No key facts passed automatic checks', {
+          description:
+            'Continuing with a source-based draft you can edit manually. Use Try again later if you want to re-run research.',
+        });
+      }
+
       // Step 3: Generate draft
       console.log('[StateVariantWizard] Step 3: Generating draft...');
       const draftResult = await generateDraft({
@@ -457,6 +474,7 @@ export function StateVariantWizard({
 
   // Retry failed stage
   const handleRetry = () => {
+    setFailureDetailsOpen(false);
     if (state.failedStage === 'scope-contract') {
       if (state.selectedState) {
         handleStateSelect(state.selectedState);
@@ -591,9 +609,7 @@ export function StateVariantWizard({
             error={state.error}
             failedStage={state.failedStage}
             onRetry={handleRetry}
-            onViewDetails={() => {
-              // Could open a modal with rejected facts/evidence
-            }}
+            onViewDetails={() => setFailureDetailsOpen(true)}
           />
         );
 
@@ -629,51 +645,77 @@ export function StateVariantWizard({
   const isFullScreen = state.step === 'editor';
 
   // For fullscreen editor, use DialogContentRaw with manual portal/overlay
+  const failureDetails = (
+    <VariantPipelineFailureDetails
+      open={failureDetailsOpen}
+      onOpenChange={setFailureDetailsOpen}
+      failedStage={state.failedStage}
+      error={state.error}
+      keyFactsResponse={state.keyFactsResponse}
+      retrievalResponse={state.retrievalResponse}
+      draft={state.draft}
+    />
+  );
+
   if (isFullScreen) {
+    const editorDescId = 'state-variant-editor-dialog-desc';
     return (
-      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogPortal>
-          <DialogOverlay />
-          <DialogContentRaw
-            className="inset-0 w-screen h-screen flex flex-col overflow-hidden bg-background"
-          >
-            {renderStepContent()}
-          </DialogContentRaw>
-        </DialogPortal>
-      </Dialog>
+      <>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+          <DialogPortal>
+            <DialogOverlay />
+            <DialogContentRaw
+              className="inset-0 w-screen h-screen flex flex-col overflow-hidden bg-background"
+              aria-describedby={editorDescId}
+            >
+              <DialogHeader className="sr-only">
+                <DialogTitle>State variant editor</DialogTitle>
+                <DialogDescription id={editorDescId}>
+                  Review and edit the draft for {state.selectedState?.name ?? state.selectedState?.code ?? 'the selected state'}.
+                </DialogDescription>
+              </DialogHeader>
+              {renderStepContent()}
+            </DialogContentRaw>
+          </DialogPortal>
+        </Dialog>
+        {failureDetails}
+      </>
     );
   }
 
   // Standard dialog for non-fullscreen steps
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        style={{ width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
-      >
-        <DialogHeader className="min-w-0">
-          <div className="flex items-center justify-between min-w-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
-                <MapPin className="w-5 h-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <DialogTitle>Create State Variant</DialogTitle>
-                <DialogDescription className="truncate">
-                  {sourceTrack.title}
-                </DialogDescription>
+    <>
+      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <DialogContent
+          style={{ width: 580, maxWidth: 580, minHeight: 300, maxHeight: 'calc(100vh - 48px)', overflow: 'auto' }}
+        >
+          <DialogHeader className="min-w-0">
+            <div className="flex items-center justify-between min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
+                  <MapPin className="w-5 h-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <DialogTitle>Create State Variant</DialogTitle>
+                  <DialogDescription className="truncate">
+                    {sourceTrack.title}
+                  </DialogDescription>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Step indicator */}
-          {state.step !== 'editor' && (
-            <StepIndicator currentStep={state.step} />
-          )}
-        </DialogHeader>
+            {/* Step indicator */}
+            {state.step !== 'editor' && (
+              <StepIndicator currentStep={state.step} />
+            )}
+          </DialogHeader>
 
-        {renderStepContent()}
-      </DialogContent>
-    </Dialog>
+          {renderStepContent()}
+        </DialogContent>
+      </Dialog>
+      {failureDetails}
+    </>
   );
 }
 

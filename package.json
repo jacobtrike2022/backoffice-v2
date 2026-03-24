@@ -45,6 +45,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "*",
     "cmdk": "^1.1.1",
+    "dompurify": "^3.3.3",
     "embla-carousel-react": "^8.6.0",
     "hono": "*",
     "input-otp": "^1.4.2",
@@ -65,18 +66,32 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^20.10.0",
     "@vitejs/plugin-react-swc": "^3.10.2",
+    "eslint": "^9.21.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "jsdom": "^25.0.1",
+    "rollup-plugin-visualizer": "^5.14.0",
     "tsx": "^4.7.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.1",
     "vite": "6.3.5",
     "vitest": "^2.1.9"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "analyze": "ANALYZE=1 vite build",
+    "lint": "eslint src --max-warnings 900",
+    "typecheck": "tsc --noEmit -p tsconfig.ci.json",
+    "typecheck:all": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:ci": "vitest run --reporter=dot",
     "import:onet": "tsx scripts/import-onet-data.ts",
-    "verify:onet": "tsx scripts/verify-onet-import.ts"
+    "verify:onet": "tsx scripts/verify-onet-import.ts",
+    "smoke:ny-key-facts": "tsx scripts/ny-variant-key-facts-smoke.ts"
   }
 }

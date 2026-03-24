@@ -5662,27 +5662,40 @@ function isAnonBearer(req: Request): boolean {
   return !!token && !!publicAnonKey && token === publicAnonKey;
 }
 
+/**
+ * Authorize access to a tenant-scoped resource. Demo/anon callers must use the resource's org
+ * (matches track's organization_id). JWT callers must belong to the same org. No spoofing via ID alone.
+ */
+async function requireOrgAccess(
+  req: Request,
+  resourceOrganizationId: string | null | undefined,
+): Promise<string | null> {
+  if (!resourceOrganizationId) return null;
+  if (isAnonBearer(req)) {
+    return resourceOrganizationId;
+  }
+  const tokenOrgId = await getOrgIdFromToken(req);
+  if (!tokenOrgId || tokenOrgId !== resourceOrganizationId) return null;
+  return tokenOrgId;
+}
+
 async function handleGetSourceTrack(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
+    console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}`);
 
-    // Fallback: Get org_id from the track itself if token extraction failed
+    const { data: derivedTrack, error: trackError } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trackError || !derivedTrack?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, derivedTrack.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetSourceTrack] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetSourceTrack] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetSourceTrack] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Query ALL source relationships (a checkpoint can have multiple sources)
@@ -5760,25 +5773,21 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
 
 async function handleGetDerivedTracks(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    console.log(`🔍 [GetDerivedTracks] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
-    
-    // Fallback: Get org_id from the track itself if token extraction failed
+    console.log(`🔍 [GetDerivedTracks] trackId: ${trackId}, relationshipType: ${relationshipType}`);
+
+    const { data: srcTrack, error: trackErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trackErr || !srcTrack?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, srcTrack.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetDerivedTracks] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetDerivedTracks] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetDerivedTracks] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     let query = supabase
@@ -5860,24 +5869,19 @@ async function handleGetDerivedTracks(trackId: string, relationshipType: string 
 
 async function handleGetRelationshipStats(trackId: string, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    
-    // Fallback: Get org_id from the track itself if token extraction failed
+    const { data: tr, error: trErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trErr || !tr?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, tr.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetRelationshipStats] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetRelationshipStats] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetRelationshipStats] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Get derived tracks (where this is the source)
@@ -5965,29 +5969,29 @@ async function handleCreateRelationship(req: Request): Promise<Response> {
   try {
     const body = await req.json();
     const { sourceTrackId, derivedTrackId, relationshipType = "source" } = body;
-    
-    let orgId = await getOrgIdFromToken(req);
-    
-    // Fallback: Get org_id from one of the tracks if token extraction failed
-    if (!orgId) {
-      console.log("⚠️ [CreateRelationship] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId || derivedTrackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [CreateRelationship] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [CreateRelationship] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
-    }
-    
+
     if (!sourceTrackId || !derivedTrackId) {
       return jsonResponse({ error: "sourceTrackId and derivedTrackId are required" }, 400);
+    }
+
+    const { data: src } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .single();
+    const { data: der } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", derivedTrackId)
+      .single();
+
+    if (!src?.organization_id || !der?.organization_id || src.organization_id !== der.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, src.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
 
@@ -11124,7 +11128,7 @@ ${topicAnalysis.map(t => `• ${t}`).join('\n')}
 
 Or type "proceed" to generate the variant with a "Needs Review" flag.
 
-[NEEDS_REVIEW]`;
+[[VARIANT_CHAT_META:${JSON.stringify({ status: "NEEDS_REVIEW", needsReview: true })}]]`;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -11690,12 +11694,11 @@ function formatResearchResult(
   result += formatVariantOpenQuestionsList(variantType, targetLabel);
   result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
-  // Status indicator for UI
-  if (!qualityCheck.passed) {
-    result += `[NEEDS_REVIEW]`;
-  } else {
-    result += `[READY_TO_GENERATE]`;
-  }
+  // Structured status for UI (parsed by VariantGenerationChat; avoids ambiguous marker text)
+  const needsReviewFlag = !qualityCheck.passed;
+  const statusToken = needsReviewFlag ? "NEEDS_REVIEW" : "READY_TO_GENERATE";
+  result +=
+    `\n\n[[VARIANT_CHAT_META:${JSON.stringify({ status: statusToken, needsReview: needsReviewFlag })}]]`;
 
   return result;
 }
@@ -12209,23 +12212,19 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [BuildScopeContract] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
+    const { data: trackOrgRow, error: trackOrgErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .single();
 
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [BuildScopeContract] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [BuildScopeContract] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (trackOrgErr || !trackOrgRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, trackOrgRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the source track
@@ -12240,8 +12239,11 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
       return jsonResponse({ error: "Source track not found" }, 404);
     }
 
-    // Get source content
-    const sourceContent = track.content_text || track.transcript || track.description || '';
+    const primary = getTrackSourceTextForVariant(track);
+    const sourceContent =
+      primary.length >= 50
+        ? primary
+        : `${primary}\n${track.description || ""}`.trim() || (track.description || "").trim();
 
     if (!sourceContent || sourceContent.trim().length < 50) {
       return jsonResponse({ error: "Source track has insufficient content for scope analysis" }, 400);
@@ -12503,19 +12505,19 @@ async function handleFreezeScopeContractRoles(contractId: string, req: Request):
       return jsonResponse({ error: "primaryRole is required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
+    const { data: crow } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
+
+    if (!crow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, crow.organization_id);
     if (!orgId) {
-      const { data: contract } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
-      if (contract?.organization_id) {
-        orgId = contract.organization_id;
-      } else {
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch existing contract
@@ -12569,23 +12571,19 @@ async function handleFreezeScopeContractRoles(contractId: string, req: Request):
  */
 async function handleGetScopeContract(contractId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetScopeContract] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: contractOrg, error: contractOrgError } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [GetScopeContract] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [GetScopeContract] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (contractOrgError || !contractOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, contractOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: contract, error } = await supabase
@@ -12691,29 +12689,25 @@ OUTPUT FORMAT (JSON):
  */
 async function handleBuildResearchPlan(req: Request): Promise<Response> {
   try {
-    const { contractId, stateCode, stateName, useLLM } = await req.json();
+    const { contractId, stateCode, stateName, useLLM, avoidTopics } = await req.json();
 
     if (!contractId || !stateCode) {
       return jsonResponse({ error: "contractId and stateCode are required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [BuildResearchPlan] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: contractRow, error: contractOrgError } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [BuildResearchPlan] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [BuildResearchPlan] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (contractOrgError || !contractRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, contractRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the scope contract
@@ -12786,6 +12780,19 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
     };
     queries.push(stateDifferenceQuery);
 
+    const avoidList: string[] =
+      typeof avoidTopics === "string"
+        ? avoidTopics.split(/[,;\n]+/).map((s: string) => s.trim()).filter(Boolean)
+        : Array.isArray(avoidTopics)
+          ? avoidTopics.map((s: unknown) => String(s).trim()).filter(Boolean)
+          : [];
+
+    if (avoidList.length > 0) {
+      for (const q of queries as Array<{ negativeTerms?: string[] }>) {
+        q.negativeTerms = [...new Set([...(q.negativeTerms || []), ...avoidList])];
+      }
+    }
+
     const researchPlan = {
       id: crypto.randomUUID(),
       stateCode,
@@ -12794,7 +12801,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       contractId,
       primaryRole: scopeContract.primaryRole,
       queries,
-      globalNegativeTerms: [],
+      globalNegativeTerms: avoidList,
       sourcePolicy: {
         preferTier1: true,
         allowTier2Justia: true,
@@ -12824,7 +12831,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       planId: plan.id,
       researchPlan,
       queryCount: queries.length,
-      globalNegativeCount: 0,
+      globalNegativeCount: avoidList.length,
     });
 
   } catch (error: any) {
@@ -12838,23 +12845,19 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
  */
 async function handleGetResearchPlan(planId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to plan's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetResearchPlan] No orgId from token, trying to get from plan...");
-      const { data: planOrg, error: planOrgError } = await supabase
-        .from("variant_research_plans")
-        .select("organization_id")
-        .eq("id", planId)
-        .single();
+    const { data: planOrg, error: planOrgError } = await supabase
+      .from("variant_research_plans")
+      .select("organization_id")
+      .eq("id", planId)
+      .single();
 
-      if (!planOrgError && planOrg?.organization_id) {
-        orgId = planOrg.organization_id;
-        console.log(`✅ [GetResearchPlan] Got orgId from plan: ${orgId}`);
-      } else {
-        console.error("❌ [GetResearchPlan] Could not get orgId from plan either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (planOrgError || !planOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, planOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: plan, error } = await supabase
@@ -13124,23 +13127,19 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       return jsonResponse({ error: "planId and contractId are required" }, 400);
     }
 
-    // Try to get org from token, fallback to plan's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [RetrieveEvidence] No orgId from token, trying to get from plan...");
-      const { data: planOrg, error: planOrgError } = await supabase
-        .from("variant_research_plans")
-        .select("organization_id")
-        .eq("id", planId)
-        .single();
+    const { data: planOrgRow, error: planOrgErr0 } = await supabase
+      .from("variant_research_plans")
+      .select("organization_id")
+      .eq("id", planId)
+      .single();
 
-      if (!planOrgError && planOrg?.organization_id) {
-        orgId = planOrg.organization_id;
-        console.log(`✅ [RetrieveEvidence] Got orgId from plan: ${orgId}`);
-      } else {
-        console.error("❌ [RetrieveEvidence] Could not get orgId from plan either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (planOrgErr0 || !planOrgRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, planOrgRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the research plan
@@ -13314,23 +13313,19 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       return jsonResponse({ error: "contractId, planId, and stateCode are required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [ExtractKeyFacts] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: cOrg, error: cOrgErr } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [ExtractKeyFacts] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [ExtractKeyFacts] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (cOrgErr || !cOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, cOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[ExtractKeyFacts] Starting extraction for ${stateCode} with ${evidenceBlocks?.length || 0} evidence blocks`);
@@ -13494,7 +13489,10 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       };
 
       // Run QA gates
-      const gateResults = runKeyFactQAGates(fact, scopeContract, passedFacts);
+      const gateResults = runKeyFactQAGates(fact, scopeContract, passedFacts, {
+        stateCode,
+        stateName: stateName || stateCode,
+      });
       fact.qaStatus = gateResults.status;
       fact.qaFlags = gateResults.flags;
 
@@ -13602,14 +13600,60 @@ function isStrongClaimCheck(factText: string): boolean {
   return STRONG_CLAIM_PATTERNS.some(pattern => pattern.test(factText));
 }
 
+/** Statute / rule anchor in the fact sentence (not just "In New York…"). */
+function hasStatutoryOrAgencyAnchor(factText: string): boolean {
+  return /\b(§\s*[\d.\-]+|(section|sec\.?)\s*\d+[a-z]?|article\s*\d+|chapter\s*\d+\b|ABC\b|SLA\b|statute\s+\d+|alcoholic\s+beverage\s+control|r\.?\s*cr\s*\d+|comp\.?\s*codes?|c\.?\s*f\.?\s*r\.?|G\.?O\.?\s*\d+|N\.?Y\.?\s*CRR|N\.?Y\.?\s*CR\s*\d+)/i.test(
+    factText,
+  );
+}
+
+/** Strip leading "In {State}," so we can detect generic retail clichés. */
+function stripLeadingStateClause(factText: string, stateName: string, stateCode: string): string {
+  let t = factText.trim();
+  if (stateName) {
+    const escaped = stateName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    t = t.replace(new RegExp(`^In\\s+${escaped},?\\s+`, "i"), "");
+  }
+  if (stateCode) {
+    t = t.replace(new RegExp(`^In\\s+${stateCode}\\b,?\\s+`, "i"), "");
+  }
+  return t.trim();
+}
+
+/**
+ * Generic US retail alcohol training lines that are useless for "state variant"
+ * unless paired with a real statutory/agency anchor in the same sentence.
+ */
+function matchesGenericRetailComplianceCliche(
+  factText: string,
+  stateName: string,
+  stateCode: string,
+): boolean {
+  const body = stripLeadingStateClause(factText, stateName, stateCode);
+  const b = body.toLowerCase();
+  const patterns = [
+    /\b(must|shall|required to)\s+(ask|check|verify|request)\s+(for\s+)?(a\s+)?(valid\s+)?id\b/i,
+    /\b(check|verify|request)\s+(for\s+)?(a\s+)?(valid\s+)?id\b/i,
+    /\b(age|id)\s+verification\b/i,
+    /\brefuse\s+(the\s+)?sale\b.*\b(intoxicated|intoxication)\b/i,
+    /\brefuse\s+to\s+sell\b.*\b(intoxicated|intoxication)\b/i,
+    /\bdo\s+not\s+sell\b.*\b(intoxicated|minor|minors)\b/i,
+    /\brefuse\s+service\b.*\b(intoxicated|intoxication)\b/i,
+  ];
+  return patterns.some((p) => p.test(b));
+}
+
 // QA Gate runner for key facts
 function runKeyFactQAGates(
   fact: any,
   scopeContract: any,
-  existingFacts: any[]
+  existingFacts: any[],
+  opts?: { stateCode?: string; stateName?: string },
 ): { status: string; flags: string[]; failedGates: string[] } {
   const flags: string[] = [];
   const failedGates: string[] = [];
+  const stateCode = opts?.stateCode || "";
+  const stateName = opts?.stateName || "";
 
   // Gate A: Mapping/Scope - must map to allowed action and hit anchor
   const actionMatch = (scopeContract.allowedLearnerActions || []).some((action: string) => {
@@ -13624,12 +13668,30 @@ function runKeyFactQAGates(
     failedGates.push('A');
   }
 
+  // Gate F: State-variant specificity — reject generic nationwide training clichés
+  if (stateCode && stateName) {
+    if (
+      matchesGenericRetailComplianceCliche(fact.factText, stateName, stateCode) &&
+      !hasStatutoryOrAgencyAnchor(fact.factText)
+    ) {
+      flags.push(
+        `F: Generic nationwide compliance cliché — cite a statute section, ABC/SLA rule, or concrete state-specific regulatory detail in the fact`,
+      );
+      failedGates.push('F');
+    }
+  }
+
   // Gate B: Strong claim support - strong claims need tier1/tier2 citations
   if (fact.isStrongClaim) {
     const hasTier1or2 = fact.citations.some((c: any) => c.tier === 'tier1' || c.tier === 'tier2');
-    if (!hasTier1or2) {
+    const anchoredInText = hasStatutoryOrAgencyAnchor(fact.factText);
+    if (!hasTier1or2 && !anchoredInText) {
       flags.push(`B: Strong claim lacks Tier-1/Tier-2 citation support`);
       failedGates.push('B');
+    } else if (!hasTier1or2 && anchoredInText) {
+      flags.push(
+        `B: Strong claim — statute/rule cited in text; tier may be secondary; verify against source`,
+      );
     }
   }
 
@@ -13689,6 +13751,18 @@ function runKeyFactQAGates(
 // Gate E: Size guardrails
 function runGateE(facts: any[], evidenceCount: number): any {
   if (facts.length === 0) {
+    // Evidence existed but every candidate failed QA/citation — fail-closed is harsh for authors.
+    // Degrade to PASS_WITH_REVIEW so generateDraft can still produce a source-copy draft for manual edit.
+    if (evidenceCount > 0) {
+      return {
+        gate: 'E',
+        gateName: 'Size Guardrail Gate',
+        status: 'PASS_WITH_REVIEW',
+        reason:
+          'No key facts passed validation, but retrieved evidence is available. Proceeding with a source-based draft flagged for manual review.',
+        details: { evidenceCount, passedFactCount: 0 },
+      };
+    }
     return {
       gate: 'E',
       gateName: 'Size Guardrail Gate',
@@ -13734,13 +13808,13 @@ async function extractKeyFactsWithLLM(
   stateCode: string,
   stateName?: string
 ): Promise<any[]> {
-  const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence.
+  const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence for STATE-SPECIFIC training adaptation.
 
 OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
 {
   "keyFacts": [
     {
-      "factText": "Single sentence atomic claim about a specific state requirement",
+      "factText": "Single sentence atomic claim with a concrete regulatory anchor",
       "mappedAction": "The learner action this fact relates to",
       "anchorHit": ["relevant", "domain", "terms"],
       "citations": [
@@ -13755,14 +13829,13 @@ OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
 }
 
 CRITICAL RULES:
-1. factText must be a single atomic sentence - one claim per fact
-2. mappedAction MUST relate to one of the allowedLearnerActions provided
-3. Each fact MUST be specific to ${stateName || stateCode}
-4. quote MUST be an exact substring from the evidence - no paraphrasing
-5. evidenceId MUST be copied EXACTLY as provided - do NOT abbreviate or modify UUIDs
-6. Extract ONLY facts relevant to the domain anchors and learner role
-7. Do NOT include generic facts that apply to all states
-8. Focus on actionable requirements for the learner role`;
+1. factText must be ONE atomic sentence with ONE claim, and must name a concrete legal hook: e.g. ABC Law section, SLA rule, statute section number, or agency requirement that is specific to ${stateName || stateCode} (not generic US retail training).
+2. mappedAction MUST relate to one of the allowedLearnerActions provided.
+3. quote MUST be an exact substring from the evidence — no paraphrasing.
+4. evidenceId MUST be copied EXACTLY as provided — do NOT abbreviate UUIDs.
+5. BANNED (do not output): generic nationwide alcohol retail clichés that would still read true if you swapped in another state, such as only "must check ID", "must verify age", "must refuse intoxicated patrons" UNLESS the same sentence cites a specific ${stateName || stateCode} statute/ABC/SLA section or rule number found in the evidence quote.
+6. PREFERRED: facts that cite or restate obligations tied to named provisions (sections, articles, license types, state agency rules) visible in the snippets.
+7. If the evidence only supports weak generic duties, extract fewer facts — quality over filler.`;
 
   const evidenceSummary = evidenceBlocks.map((eb: any) => {
     // Handle both old format (evidenceId, snippets array) and new format (id, snippet string)
@@ -13799,13 +13872,12 @@ ${(scopeContract.disallowedActionClasses || []).join(', ') || 'None specified'}
 EVIDENCE BLOCKS:
 ${JSON.stringify(evidenceSummary, null, 2)}
 
-Extract atomic Key Facts. Each fact must:
-1. Be a single sentence with one specific claim
-2. Be grounded with an exact quote from evidence
-3. Be specific to ${stateName || stateCode}
-4. Be actionable for ${scopeContract.primaryRole || 'the learner'}
+Extract atomic Key Facts for ${stateName || stateCode}. Each fact must:
+1. Tie the obligation to something identifiable in ${stateName || stateCode} law or agency rules (cite section/article/agency in the sentence when the evidence supports it).
+2. Include an exact quote from evidence that substantiates that tie.
+3. Avoid filler that duplicates generic US compliance training; if you cannot ground a state-specific claim, omit the fact.
 
-Output valid JSON with keyFacts array.`;
+Output valid JSON with keyFacts array (may be empty if evidence does not support substantive state-specific claims).`;
 
   console.log(`[ExtractKeyFacts] Calling LLM with ${evidenceBlocks.length} evidence blocks`);
   console.log(`[ExtractKeyFacts] Evidence summary being sent:`, JSON.stringify(evidenceSummary, null, 2));
@@ -13837,23 +13909,19 @@ Output valid JSON with keyFacts array.`;
  */
 async function handleGetKeyFactsExtraction(extractionId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to extraction's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetKeyFactsExtraction] No orgId from token, trying to get from extraction...");
-      const { data: extractionOrg, error: extractionOrgError } = await supabase
-        .from("variant_key_facts_extractions")
-        .select("organization_id")
-        .eq("id", extractionId)
-        .single();
+    const { data: extractionOrg, error: extractionOrgError } = await supabase
+      .from("variant_key_facts_extractions")
+      .select("organization_id")
+      .eq("id", extractionId)
+      .single();
 
-      if (!extractionOrgError && extractionOrg?.organization_id) {
-        orgId = extractionOrg.organization_id;
-        console.log(`✅ [GetKeyFactsExtraction] Got orgId from extraction: ${orgId}`);
-      } else {
-        console.error("❌ [GetKeyFactsExtraction] Could not get orgId from extraction either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (extractionOrgError || !extractionOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, extractionOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Get extraction from variant_key_facts_extractions table
@@ -13922,23 +13990,19 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
       }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GenerateDraft] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: genContractOrg, error: genContractErr } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [GenerateDraft] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [GenerateDraft] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (genContractErr || !genContractOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, genContractOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[GenerateDraft] Starting draft generation for ${stateCode}, track: ${sourceTrackId}`);
@@ -14176,25 +14240,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
     }
 
     return jsonResponse({
-      draft: {
-        draftId: record.id,
-        contractId: record.contract_id,
-        extractionId: record.extraction_id,
-        sourceTrackId: record.source_track_id,
-        stateCode: record.state_code,
-        stateName: record.state_name,
-        trackType: record.track_type,
-        status: record.status,
-        draftTitle: record.draft_title,
-        draftContent: record.draft_content,
-        sourceContent: sourceContent || '',  // Return in response but not stored
-        diffOps: record.diff_ops || [],
-        changeNotes: changeNotes,  // Return the change notes we created
-        appliedKeyFactIds: record.applied_key_fact_ids || [],
-        needsReviewKeyFactIds: record.needs_review_key_fact_ids || [],
-        createdAt: record.created_at,
-        updatedAt: record.updated_at,
-      },
+      draft: formatDraftResponse(record, changeNotes, sourceContent || ""),
       success: true,
       message: `Draft generated with ${changeNotes.length} state-specific changes`,
     });
@@ -14437,28 +14483,116 @@ function buildChangeNoteTitleSimple(mappedAction: string, anchorHit: string[]): 
   return `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${object} requirement`;
 }
 
+function mapChangeNoteRowToApi(note: any): any {
+  return {
+    id: note.id,
+    title: note.title,
+    description: note.description,
+    mappedAction: note.mapped_action,
+    anchorMatches: note.anchor_matches || [],
+    affectedRangeStart: note.affected_range_start,
+    affectedRangeEnd: note.affected_range_end,
+    affectedRange: {
+      start: note.affected_range_start,
+      end: note.affected_range_end,
+    },
+    keyFactIds: note.key_fact_ids || [],
+    citations: note.citations || [],
+    status: note.status,
+  };
+}
+
+async function getSourceContentForDraftTrack(
+  sourceTrackId: string | null | undefined,
+  orgId: string,
+): Promise<string> {
+  if (!sourceTrackId) return "";
+  const { data: tr } = await supabase
+    .from("tracks")
+    .select("type, content_text, transcript")
+    .eq("id", sourceTrackId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (!tr) return "";
+  return getTrackSourceTextForVariant(tr);
+}
+
+function noteApiToDbRow(note: any, draftId: string, orgId: string) {
+  return {
+    id: note.id,
+    draft_id: draftId,
+    organization_id: orgId,
+    title: note.title || "",
+    description: note.description || "",
+    mapped_action: note.mappedAction || "",
+    anchor_matches: note.anchorMatches || [],
+    affected_range_start: note.affectedRangeStart ?? 0,
+    affected_range_end: note.affectedRangeEnd ?? 0,
+    key_fact_ids: note.keyFactIds || [],
+    citations: note.citations || [],
+    status: note.status || "applied",
+  };
+}
+
+function formatDraftResponse(draft: any, changeNotes: any[] = [], sourceContent = ""): any {
+  return {
+    draftId: draft.id,
+    contractId: draft.contract_id,
+    extractionId: draft.extraction_id,
+    sourceTrackId: draft.source_track_id,
+    stateCode: draft.state_code,
+    stateName: draft.state_name,
+    trackType: draft.track_type,
+    status: draft.status,
+    draftTitle: draft.draft_title,
+    draftContent: draft.draft_content,
+    sourceContent,
+    diffOps: draft.diff_ops || [],
+    changeNotes,
+    appliedKeyFactIds: draft.applied_key_fact_ids || [],
+    needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
+    blockedReasons: draft.blocked_reasons,
+    createdAt: draft.created_at,
+    updatedAt: draft.updated_at,
+  };
+}
+
+async function loadDraftApiPayload(draftId: string, orgId: string): Promise<any | null> {
+  const { data: draft } = await supabase
+    .from("variant_drafts")
+    .select("*")
+    .eq("id", draftId)
+    .eq("organization_id", orgId)
+    .single();
+  if (!draft) return null;
+  const { data: noteRows } = await supabase
+    .from("variant_change_notes")
+    .select("*")
+    .eq("draft_id", draftId)
+    .eq("organization_id", orgId)
+    .order("id");
+  const sourceContent = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+  return formatDraftResponse(draft, (noteRows || []).map(mapChangeNoteRowToApi), sourceContent);
+}
+
 /**
  * Handler: Get Draft
  */
 async function handleGetDraft(draftId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to draft's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetDraft] No orgId from token, trying to get from draft...");
-      const { data: draftOrg, error: draftOrgError } = await supabase
-        .from("variant_drafts")
-        .select("organization_id")
-        .eq("id", draftId)
-        .single();
+    const { data: draftOrg, error: draftOrgError } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
 
-      if (!draftOrgError && draftOrg?.organization_id) {
-        orgId = draftOrg.organization_id;
-        console.log(`✅ [GetDraft] Got orgId from draft: ${orgId}`);
-      } else {
-        console.error("❌ [GetDraft] Could not get orgId from draft either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (draftOrgError || !draftOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, draftOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: draft, error } = await supabase
@@ -14480,41 +14614,10 @@ async function handleGetDraft(draftId: string, req: Request): Promise<Response> 
       .eq('organization_id', orgId)
       .order('id');
 
-    // Transform change notes to expected format
-    const formattedChangeNotes = (changeNotes || []).map((note: any) => ({
-      id: note.id,
-      title: note.title,
-      description: note.description,
-      mappedAction: note.mapped_action,
-      anchorMatches: note.anchor_matches || [],
-      affectedRange: {
-        start: note.affected_range_start,
-        end: note.affected_range_end,
-      },
-      keyFactIds: note.key_fact_ids || [],
-      citations: note.citations || [],
-      status: note.status,
-    }));
+    const sourceContentOut = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+    const formattedChangeNotes = (changeNotes || []).map(mapChangeNoteRowToApi);
 
-    return jsonResponse({
-      draftId: draft.id,
-      contractId: draft.contract_id,
-      extractionId: draft.extraction_id,
-      sourceTrackId: draft.source_track_id,
-      stateCode: draft.state_code,
-      stateName: draft.state_name,
-      trackType: draft.track_type,
-      status: draft.status,
-      draftTitle: draft.draft_title,
-      draftContent: draft.draft_content,
-      sourceContent: draft.source_content,
-      diffOps: draft.diff_ops || [],
-      changeNotes: formattedChangeNotes,
-      appliedKeyFactIds: draft.applied_key_fact_ids || [],
-      needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
-      createdAt: draft.created_at,
-      updatedAt: draft.updated_at,
-    });
+    return jsonResponse(formatDraftResponse(draft, formattedChangeNotes, sourceContentOut));
 
   } catch (error: any) {
     console.error('handleGetDraft error:', error);
@@ -14533,61 +14636,64 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
       return jsonResponse({ error: "instruction is required" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    const { data: draftOrgRow } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, draftOrgRow?.organization_id);
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[ApplyInstructions] Processing instruction for draft: ${draftId}`);
 
-    // Fetch existing draft
     const { data: draft, error } = await supabase
-      .from('variant_drafts')
-      .select('*')
-      .eq('id', draftId)
-      .eq('organization_id', orgId)
+      .from("variant_drafts")
+      .select("*")
+      .eq("id", draftId)
+      .eq("organization_id", orgId)
       .single();
 
     if (error || !draft) {
       return jsonResponse({ error: "Draft not found" }, 404);
     }
 
-    // Check if draft is blocked
-    if (draft.status === 'blocked') {
+    if (draft.status === "blocked") {
+      const payload = await loadDraftApiPayload(draftId, orgId);
       return jsonResponse({
-        draft: formatDraftResponse(draft),
+        draft: payload,
         success: false,
         changesApplied: 0,
         blockedChanges: [{
           instruction,
-          reason: 'Draft is blocked and cannot be edited',
+          reason: "Draft is blocked and cannot be edited",
+          suggestedText: "",
         }],
         message: "Cannot apply instructions to blocked draft",
       });
     }
 
-    // Fetch scope contract
     const { data: contractRecord } = await supabase
-      .from('variant_scope_contracts')
-      .select('scope_contract')
-      .eq('id', contractId || draft.contract_id)
-      .eq('organization_id', orgId)
+      .from("variant_scope_contracts")
+      .select("scope_contract")
+      .eq("id", contractId || draft.contract_id)
+      .eq("organization_id", orgId)
       .single();
 
     const scopeContract = contractRecord?.scope_contract || {};
 
-    // Fetch validated key facts
     const { data: keyFacts } = await supabase
-      .from('variant_key_facts')
-      .select('*')
-      .eq('extraction_id', extractionId || draft.extraction_id)
-      .eq('organization_id', orgId);
+      .from("variant_key_facts")
+      .select("*")
+      .eq("extraction_id", extractionId || draft.extraction_id)
+      .eq("organization_id", orgId);
 
     const validatedKeyFacts = (keyFacts || []).filter((f: any) =>
-      f.qa_status === 'PASS' || f.qa_status === 'PASS_WITH_REVIEW'
+      f.qa_status === "PASS" || f.qa_status === "PASS_WITH_REVIEW"
     );
 
-    // Check if instruction would require new research
     const blockedChanges: any[] = [];
     const newFactPatterns = [
       /add.*(?:law|regulation|requirement|statute)/i,
@@ -14600,121 +14706,133 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
       if (pattern.test(instruction)) {
         const instructionLower = instruction.toLowerCase();
         const hasCoveringFact = validatedKeyFacts.some((kf: any) =>
-          (kf.fact_text || '').toLowerCase().includes(instructionLower.substring(0, 20))
+          (kf.fact_text || "").toLowerCase().includes(instructionLower.substring(0, 20))
         );
 
         if (!hasCoveringFact) {
           blockedChanges.push({
             instruction,
-            reason: 'This change would require new compliance information not in validated Key Facts.',
-            suggestion: 'Run research and key facts extraction again to include this information.',
+            reason: "This change would require new compliance information not in validated Key Facts.",
+            suggestion: "Run research and key facts extraction again to include this information.",
           });
         }
       }
     }
 
-    // Apply instruction via LLM
     const result = await applyInstructionWithLLM(
-      draft.draft_content || '',
+      draft.draft_content || "",
       instruction,
       scopeContract,
       validatedKeyFacts,
       draft.state_code,
-      draft.state_name
+      draft.state_name,
     );
 
-    // Compute new diff ops and change notes
-    const newDiffOps = computeDiffOpsSimple(draft.source_content || '', result.draftContent);
-    const existingNotes = draft.change_notes || [];
+    const sourceBaseline = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+    const newDiffOps = computeDiffOpsSimple(sourceBaseline, result.draftContent);
 
-    // Merge new change notes with existing ones
+    const { data: existingRows } = await supabase
+      .from("variant_change_notes")
+      .select("*")
+      .eq("draft_id", draftId)
+      .eq("organization_id", orgId);
+
+    const existingApi = (existingRows || []).map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      mappedAction: row.mapped_action,
+      anchorMatches: row.anchor_matches || [],
+      affectedRangeStart: row.affected_range_start,
+      affectedRangeEnd: row.affected_range_end,
+      keyFactIds: row.key_fact_ids || [],
+      citations: row.citations || [],
+      status: row.status,
+    }));
+
     const newChangeNotes = buildChangeNotesFromMarkers(
       result.markedContent,
       result.draftContent,
       validatedKeyFacts,
-      scopeContract
+      scopeContract,
     );
 
-    // Combine notes, avoiding duplicates
-    const combinedNotes = [...existingNotes];
+    const combinedNotes: any[] = [...existingApi];
     for (const newNote of newChangeNotes) {
-      const exists = combinedNotes.some(n =>
-        n.keyFactIds?.some((id: string) => newNote.keyFactIds?.includes(id))
+      const exists = combinedNotes.some((n) =>
+        (n.keyFactIds || []).some((id: string) => (newNote.keyFactIds || []).includes(id))
       );
       if (!exists) {
         combinedNotes.push(newNote);
       }
     }
 
-    // Collect all applied fact IDs
     const appliedKeyFactIds = [...new Set([
       ...(draft.applied_key_fact_ids || []),
       ...result.appliedKeyFactIds,
     ])];
 
-    // Update draft in database
-    const { data: updatedDraft, error: updateError } = await supabase
-      .from('variant_drafts')
+    const { error: delErr } = await supabase
+      .from("variant_change_notes")
+      .delete()
+      .eq("draft_id", draftId)
+      .eq("organization_id", orgId);
+
+    if (delErr) {
+      console.error("Error clearing change notes:", delErr);
+    }
+
+    if (combinedNotes.length > 0) {
+      const toInsert = combinedNotes.map((n) => noteApiToDbRow(n, draftId, orgId));
+      const { error: insErr } = await supabase.from("variant_change_notes").insert(toInsert);
+      if (insErr) {
+        console.error("Error inserting change notes:", insErr);
+        return jsonResponse({ error: `Failed to save change notes: ${insErr.message}` }, 500);
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("variant_drafts")
       .update({
         draft_content: result.draftContent,
         diff_ops: newDiffOps,
-        change_notes: combinedNotes,
         applied_key_fact_ids: appliedKeyFactIds,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', draftId)
-      .eq('organization_id', orgId)
-      .select()
-      .single();
+      .eq("id", draftId)
+      .eq("organization_id", orgId);
 
     if (updateError) {
-      console.error('Error updating draft:', updateError);
+      console.error("Error updating draft:", updateError);
       return jsonResponse({ error: `Failed to update draft: ${updateError.message}` }, 500);
     }
 
     const changesApplied = newChangeNotes.length;
     console.log(`[ApplyInstructions] Applied ${changesApplied} changes to draft`);
 
+    const payload = await loadDraftApiPayload(draftId, orgId);
+
     return jsonResponse({
-      draft: formatDraftResponse(updatedDraft),
+      draft: payload,
       success: true,
       changesApplied,
-      blockedChanges: blockedChanges.length > 0 ? blockedChanges : undefined,
+      blockedChanges: blockedChanges.length > 0
+        ? blockedChanges.map((b: any) => ({
+          instruction: b.instruction,
+          reason: b.reason,
+          suggestedText: b.suggestion ?? b.suggestedText ?? "",
+        }))
+        : undefined,
       message: changesApplied > 0
         ? `Applied ${changesApplied} change(s) based on instruction`
         : blockedChanges.length > 0
-          ? 'Some changes were blocked'
-          : 'Instruction applied but no changes were needed',
+          ? "Some changes were blocked"
+          : "Instruction applied but no changes were needed",
     });
-
   } catch (error: any) {
-    console.error('handleApplyInstructions error:', error);
+    console.error("handleApplyInstructions error:", error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
   }
-}
-
-// Format draft for API response
-function formatDraftResponse(draft: any): any {
-  return {
-    draftId: draft.id,
-    contractId: draft.contract_id,
-    extractionId: draft.extraction_id,
-    sourceTrackId: draft.source_track_id,
-    stateCode: draft.state_code,
-    stateName: draft.state_name,
-    trackType: draft.track_type,
-    status: draft.status,
-    draftTitle: draft.draft_title,
-    draftContent: draft.draft_content,
-    sourceContent: draft.source_content,
-    diffOps: draft.diff_ops || [],
-    changeNotes: draft.change_notes || [],
-    appliedKeyFactIds: draft.applied_key_fact_ids || [],
-    needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
-    blockedReasons: draft.blocked_reasons,
-    createdAt: draft.created_at,
-    updatedAt: draft.updated_at,
-  };
 }
 
 // LLM-based instruction application
@@ -16112,10 +16230,9 @@ async function handleAssignTags(req: Request): Promise<Response> {
 // ADDITIONAL VARIANT HANDLERS
 // =============================================================================
 
-/** Resolve org for variant endpoints: JWT first, then track.organization_id (demo / service role). */
 /**
- * Resolve org for track-scoped API calls. Demo/anon clients must use the track's
- * organization_id (each prospect demo org), not the single default UUID from getOrgIdFromToken.
+ * Resolve org for track-scoped variant/chat/generate APIs.
+ * Demo/anon: track's organization_id. JWT: must match track's organization_id.
  */
 async function resolveOrgIdForTrack(req: Request, trackId: string): Promise<string | null> {
   const { data: t } = await supabase
@@ -16123,17 +16240,7 @@ async function resolveOrgIdForTrack(req: Request, trackId: string): Promise<stri
     .select("organization_id")
     .eq("id", trackId)
     .maybeSingle();
-  const trackOrgId = t?.organization_id ?? null;
-
-  if (isAnonBearer(req)) {
-    return trackOrgId;
-  }
-
-  const tokenOrgId = await getOrgIdFromToken(req);
-  if (tokenOrgId && trackOrgId && tokenOrgId !== trackOrgId) {
-    return null;
-  }
-  return tokenOrgId || trackOrgId;
+  return requireOrgAccess(req, t?.organization_id ?? null);
 }
 
 async function enrichDerivedTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
@@ -17053,8 +17160,14 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
     // Path: /track-relationships/variant/draft/:draftId/status
     // split: ["", "track-relationships", "variant", "draft", "draftId", "status"]
     const draftId = path.split("/")[4];
-    
-    const orgId = await getOrgIdFromToken(req);
+
+    const { data: dOrg } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, dOrg?.organization_id);
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
@@ -17082,7 +17195,11 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
         return jsonResponse({ error: "Failed to update draft status" }, 500);
       }
 
-      return jsonResponse(formatDraftResponse(draft));
+      const payload = await loadDraftApiPayload(draftId, orgId);
+      if (payload) {
+        return jsonResponse(payload);
+      }
+      return jsonResponse(formatDraftResponse(draft, [], ""));
     } else {
       // GET
       const { data: draft, error } = await supabase
@@ -17105,19 +17222,23 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
 
 async function handlePublishDraft(req: Request, path: string): Promise<Response> {
   try {
-    // Get org ID from token
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
-    // Extract draftId from path: /track-relationships/variant/draft/:draftId/publish
     const pathParts = path.split('/');
     const draftIndex = pathParts.indexOf('draft');
     const draftId = draftIndex >= 0 ? pathParts[draftIndex + 1] : null;
 
     if (!draftId) {
       return jsonResponse({ error: "Draft ID is required" }, 400);
+    }
+
+    const { data: pubOrgRow } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, pubOrgRow?.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[PublishDraft] Publishing draft ${draftId} for org ${orgId}`);
