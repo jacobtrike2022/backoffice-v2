@@ -248,10 +248,18 @@ export function PlaybookBuildView({
         });
 
         if (result.playbook_id) {
-          const playbook = await getPlaybookById(result.playbook_id);
+          // In demo mode, PostgREST + RLS visibility can lag briefly right after analyze creates rows.
+          let playbook = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            playbook = await getPlaybookById(result.playbook_id);
+            if (playbook) break;
+            await new Promise((resolve) => setTimeout(resolve, 400));
+          }
           if (playbook) {
             dispatch({ type: 'SET_PLAYBOOK', playbook });
             setAlbumTitle(playbook.title);
+          } else {
+            throw new Error('Playbook created but not yet readable');
           }
         }
       } catch (error) {
