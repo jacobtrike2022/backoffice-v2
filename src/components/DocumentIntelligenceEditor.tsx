@@ -1994,7 +1994,7 @@ function ChunkBlock({
           "w-48 pt-2 transition-opacity flex-shrink-0",
           isHovered ||
             chunk.linkedContent.length > 0 ||
-            chunk.content_class === 'job_description'
+            chunk.content_class !== 'other'
             ? "opacity-100"
             : "opacity-0"
         )}
@@ -2046,11 +2046,16 @@ function ChunkBlock({
             </div>
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button
-              onClick={onCreateContent}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              type="button"
+              title="Create training content track from this chunk"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateContent();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-orange-500/35 bg-orange-500/5 text-foreground/90 hover:text-foreground hover:bg-orange-500/10 hover:border-orange-500/50 transition-colors text-left w-full max-w-full"
             >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Content</span>
+              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">Content</span>
             </button>
           ) : null}
         </div>

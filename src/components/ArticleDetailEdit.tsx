@@ -2186,7 +2186,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   <Separator />
                   <button
                     onClick={() => {
-                      window.location.href = `/?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}`;
+                      window.location.href = `/organization?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}&chunkId=${sourceDocumentInfo.sourceChunkId}`;
                     }}
                     className="flex items-center gap-2 w-full text-left hover:bg-muted/50 rounded-md p-1 -mx-1 transition-colors"
                   >

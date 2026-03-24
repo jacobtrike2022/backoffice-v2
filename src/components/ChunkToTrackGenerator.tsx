@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
@@ -145,6 +146,9 @@ export function ChunkToTrackGenerator({
             <Zap className="h-5 w-5 text-[#F74A05]" />
             Create Training Track
           </DialogTitle>
+          <DialogDescription>
+            Create a new content track from the selected source chunk{selectedChunks.length > 1 ? 's' : ''}.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
