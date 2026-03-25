@@ -610,6 +610,21 @@ export function StateVariantWizard({
             failedStage={state.failedStage}
             onRetry={handleRetry}
             onViewDetails={() => setFailureDetailsOpen(true)}
+            searchEngine={state.retrievalResponse?.searchEngine}
+            pass2Triggered={state.retrievalResponse?.pass2Triggered}
+            pass2Reason={state.retrievalResponse?.pass2Reason}
+            passMetrics={state.retrievalResponse?.passMetrics}
+            researchQueries={state.researchPlan?.researchPlan?.queries}
+            evidenceItems={state.retrievalResponse?.evidence?.map((e: any) => ({
+              url: e.url,
+              title: e.title,
+              tier: e.tier,
+              relevanceStatus: e.relevanceStatus,
+              relevanceScore: e.relevanceScore,
+              url_verified: e.url_verified,
+              pass: e.pass,
+              source: e.source,
+            }))}
           />
         );
 

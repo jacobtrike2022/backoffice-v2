@@ -20,6 +20,7 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
 // ── Rate Limiting ──────────────────────────────────────────
 interface RateLimitEntry {
@@ -591,6 +592,23 @@ Deno.serve(async (req: Request) => {
     // Retrieve Evidence
     if (method === "POST" && path === "/track-relationships/variant/retrieve-evidence") {
       return await handleRetrieveEvidence(req);
+    }
+
+    // Verify URL (lightweight HEAD request)
+    if (method === "GET" && path === "/track-relationships/variant/verify-url") {
+      const urlParam = new URL(req.url).searchParams.get('url');
+      if (!urlParam) {
+        return jsonResponse({ error: "url parameter required" }, 400);
+      }
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const headResp = await fetch(urlParam, { method: 'HEAD', signal: controller.signal, redirect: 'follow' });
+        clearTimeout(timeout);
+        return jsonResponse({ accessible: headResp.ok, statusCode: headResp.status, finalUrl: headResp.url, responseTimeMs: 0 });
+      } catch {
+        return jsonResponse({ accessible: false, statusCode: null, finalUrl: urlParam, responseTimeMs: 0 });
+      }
     }
 
     // Extract Key Facts
@@ -12382,6 +12400,19 @@ CRITICAL for allowedLearnerActions:
 Good examples: "monitor fuel delivery", "report spills", "verify safety cones placement", "respond to alarms", "notify supervisor of violations"
 Bad examples: "stay alert", "stay ready", "prevent emergencies", "keep store running smoothly"
 
+CRITICAL for audienceNegativeExamples:
+- List 4-6 specific topics that SOUND RELATED to the training but are OUT OF SCOPE
+- These are topics a naive search engine might return but are NOT relevant to the learner
+- Think: what would a bad search return? List those topics to exclude them
+- Example for "Class C Fueling Safety for cashiers": ["underground storage tank installation", "wholesale fuel transport DOT regulations", "refinery worker safety protocols", "service station construction codes", "fuel tanker delivery CDL requirements"]
+- Example for "Tobacco Sales Compliance": ["tobacco manufacturing regulations", "cigarette tax stamp production", "tobacco farming subsidies", "tobacco advertising law for media companies"]
+
+CRITICAL for regulatoryDomainHints:
+- List 2-4 types of state regulatory bodies that would govern THIS specific content
+- These help focus research on the RIGHT state agencies
+- Example for fueling safety: ["State Fire Marshal", "State Occupational Safety agency", "State Environmental Agency (spill reporting)"]
+- Example for alcohol sales: ["State Alcohol Beverage Control board", "State Liquor Authority"]
+
 Output this exact JSON structure:
 {
   "primaryRole": "<one of: frontline_store_associate, manager_supervisor, delivery_driver, owner_executive, back_office_admin, other>",
@@ -12390,6 +12421,8 @@ Output this exact JSON structure:
   "roleEvidenceQuotes": ["<exact quotes from source, max 6>"],
   "allowedLearnerActions": ["<5-12 SPECIFIC imperative verb+object phrases - NO motivational/generic phrases>"],
   "disallowedActionClasses": ["<5-10 action types NOT taught>"],
+  "audienceNegativeExamples": ["<4-6 related-sounding topics that are OUT OF SCOPE for this audience>"],
+  "regulatoryDomainHints": ["<2-4 types of state regulatory bodies that govern this content>"],
   "domainAnchors": ["<6-15 nouns/noun-phrases defining the topic>"],
   "instructionalGoal": "<single sentence describing what learner will be able to do>"
 }`;
@@ -12424,6 +12457,8 @@ Analyze this content and output the Scope Contract JSON.`;
       roleEvidenceQuotes: audience.evidence.slice(0, 5),
       allowedLearnerActions: audience.learnerActions,
       disallowedActionClasses: [],
+      audienceNegativeExamples: [],
+      regulatoryDomainHints: [],
       domainAnchors: [],
       instructionalGoal: `Adapt content for ${variantType} variant while maintaining core instructional objectives`,
     };
@@ -12619,12 +12654,19 @@ async function generateResearchQueries(
   stateCode: string,
   stateName: string,
   domainContext: string,
-  learnerActions: string[]
-): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[] }>> {
+  learnerActions: string[],
+  scopeContract?: any
+): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[]; scopeJustification?: string }>> {
   if (!OPENAI_API_KEY) {
     console.warn("OpenAI API key missing, skipping LLM query generation");
     return [];
   }
+
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const disallowed = scopeContract?.disallowedActionClasses || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const regulatoryHints = scopeContract?.regulatoryDomainHints || [];
+  const instructionalGoal = scopeContract?.instructionalGoal || '';
 
   const systemPrompt = `You are a research expert specializing in regulatory compliance search strategies.
 Your goal is to generate HIGH-QUALITY search queries to find official state regulations.
@@ -12632,12 +12674,26 @@ Your goal is to generate HIGH-QUALITY search queries to find official state regu
 INPUT CONTEXT:
 State: ${stateName} (${stateCode})
 Business Domain: ${domainContext}
+Target Audience: ${primaryRoleLabel}
 Learner Actions: ${learnerActions.join(', ')}
+${instructionalGoal ? `Instructional Goal: ${instructionalGoal}` : ''}
+${regulatoryHints.length > 0 ? `Relevant Regulatory Bodies: ${regulatoryHints.join(', ')}` : ''}
+
+═══ SCOPE FENCE ═══
+All queries MUST stay within these boundaries:
+- AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations
+- THEIR JOB ACTIONS: ${learnerActions.join(', ')}
+${disallowed.length > 0 ? `- EXPLICITLY OUT OF SCOPE: ${disallowed.join(', ')}` : ''}
+${negativeExamples.length > 0 ? `- DO NOT SEARCH FOR THESE TOPICS: ${negativeExamples.join(', ')}` : ''}
+
+CRITICAL: If a regulation applies to a DIFFERENT ROLE than ${primaryRoleLabel}, it is OUT OF SCOPE.
+For example, if the audience is "cashiers", do NOT search for regulations about tank technicians, wholesale distributors, or construction crews.
+═══════════════════
 
 TASK:
-Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions.
-Do NOT just concatenate words. Use boolean operators or natural language phrasing that legal search engines or Google would understand best.
-Focus on the most critical compliance risks.
+Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions FOR THE TARGET AUDIENCE.
+Use natural language phrasing that search engines understand best.
+Focus on the most critical compliance risks FOR THIS SPECIFIC ROLE.
 
 OUTPUT FORMAT (JSON):
 {
@@ -12646,7 +12702,8 @@ OUTPUT FORMAT (JSON):
       "query": "search string",
       "mappedAction": "The specific learner action this query covers (or 'general' if broad)",
       "why": "Brief explanation of what regulation this targets",
-      "keywords": ["keyword1", "keyword2"]
+      "keywords": ["keyword1", "keyword2"],
+      "scopeJustification": "Why this query is relevant to ${primaryRoleLabel} specifically"
     }
   ]
 }
@@ -12663,7 +12720,7 @@ OUTPUT FORMAT (JSON):
         model: "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: "Generate the 4 best research queries for this context." }
+          { role: "user", content: `Generate the 4 best research queries for ${stateName} regulations relevant to ${primaryRoleLabel}. Remember: stay within the Scope Fence.` }
         ],
         temperature: 0.2,
         response_format: { type: "json_object" }
@@ -12737,7 +12794,8 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       stateCode,
       stateName || stateCode,
       topDomainContext,
-      actions
+      actions,
+      scopeContract
     );
 
     if (generatedQueries && generatedQueries.length > 0) {
@@ -12749,6 +12807,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
         negativeTerms: [],
         targetType: 'statute',
         why: q.why,
+        scopeJustification: q.scopeJustification || '',
       }));
     } else {
       // Fallback: Pick top 4 actions and build simple queries
@@ -12766,17 +12825,19 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       });
     }
 
-    // CRITICAL: Add a "state differences" query to catch unique state laws
-    // This explicitly asks what's different/unique about this state
+    // Add a scope-locked "state differences" query to catch unique state laws
+    const primaryRoleLabel = scopeContract.primaryRole?.label || scopeContract.primaryRole || 'frontline employee';
+    const negativeExamples = scopeContract.audienceNegativeExamples || [];
     const stateDifferenceQuery = {
       id: `q${queries.length + 1}`,
-      query: `${stateCode} ${stateName || ''} unique different laws regulations ${topDomainContext}`,
+      query: `${stateName || stateCode} unique laws regulations for ${primaryRoleLabel} ${topDomainContext}`,
       mappedAction: 'state-specific compliance',
-      anchorTerms: [stateCode, stateName || '', 'unique', 'different', 'only state', 'unlike other states', ...domainAnchors.slice(0, 2)].filter(Boolean),
-      negativeTerms: [],
+      anchorTerms: [stateCode, stateName || '', 'unique', 'different', ...domainAnchors.slice(0, 2)].filter(Boolean),
+      negativeTerms: [...negativeExamples],
       targetType: 'statute',
-      why: `Find what makes ${stateName || stateCode} DIFFERENT from other states in this domain`,
-      isStateDifferenceQuery: true,  // Flag for special handling
+      why: `Find what makes ${stateName || stateCode} DIFFERENT from other states for ${primaryRoleLabel}`,
+      scopeJustification: `Identifies state-unique regulations that affect ${primaryRoleLabel} specifically`,
+      isStateDifferenceQuery: true,
     };
     queries.push(stateDifferenceQuery);
 
@@ -12884,102 +12945,183 @@ async function handleGetResearchPlan(planId: string, req: Request): Promise<Resp
 }
 
 /**
- * Use GPT-4o with knowledge cutoff to find regulatory information
- * Returns structured legal facts with source references
- * Note: This uses the model's training data, not live web search
+ * Build a scope-locked system prompt for Perplexity research
+ * Embeds the Scope Fence to prevent drift into irrelevant regulations
  */
-async function findRegulatoryInfo(
+function buildScopedResearchSystemPrompt(
+  scopeContract: any,
+  stateCode: string,
+  stateName: string
+): string {
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
+  const disallowed = scopeContract?.disallowedActionClasses || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const domainAnchors = scopeContract?.domainAnchors || [];
+  const regulatoryHints = scopeContract?.regulatoryDomainHints || [];
+  const instructionalGoal = scopeContract?.instructionalGoal || '';
+
+  return `You are a regulatory research assistant finding ${stateName} (${stateCode}) state-specific laws and regulations.
+
+SCOPE FENCE — All research MUST stay within these boundaries:
+- AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations
+- THEIR JOB ACTIONS: ${allowedActions.slice(0, 10).join(', ')}
+- TOPIC BOUNDARY: ${domainAnchors.slice(0, 10).join(', ')}
+- INSTRUCTIONAL GOAL: ${instructionalGoal}
+${disallowed.length > 0 ? `- EXPLICITLY OUT OF SCOPE: ${disallowed.join(', ')}` : ''}
+${negativeExamples.length > 0 ? `- DO NOT RESEARCH THESE TOPICS: ${negativeExamples.join(', ')}` : ''}
+${regulatoryHints.length > 0 ? `- RELEVANT REGULATORY BODIES TO CHECK: ${regulatoryHints.join(', ')}` : ''}
+
+CRITICAL SCOPE RULE: If a regulation applies to a DIFFERENT ROLE (tank technicians, refinery workers, wholesale distributors, construction crews, tanker truck drivers) than the target audience (${primaryRoleLabel}), it is OUT OF SCOPE even if it's in the same general industry domain.
+
+RESPONSE REQUIREMENTS:
+1. Cite specific statute numbers, administrative code sections, or regulation citations
+2. Prefer official .gov sources, state legislature sites, and state agency sites
+3. Every factual claim must have a specific citation
+4. Focus on what the TARGET AUDIENCE (${primaryRoleLabel}) must know or do
+5. Include penalties and consequences for violations where applicable
+6. Note any recent changes or pending legislation`;
+}
+
+/**
+ * Search for state regulations using Perplexity API (real web search with citations)
+ * Replaces the old findRegulatoryInfo() which only used GPT-4o training data
+ */
+async function searchStateRegulations(
   stateCode: string,
   stateName: string,
   action: string,
   domainContext: string,
+  scopeContract: any,
   isStateDifferenceQuery: boolean = false
 ): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
-  if (!OPENAI_API_KEY) {
-    throw new Error("OpenAI API key not configured");
+  if (!PERPLEXITY_API_KEY) {
+    console.warn("[searchStateRegulations] PERPLEXITY_API_KEY not set, falling back to OpenAI Responses API");
+    return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
   }
 
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
 
-  const systemPrompt = `You are a legal research assistant specializing in state regulatory compliance for businesses.
-Your task is to provide accurate, factual information about state regulations.
+  // Build scope-locked query
+  const scopedQuery = isStateDifferenceQuery
+    ? `What ${stateName} (${stateCode}) laws and regulations are UNIQUE or DIFFERENT from federal standards regarding: ${domainContext}
 
-TODAY'S DATE: ${today}
+This is specifically for training ${primaryRoleLabel} at convenience stores / retail fuel stations.
+Only include regulations relevant to someone who: ${allowedActions.slice(0, 5).join(', ')}
+${negativeExamples.length > 0 ? `DO NOT include regulations about: ${negativeExamples.join(', ')}` : ''}
 
-IMPORTANT GUIDELINES:
-1. Only state facts you are confident about from your training data
-2. Include specific statute numbers, code sections, or regulation citations when known
-3. Cite the official source (e.g., "Texas Alcoholic Beverage Code §106.03")
-4. If you're uncertain about specific details, say so
-5. Focus on regulations relevant to retail/convenience store operations
-6. Your training data has a cutoff. Flag if regulations might have changed recently or if there's pending legislation you're aware of
-7. Include the year/version of any statute you reference when known
+What makes ${stateName} different from most other states for THIS SPECIFIC AUDIENCE?
+Cite specific statutes and official sources.`
+    : `${stateName} (${stateCode}) state regulations for: ${action}
 
-Return your response as JSON with this structure:
-{
-  "summary": "Brief summary of the key regulatory requirements",
-  "facts": [
-    {
-      "fact": "The specific regulatory fact or requirement",
-      "citation": "Official citation (e.g., Texas ABC Code §106.03)",
-      "source_type": "statute" | "regulation" | "administrative_code",
-      "confidence": "high" | "medium" | "low",
-      "year_referenced": "2023 or unknown"
+This is for training ${primaryRoleLabel} at convenience stores / retail fuel stations.
+Focus on: employee duties, required procedures, penalties for violations, age restrictions, required training.
+${negativeExamples.length > 0 ? `DO NOT include regulations about: ${negativeExamples.join(', ')}` : ''}
+
+Cite specific statute numbers and official sources.`;
+
+  const systemPrompt = buildScopedResearchSystemPrompt(scopeContract, stateCode, stateName);
+
+  console.log(`[searchStateRegulations] Perplexity search: ${stateCode} - ${action}${isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
+
+  try {
+    const response = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${PERPLEXITY_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: scopedQuery }
+        ],
+        search_recency_filter: "year",
+        return_related_questions: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[searchStateRegulations] Perplexity API error:", response.status, errorText);
+      return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
     }
-  ],
-  "source_urls": [
-    {
-      "url": "https://statutes.capitol.texas.gov/...",
-      "title": "Texas Statutes - Alcoholic Beverage Code",
-      "description": "Official state statute source"
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const perplexityCitations: string[] = data.citations || [];
+    const searchResults: Array<{ title?: string; url: string; snippet?: string }> = data.search_results || [];
+
+    // Build a lookup from URL → search result for rich title/snippet
+    const searchResultMap = new Map<string, { title: string; snippet: string }>();
+    for (const sr of searchResults) {
+      if (sr.url) {
+        searchResultMap.set(sr.url, { title: sr.title || '', snippet: sr.snippet || '' });
+      }
     }
-  ],
-  "freshness_warning": "Optional: note if this area of law changes frequently or if you're aware of recent/pending changes"
-}`;
 
-  // Use different prompt for state differences query
-  const userPrompt = isStateDifferenceQuery
-    ? `What makes ${stateName} (${stateCode}) UNIQUE or DIFFERENT from most other states regarding: ${domainContext}
+    // Build citations from Perplexity's citation URLs + search_results
+    const citations: Array<{ url: string; title: string; snippet?: string }> = [];
+    const seenUrls = new Set<string>();
 
-CRITICALLY IMPORTANT: Focus on laws, regulations, or requirements that are:
-1. UNIQUE to ${stateName} - things that are true ONLY in ${stateCode} or in very few states
-2. OPPOSITE of most states - where ${stateName} requires something most states don't, or bans something most states allow
-3. UNUSUAL restrictions or requirements specific to this state
-4. Notable exceptions or special rules that employees from other states wouldn't expect
+    for (const url of perplexityCitations) {
+      if (url && !seenUrls.has(url)) {
+        seenUrls.add(url);
+        const sr = searchResultMap.get(url);
+        let title = sr?.title || '';
+        if (!title) {
+          try {
+            const parsed = new URL(url);
+            title = `${parsed.hostname}${parsed.pathname.substring(0, 60)}`;
+          } catch { title = url; }
+        }
 
-Examples of what we're looking for:
-- "New Jersey is the ONLY state that bans self-service gas stations"
-- "Oregon requires..." (only 1 of 2 states with this rule)
-- "Unlike most states, ${stateName} does NOT allow..."
-- "While most states require X, ${stateName} instead requires Y"
+        citations.push({
+          url,
+          title,
+          snippet: sr?.snippet || '',
+        });
+      }
+    }
 
-BUSINESS CONTEXT:
-${domainContext}
+    console.log(`[searchStateRegulations] Perplexity returned ${citations.length} citations, content length: ${content.length}`);
 
-This is for adapting national training content to be state-specific. We need to know what's DIFFERENT in ${stateName}, not what's the same everywhere.
+    return { content, citations };
 
-Provide specific statute citations where known.`
-    : `Find ${stateName} (${stateCode}) state regulations related to: ${action}
+  } catch (error: any) {
+    console.error("[searchStateRegulations] Perplexity error:", error.message);
+    return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
+  }
+}
 
-BUSINESS CONTEXT:
-${domainContext}
+/**
+ * Fallback: Use OpenAI Responses API with web_search_preview when Perplexity is unavailable
+ */
+async function searchStateRegulationsFallback(
+  stateCode: string,
+  stateName: string,
+  action: string,
+  domainContext: string,
+  scopeContract: any,
+  isStateDifferenceQuery: boolean
+): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("Neither PERPLEXITY_API_KEY nor OPENAI_API_KEY configured");
+  }
 
-This is for training frontline employees. Focus on:
-- Specific legal requirements applicable to this industry/business type
-- What employees MUST do or CANNOT do
-- Penalties or consequences for violations
-- Required procedures or documentation
-- Age restrictions if applicable
-- On-premise vs off-premise distinctions if relevant (e.g., for alcohol: bars/restaurants vs retail stores)
-- Any relevant administrative rules
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
 
-IMPORTANT: Tailor your response to the specific industry context provided. A convenience store cashier has different compliance requirements than a bartender, even for the same topic like alcohol sales.
+  const searchPrompt = isStateDifferenceQuery
+    ? `Search for ${stateName} (${stateCode}) laws that are UNIQUE or DIFFERENT from federal standards regarding: ${domainContext}. This is for ${primaryRoleLabel} at convenience stores.${negativeExamples.length > 0 ? ` Exclude: ${negativeExamples.join(', ')}.` : ''} Cite specific statutes.`
+    : `Search for ${stateName} (${stateCode}) state regulations for: ${action}. This is for ${primaryRoleLabel} at convenience stores.${negativeExamples.length > 0 ? ` Exclude: ${negativeExamples.join(', ')}.` : ''} Focus on employee duties, penalties, required training. Cite specific statutes.`;
 
-Provide official statute/code citations where known.`;
+  console.log(`[searchStateRegulations] Fallback: OpenAI Responses API for ${stateCode} - ${action}`);
 
-  console.log(`[RegulatoryInfo] Querying GPT-4o for: ${stateCode} - ${action}${isStateDifferenceQuery ? ' (STATE DIFFERENCES QUERY)' : ''}`);
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -12987,81 +13129,22 @@ Provide official statute/code citations where known.`;
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 2000,
-      response_format: { type: "json_object" }
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("OpenAI Chat error:", response.status, errorText);
-    throw new Error(`OpenAI API error: ${response.status}`);
+    console.error("[searchStateRegulations] OpenAI Responses API error:", errorText);
+    throw new Error(`OpenAI Responses API error: ${response.status}`);
   }
 
-  const data = await response.json();
-  const responseText = data.choices?.[0]?.message?.content || '{}';
+  const result = await response.json();
+  const content = extractResponseText(result);
+  const citations = extractCitations(result);
 
-  console.log(`[RegulatoryInfo] Got response, parsing JSON...`);
-
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(responseText);
-  } catch (e) {
-    console.error('[RegulatoryInfo] Failed to parse JSON response:', responseText.substring(0, 200));
-    parsed = { summary: responseText, facts: [], source_urls: [] };
-  }
-
-  // Build citations from facts and source_urls
-  const citations: Array<{ url: string; title: string; snippet?: string }> = [];
-
-  // Add source URLs as citations
-  if (parsed.source_urls && Array.isArray(parsed.source_urls)) {
-    for (const source of parsed.source_urls) {
-      citations.push({
-        url: source.url || '',
-        title: source.title || '',
-        snippet: source.description || '',
-      });
-    }
-  }
-
-  // If no URLs but we have facts with citations, create pseudo-citations
-  if (citations.length === 0 && parsed.facts && Array.isArray(parsed.facts)) {
-    const seenCitations = new Set<string>();
-    for (const fact of parsed.facts) {
-      if (fact.citation && !seenCitations.has(fact.citation)) {
-        seenCitations.add(fact.citation);
-        // Generate likely URL based on state
-        const baseUrl = stateCode === 'TX'
-          ? 'https://statutes.capitol.texas.gov/Docs/AL/htm/AL.106.htm'
-          : `https://law.justia.com/codes/${stateName.toLowerCase().replace(/\s+/g, '-')}/`;
-        citations.push({
-          url: baseUrl,
-          title: `${stateName} State Code - ${fact.citation}`,
-          snippet: fact.fact,
-        });
-      }
-    }
-  }
-
-  // Build content from summary and facts
-  let content = parsed.summary || '';
-  if (parsed.facts && Array.isArray(parsed.facts)) {
-    content += '\n\nKey Requirements:\n';
-    for (const fact of parsed.facts) {
-      content += `- ${fact.fact}`;
-      if (fact.citation) content += ` (${fact.citation})`;
-      content += '\n';
-    }
-  }
-
-  console.log(`[RegulatoryInfo] Parsed ${citations.length} citations, ${(parsed.facts || []).length} facts`);
-
+  console.log(`[searchStateRegulations] Fallback returned ${citations.length} citations`);
   return { content, citations };
 }
 
@@ -13117,7 +13200,168 @@ function classifySourceTier(url: string): 1 | 2 | 3 {
 }
 
 /**
- * Handler: Retrieve Evidence - Uses GPT-4o to find regulatory information
+ * Score evidence blocks for relevance against the scope contract (balanced mode)
+ * Uses GPT-4o-mini for fast, cheap relevance classification
+ * Returns scored evidence with relevanceScore (0-10), relevanceReason, relevanceStatus
+ */
+async function scoreEvidenceRelevance(
+  evidenceBlocks: any[],
+  scopeContract: any,
+  stateCode: string,
+  stateName: string
+): Promise<any[]> {
+  if (evidenceBlocks.length === 0) return [];
+
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const domainAnchors = scopeContract?.domainAnchors || [];
+
+  // Batch evidence for scoring (up to 10 per call)
+  const batches: any[][] = [];
+  for (let i = 0; i < evidenceBlocks.length; i += 10) {
+    batches.push(evidenceBlocks.slice(i, i + 10));
+  }
+
+  const scoredResults: any[] = [];
+
+  for (const batch of batches) {
+    const snippetSummaries = batch.map((eb, idx) => ({
+      idx,
+      id: eb.id,
+      title: (eb.title || '').substring(0, 100),
+      snippet: (eb.snippet || '').substring(0, 300),
+      url: eb.url || '',
+    }));
+
+    const scoringPrompt = `Rate each evidence snippet's relevance to training content.
+
+TARGET AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations in ${stateName}
+RELEVANT ACTIONS: ${allowedActions.slice(0, 8).join(', ')}
+TOPIC DOMAIN: ${domainAnchors.slice(0, 8).join(', ')}
+${negativeExamples.length > 0 ? `OUT OF SCOPE (reject these): ${negativeExamples.join(', ')}` : ''}
+
+Score 0-3 = NOT relevant to this audience/topic (e.g., about different roles, different industry segment, infrastructure not operated by target audience)
+Score 4-6 = POSSIBLY relevant but not directly about target audience actions (e.g., general industry regulation that may affect them indirectly)
+Score 7-10 = DIRECTLY relevant to what ${primaryRoleLabel} must know or do
+
+Evidence to score:
+${JSON.stringify(snippetSummaries, null, 1)}
+
+Return JSON array: [{ "id": "...", "score": 0-10, "reason": "one sentence" }]`;
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are a relevance scoring assistant. Output valid JSON only." },
+            { role: "user", content: scoringPrompt }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("[scoreEvidenceRelevance] OpenAI error:", response.status);
+        // If scoring fails, pass everything through as-is with neutral score
+        for (const eb of batch) {
+          scoredResults.push({ ...eb, relevanceScore: 7, relevanceReason: 'Scoring unavailable', relevanceStatus: 'pass' });
+        }
+        continue;
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '{}';
+      let scores: any[] = [];
+      try {
+        const parsed = JSON.parse(content);
+        scores = Array.isArray(parsed) ? parsed : (parsed.scores || parsed.results || []);
+      } catch {
+        console.error("[scoreEvidenceRelevance] Failed to parse scoring response");
+        scores = [];
+      }
+
+      // Map scores back to evidence blocks
+      const scoreMap = new Map(scores.map((s: any) => [s.id, s]));
+      for (const eb of batch) {
+        const score = scoreMap.get(eb.id);
+        scoredResults.push({
+          ...eb,
+          relevanceScore: score?.score ?? 7,
+          relevanceReason: score?.reason || 'No scoring data',
+        });
+      }
+    } catch (error: any) {
+      console.error("[scoreEvidenceRelevance] Error:", error.message);
+      for (const eb of batch) {
+        scoredResults.push({ ...eb, relevanceScore: 7, relevanceReason: 'Scoring error', relevanceStatus: 'pass' });
+      }
+    }
+  }
+
+  return scoredResults;
+}
+
+/**
+ * Verify evidence URLs with lightweight HEAD requests
+ * Tags each evidence block with url_verified and url_status_code
+ */
+async function verifyEvidenceUrls(evidenceBlocks: any[]): Promise<any[]> {
+  if (evidenceBlocks.length === 0) return [];
+
+  const verifyUrl = async (eb: any): Promise<any> => {
+    if (!eb.url || eb.isSynthesized) {
+      return { ...eb, url_verified: null, url_status_code: null };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(eb.url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+
+      clearTimeout(timeout);
+
+      return {
+        ...eb,
+        url_verified: response.ok,
+        url_status_code: response.status,
+        url_final: response.url !== eb.url ? response.url : undefined,
+      };
+    } catch {
+      // Timeout or network error — don't reject the evidence, just mark as unverified
+      return { ...eb, url_verified: false, url_status_code: null };
+    }
+  };
+
+  // Verify in parallel (max 10 concurrent)
+  const results: any[] = [];
+  for (let i = 0; i < evidenceBlocks.length; i += 10) {
+    const batch = evidenceBlocks.slice(i, i + 10);
+    const batchResults = await Promise.all(batch.map(verifyUrl));
+    results.push(...batchResults);
+  }
+
+  const verified = results.filter(r => r.url_verified === true).length;
+  const unverified = results.filter(r => r.url_verified === false).length;
+  console.log(`[verifyEvidenceUrls] ${verified} verified, ${unverified} unverified, ${results.length - verified - unverified} skipped`);
+
+  return results;
+}
+
+/**
+ * Handler: Retrieve Evidence - Uses Perplexity/OpenAI to find real regulatory information
  */
 async function handleRetrieveEvidence(req: Request): Promise<Response> {
   try {
@@ -13166,7 +13410,8 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       .eq('id', contractId)
       .single();
 
-    const domainAnchors = contractRecord?.scope_contract?.domainAnchors || [];
+    const scopeContract = contractRecord?.scope_contract || {};
+    const domainAnchors = scopeContract.domainAnchors || [];
 
     // Get organization industry context
     const { data: orgRecord } = await supabase
@@ -13191,21 +13436,24 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
     console.log(`[RetrieveEvidence] Starting evidence retrieval for ${stateName} (${stateCode}) with ${queries.length} queries`);
     console.log(`[RetrieveEvidence] Industry context: ${industryName}, Services: ${servicesOffered.join(', ')}`);
+    console.log(`[RetrieveEvidence] Using ${PERPLEXITY_API_KEY ? 'Perplexity' : 'OpenAI Responses'} for search`);
 
     const evidence: any[] = [];
     const rejected: any[] = [];
     const seenUrls = new Set<string>();
+    const passMetrics = { pass1: { queryCount: 0, evidenceCount: 0, highRelevanceCount: 0, flaggedCount: 0, rejectedCount: 0 } };
 
-    // Execute queries in parallel for speed (max 3 concurrent)
+    // ── PASS 1: Broad Retrieval ──────────────────────────────────
     const processQuery = async (queryDef: any) => {
       try {
-        console.log(`[RetrieveEvidence] Processing action: "${queryDef.mappedAction}"${queryDef.isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
+        console.log(`[RetrieveEvidence] Pass 1 - Processing: "${queryDef.mappedAction}"${queryDef.isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
 
-        const searchResult = await findRegulatoryInfo(
+        const searchResult = await searchStateRegulations(
           stateCode,
           stateName,
           queryDef.mappedAction,
           domainContext,
+          scopeContract,
           queryDef.isStateDifferenceQuery || false
         );
 
@@ -13214,7 +13462,9 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
         // Process citations into evidence blocks
         for (const citation of searchResult.citations) {
-          const tier = classifySourceTier(citation.url || '');
+          if (!citation.url) continue;
+
+          const tier = classifySourceTier(citation.url);
 
           const evidenceBlock = {
             id: crypto.randomUUID(),
@@ -13225,38 +13475,36 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
             snippet: citation.snippet || '',
             tier,
             retrievedAt: new Date().toISOString(),
+            source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
             anchorHits: queryDef.anchorTerms?.filter((term: string) =>
               (citation.snippet || '').toLowerCase().includes(term.toLowerCase()) ||
               (citation.title || '').toLowerCase().includes(term.toLowerCase())
             ) || [],
           };
 
-          // Accept all tiers - Tier 3 will be flagged for review in key facts extraction
           queryEvidence.push(evidenceBlock);
 
-          // Log tier 3 sources for visibility
           if (tier === 3) {
-            console.log(`[RetrieveEvidence] Tier 3 source accepted (flagged): ${evidenceBlock.url}`);
+            console.log(`[RetrieveEvidence] Tier 3 source: ${evidenceBlock.url}`);
           }
         }
 
-        // Also extract any relevant content from the search result text
-        if (searchResult.content && searchResult.content.length > 100) {
-          if (searchResult.citations.length > 0) {
-            queryEvidence.push({
-              id: crypto.randomUUID(),
-              queryId: queryDef.id,
-              mappedAction: queryDef.mappedAction,
-              url: searchResult.citations[0]?.url || '',
-              title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
-              snippet: searchResult.content.substring(0, 1500),
-              tier: 2,
-              retrievedAt: new Date().toISOString(),
-              anchorHits: queryDef.anchorTerms || [],
-              isSynthesized: true,
-              sourceUrls: searchResult.citations.map((c: any) => c.url),
-            });
-          }
+        // Add synthesized research summary as evidence block
+        if (searchResult.content && searchResult.content.length > 100 && searchResult.citations.length > 0) {
+          queryEvidence.push({
+            id: crypto.randomUUID(),
+            queryId: queryDef.id,
+            mappedAction: queryDef.mappedAction,
+            url: searchResult.citations[0]?.url || '',
+            title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
+            snippet: searchResult.content.substring(0, 2000),
+            tier: 2,
+            retrievedAt: new Date().toISOString(),
+            source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+            anchorHits: queryDef.anchorTerms || [],
+            isSynthesized: true,
+            sourceUrls: searchResult.citations.map((c: any) => c.url),
+          });
         }
 
         return { evidence: queryEvidence, rejected: queryRejected };
@@ -13266,12 +13514,13 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       }
     };
 
-    // Run all queries in parallel
-    console.log(`[RetrieveEvidence] Running ${queries.length} queries in parallel...`);
-    const results = await Promise.all(queries.map(processQuery));
+    // Run Pass 1 queries in parallel
+    console.log(`[RetrieveEvidence] Pass 1: Running ${queries.length} queries in parallel...`);
+    passMetrics.pass1.queryCount = queries.length;
+    const pass1Results = await Promise.all(queries.map(processQuery));
 
-    // Merge results and deduplicate by URL
-    for (const result of results) {
+    // Merge Pass 1 results and deduplicate by URL
+    for (const result of pass1Results) {
       for (const eb of result.evidence) {
         if (!eb.url || seenUrls.has(eb.url)) continue;
         seenUrls.add(eb.url);
@@ -13284,16 +13533,168 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       }
     }
 
-    console.log(`[RetrieveEvidence] Complete. Found ${evidence.length} evidence blocks, rejected ${rejected.length}`);
+    passMetrics.pass1.evidenceCount = evidence.length;
+
+    // ── RELEVANCE SCORING ──────────────────────────────────
+    // Score each evidence block against the scope contract (balanced mode)
+    const scoredEvidence = await scoreEvidenceRelevance(evidence, scopeContract, stateCode, stateName);
+
+    // Apply balanced thresholds: 0-3 reject, 4-6 flag, 7-10 pass
+    const finalEvidence: any[] = [];
+    const relevanceRejected: any[] = [];
+
+    for (const scored of scoredEvidence) {
+      if (scored.relevanceScore <= 3) {
+        relevanceRejected.push({ ...scored, rejectionReason: `Scope drift: ${scored.relevanceReason}` });
+        passMetrics.pass1.rejectedCount++;
+      } else if (scored.relevanceScore <= 6) {
+        finalEvidence.push({ ...scored, relevanceStatus: 'flagged', scopeDriftWarning: scored.relevanceReason });
+        passMetrics.pass1.flaggedCount++;
+      } else {
+        finalEvidence.push({ ...scored, relevanceStatus: 'pass' });
+        passMetrics.pass1.highRelevanceCount++;
+      }
+    }
+
+    console.log(`[RetrieveEvidence] After relevance scoring: ${passMetrics.pass1.highRelevanceCount} pass, ${passMetrics.pass1.flaggedCount} flagged, ${passMetrics.pass1.rejectedCount} rejected`);
+
+    // ── PASS 2: Targeted Follow-Up (conditional) ──────────────────────────────────
+    let pass2Triggered = false;
+    const pass2Reason: string[] = [];
+
+    if (passMetrics.pass1.highRelevanceCount < 3) {
+      pass2Triggered = true;
+      pass2Reason.push(`Only ${passMetrics.pass1.highRelevanceCount} high-relevance sources in Pass 1 (need at least 3)`);
+
+      console.log(`[RetrieveEvidence] Pass 2 triggered: ${pass2Reason.join(', ')}`);
+
+      // Extract statute references from Pass 1 content for targeted follow-up
+      const allSnippets = finalEvidence.map(e => e.snippet || '').join(' ');
+      const statuteRefs = allSnippets.match(/(?:NRS|ORS|RCW|§|Section|Chapter|Title)\s*[\d.]+[\w.-]*/gi) || [];
+      const uniqueStatutes = [...new Set(statuteRefs.slice(0, 5))];
+
+      const regulatoryHints = scopeContract.regulatoryDomainHints || [];
+      const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+
+      // Build targeted queries
+      const pass2Queries: any[] = [];
+
+      // Targeted statute lookups
+      for (const statute of uniqueStatutes.slice(0, 2)) {
+        pass2Queries.push({
+          id: `p2_statute_${pass2Queries.length}`,
+          mappedAction: `statute lookup: ${statute}`,
+          isStateDifferenceQuery: false,
+          anchorTerms: [stateCode, statute],
+          _searchOverride: `${stateName} ${statute} requirements for ${primaryRoleLabel} retail convenience store`,
+        });
+      }
+
+      // Regulatory body targeted searches
+      for (const hint of regulatoryHints.slice(0, 2)) {
+        pass2Queries.push({
+          id: `p2_agency_${pass2Queries.length}`,
+          mappedAction: `${hint} requirements`,
+          isStateDifferenceQuery: false,
+          anchorTerms: [stateCode, hint],
+          _searchOverride: `${stateName} ${hint} ${domainAnchors.slice(0, 3).join(' ')} requirements for ${primaryRoleLabel}`,
+        });
+      }
+
+      if (pass2Queries.length > 0) {
+        console.log(`[RetrieveEvidence] Pass 2: Running ${pass2Queries.length} targeted queries...`);
+
+        const processPass2Query = async (queryDef: any) => {
+          try {
+            const searchTerm = queryDef._searchOverride || queryDef.mappedAction;
+            const searchResult = await searchStateRegulations(
+              stateCode, stateName, searchTerm, domainContext, scopeContract, false
+            );
+
+            const queryEvidence: any[] = [];
+            for (const citation of searchResult.citations) {
+              if (!citation.url || seenUrls.has(citation.url)) continue;
+              seenUrls.add(citation.url);
+              const tier = classifySourceTier(citation.url);
+              queryEvidence.push({
+                id: crypto.randomUUID(),
+                queryId: queryDef.id,
+                mappedAction: queryDef.mappedAction,
+                url: citation.url,
+                title: citation.title,
+                snippet: citation.snippet || '',
+                tier,
+                retrievedAt: new Date().toISOString(),
+                source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+                pass: 2,
+                anchorHits: [],
+              });
+            }
+
+            if (searchResult.content && searchResult.content.length > 100 && searchResult.citations.length > 0) {
+              queryEvidence.push({
+                id: crypto.randomUUID(),
+                queryId: queryDef.id,
+                mappedAction: queryDef.mappedAction,
+                url: searchResult.citations[0]?.url || '',
+                title: `${stateName} ${queryDef.mappedAction} - Targeted Research`,
+                snippet: searchResult.content.substring(0, 2000),
+                tier: 2,
+                retrievedAt: new Date().toISOString(),
+                source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+                pass: 2,
+                isSynthesized: true,
+                sourceUrls: searchResult.citations.map((c: any) => c.url),
+                anchorHits: [],
+              });
+            }
+
+            return queryEvidence;
+          } catch (err: any) {
+            console.error(`[RetrieveEvidence] Pass 2 query failed: ${queryDef.mappedAction}`, err.message);
+            return [];
+          }
+        };
+
+        const pass2Results = await Promise.all(pass2Queries.map(processPass2Query));
+
+        // Score and merge Pass 2 results
+        const pass2Evidence = pass2Results.flat();
+        if (pass2Evidence.length > 0) {
+          const pass2Scored = await scoreEvidenceRelevance(pass2Evidence, scopeContract, stateCode, stateName);
+          for (const scored of pass2Scored) {
+            if (scored.relevanceScore <= 3) {
+              relevanceRejected.push({ ...scored, rejectionReason: `Pass 2 scope drift: ${scored.relevanceReason}` });
+            } else if (scored.relevanceScore <= 6) {
+              finalEvidence.push({ ...scored, relevanceStatus: 'flagged', scopeDriftWarning: scored.relevanceReason, pass: 2 });
+            } else {
+              finalEvidence.push({ ...scored, relevanceStatus: 'pass', pass: 2 });
+            }
+          }
+        }
+
+        console.log(`[RetrieveEvidence] Pass 2 complete. Total evidence now: ${finalEvidence.length}`);
+      }
+    }
+
+    // ── URL VERIFICATION ──────────────────────────────────
+    // Lightweight HEAD request verification for citation URLs
+    const verifiedEvidence = await verifyEvidenceUrls(finalEvidence);
+
+    console.log(`[RetrieveEvidence] Complete. ${verifiedEvidence.length} evidence blocks, ${relevanceRejected.length} rejected`);
 
     return jsonResponse({
       planId,
-      evidenceCount: evidence.length,
-      rejectedCount: rejected.length,
-      evidence,
-      rejected,
+      evidenceCount: verifiedEvidence.length,
+      rejectedCount: relevanceRejected.length,
+      evidence: verifiedEvidence,
+      rejected: relevanceRejected,
       stateCode,
       stateName,
+      searchEngine: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+      pass2Triggered,
+      pass2Reason,
+      passMetrics,
     });
 
   } catch (error: any) {
@@ -17268,7 +17669,6 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
         transcript: draft.draft_content, // Article HTML content goes in transcript field
         status: 'draft',
         description: `State variant for ${draft.state_name || draft.state_code}`,
-        tags: [draft.state_code, 'state-variant'].filter(Boolean),
       })
       .select()
       .single();
@@ -17279,6 +17679,37 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
     }
 
     console.log(`[PublishDraft] Created article track ${newTrack.id}: ${newTrack.title}`);
+
+    // 2b. Assign tags via track_tags junction table
+    const tagNames = [draft.state_code, 'state-variant'].filter(Boolean);
+    if (tagNames.length > 0) {
+      for (const tagName of tagNames) {
+        // Find or create the tag
+        let { data: existingTag } = await supabase
+          .from('tags')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('name', tagName)
+          .single();
+
+        if (!existingTag) {
+          const { data: newTag } = await supabase
+            .from('tags')
+            .insert({ organization_id: orgId, name: tagName, type: 'track' })
+            .select('id')
+            .single();
+          existingTag = newTag;
+        }
+
+        if (existingTag) {
+          await supabase
+            .from('track_tags')
+            .insert({ track_id: newTrack.id, tag_id: existingTag.id })
+            .single();
+        }
+      }
+      console.log(`[PublishDraft] Assigned tags: ${tagNames.join(', ')}`);
+    }
 
     // 3. Create variant relationship between source track and new article
     let relationshipId: string | null = null;

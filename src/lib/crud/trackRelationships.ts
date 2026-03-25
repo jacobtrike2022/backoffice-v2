@@ -545,6 +545,8 @@ export interface ScopeContract {
   roleEvidenceQuotes: string[];
   allowedLearnerActions: string[];
   disallowedActionClasses: string[];
+  audienceNegativeExamples: string[];
+  regulatoryDomainHints: string[];
   domainAnchors: string[];
   instructionalGoal: string;
 }
@@ -718,6 +720,15 @@ export interface EvidenceBlock {
   updatedDate?: string | null;
   snippets: EvidenceSnippet[];
   rawTextHash?: string;
+  // v3 fields: relevance scoring & URL verification
+  relevanceScore?: number;
+  relevanceReason?: string;
+  relevanceStatus?: 'pass' | 'flagged' | 'reject';
+  scopeDriftWarning?: string;
+  url_verified?: boolean | null;
+  url_status_code?: number | null;
+  source?: 'perplexity' | 'openai_responses';
+  pass?: number;
 }
 
 export interface RetrievalRejection {
@@ -726,6 +737,8 @@ export interface RetrievalRejection {
   matchedDisallowedTerms?: string[];
   roleMismatch?: boolean;
   anchorMismatch?: boolean;
+  rejectionReason?: string;
+  relevanceScore?: number;
 }
 
 export interface RetrievalResponse {
@@ -735,6 +748,19 @@ export interface RetrievalResponse {
   evidence: EvidenceBlock[];
   rejected: RetrievalRejection[];
   note?: string;
+  // v3 fields
+  searchEngine?: 'perplexity' | 'openai_responses';
+  pass2Triggered?: boolean;
+  pass2Reason?: string[];
+  passMetrics?: {
+    pass1: {
+      queryCount: number;
+      evidenceCount: number;
+      highRelevanceCount: number;
+      flaggedCount: number;
+      rejectedCount: number;
+    };
+  };
 }
 
 /**
@@ -1212,6 +1238,26 @@ export async function getDraft(draftId: string): Promise<VariantDraft> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Not found' }));
     throw new Error(error.error || 'Failed to get draft');
+  }
+
+  return response.json();
+}
+
+/**
+ * Verify a URL's accessibility (lightweight HEAD request via edge function).
+ */
+export async function verifyUrl(url: string): Promise<{ accessible: boolean; statusCode: number | null; finalUrl: string }> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${getServerUrl()}/track-relationships/variant/verify-url?url=${encodeURIComponent(url)}`,
+    {
+      headers: edgeHeaders(accessToken),
+    }
+  );
+
+  if (!response.ok) {
+    return { accessible: false, statusCode: null, finalUrl: url };
   }
 
   return response.json();
