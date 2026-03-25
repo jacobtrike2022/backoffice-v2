@@ -12413,6 +12413,22 @@ CRITICAL for regulatoryDomainHints:
 - Example for fueling safety: ["State Fire Marshal", "State Occupational Safety agency", "State Environmental Agency (spill reporting)"]
 - Example for alcohol sales: ["State Alcohol Beverage Control board", "State Liquor Authority"]
 
+CRITICAL for adaptableHooks — THIS IS THE MOST IMPORTANT OUTPUT:
+- Scan the source content for GENERIC statements that obviously have state-specific counterparts
+- These are sentences that say something general/national that BEGS for a state-specific replacement
+- Each hook is an EXACT quote from the source + what state-specific info should replace/enhance it
+- The research pipeline will use these hooks as PRIMARY research targets
+- Examples from an alcohol sales article:
+  - "Laws and regulations for selling alcohol vary by state" → research: what are THIS state's specific alcohol laws?
+  - "hours of sale" → research: what are THIS state's specific hours of sale?
+  - "severe penalties, including fines and the potential loss of the store's liquor license" → research: what are THIS state's specific penalty structures?
+  - "the legal drinking age" → research: any state-specific age verification requirements beyond federal?
+- Examples from a fueling safety article:
+  - "follow your state's reporting requirements" → research: what are THIS state's specific spill reporting requirements?
+  - "local fire codes may apply" → research: what are THIS state's fire marshal requirements for fueling?
+- PRIORITIZE hooks that are already in the template as generic statements — these are the easiest and most natural places for state-specific adaptation
+- Include 4-10 hooks, ordered by importance (most regulation-dense topics first)
+
 Output this exact JSON structure:
 {
   "primaryRole": "<one of: frontline_store_associate, manager_supervisor, delivery_driver, owner_executive, back_office_admin, other>",
@@ -12423,6 +12439,14 @@ Output this exact JSON structure:
   "disallowedActionClasses": ["<5-10 action types NOT taught>"],
   "audienceNegativeExamples": ["<4-6 related-sounding topics that are OUT OF SCOPE for this audience>"],
   "regulatoryDomainHints": ["<2-4 types of state regulatory bodies that govern this content>"],
+  "adaptableHooks": [
+    {
+      "exactQuote": "<exact sentence or phrase from source content>",
+      "hookType": "<one of: generic_claim, vague_reference, placeholder, federal_only>",
+      "researchTarget": "<what state-specific info should be found to replace/enhance this>",
+      "priority": "<high|medium|low>"
+    }
+  ],
   "domainAnchors": ["<6-15 nouns/noun-phrases defining the topic>"],
   "instructionalGoal": "<single sentence describing what learner will be able to do>"
 }`;
@@ -12690,10 +12714,22 @@ CRITICAL: If a regulation applies to a DIFFERENT ROLE than ${primaryRoleLabel}, 
 For example, if the audience is "cashiers", do NOT search for regulations about tank technicians, wholesale distributors, or construction crews.
 ═══════════════════
 
+ADAPTABLE HOOKS FROM SOURCE CONTENT:
+${(scopeContract?.adaptableHooks || []).map((h: any, i: number) => `${i + 1}. "${h.exactQuote}" → Find: ${h.researchTarget} [${h.priority}]`).join('\n') || 'None extracted'}
+
 TASK:
-Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions FOR THE TARGET AUDIENCE.
+Generate exactly 4-6 search queries. PRIORITIZE queries that target the Adaptable Hooks above — these are generic statements in the source content that need state-specific replacements.
+
+For each hook marked "high" priority, there MUST be at least one query targeting it.
 Use natural language phrasing that search engines understand best.
-Focus on the most critical compliance risks FOR THIS SPECIFIC ROLE.
+Focus on finding the SPECIFIC ${stateName} regulations that replace the generic statements.
+
+QUERY STRATEGY:
+- For "hours of sale" hooks → search for "${stateName} alcohol sale hours restrictions"
+- For "penalties/fines" hooks → search for "${stateName} [topic] violation penalties fine schedule"
+- For "licensing" hooks → search for "${stateName} [specific license type] requirements"
+- For vague "state laws vary" hooks → search for the specific ${stateName} statute governing that area
+- ALWAYS include the target audience context (e.g., "retail", "convenience store", "cashier")
 
 OUTPUT FORMAT (JSON):
 {
@@ -12703,7 +12739,8 @@ OUTPUT FORMAT (JSON):
       "mappedAction": "The specific learner action this query covers (or 'general' if broad)",
       "why": "Brief explanation of what regulation this targets",
       "keywords": ["keyword1", "keyword2"],
-      "scopeJustification": "Why this query is relevant to ${primaryRoleLabel} specifically"
+      "scopeJustification": "Why this query is relevant to ${primaryRoleLabel} specifically",
+      "targetHookQuote": "The exact quote from adaptableHooks this query targets, or null if general"
     }
   ]
 }
@@ -12974,13 +13011,17 @@ ${regulatoryHints.length > 0 ? `- RELEVANT REGULATORY BODIES TO CHECK: ${regulat
 
 CRITICAL SCOPE RULE: If a regulation applies to a DIFFERENT ROLE (tank technicians, refinery workers, wholesale distributors, construction crews, tanker truck drivers) than the target audience (${primaryRoleLabel}), it is OUT OF SCOPE even if it's in the same general industry domain.
 
+SPECIFIC TOPICS TO RESEARCH (from source content analysis):
+${(scopeContract?.adaptableHooks || []).filter((h: any) => h.priority === 'high').map((h: any) => `- ${h.researchTarget}`).join('\n') || '(none extracted — use learner actions above)'}
+
 RESPONSE REQUIREMENTS:
 1. Cite specific statute numbers, administrative code sections, or regulation citations
 2. Prefer official .gov sources, state legislature sites, and state agency sites
 3. Every factual claim must have a specific citation
 4. Focus on what the TARGET AUDIENCE (${primaryRoleLabel}) must know or do
 5. Include penalties and consequences for violations where applicable
-6. Note any recent changes or pending legislation`;
+6. Note any recent changes or pending legislation
+7. CRITICAL: Only cite a bill/statute if you can confirm it addresses the TOPIC being researched. Do NOT cite a real bill number that covers a different subject.`;
 }
 
 /**
@@ -14125,6 +14166,34 @@ function runKeyFactQAGates(
     failedGates.push('D');
   }
 
+  // Gate G: Semantic citation-claim alignment
+  // Check that the cited evidence quote actually supports what the fact claims.
+  // A real bill number attached to the wrong topic is worse than no citation.
+  for (const citation of fact.citations) {
+    if (citation.quote && fact.factText) {
+      const quoteWords = new Set(citation.quote.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
+      const factWords = fact.factText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+
+      // Extract key subject nouns from the fact (skip common legal words)
+      const legalStopwords = new Set(['state', 'requires', 'required', 'must', 'shall', 'may', 'law', 'regulation', 'statute', 'section', 'code', 'act', 'bill', 'stores', 'convenience', 'employees', 'new', 'york']);
+      const factSubjectWords = factWords.filter(w => !legalStopwords.has(w) && w.length > 4);
+
+      // Check: do the key subject words in the fact appear in the quote?
+      const subjectOverlap = factSubjectWords.filter(w => quoteWords.has(w));
+      const subjectOverlapRatio = factSubjectWords.length > 0 ? subjectOverlap.length / factSubjectWords.length : 1;
+
+      if (subjectOverlapRatio < 0.2 && factSubjectWords.length >= 3) {
+        // The fact's subject matter doesn't appear in the cited evidence
+        flags.push(`G: Citation quote may not support the claim — fact subject words [${factSubjectWords.slice(0, 5).join(', ')}] have <20% overlap with citation text`);
+        // Don't hard-fail, but flag for review
+        if (!failedGates.includes('G')) {
+          // Only add PASS_WITH_REVIEW, not FAIL — human can verify
+          flags.push('G: Verify that the cited source actually addresses this specific topic');
+        }
+      }
+    }
+  }
+
   // Check if any citations are Tier 3
   const hasTier3Only = fact.citations.every((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
   const hasTier3 = fact.citations.some((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
@@ -14672,13 +14741,22 @@ You must preserve structure and change as little as possible.
 
 HARD RULES:
 - You may ONLY use the provided Key Facts for state-specific changes.
-- Do NOT add new topics, new sections, or new compliance info.
+- Do NOT add new topics, new sections, or new compliance info beyond what Key Facts provide.
 - Do NOT change anything unless a Key Fact requires it.
 - Any sentence you modify must end with [[KF:<id>]] where <id> is the Key Fact ID that justifies the change.
 - If you change text without a marker, the output is invalid.
 - Preserve all HTML tags exactly for articles.
 - Maintain the same paragraph structure and order.
 - Keep the same tone and voice appropriate for the learner role.
+
+CRITICAL — REPLACEMENT OVER ADDITION:
+- FIRST look for existing generic sentences in the source that a Key Fact makes state-specific.
+  Example: if the source says "hours of sale vary by state" and a Key Fact says "${stateName || stateCode} prohibits alcohol sales between 2am-8am", REPLACE the generic sentence in-place.
+  Example: if the source says "severe penalties, including fines" and a Key Fact gives specific fine amounts, REPLACE the generic penalty sentence in-place.
+- ONLY add a new sentence if there is NO existing generic sentence to replace.
+- NEVER add a sentence that duplicates information already in the source, even if phrased differently.
+- NEVER add new paragraphs or sections. All changes should be in-place modifications of existing text.
+- When a Key Fact specifies a state agency name (e.g., "SLA", "ABC"), replace the generic term (e.g., "your state's liquor authority") with the specific name.
 
 ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
 - Use second-person voice ("you must", "you should")
@@ -14699,12 +14777,19 @@ ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
 ${citationsStr}`;
   }).join('\n\n');
 
+  // Build adaptable hooks section if available
+  const hooksSection = (scopeContract.adaptableHooks || []).length > 0
+    ? `\nADAPTABLE HOOKS — These are generic sentences in the source that should be replaced in-place with state-specific info:\n${(scopeContract.adaptableHooks || []).map((h: any, i: number) =>
+      `${i + 1}. "${h.exactQuote}" → Replace with ${stateName || stateCode}-specific: ${h.researchTarget}`
+    ).join('\n')}\n`
+    : '';
+
   const userPrompt = `Track type: ${trackType}
 Target state: ${stateName || stateCode} (${stateCode})
 Learner role: ${scopeContract.primaryRole || 'frontline employee'}
 Allowed actions: ${(scopeContract.allowedLearnerActions || []).join(', ')}
 Domain anchors: ${(scopeContract.domainAnchors || []).join(', ')}
-
+${hooksSection}
 VALIDATED KEY FACTS:
 ${keyFactsSection}
 
@@ -14713,9 +14798,11 @@ ${sourceContent}
 
 INSTRUCTIONS:
 Rewrite the source for ${stateName || stateCode} with minimal changes.
+PRIORITY: First, find the Adaptable Hooks sentences listed above and replace them IN-PLACE using the Key Facts.
 Only edit where Key Facts require changes.
 Every changed sentence must end with [[KF:<id>]] where <id> is the exact Key Fact ID.
 Preserve headings, paragraph order, and HTML structure.
+Do NOT add new paragraphs. Modify existing sentences in-place.
 Return revised content only. No explanations.`;
 
   try {
@@ -17682,6 +17769,48 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
 
     // 2b. Assign tags via track_tags junction table
     const tagNames = [draft.state_code, 'state-variant'].filter(Boolean);
+
+    // 2c. Ensure scope is set to STATE > X for state variants
+    // This keeps the "Content scope" panel aligned with the state the variant agent used.
+    const stateCode = (draft.state_code || draft.stateCode || '').toString().toUpperCase();
+    if (stateCode) {
+      const { data: stateRow, error: stateErr } = await supabase
+        .from('us_states')
+        .select('id')
+        .eq('code', stateCode)
+        .maybeSingle();
+
+      if (!stateErr && stateRow?.id) {
+        try {
+          await supabase.from('track_scopes').upsert({
+            track_id: newTrack.id,
+            organization_id: orgId,
+            scope_level: 'STATE',
+            sector: null,
+            industry_id: null,
+            state_id: stateRow.id,
+            company_id: null,
+            program_id: null,
+            unit_id: null,
+            metadata: {
+              source: 'state-variant',
+              variant_draft_id: draftId,
+              state_code: stateCode,
+            },
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'track_id',
+            ignoreDuplicates: true,
+          });
+          console.log(`[PublishDraft] Set track scope STATE (${stateCode}) for ${newTrack.id}`);
+        } catch (scopeErr) {
+          console.warn('[PublishDraft] Failed to set track scope:', scopeErr);
+        }
+      } else if (stateErr) {
+        console.warn('[PublishDraft] Failed to resolve us_state id:', stateErr);
+      }
+    }
+
     if (tagNames.length > 0) {
       for (const tagName of tagNames) {
         // Find or create the tag

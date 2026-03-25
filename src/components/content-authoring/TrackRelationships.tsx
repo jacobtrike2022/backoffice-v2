@@ -20,6 +20,33 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
   const [baseTrack, setBaseTrack] = useState<TrackRelationship | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const navigateToTrackPage = (id: string, type?: string | null) => {
+    if (onNavigateToTrack) {
+      onNavigateToTrack(id);
+      return;
+    }
+
+    const resolvedType = (type || '').toLowerCase();
+    // Keep routes consistent with the rest of the app (see VersionHistory fallbacks).
+    switch (resolvedType) {
+      case 'article':
+        window.location.href = `/article/${id}`;
+        return;
+      case 'video':
+        window.location.href = `/video/${id}`;
+        return;
+      case 'story':
+        window.location.href = `/story/${id}`;
+        return;
+      case 'checkpoint':
+        window.location.href = `/checkpoint/${id}`;
+        return;
+      default:
+        // Best-effort fallback; most variant source tracks are articles.
+        window.location.href = `/article/${id}`;
+    }
+  };
+
   useEffect(() => {
     loadRelationships();
   }, [trackId]);
@@ -306,7 +333,10 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
             </div>
             <div
               className="flex items-start gap-3 p-3 rounded-lg border bg-accent/30 hover:bg-accent/50 transition-all cursor-pointer"
-              onClick={() => onNavigateToTrack && onNavigateToTrack(baseTrack.source_track!.id)}
+              onClick={() => {
+                if (!baseTrack.source_track) return;
+                navigateToTrackPage(baseTrack.source_track.id, baseTrack.source_track.type);
+              }}
             >
               <img
                 src={getEffectiveThumbnailUrl(baseTrack.source_track.thumbnail_url)}
@@ -322,7 +352,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
                       {getStatusBadge(baseTrack.source_track.status)}
                     </div>
                   </div>
-                  {onNavigateToTrack && (
+                  {(baseTrack.source_track?.id || onNavigateToTrack) && (
                     <ExternalLink className="size-4 text-muted-foreground shrink-0" />
                   )}
                 </div>
