@@ -110,6 +110,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 import { checkServerHealth } from "./lib/serverHealth";
+import { trackDemoActivityEvent } from "./lib/analytics/demoTracking";
 
 function RouteLoadingFallback() {
   return (
@@ -242,6 +243,19 @@ export default function App() {
     useState<(() => boolean) | null>(null);
   const [pendingNavigationView, setPendingNavigationView] =
     useState<AppView | null>(null);
+  const demoSessionStartedAtRef = useRef<number>(Date.now());
+  const demoSessionStartSentRef = useRef<boolean>(false);
+  const demoSessionEndSentRef = useRef<boolean>(false);
+
+  const getTrackingContext = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get("demo_org_id");
+    return {
+      organizationId: viewingOrgId || demoOrgId || null,
+      organizationName: viewingOrgName || null,
+      currentRole,
+    };
+  }, [currentRole, viewingOrgId, viewingOrgName]);
 
   const getPreservedOrgQuery = () => {
     const current = new URLSearchParams(window.location.search);
@@ -528,6 +542,21 @@ export default function App() {
   };
 
   const handleNavigate = (view: AppView) => {
+    void trackDemoActivityEvent(
+      {
+        eventType: "page_view",
+        path: `/app/${view}`,
+        fromPath: `/app/${currentView}`,
+        referrer: document.referrer || undefined,
+        metadata: {
+          source: "app_navigation",
+          fromView: currentView,
+          toView: view,
+        },
+      },
+      getTrackingContext()
+    );
+
     // Clear editing context when navigating away from content/authoring
     if (
       currentView === "content" ||
@@ -566,6 +595,55 @@ export default function App() {
     }
     setCurrentView(view);
   };
+
+  // Session lifecycle events for demo/prospect telemetry.
+  useEffect(() => {
+    if (demoSessionStartSentRef.current) return;
+    demoSessionStartSentRef.current = true;
+
+    void trackDemoActivityEvent(
+      {
+        eventType: "session_start",
+        path: `/app/${currentView}`,
+        referrer: document.referrer || undefined,
+        metadata: { source: "app_boot" },
+      },
+      getTrackingContext()
+    );
+  }, [currentView, getTrackingContext]);
+
+  useEffect(() => {
+    const emitSessionEnd = () => {
+      if (demoSessionEndSentRef.current) return;
+      demoSessionEndSentRef.current = true;
+      const durationMs = Math.max(0, Date.now() - demoSessionStartedAtRef.current);
+
+      void trackDemoActivityEvent(
+        {
+          eventType: "session_end",
+          path: `/app/${currentView}`,
+          metadata: {
+            durationMs,
+            source: "app_unload",
+          },
+        },
+        getTrackingContext()
+      );
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        emitSessionEnd();
+      }
+    };
+
+    window.addEventListener("beforeunload", emitSessionEnd);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", emitSessionEnd);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [currentView, getTrackingContext]);
 
   const handleRoleChange = (newRole: UserRole) => {
     if (

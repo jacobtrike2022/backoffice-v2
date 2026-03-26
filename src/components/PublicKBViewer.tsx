@@ -45,6 +45,7 @@ import { StoryPreview } from './content-authoring/StoryPreview';
 import { StoryTranscript } from './content-authoring/StoryTranscript';
 import { downloadKbTrackAsPdf } from '../lib/utils/kbPdfExport';
 import { toast } from 'sonner';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 
 function parseStorySlidesFromTranscript(transcript?: string): Array<{
   id: string;
@@ -357,6 +358,40 @@ export function PublicKBViewer() {
       
       // Track page view (with userId if logged in) - this also records activity event via edge function
       trackPageView(data.track.id, currentUserId);
+
+      const trackingOrgId = data.track?.organization_id || data.org?.id || null;
+      const trackingOrgName = data.org?.name || null;
+      void trackDemoActivityEvent(
+        {
+          eventType: 'page_view',
+          path: window.location.pathname + window.location.search,
+          referrer: document.referrer || undefined,
+          metadata: {
+            source: 'public_kb',
+            trackType: data.track?.type || 'unknown',
+          },
+        },
+        {
+          organizationId: trackingOrgId,
+          organizationName: trackingOrgName,
+        }
+      );
+      void trackDemoActivityEvent(
+        {
+          eventType: 'track_open',
+          path: '/kb/public',
+          trackId: data.track.id,
+          trackTitle: data.track.title,
+          metadata: {
+            source: 'public_kb',
+            trackType: data.track?.type || 'unknown',
+          },
+        },
+        {
+          organizationId: trackingOrgId,
+          organizationName: trackingOrgName,
+        }
+      );
       
       // Increment view count in tracks table (activity event is handled by trackPageView endpoint)
       try {
@@ -473,6 +508,19 @@ export function PublicKBViewer() {
         setLikes(data.likes);
         setHasLiked(true);
         localStorage.setItem(`kb_liked_${track.id}`, 'true');
+        void trackDemoActivityEvent(
+          {
+            eventType: 'like',
+            path: '/kb/public',
+            trackId: track.id,
+            trackTitle: track.title,
+            metadata: { source: 'public_kb' },
+          },
+          {
+            organizationId: track.organization_id || org?.id || null,
+            organizationName: org?.name || null,
+          }
+        );
       }
     } catch (err) {
       console.error('Failed to like:', err);
@@ -784,7 +832,22 @@ export function PublicKBViewer() {
               {/* Ask Button */}
               {track && (
                 <button
-                  onClick={() => setBrainDrawerOpen(true)}
+                  onClick={() => {
+                    void trackDemoActivityEvent(
+                      {
+                        eventType: 'ask_open',
+                        path: '/kb/public',
+                        trackId: track.id,
+                        trackTitle: track.title,
+                        metadata: { source: 'public_kb' },
+                      },
+                      {
+                        organizationId: track.organization_id || org?.id || null,
+                        organizationName: org?.name || null,
+                      }
+                    );
+                    setBrainDrawerOpen(true);
+                  }}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 text-white hover:opacity-90 transition-opacity min-h-[44px]"
                   title="Ask a question"
                 >
@@ -822,6 +885,19 @@ export function PublicKBViewer() {
                   variant="outline"
                   size="sm"
                   onClick={async () => {
+                    void trackDemoActivityEvent(
+                      {
+                        eventType: 'download_pdf',
+                        path: '/kb/public',
+                        trackId: track.id,
+                        trackTitle: track.title,
+                        metadata: { source: 'public_kb' },
+                      },
+                      {
+                        organizationId: track.organization_id || org?.id || null,
+                        organizationName: org?.name || null,
+                      }
+                    );
                     await downloadKbTrackAsPdf(
                       { ...track, likes: likes ?? track.likes ?? 0 },
                       { toast, factsOverride: facts }

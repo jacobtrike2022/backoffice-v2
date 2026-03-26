@@ -89,6 +89,7 @@ import {
   formatKbPdfDate,
   getProcessedContentAndTocForKb,
 } from '../lib/utils/kbPdfExport';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -1665,6 +1666,30 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       setSelectedTrackFacts([]);
     }
   }, [selectedTrack?.id]);
+
+  // Track KB track opens for demo/prospect navigation analytics.
+  useEffect(() => {
+    if (!selectedTrack?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+
+    void trackDemoActivityEvent(
+      {
+        eventType: 'track_open',
+        path: '/app/knowledge-base',
+        trackId: selectedTrack.id,
+        trackTitle: selectedTrack.title,
+        metadata: {
+          source: 'knowledge_base',
+          trackType: selectedTrack.type || 'unknown',
+        },
+      },
+      {
+        organizationId: selectedTrack.organization_id || demoOrgId || null,
+        currentRole,
+      }
+    );
+  }, [selectedTrack?.id, currentRole]);
 
   // Data Fetching (Tags)
   const [categories, setCategories] = useState<Tag[]>([]);

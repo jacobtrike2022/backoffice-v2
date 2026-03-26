@@ -42,6 +42,7 @@
     "@tiptap/extension-list-item": "*",
     "@tiptap/react": "*",
     "@tiptap/starter-kit": "*",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "*",
     "cmdk": "^1.1.1",

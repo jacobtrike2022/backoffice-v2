@@ -815,6 +815,11 @@ Deno.serve(async (req: Request) => {
       return await handleKBPageView(req);
     }
 
+    // Record demo activity events (org/session/page/track telemetry)
+    if (method === "POST" && path === "/demo/activity") {
+      return await handleDemoActivity(req);
+    }
+
     // Record feedback
     if (method === "POST" && path === "/kb/feedback") {
       return await handleKBFeedbackPost(req);
@@ -15532,6 +15537,100 @@ async function handleKBPublicGet(req: Request, path: string): Promise<Response> 
   } catch (error: any) {
     console.error('❌ Error in handleKBPublicGet:', error);
     return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Record demo activity telemetry
+ * Always returns success-like responses to avoid impacting end-user UX.
+ */
+async function handleDemoActivity(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return jsonResponse({ success: true, accepted: false, reason: "invalid_body" });
+    }
+
+    const sanitizeText = (value: unknown, max = 256): string | null => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      return trimmed.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, max);
+    };
+
+    const toJsonObject = (value: unknown): Record<string, unknown> => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+      return value as Record<string, unknown>;
+    };
+
+    const organizationId = sanitizeText((body as any).organizationId, 64);
+    const visitorId = sanitizeText((body as any).visitorId, 128);
+    const sessionId = sanitizeText((body as any).sessionId, 128);
+    const eventType = sanitizeText((body as any).eventType, 64);
+    const path = sanitizeText((body as any).path, 512);
+    const fromPath = sanitizeText((body as any).fromPath, 512);
+    const referrer = sanitizeText((body as any).referrer, 512);
+    const trackId = sanitizeText((body as any).trackId, 64);
+    const trackTitle = sanitizeText((body as any).trackTitle, 256);
+    let organizationNameSnapshot = sanitizeText((body as any).organizationName, 256);
+    const metadata = toJsonObject((body as any).metadata);
+
+    if (!visitorId || !sessionId || !eventType || !path) {
+      return jsonResponse({ success: true, accepted: false, reason: "missing_required_fields" });
+    }
+
+    // Short dedupe window to avoid rapid duplicate beacons.
+    const dedupeSince = new Date(Date.now() - 5000).toISOString();
+    let dedupeQuery = supabase
+      .from("demo_activity_events")
+      .select("id")
+      .eq("visitor_id", visitorId)
+      .eq("session_id", sessionId)
+      .eq("event_type", eventType)
+      .eq("path", path)
+      .gte("occurred_at", dedupeSince)
+      .limit(1)
+      .maybeSingle();
+
+    if (organizationId) {
+      dedupeQuery = dedupeQuery.eq("organization_id", organizationId);
+    } else {
+      dedupeQuery = dedupeQuery.is("organization_id", null);
+    }
+
+    const { data: recentDuplicate } = await dedupeQuery;
+    if (recentDuplicate?.id) {
+      return jsonResponse({ success: true, accepted: true, deduped: true });
+    }
+
+    if (!organizationNameSnapshot && organizationId) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("name")
+        .eq("id", organizationId)
+        .maybeSingle();
+      organizationNameSnapshot = sanitizeText(org?.name, 256);
+    }
+
+    await supabase.from("demo_activity_events").insert({
+      organization_id: organizationId,
+      organization_name_snapshot: organizationNameSnapshot,
+      visitor_id: visitorId,
+      session_id: sessionId,
+      event_type: eventType,
+      path,
+      from_path: fromPath,
+      referrer,
+      track_id: trackId,
+      track_title: trackTitle,
+      metadata,
+      occurred_at: new Date().toISOString(),
+    });
+
+    return jsonResponse({ success: true, accepted: true });
+  } catch (error) {
+    console.error("Error recording demo activity:", error);
+    return jsonResponse({ success: true, accepted: false });
   }
 }
 

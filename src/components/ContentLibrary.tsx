@@ -65,6 +65,7 @@ import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 import {
   Dialog,
   DialogContent,
@@ -246,6 +247,30 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       });
     }
   }, [initialTrackId, selectedTrack, hasLoadedInitialTrack]);
+
+  // Track content detail opens (one event per selected track id)
+  useEffect(() => {
+    if (!selectedTrack?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+
+    void trackDemoActivityEvent(
+      {
+        eventType: 'track_open',
+        path: '/app/content',
+        trackId: selectedTrack.id,
+        trackTitle: selectedTrack.title,
+        metadata: {
+          source: 'content_library',
+          trackType: selectedTrack.type || 'unknown',
+        },
+      },
+      {
+        organizationId: selectedTrack.organization_id || demoOrgId || null,
+        currentRole,
+      }
+    );
+  }, [selectedTrack?.id]);
 
   // Listen for initialTrackId being undefined to clear the selected track
   // This ensures that when navigating back to library view, the selected track is cleared

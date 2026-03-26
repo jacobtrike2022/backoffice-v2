@@ -41,6 +41,7 @@ import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { APP_CONFIG } from '../lib/config';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -489,6 +490,26 @@ export function DashboardLayout({
                             : 'hover:bg-sidebar-accent text-sidebar-foreground'
                         }`}
                         onClick={() => {
+                          const params = new URLSearchParams(window.location.search);
+                          const demoOrgId = params.get("demo_org_id");
+                          void trackDemoActivityEvent(
+                            {
+                              eventType: "nav_click",
+                              path: `/app/${item.id}`,
+                              fromPath: `/app/${activeTab}`,
+                              metadata: {
+                                navGroup: group.label,
+                                navItemId: item.id,
+                                navItemLabel: item.label,
+                              },
+                            },
+                            {
+                              organizationId: viewingOrgId || demoOrgId || null,
+                              organizationName: viewingOrgName || null,
+                              currentRole,
+                            }
+                          );
+
                           setActiveTab(item.id);
                           if (onNavigate) {
                             if (item.id === 'analytics') {
