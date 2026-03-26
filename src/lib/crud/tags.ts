@@ -41,6 +41,119 @@ export interface TagHierarchy {
   }[];
 }
 
+const DEFAULT_KB_CATEGORY_CHILDREN: Array<{ name: string; color: string }> = [
+  { name: 'Ops Manual', color: '#F74A05' },
+  { name: 'Safety Procs', color: '#FF733C' },
+  { name: 'HR Policy Docs', color: '#7F8C8D' },
+  { name: 'IT Help', color: '#95A5A6' },
+  { name: 'Equip Guides', color: '#FF733C' },
+  { name: 'Cust Svc Policy', color: '#F74A05' },
+  { name: 'Comp Docs', color: '#FF733C' },
+  { name: 'Prod Info', color: '#F74A05' },
+];
+
+async function ensureKnowledgeBaseTagScaffold(orgId: string): Promise<void> {
+  // Ensure we have a KB system-category row available in this org context.
+  let { data: kbSystemCategory } = await supabase
+    .from('tags')
+    .select('id')
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'system-category')
+    .or(`organization_id.eq.${orgId},organization_id.is.null`)
+    .order('organization_id', { ascending: true, nullsFirst: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!kbSystemCategory?.id) {
+    const { data: createdSystemCategory, error: createSystemError } = await supabase
+      .from('tags')
+      .insert({
+        organization_id: orgId,
+        name: 'Knowledge Base',
+        parent_id: null,
+        system_category: 'knowledge-base',
+        is_system_locked: true,
+        description: 'Knowledge base taxonomy',
+        color: null,
+        type: 'system-category',
+        display_order: 0,
+      })
+      .select('id')
+      .single();
+
+    if (createSystemError) throw createSystemError;
+    kbSystemCategory = createdSystemCategory;
+  }
+
+  // Ensure KB Category parent exists for this org.
+  let { data: kbCategoryParent } = await supabase
+    .from('tags')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'parent')
+    .ilike('name', 'KB Category')
+    .limit(1)
+    .maybeSingle();
+
+  if (!kbCategoryParent?.id) {
+    const { data: createdParent, error: createParentError } = await supabase
+      .from('tags')
+      .insert({
+        organization_id: orgId,
+        name: 'KB Category',
+        parent_id: kbSystemCategory.id,
+        system_category: 'knowledge-base',
+        is_system_locked: false,
+        description: 'Subject area',
+        color: null,
+        type: 'parent',
+        display_order: 1,
+      })
+      .select('id')
+      .single();
+
+    if (createParentError) throw createParentError;
+    kbCategoryParent = createdParent;
+  }
+
+  // Ensure default children exist under KB Category for this org.
+  const { data: existingChildren, error: existingChildrenError } = await supabase
+    .from('tags')
+    .select('name')
+    .eq('organization_id', orgId)
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'child')
+    .eq('parent_id', kbCategoryParent.id);
+
+  if (existingChildrenError) throw existingChildrenError;
+
+  const existingNames = new Set((existingChildren || []).map((t: any) => String(t.name || '').toLowerCase().trim()));
+  const missingChildren = DEFAULT_KB_CATEGORY_CHILDREN.filter(
+    (child) => !existingNames.has(child.name.toLowerCase().trim())
+  );
+
+  if (missingChildren.length > 0) {
+    const { error: insertChildrenError } = await supabase
+      .from('tags')
+      .insert(
+        missingChildren.map((child, idx) => ({
+          organization_id: orgId,
+          name: child.name,
+          parent_id: kbCategoryParent!.id,
+          system_category: 'knowledge-base',
+          is_system_locked: false,
+          description: null,
+          color: child.color,
+          type: 'child',
+          display_order: idx + 1,
+        }))
+      );
+
+    if (insertChildrenError) throw insertChildrenError;
+  }
+}
+
 /**
  * Get all tags with hierarchy
  */
@@ -118,6 +231,45 @@ export async function getTagHierarchy(category?: SystemCategory): Promise<Tag[]>
   const { data, error } = await query.order('display_order', { ascending: true });
   
   if (error) throw error;
+
+  // Demo orgs can be missing KB taxonomy rows; self-heal once to keep KB/category UI consistent.
+  if (category === 'knowledge-base' && orgId) {
+    const hasKbParent = (data || []).some(
+      (t: any) => t.type === 'parent' && String(t.name || '').toLowerCase().trim() === 'kb category'
+    );
+    if (!hasKbParent) {
+      try {
+        await ensureKnowledgeBaseTagScaffold(orgId);
+        const { data: repairedData, error: repairedError } = await supabase
+          .from('tags')
+          .select('*')
+          .eq('system_category', category)
+          .or(`organization_id.eq.${orgId},organization_id.is.null`)
+          .order('display_order', { ascending: true });
+        if (repairedError) throw repairedError;
+
+        const repairedTags = repairedData || [];
+        const repairedMap = new Map(repairedTags.map(t => [t.id, { ...t, children: [] as Tag[] }]));
+        const repairedRoots: Tag[] = [];
+        repairedTags.forEach(tag => {
+          const node = repairedMap.get(tag.id)!;
+          if (tag.parent_id && repairedMap.has(tag.parent_id)) {
+            repairedMap.get(tag.parent_id)!.children!.push(node);
+          } else {
+            repairedRoots.push(node);
+          }
+        });
+        repairedMap.forEach(node => {
+          if (node.children) {
+            node.children.sort((a, b) => a.display_order - b.display_order);
+          }
+        });
+        return repairedRoots;
+      } catch (repairError) {
+        console.warn('[getTagHierarchy] KB scaffold repair failed:', repairError);
+      }
+    }
+  }
   
   // Build tree structure (supports arbitrary depth)
   const tags = data || [];
