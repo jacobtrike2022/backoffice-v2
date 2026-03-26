@@ -1829,25 +1829,31 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     return allTags.find(t => t.name === tagName);
   };
 
-  // Fetch tracks using tags filter
-  const { tracks: allTracks, loading: loadingTracks, refetch: refetchCatTracks } = useTracks({ 
-    status: 'published', // Only show published tracks in Knowledge Base
+  // Fetch published tracks (search only). Do NOT filter by KB category tag on the server:
+  // getTracks({ tags }) resolves track_tags via the anon client and demo RLS can return no rows,
+  // while junction enrichment via /tags/tracks/batch still has full tag names — breaking category views.
+  const { tracks: allTracks, loading: loadingTracks, refetch: refetchCatTracks } = useTracks({
+    status: 'published',
     search: debouncedSearch,
-    tags: selectedCategoryName ? [selectedCategoryName] : undefined
   });
 
-  // Display tracks are just the fetched tracks now
   const displayTracks = React.useMemo(() => {
-    return allTracks.filter((track: any) => {
-      // Check strict boolean flag (if it exists)
+    let list = allTracks;
+
+    if (selectedCategoryName) {
+      list = list.filter(
+        (track: any) => Array.isArray(track.tags) && track.tags.includes(selectedCategoryName)
+      );
+    }
+
+    return list.filter((track: any) => {
       if (track.show_in_knowledge_base === true) return true;
-
-      // Check system tag in tags array
-      if (track.tags && Array.isArray(track.tags) && track.tags.includes('system:show_in_knowledge_base')) return true;
-
+      if (track.tags && Array.isArray(track.tags) && track.tags.includes('system:show_in_knowledge_base')) {
+        return true;
+      }
       return false;
     });
-  }, [allTracks]);
+  }, [allTracks, selectedCategoryName]);
 
   // Derived State
   const recentTracks = useMemo(() => {
