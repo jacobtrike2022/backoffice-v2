@@ -27,23 +27,31 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
     }
 
     const resolvedType = (type || '').toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+    const withDemo = (path: string) => {
+      if (!demoOrgId) return path;
+      const next = new URLSearchParams();
+      next.set('demo_org_id', demoOrgId);
+      return `${path}?${next.toString()}`;
+    };
     // Keep routes consistent with the rest of the app (see VersionHistory fallbacks).
     switch (resolvedType) {
       case 'article':
-        window.location.href = `/article/${id}`;
+        window.location.href = withDemo(`/article/${id}`);
         return;
       case 'video':
-        window.location.href = `/video/${id}`;
+        window.location.href = withDemo(`/video/${id}`);
         return;
       case 'story':
-        window.location.href = `/story/${id}`;
+        window.location.href = withDemo(`/story/${id}`);
         return;
       case 'checkpoint':
-        window.location.href = `/checkpoint/${id}`;
+        window.location.href = withDemo(`/checkpoint/${id}`);
         return;
       default:
         // Best-effort fallback; most variant source tracks are articles.
-        window.location.href = `/article/${id}`;
+        window.location.href = withDemo(`/article/${id}`);
     }
   };
 
