@@ -694,22 +694,23 @@ export async function assignTags(
   entityType: 'track' | 'album' | 'playlist' | 'user' | 'store',
   tagIds: string[]
 ): Promise<void> {
-  // For user, store, and playlist tags, use KV store via Server
-  // (playlist_tags table doesn't exist, so we use KV store for playlists)
-  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
+  // Route track/user/store/playlist writes through server endpoint.
+  // Track writes especially must bypass client-side RLS in demo mode.
+  if (entityType === 'track' || entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.session?.access_token || publicAnonKey;
+    const token = session?.access_token || publicAnonKey;
     
     const response = await fetch(`${getServerUrl()}/tags/assign`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'apikey': publicAnonKey,
       },
       body: JSON.stringify({
         entityId,
         entityType,
-        tagIds
+        tagIds: Array.from(new Set((tagIds || []).filter(Boolean))),
       })
     });
 

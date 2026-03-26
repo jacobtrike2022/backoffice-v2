@@ -16685,6 +16685,16 @@ async function handleAssignTags(req: Request): Promise<Response> {
     }
 
     if (entityType === 'track') {
+      const { data: trackRow } = await supabase
+        .from('tracks')
+        .select('organization_id')
+        .eq('id', entityId)
+        .maybeSingle();
+      const orgId = await requireOrgAccess(req, trackRow?.organization_id);
+      if (!orgId) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+
       // Delete existing tags
       await supabase
         .from('track_tags')
@@ -16693,12 +16703,16 @@ async function handleAssignTags(req: Request): Promise<Response> {
 
       // Insert new tags
       if (tagIds.length > 0) {
+        const uniqueTagIds = Array.from(new Set((tagIds || []).filter(Boolean)));
         const { error } = await supabase
           .from('track_tags')
-          .insert(tagIds.map(tagId => ({
+          .upsert(uniqueTagIds.map((tagId: string) => ({
             track_id: entityId,
             tag_id: tagId,
-          })));
+          })), {
+            onConflict: 'track_id,tag_id',
+            ignoreDuplicates: true,
+          });
 
         if (error) {
           console.error('Error assigning tags:', error);
