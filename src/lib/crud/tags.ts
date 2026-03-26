@@ -6,6 +6,63 @@
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
+/**
+ * PostgREST auth for junction writes. In demo mode there is often no Supabase Auth user; a stale
+ * or invalid JWT in storage can still be attached to the JS client and yields 401 on writes.
+ * When `getUser()` is null, use the anon key explicitly (same pattern as Edge Function calls).
+ */
+async function getPostgrestJunctionAuthHeaders(): Promise<Record<string, string>> {
+  const [{ data: { user } }, { data: { session } }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+  const token = user && session?.access_token ? session.access_token : publicAnonKey;
+  return {
+    Authorization: `Bearer ${token}`,
+    apikey: publicAnonKey,
+    'Content-Type': 'application/json',
+  };
+}
+
+const REST_V1_BASE = `https://${projectId}.supabase.co/rest/v1`;
+
+async function junctionTableDeleteAndInsert(
+  junctionTable: string,
+  foreignKey: string,
+  entityId: string,
+  tagIds: string[]
+): Promise<void> {
+  const headers = await getPostgrestJunctionAuthHeaders();
+  const deleteHeaders = { ...headers, Prefer: 'return=minimal' };
+
+  const delRes = await fetch(
+    `${REST_V1_BASE}/${junctionTable}?${foreignKey}=eq.${encodeURIComponent(entityId)}`,
+    { method: 'DELETE', headers: deleteHeaders }
+  );
+  if (!delRes.ok) {
+    const text = await delRes.text().catch(() => '');
+    throw new Error(`Failed to clear ${junctionTable}: ${delRes.status} ${text}`);
+  }
+
+  if (tagIds.length === 0) return;
+
+  const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
+  const records = uniqueTagIds.map((tagId) => ({
+    [foreignKey]: entityId,
+    tag_id: tagId,
+  }));
+
+  const insRes = await fetch(`${REST_V1_BASE}/${junctionTable}`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify(records),
+  });
+  if (!insRes.ok) {
+    const text = await insRes.text().catch(() => '');
+    throw new Error(`Failed to insert ${junctionTable}: ${insRes.status} ${text}`);
+  }
+}
+
 export type SystemCategory = 'content' | 'playlists' | 'forms' | 'knowledge-base' | 'people' | 'units' | 'shared';
 export type TagType = 'system-category' | 'parent' | 'subcategory' | 'child';
 
@@ -679,32 +736,9 @@ export async function assignTags(
       // This should not be reached as playlist is handled above
       return;
   }
-  
-  // Remove existing tags
-  const { error: deleteError } = await supabase
-    .from(junctionTable)
-    .delete()
-    .eq(foreignKey, entityId);
-  if (deleteError) throw deleteError;
-  
-  // Add new tags
-  if (tagIds.length > 0) {
-    // Dedupe tag IDs to avoid duplicate-key conflicts on (entity_id, tag_id)
-    const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
-    const records = uniqueTagIds.map(tagId => ({
-      [foreignKey]: entityId,
-      tag_id: tagId
-    }));
-    
-    const { error } = await supabase
-      .from(junctionTable)
-      .upsert(records, {
-        onConflict: `${foreignKey},tag_id`,
-        ignoreDuplicates: true,
-      });
-    
-    if (error) throw error;
-  }
+
+  const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
+  await junctionTableDeleteAndInsert(junctionTable, foreignKey, entityId, uniqueTagIds);
 }
 
 /**
@@ -730,12 +764,7 @@ export async function assignTrackTagsByName(
     .filter((name) => name.length > 0 && name !== 'system:show_in_knowledge_base');
 
   if (normalizedTagNames.length === 0) {
-    // Clear all tags from junction table
-    await supabase
-      .from('track_tags')
-      .delete()
-      .eq('track_id', trackId);
-
+    await assignTags(trackId, 'track', []);
     return { assignedTags: [], unrecognizedNames: [] };
   }
 
