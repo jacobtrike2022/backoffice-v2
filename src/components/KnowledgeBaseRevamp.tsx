@@ -1663,8 +1663,19 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
   // Data Fetching (Tags)
   const [categories, setCategories] = useState<Tag[]>([]);
+  /** Published tracks (junction-enriched) used only to compute per-collection counts in the sidebar */
+  const [kbCountSourceTracks, setKbCountSourceTracks] = useState<any[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]); // All tags for color lookup
   const [loadingCats, setLoadingCats] = useState(true);
+
+  const loadKbCategoryCountTracks = async () => {
+    try {
+      const rows = await crud.getTracks({ status: 'published' });
+      setKbCountSourceTracks(rows);
+    } catch (e) {
+      console.error('Failed to load KB category counts', e);
+    }
+  };
 
   const fetchCategories = async () => {
     setLoadingCats(true);
@@ -1724,12 +1735,27 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       console.error("Failed to load KB categories", e);
     } finally {
       setLoadingCats(false);
+      void loadKbCategoryCountTracks();
     }
   };
 
   useEffect(() => {
     fetchCategories();
   }, []);
+
+  const categoriesWithCounts = useMemo(() => {
+    if (!categories.length) return [];
+    return categories.map((cat: Tag) => {
+      const count = kbCountSourceTracks.filter((t: any) => {
+        const inKb =
+          t.show_in_knowledge_base === true ||
+          (Array.isArray(t.tags) && t.tags.includes('system:show_in_knowledge_base'));
+        const hasCat = Array.isArray(t.tags) && t.tags.includes(cat.name);
+        return inKb && hasCat;
+      }).length;
+      return { ...cat, trackCount: count };
+    });
+  }, [categories, kbCountSourceTracks]);
 
   // Fetch KB settings on mount
   useEffect(() => {
@@ -2539,7 +2565,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                    {selectedCategory === null && <ChevronRight className="h-3 w-3 opacity-50" />}
                  </button>
                  
-                 {categories?.map((category: any) => (
+                 {categoriesWithCounts?.map((category: any) => (
                    <button
                      key={category.id}
                      onClick={() => {
@@ -3089,7 +3115,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                    <BookOpen className="h-4 w-4 mr-3" />
                    All Content
                  </button>
-                 {categories?.map((category: any) => (
+                 {categoriesWithCounts?.map((category: any) => (
                    <button
                      key={category.id}
                      onClick={() => { 

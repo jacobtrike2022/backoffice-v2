@@ -887,6 +887,10 @@ Deno.serve(async (req: Request) => {
       return await handleAssignTags(req);
     }
 
+    if (method === "POST" && path === "/tags/tracks/batch") {
+      return await handleBatchTrackTags(req);
+    }
+
     // =========================================================================
     // ADDITIONAL TRACK RELATIONSHIP VARIANT ROUTES
     // =========================================================================
@@ -1227,6 +1231,7 @@ Deno.serve(async (req: Request) => {
         "GET /districts",
         "GET /tags/entity/:type/:id",
         "POST /tags/assign",
+        "POST /tags/tracks/batch",
         "POST /track-relationships/variant/create",
         "GET /track-relationships/variants/:trackId",
         "GET /track-relationships/variant/find",
@@ -16735,6 +16740,95 @@ async function handleAssignTags(req: Request): Promise<Response> {
   } catch (error: any) {
     console.error('Assign tags error:', error);
     return jsonResponse({ error: error.message || 'Failed to assign tags' }, 500);
+  }
+}
+
+/**
+ * Batch-read junction tag names for many tracks (service role). Used by Content Library / KB lists
+ * where client-side track_tags SELECT is blocked or inconsistent under demo RLS.
+ */
+async function handleBatchTrackTags(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const rawIds = body?.trackIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return jsonResponse({ byTrackId: {} });
+    }
+
+    const trackIds = [...new Set(rawIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))].slice(0, 300);
+
+    const { data: trackRows, error: trackErr } = await supabase
+      .from('tracks')
+      .select('id, organization_id')
+      .in('id', trackIds);
+
+    if (trackErr) {
+      console.error('[BatchTrackTags] tracks:', trackErr);
+      return jsonResponse({ error: 'Failed to resolve tracks' }, 500);
+    }
+
+    const allowedIds = new Set<string>();
+    for (const row of trackRows || []) {
+      const orgId = await requireOrgAccess(req, (row as { organization_id?: string }).organization_id);
+      if (orgId) {
+        allowedIds.add((row as { id: string }).id);
+      }
+    }
+
+    if (allowedIds.size === 0) {
+      return jsonResponse({ byTrackId: {} });
+    }
+
+    const { data: rels, error: relErr } = await supabase
+      .from('track_tags')
+      .select('track_id, tag_id')
+      .in('track_id', [...allowedIds]);
+
+    if (relErr) {
+      console.error('[BatchTrackTags] track_tags:', relErr);
+      return jsonResponse({ error: 'Failed to read track_tags' }, 500);
+    }
+
+    const tagIds = [...new Set((rels || []).map((r: { tag_id: string }) => r.tag_id))];
+    if (tagIds.length === 0) {
+      const empty: Record<string, string[]> = {};
+      for (const id of allowedIds) empty[id] = [];
+      return jsonResponse({ byTrackId: empty });
+    }
+
+    const { data: tagRows, error: tagErr } = await supabase
+      .from('tags')
+      .select('id, name')
+      .in('id', tagIds);
+
+    if (tagErr) {
+      console.error('[BatchTrackTags] tags:', tagErr);
+      return jsonResponse({ error: 'Failed to read tags' }, 500);
+    }
+
+    const idToName = new Map<string, string>();
+    for (const t of tagRows || []) {
+      idToName.set((t as { id: string }).id, (t as { name: string }).name);
+    }
+
+    const byTrackId: Record<string, string[]> = {};
+    for (const id of allowedIds) {
+      byTrackId[id] = [];
+    }
+    for (const r of rels || []) {
+      const tid = (r as { track_id: string }).track_id;
+      const tagId = (r as { tag_id: string }).tag_id;
+      if (!allowedIds.has(tid)) continue;
+      const name = idToName.get(tagId);
+      if (!name) continue;
+      if (!byTrackId[tid]) byTrackId[tid] = [];
+      byTrackId[tid].push(name);
+    }
+
+    return jsonResponse({ byTrackId });
+  } catch (error: any) {
+    console.error('Batch track tags error:', error);
+    return jsonResponse({ error: error.message || 'Failed to batch read tags' }, 500);
   }
 }
 
