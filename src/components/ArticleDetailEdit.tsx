@@ -53,6 +53,7 @@ import {
   PopoverTrigger,
 } from './ui/popover';
 import * as crud from '../lib/crud';
+import { downloadKbTrackAsPdf } from '../lib/utils/kbPdfExport';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -1439,6 +1440,20 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </PopoverTrigger>
                   <PopoverContent className="w-48 p-1" align="end">
                     <div className="flex flex-col">
+                      <Button
+                        variant="ghost"
+                        className="justify-start h-9"
+                        onClick={async () => {
+                          setIsActionsMenuOpen(false);
+                          await downloadKbTrackAsPdf(track, { toast });
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download PDF
+                      </Button>
+                      {(onDuplicate || onCreateVariant || onArchive) && (
+                        <Separator className="my-1" />
+                      )}
                       {onDuplicate && (
                         <Button
                           variant="ghost"
