@@ -243,6 +243,16 @@ export default function App() {
   const [pendingNavigationView, setPendingNavigationView] =
     useState<AppView | null>(null);
 
+  const getPreservedOrgQuery = () => {
+    const current = new URLSearchParams(window.location.search);
+    const preserved = new URLSearchParams();
+    const demoOrgId = current.get("demo_org_id");
+    if (demoOrgId) {
+      preserved.set("demo_org_id", demoOrgId);
+    }
+    return preserved.toString();
+  };
+
   // Persist role changes to localStorage
   useEffect(() => {
     localStorage.setItem("trike_current_role", currentRole);
@@ -413,10 +423,13 @@ export default function App() {
               }
 
               // Clear URL params after routing
+              const preservedQuery = getPreservedOrgQuery();
               window.history.replaceState(
                 {},
                 "",
-                window.location.pathname,
+                preservedQuery
+                  ? `${window.location.pathname}?${preservedQuery}`
+                  : window.location.pathname,
               );
             }
           });
@@ -429,10 +442,13 @@ export default function App() {
       setCurrentView("content");
 
       // Clear URL params
+      const preservedQuery = getPreservedOrgQuery();
       window.history.replaceState(
         {},
         "",
-        window.location.pathname,
+        preservedQuery
+          ? `${window.location.pathname}?${preservedQuery}`
+          : window.location.pathname,
       );
     }
 
@@ -484,10 +500,13 @@ export default function App() {
 
             setSelectedPlaylistId(playlistId);
 
+            const preservedQuery = getPreservedOrgQuery();
             window.history.replaceState(
               {},
               "",
-              window.location.pathname,
+              preservedQuery
+                ? `${window.location.pathname}?${preservedQuery}`
+                : window.location.pathname,
             );
           }
         })
