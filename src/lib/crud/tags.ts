@@ -681,21 +681,27 @@ export async function assignTags(
   }
   
   // Remove existing tags
-  await supabase
+  const { error: deleteError } = await supabase
     .from(junctionTable)
     .delete()
     .eq(foreignKey, entityId);
+  if (deleteError) throw deleteError;
   
   // Add new tags
   if (tagIds.length > 0) {
-    const records = tagIds.map(tagId => ({
+    // Dedupe tag IDs to avoid duplicate-key conflicts on (entity_id, tag_id)
+    const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
+    const records = uniqueTagIds.map(tagId => ({
       [foreignKey]: entityId,
       tag_id: tagId
     }));
     
     const { error } = await supabase
       .from(junctionTable)
-      .insert(records);
+      .upsert(records, {
+        onConflict: `${foreignKey},tag_id`,
+        ignoreDuplicates: true,
+      });
     
     if (error) throw error;
   }
@@ -716,7 +722,14 @@ export async function assignTrackTagsByName(
   tagNames: string[],
   _syncLegacyColumn: boolean = false // Parameter kept for API compatibility but ignored
 ): Promise<{ assignedTags: Tag[], unrecognizedNames: string[] }> {
-  if (!tagNames || tagNames.length === 0) {
+  const orgId = await getCurrentUserOrgId();
+
+  // Sentinel helper tag used by UI toggle; not a row in tags table and should not be junction-synced.
+  const normalizedTagNames = (tagNames || [])
+    .map((name) => String(name || '').trim())
+    .filter((name) => name.length > 0 && name !== 'system:show_in_knowledge_base');
+
+  if (normalizedTagNames.length === 0) {
     // Clear all tags from junction table
     await supabase
       .from('track_tags')
@@ -730,13 +743,14 @@ export async function assignTrackTagsByName(
   const { data: matchedTags, error: tagError } = await supabase
     .from('tags')
     .select('*')
-    .in('name', tagNames);
+    .in('name', normalizedTagNames)
+    .or(`organization_id.eq.${orgId},organization_id.is.null`);
 
   if (tagError) throw tagError;
 
   const assignedTags = matchedTags || [];
   const matchedNames = new Set(assignedTags.map(t => t.name));
-  const unrecognizedNames = tagNames.filter(name => !matchedNames.has(name));
+  const unrecognizedNames = normalizedTagNames.filter(name => !matchedNames.has(name));
 
   if (unrecognizedNames.length > 0) {
     console.warn('[assignTrackTagsByName] Unrecognized tag names (not in tags table):', unrecognizedNames);
