@@ -16658,6 +16658,16 @@ async function handleGetEntityTags(req: Request, path: string): Promise<Response
     let tags: any[] = [];
 
     if (entityType === 'track') {
+      const { data: trackRow } = await supabase
+        .from('tracks')
+        .select('organization_id')
+        .eq('id', entityId)
+        .maybeSingle();
+      const orgId = await requireOrgAccess(req, trackRow?.organization_id);
+      if (!orgId) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+
       const { data: trackTags } = await supabase
         .from('track_tags')
         .select(`tag_id, tags:tag_id (id, name, type, color)`)

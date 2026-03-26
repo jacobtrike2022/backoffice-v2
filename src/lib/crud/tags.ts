@@ -615,16 +615,17 @@ export async function deleteTag(tagId: string, bypassSystemLock: boolean = false
  * Get tags for a specific entity (track, playlist, etc.)
  */
 export async function getEntityTags(entityId: string, entityType: 'track' | 'album' | 'playlist' | 'user' | 'store'): Promise<Tag[]> {
-  // For user, store, and playlist tags, use KV store via Server to avoid RLS
-  // (playlist_tags table doesn't exist, so we use KV store for playlists)
-  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
+  // For track/user/store/playlist, read through server endpoint to avoid demo-mode RLS drift.
+  // (playlist_tags table doesn't exist, so server/KV is required there)
+  if (entityType === 'track' || entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.session?.access_token || publicAnonKey;
+      const token = session?.access_token || publicAnonKey;
       
       const response = await fetch(`${getServerUrl()}/tags/entity/${entityType}/${entityId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         }
       });
       
@@ -636,11 +637,14 @@ export async function getEntityTags(entityId: string, entityType: 'track' | 'alb
         return [];
       }
       
-      const { tagIds } = await response.json();
-      
-      if (!tagIds || !Array.isArray(tagIds) || tagIds.length === 0) return [];
+      const payload = await response.json().catch(() => ({} as any));
+      if (Array.isArray(payload?.tags)) {
+        return payload.tags.filter(Boolean) as Tag[];
+      }
+      const tagIds = Array.isArray(payload?.tagIds) ? payload.tagIds : [];
+      if (tagIds.length === 0) return [];
 
-      // Fetch actual tags from tags table
+      // Backward compatibility if endpoint returns tag IDs
       const { data: tags, error: tagsError } = await supabase
         .from('tags')
         .select('*')
