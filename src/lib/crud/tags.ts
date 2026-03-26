@@ -52,9 +52,9 @@ async function junctionTableDeleteAndInsert(
     tag_id: tagId,
   }));
 
-  const insRes = await fetch(`${REST_V1_BASE}/${junctionTable}`, {
+  const insRes = await fetch(`${REST_V1_BASE}/${junctionTable}?on_conflict=${encodeURIComponent(`${foreignKey},tag_id`)}`, {
     method: 'POST',
-    headers: { ...headers, Prefer: 'return=minimal' },
+    headers: { ...headers, Prefer: 'return=minimal,resolution=ignore-duplicates' },
     body: JSON.stringify(records),
   });
   if (!insRes.ok) {
@@ -756,33 +756,73 @@ export async function assignTrackTagsByName(
   tagNames: string[],
   _syncLegacyColumn: boolean = false // Parameter kept for API compatibility but ignored
 ): Promise<{ assignedTags: Tag[], unrecognizedNames: string[] }> {
-  const orgId = await getCurrentUserOrgId();
+  let targetOrgId = await getCurrentUserOrgId();
+  try {
+    const { data: trackRow } = await supabase
+      .from('tracks')
+      .select('organization_id')
+      .eq('id', trackId)
+      .maybeSingle();
+    if (trackRow?.organization_id) {
+      targetOrgId = trackRow.organization_id as string;
+    }
+  } catch {
+    // Non-blocking: keep URL/auth-derived org fallback
+  }
 
   // Sentinel helper tag used by UI toggle; not a row in tags table and should not be junction-synced.
-  const normalizedTagNames = (tagNames || [])
+  const normalizedTagNames = Array.from(new Set((tagNames || [])
     .map((name) => String(name || '').trim())
-    .filter((name) => name.length > 0 && name !== 'system:show_in_knowledge_base');
+    .filter((name) => name.length > 0 && name !== 'system:show_in_knowledge_base')
+    .map((name) => name.toLowerCase())));
 
   if (normalizedTagNames.length === 0) {
     await assignTags(trackId, 'track', []);
     return { assignedTags: [], unrecognizedNames: [] };
   }
 
-  // Fetch tags by name to get their IDs
-  const { data: matchedTags, error: tagError } = await supabase
+  // Fetch candidate tags in org scope, then resolve names case-insensitively.
+  let tagsQuery = supabase
     .from('tags')
-    .select('*')
-    .in('name', normalizedTagNames)
-    .or(`organization_id.eq.${orgId},organization_id.is.null`);
+    .select('*');
+  if (targetOrgId) {
+    tagsQuery = tagsQuery.or(`organization_id.eq.${targetOrgId},organization_id.is.null`);
+  } else {
+    tagsQuery = tagsQuery.is('organization_id', null);
+  }
+  const { data: candidateTags, error: tagError } = await tagsQuery;
 
   if (tagError) throw tagError;
 
-  const assignedTags = matchedTags || [];
-  const matchedNames = new Set(assignedTags.map(t => t.name));
-  const unrecognizedNames = normalizedTagNames.filter(name => !matchedNames.has(name));
+  const nameToBestTag = new Map<string, Tag>();
+  for (const tag of (candidateTags || [])) {
+    const lowerName = String(tag.name || '').trim().toLowerCase();
+    if (!normalizedTagNames.includes(lowerName)) continue;
+    const existing = nameToBestTag.get(lowerName);
+    if (!existing) {
+      nameToBestTag.set(lowerName, tag);
+      continue;
+    }
+    const existingIsGlobal = !existing.organization_id;
+    const currentIsOrgSpecific = Boolean(tag.organization_id && targetOrgId && tag.organization_id === targetOrgId);
+    if (existingIsGlobal && currentIsOrgSpecific) {
+      nameToBestTag.set(lowerName, tag);
+    }
+  }
+
+  const assignedTags = normalizedTagNames
+    .map((name) => nameToBestTag.get(name))
+    .filter(Boolean) as Tag[];
+  const matchedNames = new Set(assignedTags.map((t) => String(t.name || '').trim().toLowerCase()));
+  const unrecognizedNames = normalizedTagNames.filter((name) => !matchedNames.has(name));
 
   if (unrecognizedNames.length > 0) {
     console.warn('[assignTrackTagsByName] Unrecognized tag names (not in tags table):', unrecognizedNames);
+  }
+
+  // Guard rail: if caller supplied names but none resolve, don't wipe existing tags.
+  if (assignedTags.length === 0 && normalizedTagNames.length > 0) {
+    return { assignedTags: [], unrecognizedNames };
   }
 
   // Use assignTags to update junction table (source of truth)
