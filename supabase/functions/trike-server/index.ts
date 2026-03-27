@@ -15555,23 +15555,27 @@ async function handleDemoActivityList(req: Request): Promise<Response> {
       return jsonResponse({ error: "Missing Authorization header" }, 401);
     }
     const token = authHeader.replace("Bearer ", "");
+    const publicAnonKey = Deno.env.get("PUBLIC_ANON_KEY");
+    const isDemoAnonRequest = !!publicAnonKey && token === publicAnonKey;
 
-    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !userData?.user) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
+    if (!isDemoAnonRequest) {
+      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !userData?.user) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
 
-    const { data: roleRow } = await supabase
-      .from("users")
-      .select("organization_id, role:roles(name)")
-      .eq("auth_user_id", userData.user.id)
-      .maybeSingle();
+      const { data: roleRow } = await supabase
+        .from("users")
+        .select("organization_id, role:roles(name)")
+        .eq("auth_user_id", userData.user.id)
+        .maybeSingle();
 
-    const roleName = ((roleRow as any)?.role?.name || "") as string;
-    const organizationId = (roleRow as any)?.organization_id as string | undefined;
-    const isTrikeCoInternal = organizationId === "10000000-0000-0000-0000-000000000001";
-    if (roleName !== "Trike Super Admin" && !isTrikeCoInternal) {
-      return jsonResponse({ error: "Forbidden" }, 403);
+      const roleName = ((roleRow as any)?.role?.name || "") as string;
+      const organizationId = (roleRow as any)?.organization_id as string | undefined;
+      const isTrikeCoInternal = organizationId === "10000000-0000-0000-0000-000000000001";
+      if (roleName !== "Trike Super Admin" && !isTrikeCoInternal) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
     }
 
     const url = new URL(req.url);
@@ -15593,6 +15597,9 @@ async function handleDemoActivityList(req: Request): Promise<Response> {
 
     if (orgId) {
       query = query.eq("organization_id", orgId);
+    } else {
+      // Demo analytics should show attributable activity only.
+      query = query.not("organization_id", "is", null);
     }
 
     const { data, error } = await query;
