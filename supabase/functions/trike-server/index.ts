@@ -15563,12 +15563,14 @@ async function handleDemoActivityList(req: Request): Promise<Response> {
 
     const { data: roleRow } = await supabase
       .from("users")
-      .select("role:roles(name)")
+      .select("organization_id, role:roles(name)")
       .eq("auth_user_id", userData.user.id)
       .maybeSingle();
 
     const roleName = ((roleRow as any)?.role?.name || "") as string;
-    if (roleName !== "Trike Super Admin") {
+    const organizationId = (roleRow as any)?.organization_id as string | undefined;
+    const isTrikeCoInternal = organizationId === "10000000-0000-0000-0000-000000000001";
+    if (roleName !== "Trike Super Admin" && !isTrikeCoInternal) {
       return jsonResponse({ error: "Forbidden" }, 403);
     }
 
