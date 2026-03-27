@@ -815,6 +815,11 @@ Deno.serve(async (req: Request) => {
       return await handleKBPageView(req);
     }
 
+    // List demo activity telemetry (for Trike admin analytics UI)
+    if (method === "GET" && path === "/demo/activity") {
+      return await handleDemoActivityList(req);
+    }
+
     // Record demo activity events (org/session/page/track telemetry)
     if (method === "POST" && path === "/demo/activity") {
       return await handleDemoActivity(req);
@@ -15537,6 +15542,67 @@ async function handleKBPublicGet(req: Request, path: string): Promise<Response> 
   } catch (error: any) {
     console.error('❌ Error in handleKBPublicGet:', error);
     return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Read demo activity telemetry (service-role query)
+ */
+async function handleDemoActivityList(req: Request): Promise<Response> {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return jsonResponse({ error: "Missing Authorization header" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const { data: roleRow } = await supabase
+      .from("users")
+      .select("role:roles(name)")
+      .eq("auth_user_id", userData.user.id)
+      .maybeSingle();
+
+    const roleName = ((roleRow as any)?.role?.name || "") as string;
+    if (roleName !== "Trike Super Admin") {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
+    const url = new URL(req.url);
+    const daysRaw = Number(url.searchParams.get("days") || "30");
+    const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 365) : 30;
+    const orgId = url.searchParams.get("organizationId");
+    const limitRaw = Number(url.searchParams.get("limit") || "5000");
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 10000) : 5000;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    let query = supabase
+      .from("demo_activity_events")
+      .select(
+        "organization_id, organization_name_snapshot, event_type, path, from_path, track_title, track_id, visitor_id, session_id, occurred_at"
+      )
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: false })
+      .limit(limit);
+
+    if (orgId) {
+      query = query.eq("organization_id", orgId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("Error querying demo activity list:", error);
+      return jsonResponse({ error: "Failed to fetch activity" }, 500);
+    }
+
+    return jsonResponse({ data: data || [] });
+  } catch (error: any) {
+    console.error("Error in handleDemoActivityList:", error);
+    return jsonResponse({ error: error.message || "Internal error" }, 500);
   }
 }
 

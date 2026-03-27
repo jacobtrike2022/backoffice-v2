@@ -28,6 +28,7 @@ import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Separator } from "../ui/separator";
 import { supabase } from "../../lib/supabase";
+import { getServerUrl, publicAnonKey } from "../../utils/supabase/info";
 
 type DemoEvent = {
   organization_id: string | null;
@@ -75,18 +76,23 @@ export function DemoActivityAnalytics() {
     setLoading(true);
     try {
       const daysNum = Number(days);
-      const since = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
-        .from("demo_activity_events")
-        .select(
-          "organization_id, organization_name_snapshot, event_type, path, track_title, visitor_id, session_id, occurred_at"
-        )
-        .gte("occurred_at", since)
-        .order("occurred_at", { ascending: false })
-        .limit(5000);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authToken = sessionData?.session?.access_token || publicAnonKey;
+      const endpoint = `${getServerUrl()}/demo/activity?days=${daysNum}&limit=5000`;
 
-      if (error) throw error;
-      setEvents((data || []) as DemoEvent[]);
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          apikey: publicAnonKey,
+        },
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to fetch activity");
+      }
+
+      setEvents((payload?.data || []) as DemoEvent[]);
     } catch (error) {
       console.error("Failed to load demo activity analytics:", error);
       setEvents([]);
