@@ -1,32 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
-import { Checkbox } from '../ui/checkbox';
 import { Avatar, AvatarFallback } from '../ui/avatar';
-import { 
-  Download, 
-  Search, 
-  Filter,
-  Calendar,
-  User,
-  FileText,
-  ChevronDown,
-  Eye,
-  Trash2,
-  Flag,
+import {
   CheckCircle,
   XCircle,
-  AlertCircle,
-  Star,
-  X,
   Clock,
-  MoreVertical,
-  FileDown,
-  ChevronLeft,
-  ChevronRight,
-  Building
+  User,
+  Calendar,
+  FileText,
+  ChevronDown,
 } from 'lucide-react';
 import {
   Select,
@@ -35,752 +19,523 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../ui/table';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
 import { Separator } from '../ui/separator';
-import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { getForms, getFormSubmissions } from '../../lib/crud/forms';
+import { FormRenderer, type FormBlockData } from './shared/FormRenderer';
+import { supabase } from '../../lib/supabase';
 
-interface Submission {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface FormRecord {
   id: string;
-  formName: string;
-  submittedBy: string;
-  initials: string;
-  unit: string;
-  dateSubmitted: string;
-  status: 'Complete' | 'Incomplete';
-  score?: number;
+  title: string;
+  type: string;
+  status: string;
+  organization_id: string;
 }
 
-const mockSubmissions: Submission[] = [
-  {
-    id: 'SUB-001',
-    formName: 'Store Daily Walk',
-    submittedBy: 'Sarah Johnson',
-    initials: 'SJ',
-    unit: 'Store A',
-    dateSubmitted: '2024-02-15 09:30 AM',
-    status: 'Complete',
-    score: 95
-  },
-  {
-    id: 'SUB-002',
-    formName: 'Days 1-5 OJT Checklist',
-    submittedBy: 'Mike Chen',
-    initials: 'MC',
-    unit: 'Store B',
-    dateSubmitted: '2024-02-15 10:15 AM',
-    status: 'Complete',
-    score: 88
-  },
-  {
-    id: 'SUB-003',
-    formName: 'Safety Audit Form',
-    submittedBy: 'Alex Rodriguez',
-    initials: 'AR',
-    unit: 'Store C',
-    dateSubmitted: '2024-02-15 11:20 AM',
-    status: 'Incomplete'
-  },
-  {
-    id: 'SUB-004',
-    formName: 'Store Inspection',
-    submittedBy: 'Emily Davis',
-    initials: 'ED',
-    unit: 'Store A',
-    dateSubmitted: '2024-02-14 02:45 PM',
-    status: 'Complete',
-    score: 92
-  },
-  {
-    id: 'SUB-005',
-    formName: 'Night Closing Procedures',
-    submittedBy: 'James Wilson',
-    initials: 'JW',
-    unit: 'Store D',
-    dateSubmitted: '2024-02-14 11:30 PM',
-    status: 'Complete',
-    score: 98
+interface SubmissionRecord {
+  id: string;
+  form_id: string;
+  organization_id: string;
+  responses: Record<string, unknown> | null;
+  status: string;
+  submitted_at: string | null;
+  submitted_by_id: string | null;
+  approved_by_id: string | null;
+  total_score: number | null;
+  max_possible_score: number | null;
+  score_percentage: number | null;
+  completion_time_seconds: number | null;
+  submitted_by: { name?: string; email?: string } | null;
+  approved_by: { name?: string; email?: string } | null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getStatusBadge(status: string) {
+  switch (status) {
+    case 'approved':
+      return (
+        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 gap-1">
+          <CheckCircle className="h-3 w-3" />
+          Approved
+        </Badge>
+      );
+    case 'rejected':
+      return (
+        <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0 gap-1">
+          <XCircle className="h-3 w-3" />
+          Rejected
+        </Badge>
+      );
+    case 'pending_review':
+      return (
+        <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0 gap-1">
+          <Clock className="h-3 w-3" />
+          Pending Review
+        </Badge>
+      );
+    case 'draft':
+      return (
+        <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-0 gap-1">
+          <FileText className="h-3 w-3" />
+          Draft
+        </Badge>
+      );
+    default:
+      return (
+        <Badge variant="outline" className="gap-1">
+          <Clock className="h-3 w-3" />
+          {status}
+        </Badge>
+      );
   }
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatDuration(seconds: number | null): string {
+  if (!seconds) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function getInitials(name?: string | null): string {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// ─── Status filter options (Radix UI — no empty string values) ────────────────
+
+const STATUS_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'pending_review', label: 'Pending Review' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
 ];
 
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function SkeletonRow() {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-lg animate-pulse">
+      <div className="h-8 w-8 rounded-full bg-muted flex-shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3 bg-muted rounded w-3/4" />
+        <div className="h-3 bg-muted rounded w-1/2" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface FormSubmissionsProps {
+  orgId?: string;
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
 }
 
-export function FormSubmissions({ currentRole = 'admin' }: FormSubmissionsProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedForm, setSelectedForm] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedSubmissions, setSelectedSubmissions] = useState<string[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
-  const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
-  const [showDetailView, setShowDetailView] = useState(false);
-  const [flaggedSubmissions, setFlaggedSubmissions] = useState<string[]>([]);
-  const [currentSubmissionIndex, setCurrentSubmissionIndex] = useState(0);
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-  const handleViewSubmission = (submission: Submission) => {
-    const index = filteredSubmissions.findIndex(s => s.id === submission.id);
-    setCurrentSubmissionIndex(index);
-    setViewingSubmission(submission);
-    setShowDetailView(true);
-  };
+export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmissionsProps) {
+  const canApproveReject = currentRole === 'admin' || currentRole === 'district-manager';
 
-  const handleBackToList = () => {
-    setShowDetailView(false);
-    setViewingSubmission(null);
-  };
+  // Forms list
+  const [forms, setForms] = useState<FormRecord[]>([]);
+  const [formsLoading, setFormsLoading] = useState(true);
+  const [formsError, setFormsError] = useState<string | null>(null);
 
-  const toggleFlag = () => {
-    if (!viewingSubmission) return;
-    
-    setFlaggedSubmissions(prev => 
-      prev.includes(viewingSubmission.id)
-        ? prev.filter(id => id !== viewingSubmission.id)
-        : [...prev, viewingSubmission.id]
-    );
-  };
+  // Selected form
+  const [selectedFormId, setSelectedFormId] = useState<string>('none');
 
-  const handlePreviousSubmission = () => {
-    if (currentSubmissionIndex > 0) {
-      const newIndex = currentSubmissionIndex - 1;
-      setCurrentSubmissionIndex(newIndex);
-      setViewingSubmission(filteredSubmissions[newIndex]);
+  // Submissions for selected form
+  const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+
+  // Status filter
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  // Selected submission for detail view
+  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionRecord | null>(null);
+
+  // Blocks for the selected form (for FormRenderer)
+  const [formBlocks, setFormBlocks] = useState<FormBlockData[]>([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+
+  // Approve/reject loading state
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // ── Load forms ──────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    async function load() {
+      if (!orgId) { setFormsLoading(false); return; }
+      setFormsLoading(true);
+      setFormsError(null);
+      try {
+        const data = await getForms({ status: 'published' }, orgId);
+        setForms((data as unknown as FormRecord[]) || []);
+      } catch (err) {
+        setFormsError('Failed to load forms.');
+        console.error(err);
+      } finally {
+        setFormsLoading(false);
+      }
     }
-  };
+    load();
+  }, [orgId]);
 
-  const handleNextSubmission = () => {
-    if (currentSubmissionIndex < filteredSubmissions.length - 1) {
-      const newIndex = currentSubmissionIndex + 1;
-      setCurrentSubmissionIndex(newIndex);
-      setViewingSubmission(filteredSubmissions[newIndex]);
+  // ── Load submissions when form changes ──────────────────────────────────────
+
+  const loadSubmissions = useCallback(async (formId: string) => {
+    if (!formId || formId === 'none') {
+      setSubmissions([]);
+      return;
     }
-  };
-
-  const getFormData = (formName: string) => {
-    switch (formName) {
-      case 'Store Daily Walk':
-        return [
-          { question: 'Store entrance clean and welcoming?', type: 'yesno', answer: 'Yes' },
-          { question: 'All product displays properly stocked and faced?', type: 'yesno', answer: 'Yes' },
-          { question: 'Upload photo of store entrance', type: 'image', answer: 'https://images.unsplash.com/photo-1681120176460-f8fcead4dde0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb252ZW5pZW5jZSUyMHN0b3JlJTIwaW50ZXJpb3IlMjBjbGVhbnxlbnwxfHx8fDE3NjM0OTU2Mjh8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral' },
-          { question: 'Restroom conditions', type: 'multiple', answer: 'Clean and fully stocked' },
-          { question: 'Rate overall store cleanliness (1-5)', type: 'rating', answer: 4 },
-          { question: 'Additional observations or concerns', type: 'textarea', answer: 'Store looks excellent overall. Team is keeping up with midday rush very well. Minor scuff marks noticed near entrance - scheduled for cleaning tonight.' },
-          { question: 'Cold beverage coolers at proper temperature?', type: 'yesno', answer: 'Yes' },
-          { question: 'Time walk completed', type: 'time', answer: '09:30 AM' }
-        ];
-      
-      case 'Days 1-5 OJT Checklist':
-        return [
-          { question: 'Employee Name', type: 'text', answer: 'Jennifer Martinez' },
-          { question: 'Training Start Date', type: 'date', answer: '02/11/2024' },
-          { question: 'Skills Covered (select all that apply)', type: 'checkboxes', answer: ['Register Operations', 'Cash Handling', 'Customer Service', 'Store Opening Procedures'] },
-          { question: 'Register training completed successfully?', type: 'yesno', answer: 'Yes' },
-          { question: 'Rate trainee\'s grasp of POS system (1-5)', type: 'rating', answer: 4 },
-          { question: 'Trainer comments and feedback', type: 'textarea', answer: 'Jennifer is doing excellent work and picking up concepts quickly. She handled her first customer transaction with confidence. Ready to move to more advanced topics tomorrow.' },
-          { question: 'Trainee demonstrated proper cash handling procedures?', type: 'yesno', answer: 'Yes' },
-          { question: 'Areas requiring additional practice', type: 'textarea', answer: 'None at this time. Will monitor lottery ticket sales procedures in coming days.' },
-          { question: 'Trainer Signature', type: 'signature', answer: 'https://images.unsplash.com/photo-1676312389476-fe01e238b422?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoYW5kd3JpdHRlbiUyMHNpZ25hdHVyZXxlbnwxfHx8fDE3NjM0OTU2Mjl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral' }
-        ];
-      
-      case 'Safety Audit Form':
-        return [
-          { question: 'Audit Date', type: 'date', answer: '02/15/2024' },
-          { question: 'Fire extinguishers inspected and accessible?', type: 'yesno', answer: 'Yes' },
-          { question: 'Upload photo of fire safety equipment', type: 'image', answer: 'https://images.unsplash.com/photo-1709229334707-5b5669e5b5da?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdG9yZSUyMHNhZmV0eSUyMGVxdWlwbWVudHxlbnwxfHx8fDE3NjM0OTU2Mjl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral' },
-          { question: 'Emergency exit signs illuminated?', type: 'yesno', answer: 'Yes' },
-          { question: 'First aid kit fully stocked?', type: 'yesno', answer: 'Yes' },
-          { question: 'Select all safety concerns observed', type: 'checkboxes', answer: ['None - all clear'] },
-          { question: 'Floor condition (select one)', type: 'multiple', answer: 'Clean, dry, no hazards' },
-          { question: 'Rate overall safety compliance (1-5)', type: 'rating', answer: 5 },
-          { question: 'Safety concerns or corrective actions needed', type: 'textarea', answer: 'No safety concerns identified. All equipment in good working order and properly maintained. Excellent compliance across the board.' }
-        ];
-      
-      case 'Store Inspection':
-        return [
-          { question: 'Inspection Date', type: 'date', answer: '02/14/2024' },
-          { question: 'Product expiration dates checked?', type: 'yesno', answer: 'Yes' },
-          { question: 'Upload photo of refrigeration units', type: 'image', answer: 'https://images.unsplash.com/photo-1760463921697-6ab2c0caca20?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZXRhaWwlMjBzdG9yZSUyMHJlZnJpZ2VyYXRvciUyMGRpc3BsYXl8ZW58MXx8fHwxNzYzNDk1NjI5fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral' },
-          { question: 'Temperature logs up to date?', type: 'yesno', answer: 'Yes' },
-          { question: 'Signage and pricing accuracy', type: 'multiple', answer: 'All accurate' },
-          { question: 'Rate merchandising presentation (1-5)', type: 'rating', answer: 4 },
-          { question: 'Equipment issues (select all that apply)', type: 'checkboxes', answer: ['None'] },
-          { question: 'Inspector notes and recommendations', type: 'textarea', answer: 'Store is well-maintained and meets all operational standards. Suggest rotating seasonal merchandise to front displays for better visibility. Minor price tag update needed in beverage aisle - team will address today.' },
-          { question: 'Overall store condition', type: 'multiple', answer: 'Excellent' }
-        ];
-      
-      case 'Night Closing Procedures':
-        return [
-          { question: 'Closing Date', type: 'date', answer: '02/14/2024' },
-          { question: 'All registers balanced and closed out?', type: 'yesno', answer: 'Yes' },
-          { question: 'Cash drop completed and verified?', type: 'yesno', answer: 'Yes' },
-          { question: 'Closing tasks completed (select all)', type: 'checkboxes', answer: ['Floor swept/mopped', 'Trash removed', 'Coolers restocked', 'Doors/windows locked', 'Alarm activated', 'Lights off'] },
-          { question: 'Store secured and alarm set?', type: 'yesno', answer: 'Yes' },
-          { question: 'Closing Time', type: 'time', answer: '11:30 PM' },
-          { question: 'Issues or incidents to report', type: 'textarea', answer: 'None. Clean close tonight. All procedures followed correctly.' },
-          { question: 'Rate completion of closing checklist (1-5)', type: 'rating', answer: 5 },
-          { question: 'Manager Signature', type: 'signature', answer: 'https://images.unsplash.com/photo-1676312389476-fe01e238b422?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoYW5kd3JpdHRlbiUyMHNpZ25hdHVyZXxlbnwxfHx8fDE3NjM0OTU2Mjl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral' }
-        ];
-      
-      default:
-        return [
-          { question: 'Sample question 1', type: 'text', answer: 'Sample answer' },
-          { question: 'Sample question 2', type: 'yesno', answer: 'Yes' }
-        ];
+    setSubmissionsLoading(true);
+    try {
+      const data = await getFormSubmissions(formId, {});
+      setSubmissions((data as unknown as SubmissionRecord[]) || []);
+      setSelectedSubmission(null);
+    } catch (err) {
+      console.error('Failed to load submissions:', err);
+      setSubmissions([]);
+    } finally {
+      setSubmissionsLoading(false);
     }
-  };
+  }, []);
 
-  const renderAnswer = (field: any) => {
-    switch (field.type) {
-      case 'yesno':
-        return (
-          <Badge className={field.answer === 'Yes' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0'}>
-            {field.answer}
-          </Badge>
-        );
-      
-      case 'text':
-      case 'date':
-      case 'time':
-        return <p className="text-sm font-medium">{field.answer}</p>;
-      
-      case 'textarea':
-        return <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">{field.answer}</p>;
-      
-      case 'rating':
-        return (
-          <div className="flex items-center space-x-1">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <div
-                key={star}
-                className={`h-6 w-6 rounded-full flex items-center justify-center text-sm font-semibold ${
-                  star <= field.answer
-                    ? 'bg-brand-gradient text-white'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {star}
-              </div>
-            ))}
-          </div>
-        );
-      
-      case 'multiple':
-        return (
-          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0">
-            {field.answer}
-          </Badge>
-        );
-      
-      case 'checkboxes':
-        return (
-          <div className="flex flex-wrap gap-2">
-            {field.answer.map((item: string, idx: number) => (
-              <Badge key={idx} variant="outline">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                {item}
-              </Badge>
-            ))}
-          </div>
-        );
-      
-      case 'image':
-        return (
-          <div className="mt-2">
-            <ImageWithFallback 
-              src={field.answer} 
-              alt="Submission photo"
-              className="rounded-lg border max-w-full h-auto max-h-64 object-cover"
-            />
-          </div>
-        );
-      
-      case 'signature':
-        return (
-          <div className="mt-2">
-          <div className="border-2 border-dashed rounded-lg p-4 bg-muted/20 inline-block">
-            <ImageWithFallback 
-              src={field.answer} 
-              alt="Signature"
-              className="h-16 w-auto grayscale"
-            />
-          </div>
-        </div>
-        );
-      
-      default:
-        return <p className="text-sm">{field.answer}</p>;
+  useEffect(() => {
+    loadSubmissions(selectedFormId);
+  }, [selectedFormId, loadSubmissions]);
+
+  // ── Load blocks when submission is selected ─────────────────────────────────
+
+  useEffect(() => {
+    if (!selectedSubmission) return;
+    async function loadBlocks() {
+      setBlocksLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('form_blocks')
+          .select('*')
+          .eq('form_id', selectedSubmission!.form_id)
+          .order('display_order', { ascending: true });
+        if (error) throw error;
+        setFormBlocks((data || []) as FormBlockData[]);
+      } catch (err) {
+        console.error('Failed to load form blocks:', err);
+        setFormBlocks([]);
+      } finally {
+        setBlocksLoading(false);
+      }
     }
-  };
+    loadBlocks();
+  }, [selectedSubmission?.form_id]);
 
-  const filteredSubmissions = mockSubmissions.filter(submission => {
-    const matchesSearch = searchQuery === '' || 
-      submission.submittedBy.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      submission.formName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      submission.id.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesForm = selectedForm === 'all' || submission.formName === selectedForm;
-    const matchesStatus = filterStatus === 'all' || submission.status.toLowerCase() === filterStatus;
-    
-    return matchesSearch && matchesForm && matchesStatus;
+  // ── Approve / Reject ────────────────────────────────────────────────────────
+
+  async function handleApprove(submissionId: string) {
+    setActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('form_submissions')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', submissionId);
+      if (error) throw error;
+      // Optimistically update local state
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submissionId ? { ...s, status: 'approved' } : s))
+      );
+      setSelectedSubmission((prev) => (prev ? { ...prev, status: 'approved' } : prev));
+    } catch (err) {
+      console.error('Approve failed:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleReject(submissionId: string) {
+    setActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from('form_submissions')
+        .update({ status: 'rejected' })
+        .eq('id', submissionId);
+      if (error) throw error;
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submissionId ? { ...s, status: 'rejected' } : s))
+      );
+      setSelectedSubmission((prev) => (prev ? { ...prev, status: 'rejected' } : prev));
+    } catch (err) {
+      console.error('Reject failed:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // ── Filtered submissions ─────────────────────────────────────────────────────
+
+  const filteredSubmissions = submissions.filter((s) => {
+    if (statusFilter === 'all') return true;
+    return s.status === statusFilter;
   });
 
-  const toggleSelection = (id: string) => {
-    setSelectedSubmissions(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedSubmissions.length === filteredSubmissions.length) {
-      setSelectedSubmissions([]);
-    } else {
-      setSelectedSubmissions(filteredSubmissions.map(s => s.id));
-    }
-  };
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      {showDetailView && viewingSubmission ? (
-        // Full Page Detail View
-        <div className="space-y-6">
-          {/* Back Button Header */}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              onClick={handleBackToList}
-              className="gap-2"
+    <div className="flex flex-col lg:flex-row gap-4 h-full min-h-[600px]">
+      {/* ── Left pane: form selector + submission list ── */}
+      <div className="w-full lg:w-1/3 flex flex-col gap-3">
+        {/* Form selector */}
+        <div>
+          {formsLoading ? (
+            <div className="h-10 bg-muted rounded-md animate-pulse" />
+          ) : formsError ? (
+            <p className="text-sm text-red-500">{formsError}</p>
+          ) : (
+            <Select
+              value={selectedFormId}
+              onValueChange={(v) => {
+                setSelectedFormId(v);
+                setStatusFilter('all');
+              }}
             >
-              <ChevronLeft className="h-4 w-4" />
-              Back to Submissions
-            </Button>
-            <div className="flex items-center space-x-2">
-              <Button 
-                variant={flaggedSubmissions.includes(viewingSubmission.id) ? "default" : "outline"}
-                onClick={toggleFlag}
-                className={flaggedSubmissions.includes(viewingSubmission.id) ? "bg-orange-600 hover:bg-orange-700 text-white" : ""}
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a form…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Select a form —</SelectItem>
+                {forms.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        {/* Status filter pills */}
+        {selectedFormId !== 'none' && (
+          <div className="flex flex-wrap gap-1">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setStatusFilter(f.value)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  statusFilter === f.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                }`}
               >
-                <Flag className={`h-4 w-4 mr-2 ${flaggedSubmissions.includes(viewingSubmission.id) ? "fill-current" : ""}`} />
-                {flaggedSubmissions.includes(viewingSubmission.id) ? "Flagged" : "Flag for Review"}
-              </Button>
-              <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
-                <FileDown className="h-4 w-4 mr-2" />
-                Export as PDF
-              </Button>
-            </div>
+                {f.label}
+              </button>
+            ))}
           </div>
+        )}
 
-          {/* Submission Header */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="text-2xl">{viewingSubmission.formName}</CardTitle>
-                  <p className="text-muted-foreground mt-1">{viewingSubmission.id}</p>
-                </div>
-                {viewingSubmission.status === 'Complete' ? (
-                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
-                    <CheckCircle className="h-4 w-4 mr-1" />
-                    Complete
-                  </Badge>
-                ) : (
-                  <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0">
-                    <Clock className="h-4 w-4 mr-1" />
-                    Incomplete
-                  </Badge>
-                )}
+        {/* Submission list */}
+        <Card className="flex-1 overflow-hidden">
+          <CardContent className="p-0">
+            {selectedFormId === 'none' ? (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
+                <ChevronDown className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">Select a form to view submissions</p>
               </div>
-            </CardHeader>
-          </Card>
+            ) : submissionsLoading ? (
+              <div className="p-3 space-y-1">
+                {[...Array(5)].map((_, i) => (
+                  <SkeletonRow key={i} />
+                ))}
+              </div>
+            ) : filteredSubmissions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
+                <FileText className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">No submissions yet for this form</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {filteredSubmissions.map((sub) => {
+                  const submitterName = (sub.submitted_by as any)?.name || 'Anonymous';
+                  const isSelected = selectedSubmission?.id === sub.id;
+                  return (
+                    <li key={sub.id}>
+                      <button
+                        className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors ${
+                          isSelected ? 'bg-muted' : ''
+                        }`}
+                        onClick={() => setSelectedSubmission(sub)}
+                      >
+                        <Avatar className="h-8 w-8 flex-shrink-0 mt-0.5">
+                          <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                            {getInitials(submitterName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{submitterName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(sub.submitted_at)}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2">
+                            {getStatusBadge(sub.status)}
+                            {sub.score_percentage != null && (
+                              <span className="text-xs font-semibold text-primary">
+                                {Math.round(sub.score_percentage)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-          {/* Submission Info Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm text-muted-foreground">Submitted By</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center space-x-2">
+      {/* ── Right pane: submission detail ── */}
+      <div className="flex-1 min-w-0">
+        {!selectedSubmission ? (
+          <Card className="h-full flex items-center justify-center">
+            <CardContent className="text-center text-muted-foreground py-16">
+              <User className="h-10 w-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm">Select a submission to review</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="h-full overflow-auto">
+            <CardHeader className="pb-3">
+              {/* Header row: submitter + status */}
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarFallback className="bg-primary text-primary-foreground">
-                      {viewingSubmission.initials}
+                      {getInitials((selectedSubmission.submitted_by as any)?.name)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-medium">{viewingSubmission.submittedBy}</p>
+                    <CardTitle className="text-base">
+                      {(selectedSubmission.submitted_by as any)?.name || 'Anonymous'}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      {(selectedSubmission.submitted_by as any)?.email || ''}
+                    </p>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+                {getStatusBadge(selectedSubmission.status)}
+              </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm text-muted-foreground">Unit/Location</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center space-x-2">
-                  <Building className="h-5 w-5 text-muted-foreground" />
-                  <p className="font-medium">{viewingSubmission.unit}</p>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Meta row */}
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mt-3">
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {formatDate(selectedSubmission.submitted_at)}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {formatDuration(selectedSubmission.completion_time_seconds)}
+                </span>
+              </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm text-muted-foreground">Date Submitted</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center space-x-2">
-                  <Calendar className="h-5 w-5 text-muted-foreground" />
-                  <p className="font-medium">{viewingSubmission.dateSubmitted}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {viewingSubmission.score && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm text-muted-foreground">Overall Score</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="text-3xl font-bold text-primary">{viewingSubmission.score}%</div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div 
-                        className="bg-brand-gradient h-2 rounded-full transition-all"
-                        style={{ width: `${viewingSubmission.score}%` }}
-                      />
-                    </div>
+              {/* Score gauge */}
+              {selectedSubmission.score_percentage != null && (
+                <div className="mt-4">
+                  <div className="flex items-end gap-2 mb-1">
+                    <span className="text-4xl font-bold text-primary">
+                      {Math.round(selectedSubmission.score_percentage)}
+                    </span>
+                    <span className="text-sm text-muted-foreground mb-1.5">/100%</span>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className="bg-brand-gradient h-2 rounded-full transition-all"
+                      style={{ width: `${selectedSubmission.score_percentage}%` }}
+                    />
+                  </div>
+                  {selectedSubmission.total_score != null &&
+                    selectedSubmission.max_possible_score != null && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {selectedSubmission.total_score} / {selectedSubmission.max_possible_score} pts
+                      </p>
+                    )}
+                </div>
+              )}
 
-          {/* Form Responses */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Form Responses</CardTitle>
+              {/* Approve / Reject actions */}
+              {canApproveReject && selectedSubmission.status === 'pending_review' && (
+                <>
+                  <Separator className="mt-4" />
+                  <div className="flex gap-2 pt-3">
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                      disabled={actionLoading}
+                      onClick={() => handleApprove(selectedSubmission.id)}
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:bg-red-50 border-red-200 gap-1"
+                      disabled={actionLoading}
+                      onClick={() => handleReject(selectedSubmission.id)}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Reject
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardHeader>
-            <CardContent className="space-y-6">
-              {getFormData(viewingSubmission.formName).map((field, idx) => (
-                <React.Fragment key={idx}>
-                  {idx > 0 && <Separator />}
-                  <div>
-                    <p className="font-medium mb-3">{field.question}</p>
-                    {renderAnswer(field)}
-                  </div>
-                </React.Fragment>
-              ))}
-            </CardContent>
-          </Card>
 
-          {/* Navigation Footer */}
-          <div className="flex justify-between items-center">
-            <Button variant="outline" onClick={handlePreviousSubmission}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              Previous Submission
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Submission {currentSubmissionIndex + 1} of {filteredSubmissions.length}
-            </span>
-            <Button variant="outline" onClick={handleNextSubmission}>
-              Next Submission
-              <ChevronRight className="h-4 w-4 ml-2" />
-            </Button>
-          </div>
-        </div>
-      ) : (
-        // Submissions List View
-        <>
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Form Submissions</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Review, export, and manage all form submission data
-              </p>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export All as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export Filtered as CSV
-                </DropdownMenuItem>
-                {selectedSubmissions.length > 0 && (
-                  <DropdownMenuItem>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export Selected ({selectedSubmissions.length})
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+            <Separator />
 
-          {/* Toolbar */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="space-y-4">
-                <div className="flex flex-col lg:flex-row gap-4">
-                  {/* Search */}
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search submissions by ID, form, or employee..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-
-                  {/* Form Filter */}
-                  <Select value={selectedForm} onValueChange={setSelectedForm}>
-                    <SelectTrigger className="w-full lg:w-[220px]">
-                      <SelectValue placeholder="All Forms" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Forms</SelectItem>
-                      <SelectItem value="Store Daily Walk">Store Daily Walk</SelectItem>
-                      <SelectItem value="Days 1-5 OJT Checklist">Days 1-5 OJT Checklist</SelectItem>
-                      <SelectItem value="Safety Audit Form">Safety Audit Form</SelectItem>
-                      <SelectItem value="Store Inspection">Store Inspection</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* Status Filter */}
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="w-full lg:w-[160px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="complete">Complete</SelectItem>
-                      <SelectItem value="incomplete">Incomplete</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {/* More Filters Toggle */}
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowFilters(!showFilters)}
-                  >
-                    <Filter className="h-4 w-4 mr-2" />
-                    {showFilters ? 'Hide' : 'More'} Filters
-                  </Button>
-                </div>
-
-                {/* Advanced Filters */}
-                {showFilters && (
-                  <>
-                    <Separator />
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Unit</label>
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All units" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Units</SelectItem>
-                            <SelectItem value="store-a">Store A</SelectItem>
-                            <SelectItem value="store-b">Store B</SelectItem>
-                            <SelectItem value="store-c">Store C</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Date Range</label>
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Last 30 days" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="7">Last 7 days</SelectItem>
-                            <SelectItem value="30">Last 30 days</SelectItem>
-                            <SelectItem value="90">Last 90 days</SelectItem>
-                            <SelectItem value="custom">Custom range</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Score Range</label>
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="All scores" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Scores</SelectItem>
-                            <SelectItem value="90-100">90-100%</SelectItem>
-                            <SelectItem value="80-89">80-89%</SelectItem>
-                            <SelectItem value="70-79">70-79%</SelectItem>
-                            <SelectItem value="below-70">Below 70%</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+            <CardContent className="pt-4">
+              {blocksLoading ? (
+                <div className="space-y-4 animate-pulse">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="space-y-2">
+                      <div className="h-3 bg-muted rounded w-1/3" />
+                      <div className="h-8 bg-muted rounded" />
                     </div>
-                  </>
-                )}
-              </div>
+                  ))}
+                </div>
+              ) : formBlocks.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  No form questions available.
+                </p>
+              ) : (
+                <FormRenderer
+                  blocks={formBlocks}
+                  answers={selectedSubmission.responses || {}}
+                  readOnly
+                />
+              )}
             </CardContent>
           </Card>
-
-          {/* Results Info and Bulk Actions */}
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Showing {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'submission' : 'submissions'}
-              {selectedSubmissions.length > 0 && ` (${selectedSubmissions.length} selected)`}
-            </p>
-
-            {selectedSubmissions.length > 0 && (
-              <div className="flex items-center space-x-2">
-                <Button variant="outline" size="sm">
-                  <Download className="h-3 w-3 mr-2" />
-                  Download PDFs
-                </Button>
-                <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
-                  <Trash2 className="h-3 w-3 mr-2" />
-                  Delete Selected
-                </Button>
-              </div>
-            )}
-          </div>
-
-          {/* Submissions Table */}
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={selectedSubmissions.length === filteredSubmissions.length && filteredSubmissions.length > 0}
-                      onCheckedChange={toggleSelectAll}
-                    />
-                  </TableHead>
-                  <TableHead>Submission ID</TableHead>
-                  <TableHead>Form Name</TableHead>
-                  <TableHead>Submitted By</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead>Date Submitted</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSubmissions.map((submission) => (
-                  <TableRow 
-                    key={submission.id} 
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleViewSubmission(submission)}
-                  >
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedSubmissions.includes(submission.id)}
-                        onCheckedChange={() => toggleSelection(submission.id)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">{submission.id}</TableCell>
-                    <TableCell>{submission.formName}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                            {submission.initials}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span>{submission.submittedBy}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{submission.unit}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{submission.dateSubmitted}</TableCell>
-                    <TableCell>
-                      {submission.status === 'Complete' ? (
-                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          Complete
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0">
-                          <Clock className="h-3 w-3 mr-1" />
-                          Incomplete
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {submission.score ? (
-                        <span className="font-semibold">{submission.score}%</span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewSubmission(submission)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <FileDown className="h-4 w-4 mr-2" />
-                            Download PDF
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Flag className="h-4 w-4 mr-2" />
-                            Flag for Review
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

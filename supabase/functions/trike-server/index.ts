@@ -810,6 +810,20 @@ Deno.serve(async (req: Request) => {
       return await handleKBPublicGet(req, path);
     }
 
+    // =========================================================================
+    // FORMS PUBLIC ENDPOINTS (no auth required — demo mode compatible)
+    // =========================================================================
+
+    // Get published form by ID for public fill page
+    if (method === "GET" && path.startsWith("/forms/public/") && !path.includes("/submit")) {
+      return await handleFormsPublicGet(req, path);
+    }
+
+    // Submit a form response (anonymous, no auth required)
+    if (method === "POST" && path.startsWith("/forms/public/") && path.endsWith("/submit")) {
+      return await handleFormsPublicSubmit(req, path);
+    }
+
     // Record page view
     if (method === "POST" && path === "/kb/page-view") {
       return await handleKBPageView(req);
@@ -15412,6 +15426,148 @@ If the instruction cannot be applied safely, return the original unchanged.`;
 // =============================================================================
 // KB (KNOWLEDGE BASE) HANDLERS
 // =============================================================================
+
+/**
+ * Handler: Get published form by ID for public fill page (no auth required)
+ * Returns: { form, blocks, sections, org: { name, logo_dark_url, logo_light_url } }
+ */
+async function handleFormsPublicGet(req: Request, path: string): Promise<Response> {
+  try {
+    // Extract formId from path: /forms/public/:formId
+    const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
+
+    if (!formId) {
+      return jsonResponse({ error: 'Form ID is required' }, 400);
+    }
+
+    // Fetch the form (must be published)
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('id, title, description, type, status, allow_anonymous, organization_id, slug')
+      .eq('id', formId)
+      .eq('status', 'published')
+      .maybeSingle();
+
+    if (formError || !form) {
+      console.log('❌ Form not found or not published:', formId);
+      return jsonResponse({ error: 'not_found', message: 'Form not found or not published' }, 404);
+    }
+
+    // Fetch sections
+    const { data: sections } = await supabase
+      .from('form_sections')
+      .select('id, title, description, display_order, is_repeatable')
+      .eq('form_id', formId)
+      .order('display_order', { ascending: true });
+
+    // Fetch blocks
+    const { data: blocks } = await supabase
+      .from('form_blocks')
+      .select('id, type, label, description, placeholder, is_required, options, validation_rules, conditional_logic, display_order, section_id')
+      .eq('form_id', formId)
+      .order('display_order', { ascending: true });
+
+    // Fetch org branding
+    const { data: org, error: orgError } = await supabase
+      .from('organizations')
+      .select('id, name, logo_dark_url, logo_light_url, primary_color')
+      .eq('id', form.organization_id)
+      .single();
+
+    if (orgError || !org) {
+      console.error('❌ Organization not found for form:', form.organization_id);
+      return jsonResponse({ error: 'organization_not_found' }, 404);
+    }
+
+    return jsonResponse({
+      form,
+      sections: sections || [],
+      blocks: blocks || [],
+      org: {
+        id: org.id,
+        name: org.name,
+        logo_dark_url: org.logo_dark_url || null,
+        logo_light_url: org.logo_light_url || null,
+        primary_color: org.primary_color || null,
+      },
+    });
+  } catch (err) {
+    console.error('❌ handleFormsPublicGet error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Submit a form response (no auth required — anonymous submissions)
+ * Body: { answers: Record<string, unknown>, submitter_name?: string, submitter_email?: string, start_time?: string }
+ */
+async function handleFormsPublicSubmit(req: Request, path: string): Promise<Response> {
+  try {
+    // Extract formId from path: /forms/public/:formId/submit
+    const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
+
+    if (!formId) {
+      return jsonResponse({ error: 'Form ID is required' }, 400);
+    }
+
+    // Verify form exists and is published
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('id, organization_id, status, requires_approval')
+      .eq('id', formId)
+      .eq('status', 'published')
+      .maybeSingle();
+
+    if (formError || !form) {
+      return jsonResponse({ error: 'not_found', message: 'Form not found or not published' }, 404);
+    }
+
+    let body: Record<string, unknown> = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const answers = (body.answers as Record<string, unknown>) || {};
+    const startTime = body.start_time ? new Date(body.start_time as string) : null;
+    const completionSeconds = startTime
+      ? Math.round((Date.now() - startTime.getTime()) / 1000)
+      : null;
+
+    const submissionStatus = form.requires_approval ? 'pending_review' : 'approved';
+
+    const { data: submission, error: insertError } = await supabase
+      .from('form_submissions')
+      .insert({
+        form_id: formId,
+        organization_id: form.organization_id,
+        responses: answers,
+        status: submissionStatus,
+        submitted_at: new Date().toISOString(),
+        completion_time_seconds: completionSeconds,
+        device_type: (body.device_type as string) || null,
+      })
+      .select('id, status, submitted_at')
+      .single();
+
+    if (insertError) {
+      console.error('❌ Failed to insert submission:', insertError);
+      return jsonResponse({ error: 'Failed to save submission', details: insertError.message }, 500);
+    }
+
+    return jsonResponse({
+      success: true,
+      submission_id: submission.id,
+      status: submission.status,
+      submitted_at: submission.submitted_at,
+      requires_approval: form.requires_approval,
+    });
+  } catch (err) {
+    console.error('❌ handleFormsPublicSubmit error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
 
 /**
  * Handler: Get public track by KB slug

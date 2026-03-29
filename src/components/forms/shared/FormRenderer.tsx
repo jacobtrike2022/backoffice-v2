@@ -1,4 +1,5 @@
 import React from 'react';
+import { isBlockVisible, ConditionalLogic } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +23,7 @@ export interface FormBlockData {
   is_required?: boolean;
   options?: string[] | { choices?: string[] };
   validation_rules?: Record<string, unknown>;
+  conditional_logic?: ConditionalLogic | null;
 }
 
 export interface FormRendererProps {
@@ -55,6 +57,11 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
   };
 
   const renderBlock = (block: FormBlockData) => {
+    // Evaluate conditional logic — skip blocks that should be hidden
+    if (!isBlockVisible(block.conditional_logic, formData)) {
+      return null;
+    }
+
     const value = formData[block.id];
     const options = getOptions(block);
 
@@ -72,7 +79,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
       );
     }
 
-    if (readOnly) {
+    if (readOnly && !['yes_no', 'slider', 'instruction', 'divider', 'location', 'photo', 'signature'].includes(block.type)) {
       const displayValue = value === undefined || value === null
         ? '—'
         : Array.isArray(value)
@@ -388,6 +395,152 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
                 }}
                 disabled={readOnly}
               />
+            )}
+          </div>
+        );
+
+      case 'yes_no': {
+        const yesLabel = (block.validation_rules?.yes_label as string) || 'Yes';
+        const noLabel = (block.validation_rules?.no_label as string) || 'No';
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>
+              {block.label}
+              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                value === 'yes' ? 'bg-green-500/20 text-green-400' :
+                value === 'no' ? 'bg-red-500/20 text-red-400' :
+                'text-muted-foreground'
+              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : '—'}</div>
+            ) : (
+              <div className="flex gap-3">
+                <button type="button" onClick={() => handleChange(block.id, 'yes')}
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                    value === 'yes' ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
+                  }`}>{yesLabel}</button>
+                <button type="button" onClick={() => handleChange(block.id, 'no')}
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                    value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
+                  }`}>{noLabel}</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'slider': {
+        const min = (block.validation_rules?.min as number) ?? 0;
+        const max = (block.validation_rules?.max as number) ?? 10;
+        const step = (block.validation_rules?.step as number) ?? 1;
+        const currentVal = (value as number) ?? min;
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className="text-sm font-medium">{value !== undefined && value !== null ? String(value) : '—'}</div>
+            ) : (
+              <div className="space-y-1">
+                <input type="range" min={min} max={max} step={step}
+                  value={currentVal} onChange={(e) => handleChange(block.id, Number(e.target.value))}
+                  className="w-full accent-primary" />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{min}</span>
+                  <span className="font-medium text-foreground">{currentVal}</span>
+                  <span>{max}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'photo':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              value && typeof value === 'string' ? (
+                value.startsWith('http') ? <img src={value} alt={block.label} className="max-w-xs rounded-md" /> :
+                <p className="text-sm text-muted-foreground">{String(value)}</p>
+              ) : <p className="text-sm text-muted-foreground">—</p>
+            ) : (
+              <Input type="file" accept="image/*" capture="environment"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleChange(block.id, f.name); }} />
+            )}
+          </div>
+        );
+
+      case 'signature':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className="h-24 border border-border rounded-md flex items-center justify-center text-sm italic text-muted-foreground">
+                {value ? 'Signature captured' : 'No signature'}
+              </div>
+            ) : (
+              <div className="relative">
+                <Textarea placeholder="Type your name to sign..."
+                  value={(value as string) || ''} onChange={(e) => handleChange(block.id, e.target.value)}
+                  className="italic font-serif min-h-[80px]" />
+                <p className="text-xs text-muted-foreground mt-1">Type your full name as your signature</p>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'location':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <p className="text-sm text-muted-foreground">{value ? String(value) : '—'}</p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button type="button"
+                  onClick={() => {
+                    if (navigator.geolocation) {
+                      navigator.geolocation.getCurrentPosition(
+                        (pos) => handleChange(block.id, `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`),
+                        () => handleChange(block.id, 'Location unavailable')
+                      );
+                    }
+                  }}
+                  className="px-4 py-2 rounded-md border border-border text-sm hover:bg-muted/50 transition-colors">
+                  📍 Capture Location
+                </button>
+                {value && <span className="text-xs text-muted-foreground">{String(value)}</span>}
+              </div>
+            )}
+          </div>
+        );
+
+      case 'instruction':
+        return (
+          <div key={block.id} className="rounded-md bg-muted/50 border border-border p-4 space-y-1">
+            {block.label && <p className="text-sm font-semibold">{block.label}</p>}
+            {block.description && <p className="text-sm text-muted-foreground">{block.description}</p>}
+          </div>
+        );
+
+      case 'divider':
+        return (
+          <div key={block.id} className="py-2">
+            {block.label ? (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">{block.label}</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+            ) : (
+              <div className="border-t border-border" />
             )}
           </div>
         );

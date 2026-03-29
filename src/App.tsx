@@ -105,6 +105,7 @@ const TrikeAdminPage = React.lazy(() =>
 import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { PublicKBViewer } from "./components/PublicKBViewer";
+import { PublicFormFill } from "./components/forms/PublicFormFill";
 import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
@@ -309,8 +310,8 @@ export default function App() {
   }, [user]);
 
   // Read demo_org_id from URL on mount — activates org preview for demo links
+  // Works in both authenticated and demo (no-user) mode
   useEffect(() => {
-    if (!user) return;
     const params = new URLSearchParams(window.location.search);
     const demoOrgId = params.get('demo_org_id');
     if (!demoOrgId || viewingOrgId === demoOrgId) return;
@@ -334,7 +335,8 @@ export default function App() {
         // Silent — demo_org_id may be invalid
       }
     })();
-  }, [user]); // Only run when user auth state changes, not on viewingOrgId change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount — demo_org_id is read from URL, no user required
 
   // Handle previewing an org as Super Admin
   const handlePreviewOrg = async (orgId: string, orgName: string) => {
@@ -952,7 +954,7 @@ export default function App() {
       case "ai-review":
         return <AIReview onBack={() => requestNavigate("organization")} />;
       case "forms":
-        return <Forms currentRole={currentRole} />;
+        return <Forms currentRole={currentRole} orgId={viewingOrgId || ''} />;
       case "knowledge-base":
         return (
           <KnowledgeBaseRevamp
@@ -991,10 +993,19 @@ export default function App() {
   const slug = urlParams.get("slug") || hashParams.get("slug");
   const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
 
+  // Check if this is a public form fill request (NO AUTH REQUIRED)
+  const formId = urlParams.get("form_id") || hashParams.get("form_id");
+  const isPublicFormFill = !!formId;
+
   // Check if this is the onboarding flow (NO AUTH REQUIRED)
   const isOnboardingView = window.location.pathname.includes("onboarding") ||
     urlParams.get("view") === "onboarding" ||
     hashParams.get("view") === "onboarding";
+
+  // If public form fill, show it immediately without auth check
+  if (isPublicFormFill) {
+    return <PublicFormFill />;
+  }
 
   // If public KB view, show it immediately without auth check
   if (isPublicKBView) {
