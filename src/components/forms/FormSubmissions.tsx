@@ -357,8 +357,8 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           ) : formsLoading ? (
             <div className="h-10 bg-muted rounded-md animate-pulse" />
           ) : formsError ? (
-            <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-3 flex items-center justify-between gap-2">
-              <p className="text-sm text-red-600 dark:text-red-400 flex-1">{formsError}</p>
+            <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 flex items-center justify-between gap-2">
+              <p className="text-sm text-destructive flex-1">{formsError}</p>
               <button
                 onClick={() => {
                   setFormsError(null);
@@ -368,7 +368,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                     .catch((err) => { setFormsError('Failed to load forms.'); console.error(err); })
                     .finally(() => setFormsLoading(false));
                 }}
-                className="text-xs font-medium text-red-600 dark:text-red-400 underline shrink-0"
+                className="text-xs font-medium text-destructive underline shrink-0"
               >
                 Retry
               </button>
@@ -596,7 +596,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-red-600 hover:bg-red-50 border-red-200 gap-1"
+                      className="text-destructive hover:bg-destructive/10 border-destructive/30 gap-1"
                       disabled={actionLoading}
                       onClick={() => handleReject(selectedSubmission.id)}
                     >

@@ -187,7 +187,7 @@ export function PublicFormFill() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950 gap-4">
-        <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-800 border-t-[#FF6B35] rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-800 border-t-primary rounded-full animate-spin" />
         <p className="text-gray-600 dark:text-gray-400 text-sm">Loading form…</p>
       </div>
     );
@@ -210,7 +210,7 @@ export function PublicFormFill() {
           <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
           <button
             onClick={() => window.close()}
-            className="px-6 py-3 bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] text-white rounded-lg hover:opacity-90 min-h-[44px] font-medium"
+            className="px-6 py-3 bg-brand-gradient text-white rounded-lg hover:opacity-90 min-h-[44px] font-medium"
           >
             Close
           </button>
@@ -316,7 +316,7 @@ export function PublicFormFill() {
         {hasSections && (
           <div className="h-1 bg-gray-100 dark:bg-gray-800">
             <div
-              className="h-full bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] transition-all duration-500"
+              className="h-full bg-brand-gradient transition-all duration-500"
               style={{ width: `${Math.round((1 / sections.length) * 100)}%` }}
             />
           </div>
@@ -328,7 +328,7 @@ export function PublicFormFill() {
         {/* Form title & description */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <ClipboardList className="w-5 h-5 text-[#FF6B35] flex-shrink-0" />
+            <ClipboardList className="w-5 h-5 text-primary flex-shrink-0" />
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
               {form.title}
             </h1>
@@ -361,7 +361,7 @@ export function PublicFormFill() {
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
-              <Loader2 className="w-4 h-4 animate-spin text-[#FF6B35]" />
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
               Submitting your response…
             </div>
           )}

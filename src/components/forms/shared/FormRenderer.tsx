@@ -140,7 +140,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -159,7 +159,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -179,7 +179,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -201,7 +201,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -220,7 +220,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -239,7 +239,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -272,7 +272,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -309,7 +309,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -339,7 +339,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -376,7 +376,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -408,7 +408,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -445,7 +445,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
             {readOnly ? (
@@ -630,11 +630,11 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div
             key={block.id}
             id={`form-field-${block.id}`}
-            className={errorMsg ? 'rounded-md ring-1 ring-red-500/50 p-1 -m-1' : undefined}
+            className={errorMsg ? 'rounded-md ring-1 ring-destructive/50 p-1 -m-1' : undefined}
           >
             {rendered}
             {errorMsg && (
-              <p className="mt-1 text-xs text-red-500 font-medium">{errorMsg}</p>
+              <p className="mt-1 text-xs text-destructive font-medium">{errorMsg}</p>
             )}
           </div>
         );

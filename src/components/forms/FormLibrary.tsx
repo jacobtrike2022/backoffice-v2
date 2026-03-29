@@ -211,7 +211,7 @@ function CardActions({
         )}
         {canDelete && (
           <DropdownMenuItem
-            className="text-red-600"
+            className="text-destructive"
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
           >
             <Trash2 className="h-4 w-4 mr-2" />
@@ -470,11 +470,11 @@ export function FormLibrary({
 
       {/* Error */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 flex items-center justify-between">
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-destructive">{error}</p>
           <button
             onClick={loadForms}
-            className="text-sm font-medium text-red-600 dark:text-red-400 underline ml-4 shrink-0"
+            className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
             Retry
           </button>

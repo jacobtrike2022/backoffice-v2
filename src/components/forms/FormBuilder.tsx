@@ -213,7 +213,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps)
     <div className="relative flex justify-center my-1" ref={anchorRef}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="h-7 w-7 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary hover:shadow-[0_0_8px_2px_rgba(249,115,22,0.35)] transition-all duration-200"
+        className="h-7 w-7 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary hover:shadow-[0_0_8px_2px_hsl(var(--primary)/0.35)] transition-all duration-200"
         aria-label="Add block"
       >
         <Plus className="h-3.5 w-3.5" />
@@ -263,7 +263,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
     ? 'border-l-blue-400'
     : typeDef?.category === 'actions'
     ? 'border-l-purple-400'
-    : 'border-l-orange-400';
+    : 'border-l-primary';
 
   return (
     <div>
@@ -271,7 +271,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
         ref={setNodeRef}
         style={style}
         className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
-          isSelected ? 'border-primary border-l-orange-500 ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
+          isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
         }`}
         onClick={onSelect}
       >

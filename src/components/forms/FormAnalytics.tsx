@@ -162,7 +162,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
           label: 'Total Submissions',
           value: stats.totalSubmissions.toString(),
           icon: FileText,
-          accentColor: 'border-l-orange-500',
+          accentColor: 'border-l-primary',
           iconBg: 'bg-brand-gradient',
         },
         {
@@ -186,11 +186,11 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
     <div className="space-y-6">
       {/* Error state */}
       {error && !loading && (
-        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 flex items-center justify-between">
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-destructive">{error}</p>
           <button
             onClick={loadData}
-            className="text-sm font-medium text-red-600 dark:text-red-400 underline ml-4 shrink-0"
+            className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
             Retry
           </button>
@@ -229,7 +229,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             onClick={() => setDays(d)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               days === d
-                ? 'bg-orange-500 text-white shadow-sm'
+                ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -266,7 +266,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   type="monotone"
                   dataKey="count"
                   name="Submissions"
-                  stroke="#F74A05"
+                  stroke="hsl(var(--primary))"
                   strokeWidth={3}
                   dot={false}
                   activeDot={{ r: 6 }}
@@ -314,7 +314,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   />
                   <Bar
                     dataKey="rate"
-                    fill="#FF6B35"
+                    fill="hsl(var(--primary))"
                     radius={[0, 8, 8, 0]}
                   />
                 </BarChart>
@@ -358,7 +358,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   />
                   <Bar
                     dataKey="avgScore"
-                    fill="#FF6B35"
+                    fill="hsl(var(--primary))"
                     radius={[0, 8, 8, 0]}
                   />
                 </BarChart>
