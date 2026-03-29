@@ -11,6 +11,7 @@ import {
   type FormSection,
   type FormWithSections,
 } from '../lib/crud/forms';
+import { createFormVersion } from '../lib/crud/formVersions';
 
 // ============================================================================
 // TYPES
@@ -26,6 +27,7 @@ export interface FormMetadata {
   tags?: string[];
   requires_approval?: boolean;
   allow_anonymous?: boolean;
+  is_template?: boolean;
 }
 
 export interface FormSettings {
@@ -66,6 +68,7 @@ export interface UseFormBuilderReturn {
   setFormStatus: (status: 'draft' | 'published' | 'archived') => void;
   setFormTags: (tags: string[]) => void;
   setFormSettings: (settings: Partial<FormSettings>) => void;
+  setFormIsTemplate: (isTemplate: boolean) => void;
 
   // Sections state
   sections: FormSection[];
@@ -146,6 +149,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         status: form.status,
         requires_approval: form.requires_approval,
         allow_anonymous: form.allow_anonymous,
+        is_template: form.is_template,
       });
 
       // Save dirty/new blocks — filter to persisted IDs only (no temp IDs)
@@ -218,8 +222,9 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
     // Save first to ensure everything is persisted
     await saveForm();
     await publishFormCrud(form.id);
+    await createFormVersion(form.id, orgId);
     setForm(prev => prev ? { ...prev, status: 'published' } : prev);
-  }, [form, saveForm]);
+  }, [form, orgId, saveForm]);
 
   // ============================================================================
   // LOAD / INIT
@@ -348,6 +353,11 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         allow_anonymous: settings.allow_anonymous ?? prev.allow_anonymous,
       };
     });
+    markDirty();
+  }, [markDirty]);
+
+  const setFormIsTemplate = useCallback((isTemplate: boolean) => {
+    setForm(prev => prev ? { ...prev, is_template: isTemplate } : prev);
     markDirty();
   }, [markDirty]);
 
@@ -495,6 +505,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
     setFormStatus,
     setFormTags,
     setFormSettings,
+    setFormIsTemplate,
 
     sections,
     addSection,
@@ -534,6 +545,7 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
     tags: data.tags || [],
     requires_approval: data.requires_approval,
     allow_anonymous: data.allow_anonymous,
+    is_template: data.is_template ?? false,
   };
 }
 

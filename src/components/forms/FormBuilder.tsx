@@ -938,6 +938,7 @@ function ConnectorLine() {
 export function FormBuilder({
   formId,
   orgId = '',
+  currentRole,
   onSaveDraft,
   onPublished,
   onCancel,
@@ -1079,6 +1080,17 @@ export function FormBuilder({
               ? 'Archived'
               : 'Draft'}
           </Badge>
+
+          {/* Template toggle — super admin only */}
+          {currentRole === 'trike-super-admin' && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs text-muted-foreground">Template</span>
+              <Switch
+                checked={hook.form?.is_template ?? false}
+                onCheckedChange={(checked) => hook.setFormIsTemplate(checked)}
+              />
+            </div>
+          )}
 
           {/* Autosave indicator */}
           <AutosaveIndicator isSaving={hook.isSaving} isDirty={hook.isDirty} />

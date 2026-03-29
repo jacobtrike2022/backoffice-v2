@@ -111,7 +111,7 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
  */
 export async function updateForm(
   formId: string,
-  updates: Partial<CreateFormInput> & { status?: 'draft' | 'published' | 'archived' }
+  updates: Partial<CreateFormInput> & { status?: 'draft' | 'published' | 'archived'; is_template?: boolean }
 ) {
   const { data, error } = await supabase
     .from('forms')

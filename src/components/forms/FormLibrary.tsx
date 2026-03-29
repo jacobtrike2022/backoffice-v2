@@ -15,6 +15,7 @@ import {
   Archive,
   Trash2,
   Calendar,
+  Building2,
 } from 'lucide-react';
 import {
   Select,
@@ -131,11 +132,13 @@ interface CardActionsProps {
   canEdit: boolean;
   canArchive: boolean;
   canDelete: boolean;
+  isSuperAdmin?: boolean;
   onEdit: () => void;
   onDuplicate: () => void;
   onViewSubmissions: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onCloneToOrg?: () => void;
 }
 
 function CardActions({
@@ -143,11 +146,13 @@ function CardActions({
   canEdit,
   canArchive,
   canDelete,
+  isSuperAdmin,
   onEdit,
   onDuplicate,
   onViewSubmissions,
   onArchive,
   onDelete,
+  onCloneToOrg,
 }: CardActionsProps) {
   return (
     <DropdownMenu>
@@ -167,6 +172,12 @@ function CardActions({
           <Copy className="h-4 w-4 mr-2" />
           Duplicate
         </DropdownMenuItem>
+        {isSuperAdmin && form.is_template && (
+          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCloneToOrg?.(); }}>
+            <Building2 className="h-4 w-4 mr-2" />
+            Duplicate to org...
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onViewSubmissions(); }}>
           <FileText className="h-4 w-4 mr-2" />
           View Submissions
@@ -286,6 +297,12 @@ export function FormLibrary({
     }
   }
 
+  function handleCloneToOrg(_formId: string) {
+    // Template cloning to a specific org is an admin operation done at provisioning time.
+    // For now, show a message — actual per-org cloning is handled automatically for new demo orgs.
+    window.alert('Template cloning happens automatically for new demo orgs.');
+  }
+
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
     forms.forEach(f => (f.tags || []).forEach((t: string) => tagSet.add(t)));
@@ -301,11 +318,13 @@ export function FormLibrary({
     canEdit,
     canArchive,
     canDelete,
+    isSuperAdmin,
     onEdit: () => onEditForm?.(form.id),
     onDuplicate: () => handleDuplicate(form.id),
     onViewSubmissions: () => onViewSubmissions?.(form.id),
     onArchive: () => handleArchive(form.id),
     onDelete: () => handleDelete(form.id),
+    onCloneToOrg: () => handleCloneToOrg(form.id),
   });
 
   return (
@@ -481,8 +500,8 @@ export function FormLibrary({
                     <div className="flex flex-wrap gap-2">
                       {getTypeBadge(form.type)}
                       {getStatusBadge(form.status)}
-                      {isSuperAdmin && form.is_template && (
-                        <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
+                      {form.is_template && (
+                        <Badge variant="outline" className="text-amber-500 border-amber-500/30 bg-amber-500/10">
                           Template
                         </Badge>
                       )}
@@ -535,8 +554,8 @@ export function FormLibrary({
                         <h3 className="font-semibold">{form.title}</h3>
                         {getTypeBadge(form.type)}
                         {getStatusBadge(form.status)}
-                        {isSuperAdmin && form.is_template && (
-                          <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
+                        {form.is_template && (
+                          <Badge variant="outline" className="text-amber-500 border-amber-500/30 bg-amber-500/10">
                             Template
                           </Badge>
                         )}

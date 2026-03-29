@@ -11,7 +11,14 @@ import {
   Calendar,
   FileText,
   ChevronDown,
+  Download,
 } from 'lucide-react';
+
+const _publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const _supabaseProjectId = import.meta.env.VITE_SUPABASE_PROJECT_ID as string;
+const _supabaseUrl: string =
+  (import.meta.env.VITE_SUPABASE_URL as string) ||
+  `https://${_supabaseProjectId}.supabase.co`;
 import {
   Select,
   SelectContent,
@@ -424,7 +431,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         ) : (
           <Card className="h-full overflow-auto">
             <CardHeader className="pb-3">
-              {/* Header row: submitter + status */}
+              {/* Header row: submitter + status + export */}
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
@@ -441,7 +448,20 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                     </p>
                   </div>
                 </div>
-                {getStatusBadge(selectedSubmission.status)}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {getStatusBadge(selectedSubmission.status)}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const url = `${_supabaseUrl}/functions/v1/trike-server/forms/submissions/${selectedSubmission.id}/pdf`;
+                      window.open(url, '_blank');
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export PDF
+                  </Button>
+                </div>
               </div>
 
               {/* Meta row */}

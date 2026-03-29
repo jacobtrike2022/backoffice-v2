@@ -819,6 +819,11 @@ Deno.serve(async (req: Request) => {
       return await handleFormsPublicGet(req, path);
     }
 
+    // Branded HTML export for a form submission (print-to-PDF)
+    if (method === "GET" && path.match(/^\/forms\/submissions\/[^\/]+\/pdf$/)) {
+      return await handleFormSubmissionHtml(req, path);
+    }
+
     // Submit a form response (anonymous, no auth required)
     if (method === "POST" && path.startsWith("/forms/public/") && path.endsWith("/submit")) {
       return await handleFormsPublicSubmit(req, path);
@@ -15565,6 +15570,162 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
     });
   } catch (err) {
     console.error('❌ handleFormsPublicSubmit error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+// ─── HTML escape helper ────────────────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Handler: Generate a print-optimised HTML page for a form submission.
+ * Opens in a new browser tab; user prints (Ctrl+P) to save as PDF.
+ * Route: GET /forms/submissions/:submissionId/pdf
+ */
+async function handleFormSubmissionHtml(req: Request, path: string): Promise<Response> {
+  try {
+    // path = /forms/submissions/:submissionId/pdf
+    const segments = path.split('/');
+    const submissionId = segments[3];
+    if (!submissionId) {
+      return jsonResponse({ error: 'submissionId required' }, 400);
+    }
+
+    // Fetch submission + form title + org id + blocks
+    const { data: submission, error: subError } = await supabase
+      .from('form_submissions')
+      .select(`
+        id,
+        status,
+        submitted_at,
+        answers,
+        total_score,
+        max_possible_score,
+        score_percentage,
+        form:forms(
+          title,
+          organization_id,
+          form_blocks(id, label, display_order)
+        )
+      `)
+      .eq('id', submissionId)
+      .single();
+
+    if (subError || !submission) {
+      return jsonResponse({ error: 'Submission not found' }, 404);
+    }
+
+    const form = (submission as any).form;
+    const orgId = form?.organization_id;
+
+    // Fetch org branding
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('name, logo_dark_url, logo_light_url')
+      .eq('id', orgId)
+      .single();
+
+    const orgName: string = org?.name ?? 'Organization';
+    const logoUrl: string = org?.logo_dark_url ?? org?.logo_light_url ?? '';
+    const formTitle: string = form?.title ?? 'Form Submission';
+
+    const rawBlocks: any[] = form?.form_blocks ?? [];
+    const blocks = [...rawBlocks].sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
+
+    const answers: Record<string, unknown> = (submission as any).answers ?? {};
+
+    const submittedAt = submission.submitted_at
+      ? new Date(submission.submitted_at).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '—';
+
+    // Build per-question HTML
+    const answersHtml = blocks
+      .map((block: any) => {
+        const answer = answers[block.id] ?? answers[block.label] ?? '—';
+        return `
+      <div class="question">
+        <div class="question-label">${escapeHtml(block.label || 'Question')}</div>
+        <div class="answer">${escapeHtml(String(answer))}</div>
+      </div>`;
+      })
+      .join('');
+
+    const scorePercentage = (submission as any).score_percentage;
+    const totalScore = (submission as any).total_score;
+    const maxPossibleScore = (submission as any).max_possible_score;
+
+    const scoreHtml =
+      scorePercentage != null
+        ? `<div class="score-row">
+        <span>Score</span>
+        <strong>${scorePercentage}% (${totalScore}/${maxPossibleScore})</strong>
+      </div>`
+        : '';
+
+    const submissionStatus: string = (submission as any).status ?? 'submitted';
+    const isApproved = submissionStatus === 'approved';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(formTitle)} — ${escapeHtml(orgName)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 2px solid #f97316; margin-bottom: 32px; }
+    .logo { max-height: 48px; max-width: 160px; object-fit: contain; }
+    .org-name { font-size: 20px; font-weight: 700; color: #f97316; }
+    .form-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .meta { font-size: 13px; color: #666; margin-bottom: 8px; }
+    .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #166534; }
+    .status.pending { background: #fef9c3; color: #854d0e; }
+    .score-row { display: flex; align-items: center; gap: 8px; font-size: 15px; margin-top: 8px; }
+    .questions { margin-top: 32px; }
+    .question { padding: 16px 0; border-bottom: 1px solid #e5e7eb; }
+    .question:last-child { border-bottom: none; }
+    .question-label { font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .answer { font-size: 16px; color: #111; }
+    .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #999; text-align: center; }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 20mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(orgName)}" class="logo" />` : ''}
+    <div class="org-name">${escapeHtml(orgName)}</div>
+  </div>
+  <div class="form-title">${escapeHtml(formTitle)}</div>
+  <div class="meta">Submitted: ${submittedAt}</div>
+  <div class="meta">Status: <span class="status${isApproved ? '' : ' pending'}">${escapeHtml(submissionStatus)}</span></div>
+  ${scoreHtml}
+  <div class="questions">${answersHtml || '<p style="color:#999;font-size:14px;">No answers recorded.</p>'}</div>
+  <div class="footer">Generated by Trike Backoffice &middot; ${escapeHtml(orgName)}</div>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  } catch (err) {
+    console.error('❌ handleFormSubmissionHtml error:', err);
     return jsonResponse({ error: 'Internal server error' }, 500);
   }
 }
