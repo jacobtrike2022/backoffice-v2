@@ -228,6 +228,14 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
 
   const targetOptions = assignType === 'store' ? stores : districts;
 
+  if (!orgId) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
+        Waiting for organization data…
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -258,8 +266,11 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
         </div>
       ) : fetchError ? (
         <Card>
-          <CardContent className="p-6 text-center text-destructive">
-            Failed to load assignments: {fetchError}
+          <CardContent className="p-6 text-center">
+            <p className="text-destructive text-sm mb-3">Failed to load assignments: {fetchError}</p>
+            <Button variant="outline" size="sm" onClick={loadAssignments}>
+              Retry
+            </Button>
           </CardContent>
         </Card>
       ) : assignments.length === 0 ? (
@@ -295,7 +306,11 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
               : '—';
 
             return (
-              <Card key={a.id}>
+              <Card key={a.id} className={`border-l-4 ${
+                a.status === 'completed' ? 'border-l-blue-400' :
+                a.status === 'overdue' ? 'border-l-red-400' :
+                'border-l-green-400'
+              }`}>
                 <CardContent className="p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0 space-y-1.5">

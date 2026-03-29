@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
-import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList } from 'lucide-react';
+import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList, Loader2 } from 'lucide-react';
 import trikeLogoDark from '../../assets/trike-logo.png';
 import { FormRenderer, FormBlockData } from './shared/FormRenderer';
 
@@ -167,6 +167,8 @@ export function PublicFormFill() {
       }
 
       setSubmitted(true);
+      // Scroll to top so the success message is immediately visible on long forms
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('Error submitting form:', err);
@@ -253,12 +255,19 @@ export function PublicFormFill() {
         {/* Success card */}
         <div className="flex items-center justify-center min-h-[calc(100vh-52px)] p-4">
           <div className="bg-white dark:bg-gray-900 rounded-2xl p-10 shadow-sm text-center max-w-md w-full">
-            <CheckCircle className="w-16 h-16 mx-auto mb-5 text-green-500" />
+            <div className="flex items-center justify-center mb-5">
+              <div className="h-20 w-20 rounded-full bg-green-50 dark:bg-green-900/20 flex items-center justify-center animate-in zoom-in duration-500">
+                <CheckCircle className="w-12 h-12 text-green-500" />
+              </div>
+            </div>
             <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">
               Submission received!
             </h2>
+            <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
+              Your response has been recorded successfully.
+            </p>
             {org?.name && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{org.name}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">{org.name}</p>
             )}
             {form.requires_approval && (
               <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
@@ -272,6 +281,9 @@ export function PublicFormFill() {
   }
 
   // ── Form view ──────────────────────────────────────────────────────────────
+  const sections = formData.sections || [];
+  const hasSections = sections.length > 1;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors duration-200">
       {/* Header */}
@@ -300,6 +312,15 @@ export function PublicFormFill() {
             </button>
           </div>
         </div>
+        {/* Section progress bar */}
+        {hasSections && (
+          <div className="h-1 bg-gray-100 dark:bg-gray-800">
+            <div
+              className="h-full bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] transition-all duration-500"
+              style={{ width: `${Math.round((1 / sections.length) * 100)}%` }}
+            />
+          </div>
+        )}
       </header>
 
       {/* Content */}
@@ -308,7 +329,7 @@ export function PublicFormFill() {
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <ClipboardList className="w-5 h-5 text-[#FF6B35] flex-shrink-0" />
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white leading-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
               {form.title}
             </h1>
           </div>
@@ -323,9 +344,10 @@ export function PublicFormFill() {
         </div>
 
         {/* Form renderer */}
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 p-5 sm:p-6">
           {submitError && (
-            <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-lg text-sm">
+            <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
               {submitError}
             </div>
           )}
@@ -338,9 +360,9 @@ export function PublicFormFill() {
             readOnly={false}
           />
           {submitting && (
-            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-              <div className="w-4 h-4 border-2 border-gray-300 dark:border-gray-600 border-t-[#FF6B35] rounded-full animate-spin" />
-              Submitting…
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#FF6B35]" />
+              Submitting your response…
             </div>
           )}
         </div>

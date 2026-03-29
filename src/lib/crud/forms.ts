@@ -13,6 +13,7 @@ export interface CreateFormInput {
   category?: string;
   requires_approval?: boolean;
   allow_anonymous?: boolean;
+  tags?: string[];
 }
 
 export interface FormBlockInput {
@@ -69,7 +70,7 @@ export interface FormWithSections {
   slug?: string;
   tags?: string[];
   current_version?: number;
-  created_by_id?: string;
+  created_by?: string;
   created_at: string;
   updated_at: string;
   form_sections: FormSection[];
@@ -97,7 +98,8 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
       status: 'draft',
       requires_approval: input.requires_approval || false,
       allow_anonymous: input.allow_anonymous || false,
-      created_by_id: userProfile?.id || null
+      // Column is `created_by` in the live DB schema (rename to created_by_id is in migrations_hold)
+      created_by: userProfile?.id || null
     })
     .select()
     .single();
@@ -211,7 +213,7 @@ export async function getFormById(formId: string) {
     .from('forms')
     .select(`
       *,
-      created_by:users(name, email),
+      created_by:users(first_name, last_name, email),
       form_blocks(*)
     `)
     .eq('id', formId)
@@ -241,12 +243,13 @@ export async function getForms(
 ) {
   const resolvedOrgId = orgId || await getCurrentUserOrgId();
   if (!resolvedOrgId) throw new Error('Organization ID required');
+  if (resolvedOrgId.trim() === '') throw new Error('Organization ID must not be empty');
 
   let query = supabase
     .from('forms')
     .select(`
       *,
-      created_by:users(name)
+      created_by:users(first_name, last_name)
     `)
     .eq('organization_id', resolvedOrgId);
 
@@ -301,15 +304,15 @@ export async function submitFormResponse(
   // Get form details for notification
   const { data: form } = await supabase
     .from('forms')
-    .select('title, created_by_id, requires_approval')
+    .select('title, created_by, requires_approval')
     .eq('id', formId)
     .single();
 
   // If requires approval, notify creator/admins (non-critical - wrap in try-catch)
-  if (form?.requires_approval && form.created_by_id) {
+  if (form?.requires_approval && (form as any).created_by) {
     try {
       await createNotification({
-        user_id: form.created_by_id,
+        user_id: (form as any).created_by,
         type: 'form-submitted',
         title: 'Form Submission Requires Approval',
         message: `A submission for "${form.title}" needs your review`,
@@ -501,18 +504,41 @@ export async function getFormWithSections(formId: string, orgId?: string): Promi
   const resolvedOrgId = orgId || await getCurrentUserOrgId();
   if (!resolvedOrgId) throw new Error('Organization ID required');
 
-  const { data, error } = await supabase
-    .from('forms')
-    .select(`
-      *,
-      form_sections(*),
-      form_blocks(*)
-    `)
-    .eq('id', formId)
-    .eq('organization_id', resolvedOrgId)
-    .maybeSingle();
+  let data: any = null;
 
-  if (error) throw error;
+  // Attempt to fetch with sections — fall back gracefully if form_sections table doesn't exist yet
+  try {
+    const { data: dataWithSections, error: withSectionsError } = await supabase
+      .from('forms')
+      .select(`
+        *,
+        form_sections(*),
+        form_blocks(*)
+      `)
+      .eq('id', formId)
+      .eq('organization_id', resolvedOrgId)
+      .maybeSingle();
+
+    if (withSectionsError) throw withSectionsError;
+    data = dataWithSections;
+  } catch (err: unknown) {
+    // If the error mentions form_sections (migration not applied), retry without sections join
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes('form_sections') || errMsg.includes('does not exist')) {
+      const { data: dataNoSections, error: noSectionsError } = await supabase
+        .from('forms')
+        .select(`*, form_blocks(*)`)
+        .eq('id', formId)
+        .eq('organization_id', resolvedOrgId)
+        .maybeSingle();
+
+      if (noSectionsError) throw noSectionsError;
+      data = dataNoSections ? { ...dataNoSections, form_sections: [] } : null;
+    } else {
+      throw err;
+    }
+  }
+
   if (!data) return null;
 
   // Sort sections by display_order ASC
@@ -694,7 +720,7 @@ export async function duplicateForm(formId: string, orgId: string): Promise<{ id
       source_template_id: null,
       slug: null,
       tags: original.tags,
-      created_by_id: original.created_by_id || null
+      created_by: (original as any).created_by || null
     })
     .select('id')
     .single();
@@ -741,7 +767,6 @@ export async function duplicateForm(formId: string, orgId: string): Promise<{ id
       options: b.options,
       validation_rules: b.validation_rules,
       conditional_logic: b.conditional_logic,
-      settings: b.settings,
       is_required: b.is_required,
       display_order: b.display_order
     }));
@@ -798,7 +823,7 @@ export async function cloneFormToOrg(formId: string, targetOrgId: string): Promi
       source_template_id: formId,
       slug: null,
       tags: original.tags,
-      created_by_id: null
+      created_by: null
     })
     .select('id')
     .single();
@@ -844,7 +869,6 @@ export async function cloneFormToOrg(formId: string, targetOrgId: string): Promi
       options: b.options,
       validation_rules: b.validation_rules,
       conditional_logic: b.conditional_logic,
-      settings: b.settings,
       is_required: b.is_required,
       display_order: b.display_order
     }));
@@ -871,7 +895,7 @@ export async function getTemplateForms(): Promise<any[]> {
     .from('forms')
     .select(`
       *,
-      created_by:users(name)
+      created_by:users(first_name, last_name)
     `)
     .eq('is_template', true)
     .order('created_at', { ascending: false });

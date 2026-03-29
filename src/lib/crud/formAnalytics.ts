@@ -11,7 +11,7 @@ export async function getSubmissionVolume(orgId: string, days = 30) {
   const { data, error } = await supabase
     .from('form_submissions')
     .select('submitted_at, form:forms!inner(organization_id)')
-    .eq('forms.organization_id', orgId)
+    .eq('form.organization_id', orgId)
     .gte('submitted_at', since.toISOString())
     .order('submitted_at', { ascending: true });
 
@@ -82,7 +82,7 @@ export async function getScoreSummary(orgId: string) {
       score_percentage,
       form:forms!inner(id, title, organization_id)
     `)
-    .eq('forms.organization_id', orgId)
+    .eq('form.organization_id', orgId)
     .not('score_percentage', 'is', null)
     .limit(200);
 
@@ -107,11 +107,12 @@ export async function getScoreSummary(orgId: string) {
  * Get top-level summary stats for the org.
  */
 export async function getFormSummaryStats(orgId: string) {
+  // form_submissions does not have organization_id — scope through forms!inner join
   const [totalFormsRes, totalSubmissionsRes, pendingRes, avgScoreRes] = await Promise.all([
     supabase.from('forms').select('id', { count: 'exact', head: true }).eq('organization_id', orgId).eq('status', 'published'),
-    supabase.from('form_submissions').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
-    supabase.from('form_submissions').select('id', { count: 'exact', head: true }).eq('organization_id', orgId).eq('status', 'pending_review'),
-    supabase.from('form_submissions').select('score_percentage').eq('organization_id', orgId).not('score_percentage', 'is', null).limit(100),
+    supabase.from('form_submissions').select('id, form:forms!inner(organization_id)', { count: 'exact', head: true }).eq('form.organization_id', orgId),
+    supabase.from('form_submissions').select('id, form:forms!inner(organization_id)', { count: 'exact', head: true }).eq('form.organization_id', orgId).eq('status', 'pending_review'),
+    supabase.from('form_submissions').select('score_percentage, form:forms!inner(organization_id)').eq('form.organization_id', orgId).not('score_percentage', 'is', null).limit(100),
   ]);
 
   const scores = (avgScoreRes.data || []).map(r => r.score_percentage as number).filter(Boolean);

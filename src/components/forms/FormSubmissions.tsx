@@ -261,9 +261,29 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   async function handleApprove(submissionId: string) {
     setActionLoading(true);
     try {
+      // Resolve current user's internal id — may be null in demo mode (no auth session)
+      let approverId: string | null = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('id')
+            .eq('auth_user_id', user.id)
+            .maybeSingle();
+          approverId = profile?.id || null;
+        }
+      } catch {
+        // Non-fatal — continue without approverId in demo mode
+      }
+
       const { error } = await supabase
         .from('form_submissions')
-        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .update({
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          approved_by_id: approverId,
+        })
         .eq('id', submissionId);
       if (error) throw error;
       // Optimistically update local state
@@ -281,9 +301,29 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   async function handleReject(submissionId: string) {
     setActionLoading(true);
     try {
+      // Resolve current user's internal id — may be null in demo mode (no auth session)
+      let approverId: string | null = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('id')
+            .eq('auth_user_id', user.id)
+            .maybeSingle();
+          approverId = profile?.id || null;
+        }
+      } catch {
+        // Non-fatal — continue without approverId in demo mode
+      }
+
       const { error } = await supabase
         .from('form_submissions')
-        .update({ status: 'rejected' })
+        .update({
+          status: 'rejected',
+          approved_at: new Date().toISOString(),
+          approved_by_id: approverId,
+        })
         .eq('id', submissionId);
       if (error) throw error;
       setSubmissions((prev) =>
@@ -309,13 +349,30 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   return (
     <div className="flex flex-col lg:flex-row gap-4 h-full min-h-[600px]">
       {/* ── Left pane: form selector + submission list ── */}
-      <div className="w-full lg:w-1/3 flex flex-col gap-3">
+      <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
         {/* Form selector */}
         <div>
-          {formsLoading ? (
+          {!orgId ? (
+            <p className="text-sm text-muted-foreground">Waiting for organization data…</p>
+          ) : formsLoading ? (
             <div className="h-10 bg-muted rounded-md animate-pulse" />
           ) : formsError ? (
-            <p className="text-sm text-red-500">{formsError}</p>
+            <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-3 flex items-center justify-between gap-2">
+              <p className="text-sm text-red-600 dark:text-red-400 flex-1">{formsError}</p>
+              <button
+                onClick={() => {
+                  setFormsError(null);
+                  setFormsLoading(true);
+                  getForms({ status: 'published' }, orgId!)
+                    .then((data) => setForms((data as unknown as FormRecord[]) || []))
+                    .catch((err) => { setFormsError('Failed to load forms.'); console.error(err); })
+                    .finally(() => setFormsLoading(false));
+                }}
+                className="text-xs font-medium text-red-600 dark:text-red-400 underline shrink-0"
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <Select
               value={selectedFormId}
@@ -386,10 +443,19 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                     <li key={sub.id}>
                       <button
                         className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors ${
-                          isSelected ? 'bg-muted' : ''
+                          isSelected ? 'bg-muted border-l-2 border-primary' : 'border-l-2 border-transparent'
                         }`}
                         onClick={() => setSelectedSubmission(sub)}
                       >
+                        {/* Status dot */}
+                        <div className="flex-shrink-0 mt-2">
+                          <span className={`inline-block h-2 w-2 rounded-full ${
+                            sub.status === 'approved' ? 'bg-green-500' :
+                            sub.status === 'rejected' ? 'bg-red-500' :
+                            sub.status === 'pending_review' ? 'bg-yellow-400' :
+                            'bg-gray-400'
+                          }`} />
+                        </div>
                         <Avatar className="h-8 w-8 flex-shrink-0 mt-0.5">
                           <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                             {getInitials(submitterName)}
@@ -402,12 +468,22 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                           </p>
                           <div className="mt-1 flex items-center gap-2">
                             {getStatusBadge(sub.status)}
-                            {sub.score_percentage != null && (
-                              <span className="text-xs font-semibold text-primary">
-                                {Math.round(sub.score_percentage)}%
-                              </span>
-                            )}
                           </div>
+                          {sub.score_percentage != null && (
+                            <div className="mt-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary rounded-full"
+                                    style={{ width: `${sub.score_percentage}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] font-semibold text-primary shrink-0">
+                                  {Math.round(sub.score_percentage)}%
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </button>
                     </li>
@@ -424,8 +500,11 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         {!selectedSubmission ? (
           <Card className="h-full flex items-center justify-center">
             <CardContent className="text-center text-muted-foreground py-16">
-              <User className="h-10 w-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">Select a submission to review</p>
+              <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+                <FileText className="h-7 w-7 opacity-40" />
+              </div>
+              <p className="font-medium">No submission selected</p>
+              <p className="text-sm mt-1 opacity-70">Select a submission from the list to review it</p>
             </CardContent>
           </Card>
         ) : (

@@ -15445,17 +15445,21 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
       return jsonResponse({ error: 'Form ID is required' }, 400);
     }
 
-    // Fetch the form (must be published)
+    // Fetch the form (any status first so we can distinguish not_found vs not_published)
     const { data: form, error: formError } = await supabase
       .from('forms')
-      .select('id, title, description, type, status, allow_anonymous, organization_id, slug')
+      .select('id, title, description, type, status, allow_anonymous, requires_approval, organization_id, slug')
       .eq('id', formId)
-      .eq('status', 'published')
       .maybeSingle();
 
     if (formError || !form) {
-      console.log('❌ Form not found or not published:', formId);
-      return jsonResponse({ error: 'not_found', message: 'Form not found or not published' }, 404);
+      console.log('❌ Form not found:', formId);
+      return jsonResponse({ error: 'not_found', message: 'Form not found' }, 404);
+    }
+
+    if (form.status !== 'published') {
+      console.log('❌ Form not published:', formId, form.status);
+      return jsonResponse({ error: 'not_published', message: 'This form is not currently accepting responses' }, 403);
     }
 
     // Fetch sections
@@ -15560,6 +15564,12 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
       console.error('❌ Failed to insert submission:', insertError);
       return jsonResponse({ error: 'Failed to save submission', details: insertError.message }, 500);
     }
+
+    // TODO: trigger notification to form owner / admins when requires_approval is true.
+    // Follow the notifications pattern: insert into `notifications` table via
+    //   supabase.from('notifications').insert({ user_id, type, title, message, link_url })
+    // For public/anonymous submissions there is no submitter user_id, so target the
+    // form's created_by user or org admins. Defer to a scheduled job or webhook for now.
 
     return jsonResponse({
       success: true,

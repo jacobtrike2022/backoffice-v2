@@ -47,7 +47,7 @@ export interface FormRecord {
   tags?: string[];
   requires_approval: boolean;
   created_by_id?: string;
-  created_by?: { name?: string };
+  created_by?: { first_name?: string; last_name?: string };
   created_at: string;
   updated_at: string;
 }
@@ -62,22 +62,42 @@ interface FormLibraryProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function getStatusDot(status: string) {
+  switch (status.toLowerCase()) {
+    case 'published':
+      return <span className="inline-block h-2 w-2 rounded-full bg-green-500 shrink-0" />;
+    case 'draft':
+      return <span className="inline-block h-2 w-2 rounded-full bg-yellow-400 shrink-0" />;
+    case 'archived':
+      return <span className="inline-block h-2 w-2 rounded-full bg-gray-400 shrink-0" />;
+    default:
+      return <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground shrink-0" />;
+  }
+}
+
 function getStatusBadge(status: string) {
   switch (status.toLowerCase()) {
     case 'published':
       return (
-        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
+        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 flex items-center gap-1">
+          {getStatusDot(status)}
           Published
         </Badge>
       );
     case 'draft':
       return (
-        <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0">
+        <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0 flex items-center gap-1">
+          {getStatusDot(status)}
           Draft
         </Badge>
       );
     case 'archived':
-      return <Badge variant="outline">Archived</Badge>;
+      return (
+        <Badge variant="outline" className="flex items-center gap-1">
+          {getStatusDot(status)}
+          Archived
+        </Badge>
+      );
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
@@ -313,6 +333,14 @@ export function FormLibrary({
     ? forms.filter(f => (f.tags || []).includes(filterTag))
     : forms;
 
+  if (!orgId) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
+        Waiting for organization data…
+      </div>
+    );
+  }
+
   const sharedCardActionsProps = (form: FormRecord): CardActionsProps => ({
     form,
     canEdit,
@@ -442,8 +470,14 @@ export function FormLibrary({
 
       {/* Error */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 text-sm text-red-600 dark:text-red-400">
-          {error}
+        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <button
+            onClick={loadForms}
+            className="text-sm font-medium text-red-600 dark:text-red-400 underline ml-4 shrink-0"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -462,22 +496,28 @@ export function FormLibrary({
       {/* Empty State */}
       {!loading && !error && filteredForms.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-          <FileText className="h-12 w-12 text-muted-foreground opacity-40" />
+          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
+            <FileText className="h-8 w-8 text-muted-foreground opacity-60" />
+          </div>
           <div>
-            <h3 className="text-lg font-medium text-muted-foreground">No forms yet</h3>
+            <h3 className="text-lg font-semibold">
+              {filterStatus !== 'all' || filterType !== 'all' || filterTag || searchQuery
+                ? 'No matching forms'
+                : 'No forms yet'}
+            </h3>
             <p className="text-sm text-muted-foreground mt-1">
               {filterStatus !== 'all' || filterType !== 'all' || filterTag || searchQuery
                 ? 'Try adjusting your filters or search query.'
                 : 'Create your first form to get started.'}
             </p>
           </div>
-          {canCreate && !filterStatus && !filterType && !searchQuery && (
+          {canCreate && filterStatus === 'all' && filterType === 'all' && !searchQuery && (
             <Button
               className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
               onClick={onNewForm}
             >
               <Plus className="h-4 w-4 mr-2" />
-              New Form
+              Create your first form
             </Button>
           )}
         </div>
@@ -501,8 +541,8 @@ export function FormLibrary({
                       {getTypeBadge(form.type)}
                       {getStatusBadge(form.status)}
                       {form.is_template && (
-                        <Badge variant="outline" className="text-amber-500 border-amber-500/30 bg-amber-500/10">
-                          Template
+                        <Badge className="bg-amber-500 text-white border-0 font-semibold text-[10px] px-2">
+                          TEMPLATE
                         </Badge>
                       )}
                     </div>
@@ -515,8 +555,8 @@ export function FormLibrary({
                           Modified{' '}
                           {new Date(form.updated_at).toLocaleDateString()}
                         </p>
-                        {form.created_by?.name && (
-                          <p>by {form.created_by.name}</p>
+                        {(form.created_by?.first_name || form.created_by?.last_name) && (
+                          <p>by {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</p>
                         )}
                       </div>
                       {form.tags && form.tags.length > 0 && (
@@ -566,8 +606,8 @@ export function FormLibrary({
                           Modified{' '}
                           {new Date(form.updated_at).toLocaleDateString()}
                         </span>
-                        {form.created_by?.name && (
-                          <span>by {form.created_by.name}</span>
+                        {(form.created_by?.first_name || form.created_by?.last_name) && (
+                          <span>by {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</span>
                         )}
                         {form.tags && form.tags.length > 0 && (
                           <span className="flex flex-wrap gap-1">

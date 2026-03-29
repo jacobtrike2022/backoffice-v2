@@ -95,19 +95,21 @@ function StatCardSkeleton() {
 export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsProps) {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [stats, setStats] = useState<SummaryStats | null>(null);
   const [volumeData, setVolumeData] = useState<VolumePoint[]>([]);
   const [completionData, setCompletionData] = useState<CompletionRate[]>([]);
   const [scoreData, setScoreData] = useState<ScoreEntry[]>([]);
 
-  useEffect(() => {
+  function loadData() {
     if (!orgId) {
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setError(null);
 
     Promise.all([
       getFormSummaryStats(orgId),
@@ -123,11 +125,25 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
       })
       .catch((err) => {
         console.error('FormAnalytics fetch error:', err);
+        setError('Failed to load analytics. Please try again.');
       })
       .finally(() => {
         setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, days]);
+
+  if (!orgId) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
+        Waiting for organization data…
+      </div>
+    );
+  }
 
   // Filter volume data to show every 7th label on X axis
   const volumeTickFormatter = (value: string, index: number) =>
@@ -139,27 +155,48 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
           label: 'Total Published Forms',
           value: stats.totalForms.toString(),
           icon: BarChart3,
+          accentColor: 'border-l-blue-500',
+          iconBg: 'bg-blue-500',
         },
         {
           label: 'Total Submissions',
           value: stats.totalSubmissions.toString(),
           icon: FileText,
+          accentColor: 'border-l-orange-500',
+          iconBg: 'bg-brand-gradient',
         },
         {
           label: 'Pending Review',
           value: stats.pendingReview.toString(),
           icon: Clock,
+          accentColor: 'border-l-amber-500',
+          iconBg: 'bg-amber-500',
         },
         {
           label: 'Avg Score',
           value: stats.avgScore !== null ? `${stats.avgScore}%` : '—',
           icon: CheckCircle,
+          accentColor: 'border-l-green-500',
+          iconBg: 'bg-green-500',
         },
       ]
     : null;
 
   return (
     <div className="space-y-6">
+      {/* Error state */}
+      {error && !loading && (
+        <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <button
+            onClick={loadData}
+            className="text-sm font-medium text-red-600 dark:text-red-400 underline ml-4 shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Summary Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {loading || !statCards
@@ -167,14 +204,14 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
           : statCards.map((stat) => {
               const Icon = stat.icon;
               return (
-                <Card key={stat.label}>
+                <Card key={stat.label} className={`border-l-4 ${stat.accentColor}`}>
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="space-y-2">
                         <p className="text-sm text-muted-foreground">{stat.label}</p>
                         <p className="text-3xl font-bold">{stat.value}</p>
                       </div>
-                      <div className="h-12 w-12 rounded-full bg-brand-gradient flex items-center justify-center">
+                      <div className={`h-12 w-12 rounded-full ${stat.iconBg} flex items-center justify-center`}>
                         <Icon className="h-6 w-6 text-white" />
                       </div>
                     </div>
@@ -184,17 +221,20 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             })}
       </div>
 
-      {/* Date Range Filter */}
-      <div className="flex items-center gap-2">
+      {/* Date Range Filter — pill toggles */}
+      <div className="flex items-center gap-1 bg-muted rounded-full p-1 w-fit">
         {([7, 30, 90] as const).map((d) => (
-          <Button
+          <button
             key={d}
-            variant={days === d ? 'default' : 'outline'}
-            size="sm"
             onClick={() => setDays(d)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              days === d
+                ? 'bg-orange-500 text-white shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
             {d} days
-          </Button>
+          </button>
         ))}
       </div>
 
@@ -207,8 +247,9 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
           {loading ? (
             <div className="animate-pulse h-[300px] bg-muted rounded" />
           ) : volumeData.length === 0 ? (
-            <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-              No data yet
+            <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+              <BarChart3 className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No submissions yet — data will appear once forms are filled.</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
@@ -247,8 +288,9 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             {loading ? (
               <div className="animate-pulse h-[300px] bg-muted rounded" />
             ) : completionData.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No data yet
+              <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <FileText className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Completion data will appear once assignments are created.</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
@@ -290,8 +332,9 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             {loading ? (
               <div className="animate-pulse h-[300px] bg-muted rounded" />
             ) : scoreData.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No scoring data
+              <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <CheckCircle className="h-8 w-8 opacity-30" />
+                <p className="text-sm">No scored submissions yet — enable scoring on forms to see averages.</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>

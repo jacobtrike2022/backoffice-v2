@@ -213,10 +213,10 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps)
     <div className="relative flex justify-center my-1" ref={anchorRef}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="h-6 w-6 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+        className="h-7 w-7 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary hover:shadow-[0_0_8px_2px_rgba(249,115,22,0.35)] transition-all duration-200"
         aria-label="Add block"
       >
-        <Plus className="h-3 w-3" />
+        <Plus className="h-3.5 w-3.5" />
       </button>
       {open && (
         <BlockPicker
@@ -259,14 +259,19 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
 
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
+  const borderAccent = typeDef?.category === 'content'
+    ? 'border-l-blue-400'
+    : typeDef?.category === 'actions'
+    ? 'border-l-purple-400'
+    : 'border-l-orange-400';
 
   return (
     <div>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md ${
-          isSelected ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/40'
+        className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+          isSelected ? 'border-primary border-l-orange-500 ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
         }`}
         onClick={onSelect}
       >
@@ -309,10 +314,21 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
 
           {/* Question label */}
           <p className="text-sm font-medium truncate">
-            {block.label || <span className="text-muted-foreground italic">Untitled question</span>}
-            {block.is_required && (
-              <span className="text-destructive ml-1 text-xs">*</span>
-            )}
+            {block.label
+              ? (
+                <>
+                  {block.label}
+                  {block.is_required && (
+                    <span className="text-destructive ml-1 text-xs">*</span>
+                  )}
+                </>
+              )
+              : (
+                <span className="text-muted-foreground italic">
+                  {typeDef ? `${typeDef.label} question` : 'Untitled question'}
+                </span>
+              )
+            }
           </p>
 
           {/* Preview for choice blocks */}
@@ -416,7 +432,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
 
       {/* Conditions list */}
       {logic.conditions.map((cond, i) => (
-        <div key={i} className="flex flex-col gap-1.5 pl-2 border-l-2 border-primary/30">
+        <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
           {/* Source block picker */}
           <Select
             value={cond.source_block_id || 'none'}
@@ -528,7 +544,7 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
   };
 
   return (
-    <div className="fixed right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col">
+    <div className="fixed right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -1059,7 +1075,12 @@ export function FormBuilder({
             type="text"
             value={hook.form?.title ?? ''}
             onChange={e => hook.setFormTitle(e.target.value)}
-            className="flex-1 min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50 border-none"
+            onBlur={e => {
+              if (!e.target.value.trim()) {
+                hook.setFormTitle('Untitled Form');
+              }
+            }}
+            className="flex-1 min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50 border-none border-b border-transparent hover:border-border focus:border-primary transition-colors"
             placeholder="Untitled Form"
           />
 
@@ -1180,6 +1201,14 @@ export function FormBuilder({
               onAdd={hook.addBlock}
             />
 
+            {/* Empty canvas hint */}
+            {hook.blocks.length === 0 && hook.sections.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground/60 pointer-events-none select-none">
+                <Plus className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">Click + to add your first question</p>
+              </div>
+            )}
+
             {/* Unsectioned blocks */}
             <DndContext
               sensors={sensors}
@@ -1254,7 +1283,7 @@ export function FormBuilder({
               <Button
                 variant="outline"
                 size="sm"
-                className="text-xs gap-1.5 text-muted-foreground"
+                className="text-xs gap-1.5 text-muted-foreground border-dashed border-border"
                 onClick={hook.addSection}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1305,7 +1334,7 @@ export function FormBuilder({
                 No blocks yet. Add some questions to preview the form.
               </p>
             ) : (
-              <FormRenderer blocks={previewBlocks} readOnly />
+              <FormRenderer blocks={previewBlocks} answers={{}} readOnly={false} />
             )}
           </div>
         </DialogContent>

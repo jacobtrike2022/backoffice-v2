@@ -88,6 +88,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
         <FormDetail
           formId={selectedFormId}
+          orgId={orgId}
           onBack={handleBackToLibrary}
           onEdit={handleEditFromDetail}
           currentRole={legacyRole}

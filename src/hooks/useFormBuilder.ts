@@ -203,6 +203,9 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
     } catch (err) {
       console.error('Error saving form:', err);
       setError(err instanceof Error ? err.message : 'Failed to save form');
+      // Keep isDirty so the user knows a save failure occurred and can retry
+      setIsDirty(true);
+      isDirtyRef.current = true;
     } finally {
       setIsSaving(false);
     }
@@ -437,7 +440,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
       }
 
       const newBlock: LocalBlock = {
-        id: `new-${Date.now()}`,
+        id: `new-${crypto.randomUUID()}`,
         _isNew: true,
         _isDirty: true,
         form_id: form.id,
