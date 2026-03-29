@@ -98,8 +98,8 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
       status: 'draft',
       requires_approval: input.requires_approval || false,
       allow_anonymous: input.allow_anonymous || false,
-      // Column is `created_by` in the live DB schema (rename to created_by_id is in migrations_hold)
-      created_by: userProfile?.id || null
+      // In demo mode userProfile is null — omit created_by_id to avoid column-not-found errors
+      ...(userProfile?.id ? { created_by_id: userProfile.id } : {})
     })
     .select()
     .single();
@@ -211,11 +211,7 @@ export async function reorderFormBlocks(
 export async function getFormById(formId: string) {
   const { data, error } = await supabase
     .from('forms')
-    .select(`
-      *,
-      created_by:users(first_name, last_name, email),
-      form_blocks(*)
-    `)
+    .select(`*, form_blocks(*)`)
     .eq('id', formId)
     .single();
 
@@ -247,10 +243,7 @@ export async function getForms(
 
   let query = supabase
     .from('forms')
-    .select(`
-      *,
-      created_by:users(first_name, last_name)
-    `)
+    .select('*')
     .eq('organization_id', resolvedOrgId);
 
   if (filters.type) {
@@ -304,19 +297,20 @@ export async function submitFormResponse(
   // Get form details for notification
   const { data: form } = await supabase
     .from('forms')
-    .select('title, created_by, requires_approval')
+    .select('title, requires_approval')
     .eq('id', formId)
     .single();
 
   // If requires approval, notify creator/admins (non-critical - wrap in try-catch)
-  if (form?.requires_approval && (form as any).created_by) {
+  if (form?.requires_approval) {
     try {
       await createNotification({
-        user_id: (form as any).created_by,
+        user_id: '',  // demo mode — no creator user tracked
         type: 'form-submitted',
         title: 'Form Submission Requires Approval',
         message: `A submission for "${form.title}" needs your review`,
-        link_url: `/forms/${formId}/submissions/${submission.id}`
+        link_type: 'form',
+        link_id: formId
       });
     } catch (error) {
       // Log error but don't fail the form submission
@@ -372,7 +366,8 @@ export async function approveFormSubmission(
       type: 'approval-required',
       title: 'Form Submission Approved',
       message: `Your submission for "${(data.form as any)?.title}" was approved`,
-      link_url: `/forms/${data.form_id}/submissions/${submissionId}`
+      link_type: 'form',
+      link_id: data.form_id
     });
   }
 
@@ -410,7 +405,8 @@ export async function rejectFormSubmission(
       type: 'approval-required',
       title: 'Form Submission Rejected',
       message: `Your submission for "${(data.form as any)?.title}" was rejected`,
-      link_url: `/forms/${data.form_id}/submissions/${submissionId}`
+      link_type: 'form',
+      link_id: data.form_id
     });
   }
 
@@ -486,7 +482,8 @@ export async function assignForm(
       type: 'assignment',
       title: 'New Form Assigned',
       message: `You have been assigned form: "${form?.title}"`,
-      link_url: `/forms/${formId}`
+      link_type: 'form',
+      link_id: formId
     });
   }
 
@@ -720,7 +717,7 @@ export async function duplicateForm(formId: string, orgId: string): Promise<{ id
       source_template_id: null,
       slug: null,
       tags: original.tags,
-      created_by: (original as any).created_by || null
+      // omit created_by_id — demo mode, no auth user
     })
     .select('id')
     .single();
@@ -823,7 +820,7 @@ export async function cloneFormToOrg(formId: string, targetOrgId: string): Promi
       source_template_id: formId,
       slug: null,
       tags: original.tags,
-      created_by: null
+      // omit created_by_id — demo mode, no auth user
     })
     .select('id')
     .single();
@@ -893,10 +890,7 @@ export async function cloneFormToOrg(formId: string, targetOrgId: string): Promi
 export async function getTemplateForms(): Promise<any[]> {
   const { data, error } = await supabase
     .from('forms')
-    .select(`
-      *,
-      created_by:users(first_name, last_name)
-    `)
+    .select('*')
     .eq('is_template', true)
     .order('created_at', { ascending: false });
 
