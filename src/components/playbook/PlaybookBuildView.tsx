@@ -199,13 +199,13 @@ function playbookReducer(state: PlaybookState, action: PlaybookAction): Playbook
 // ============================================================================
 
 const STATUS_CONFIG = {
-  suggestion: { label: 'Suggested', color: 'bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent' },
-  confirmed: { label: 'Confirmed', color: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
-  generating: { label: 'Generating...', color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
-  draft_ready: { label: 'Draft Ready', color: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' },
-  approved: { label: 'Approved', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
-  published: { label: 'Published', color: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800' },
-  skipped: { label: 'Skipped', color: 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
+  suggestion: { labelKey: 'playbook.statusSuggested', color: 'bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent' },
+  confirmed: { labelKey: 'playbook.statusConfirmed', color: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
+  generating: { labelKey: 'playbook.statusGenerating', color: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
+  draft_ready: { labelKey: 'playbook.statusDraftReady', color: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' },
+  approved: { labelKey: 'playbook.statusApproved', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
+  published: { labelKey: 'playbook.statusPublished', color: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800' },
+  skipped: { labelKey: 'playbook.statusSkipped', color: 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
 };
 
 // ============================================================================
@@ -702,6 +702,7 @@ function TrackListItem({
   onDrop,
   isDropTarget,
 }: TrackListItemProps) {
+  const { t } = useTranslation();
   const statusConfig = STATUS_CONFIG[track.status] || STATUS_CONFIG.suggestion;
 
   return (
@@ -722,16 +723,16 @@ function TrackListItem({
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-foreground truncate">{track.title}</h3>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground">{track.chunk_count || 0} chunks</span>
+            <span className="text-xs text-muted-foreground">{t('playbook.chunksCount', { count: track.chunk_count || 0 })}</span>
             {track.rag_confidence && (
               <span className="text-xs text-muted-foreground">
-                {Math.round(track.rag_confidence * 100)}% confidence
+                {t('playbook.confidencePct', { pct: Math.round(track.rag_confidence * 100) })}
               </span>
             )}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <Badge className={cn('text-xs', statusConfig.color)}>{statusConfig.label}</Badge>
+          <Badge className={cn('text-xs', statusConfig.color)}>{t(statusConfig.labelKey)}</Badge>
           {track.has_conflicts && (
             <AlertTriangle className="h-4 w-4 text-amber-500" />
           )}
@@ -758,6 +759,7 @@ function TrackEditor({
   onPreviewDraft,
   onChunkDragStart,
 }: TrackEditorProps) {
+  const { t } = useTranslation();
   const [selectedResolution, setSelectedResolution] = useState<string | null>(null);
   const hasChunks = (track.chunk_count || 0) > 0 || (track.chunks?.length || 0) > 0;
 

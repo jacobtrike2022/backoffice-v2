@@ -2643,7 +2643,7 @@
   },
   "emailSettings": {
     "title": "Email Communication",
-    "description": "Description",
+    "description": "Manage email templates and view delivery logs",
     "templatesTab": "Templates",
     "logsTab": "Email Logs",
     "loadingTemplates": "Loading templates...",

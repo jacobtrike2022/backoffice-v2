@@ -659,7 +659,7 @@ export function CreateTagModal({
                       }}
                       onBlur={() => {
                         if (customHexInput && !isValidHexColor(customHexInput)) {
-                          setHexInputError('Invalid hex color (e.g., #FF5733)');
+                          setHexInputError(t('content.invalidHexColor'));
                         }
                       }}
                       placeholder="#FF5733"
@@ -676,7 +676,7 @@ export function CreateTagModal({
                   <p className="text-xs text-destructive">{hexInputError}</p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Paste or type a hex color code, or use the picker. Current: <span className="font-mono font-medium">{color.toUpperCase()}</span>
+                  {t('content.hexColorHint', { color: color.toUpperCase() })}
                 </p>
               </div>
             </div>
