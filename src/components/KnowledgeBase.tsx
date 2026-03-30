@@ -1298,7 +1298,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
 
           {/* Due Date */}
           <div>
-            <Label>Due Date (Optional)</Label>
+            <Label>{t('knowledgeBase.dueDateOptional')}</Label>
             <Input type="date" className="mt-2" />
           </div>
 
@@ -1309,16 +1309,16 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
               className="flex-1"
               onClick={() => setShowAssignPanel(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               className="flex-1 bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
               onClick={() => {
-                toast.success('Content assigned successfully!');
+                toast.success(t('knowledgeBase.contentAssignedSuccess'));
                 setShowAssignPanel(false);
               }}
             >
-              Assign Content
+              {t('knowledgeBase.assignContent')}
             </Button>
           </div>
         </div>
@@ -1331,9 +1331,9 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
     <Sheet open={showMobilePreview} onOpenChange={setShowMobilePreview}>
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>Mobile Preview</SheetTitle>
+          <SheetTitle>{t('knowledgeBase.mobilePreview')}</SheetTitle>
           <SheetDescription>
-            How this article appears to frontline employees
+            {t('knowledgeBase.mobilePreviewDesc')}
           </SheetDescription>
         </SheetHeader>
 
@@ -1343,7 +1343,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
             {/* Mobile Header */}
             <div className="bg-gray-800 text-white p-3 flex items-center justify-between">
               <ChevronRight className="h-5 w-5 rotate-180" />
-              <span className="text-sm font-medium">Knowledge Base</span>
+              <span className="text-sm font-medium">{t('nav.knowledgeBase')}</span>
               <MoreVertical className="h-5 w-5" />
             </div>
 
@@ -1388,7 +1388,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
             {/* Mobile Footer */}
             <div className="bg-gray-100 p-4 border-t border-gray-200">
               <Button className="w-full bg-orange-600 text-white hover:bg-orange-700">
-                Mark as Complete
+                {t('knowledgeBase.markAsComplete')}
               </Button>
             </div>
           </div>

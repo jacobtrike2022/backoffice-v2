@@ -1270,7 +1270,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting knowledge:', error);
-      toast.error('Failed to revert knowledge', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }

@@ -1764,6 +1764,7 @@
     "collapseDWAs": "Collapse DWAs",
     "expandDWAs": "Expand DWAs",
     "customDescriptionStar": "Custom {{type}} Description",
+    "saving": "Saving...",
     "audit": {
       "generateTitle": "Generate Compliance Audit Report",
       "generateSubtitle": "Select a learner and the training content to include in the audit report",

@@ -354,7 +354,7 @@ export function DocumentIntelligenceEditor({
       }
     } catch (error: any) {
       console.error('Error loading source file:', error);
-      toast.error('Failed to load document', { description: error.message });
+      toast.error(t('contentAuthoring.toastLoadDocFailed'), { description: error.message });
     } finally {
       setLoading(false);
     }
@@ -399,10 +399,10 @@ export function DocumentIntelligenceEditor({
       // Update local state
       setSourceFile({ ...sourceFile, file_name: trimmedName });
       setIsEditingName(false);
-      toast.success('File name updated');
+      toast.success(t('contentAuthoring.toastFileNameUpdated'));
     } catch (error: any) {
       console.error('Error updating file name:', error);
-      toast.error('Failed to update file name', { description: error.message });
+      toast.error(t('contentAuthoring.toastFileNameUpdateFailed'), { description: error.message });
     } finally {
       setSavingName(false);
     }
@@ -421,14 +421,14 @@ export function DocumentIntelligenceEditor({
   // Auto-process document when it has extracted text but no chunks
   async function autoProcessDocument(file: SourceFile) {
     setProcessing(true);
-    setProcessingStep('Auto-processing document...');
+    setProcessingStep(t('contentAuthoring.stepAutoProcessing'));
 
     try {
       const session = await getSessionForFetch();
       const serverUrl = getServerUrl();
 
       // Chunk the document with built-in classification
-      setProcessingStep('Chunking & classifying...');
+      setProcessingStep(t('contentAuthoring.stepChunkingClassifying'));
       const chunkResponse = await fetch(`${serverUrl}/chunk-source`, {
         method: 'POST',
         headers: {
@@ -459,10 +459,10 @@ export function DocumentIntelligenceEditor({
         await loadChunks();
       }
 
-      toast.success('Document processed automatically');
+      toast.success(t('contentAuthoring.toastDocProcessedAuto'));
     } catch (error: any) {
       console.error('Auto-processing error:', error);
-      toast.error('Auto-processing failed', { description: error.message });
+      toast.error(t('contentAuthoring.toastAutoProcessFailed'), { description: error.message });
     } finally {
       setProcessing(false);
       setProcessingStep('');
@@ -519,7 +519,7 @@ export function DocumentIntelligenceEditor({
 
     } catch (error: any) {
       console.error('Error loading chunks:', error);
-      toast.error('Failed to load chunks', { description: error.message });
+      toast.error(t('contentAuthoring.toastLoadChunksFailed'), { description: error.message });
     }
   }
 
@@ -590,7 +590,7 @@ export function DocumentIntelligenceEditor({
 
       // Step 1: Extract text (if not already done)
       if (!sourceFile.extracted_text) {
-        setProcessingStep('Extracting text...');
+        setProcessingStep(t('contentAuthoring.stepExtractingText'));
         const extractResponse = await fetch(`${serverUrl}/extract-source`, {
           method: 'POST',
           headers: {
@@ -612,7 +612,7 @@ export function DocumentIntelligenceEditor({
 
       // Step 2: Chunk the document with built-in classification
       // The chunk-source endpoint handles classification when classify_content=true
-      setProcessingStep('Chunking & classifying...');
+      setProcessingStep(t('contentAuthoring.stepChunkingClassifying'));
       const chunkResponse = await fetch(`${serverUrl}/chunk-source`, {
         method: 'POST',
         headers: {
@@ -633,11 +633,11 @@ export function DocumentIntelligenceEditor({
 
       // Reload everything
       await loadSourceFile();
-      toast.success('Document processed successfully');
+      toast.success(t('contentAuthoring.toastDocProcessed'));
 
     } catch (error: any) {
       console.error('Processing error:', error);
-      toast.error('Processing failed', { description: error.message });
+      toast.error(t('contentAuthoring.toastProcessingFailed'), { description: error.message });
     } finally {
       setProcessing(false);
       setProcessingStep('');
@@ -700,9 +700,9 @@ export function DocumentIntelligenceEditor({
           : c
       ));
 
-      toast.success('Classification updated');
+      toast.success(t('contentAuthoring.toastClassifyUpdated'));
     } catch (error: any) {
-      toast.error('Failed to update classification', { description: error.message });
+      toast.error(t('contentAuthoring.toastClassifyFailed'), { description: error.message });
     }
   }
 
@@ -722,10 +722,10 @@ export function DocumentIntelligenceEditor({
 
       if (error) throw error;
 
-      toast.success('Title updated');
+      toast.success(t('contentAuthoring.toastTitleUpdated'));
     } catch (error: any) {
       // Revert on error - refetch to get correct state
-      toast.error('Failed to update title', { description: error.message });
+      toast.error(t('contentAuthoring.toastTitleUpdateFailed'), { description: error.message });
       fetchChunks();
     }
   }
@@ -733,7 +733,7 @@ export function DocumentIntelligenceEditor({
   // Merge selected chunks
   async function mergeSelectedChunks() {
     if (selectedChunks.size < 2) {
-      toast.error('Select at least 2 chunks to merge');
+      toast.error(t('contentAuthoring.toastSelectTwoChunks'));
       return;
     }
 
@@ -775,7 +775,7 @@ export function DocumentIntelligenceEditor({
 
     // Clear selection
     clearSelection();
-    toast.success(`Merged ${sortedChunks.length} chunks`);
+    toast.success(t('contentAuthoring.toastChunksMerged'));
 
     // BACKGROUND DB SYNC - Don't block UI
     try {
@@ -828,7 +828,7 @@ export function DocumentIntelligenceEditor({
     } catch (error: any) {
       console.error('Merge DB sync error:', error);
       // On error, reload to get correct state
-      toast.error('Sync error - refreshing', { description: error.message });
+      toast.error(t('contentAuthoring.toastSyncError'), { description: error.message });
       await loadChunks();
     } finally {
       setMerging(false);
@@ -843,7 +843,7 @@ export function DocumentIntelligenceEditor({
     const targetChunk = chunks.find(c => c.id === targetId);
 
     if (!draggedChunk || !targetChunk) {
-      toast.error('Could not find chunks to merge');
+      toast.error(t('contentAuthoring.toastCouldNotFindChunks'));
       return;
     }
 
@@ -889,7 +889,7 @@ export function DocumentIntelligenceEditor({
       return next;
     });
 
-    toast.success('Chunks merged');
+    toast.success(t('contentAuthoring.toastChunksMerged'));
 
     // BACKGROUND DB SYNC - Don't block UI
     try {
@@ -938,7 +938,7 @@ export function DocumentIntelligenceEditor({
     } catch (error: any) {
       console.error('Merge DB sync error:', error);
       // On error, reload to get correct state
-      toast.error('Sync error - refreshing', { description: error.message });
+      toast.error(t('contentAuthoring.toastSyncError'), { description: error.message });
       await loadChunks();
     } finally {
       setMerging(false);
@@ -1016,11 +1016,11 @@ export function DocumentIntelligenceEditor({
 
     // Validate split position
     if (splitIndex === -1 || splitIndex < 20) {
-      toast.error('Cannot split at the beginning of a chunk');
+      toast.error(t('contentAuthoring.toastCannotSplitBeginning'));
       return;
     }
     if (splitIndex > content.length - 20) {
-      toast.error('Cannot split at the end of a chunk');
+      toast.error(t('contentAuthoring.toastCannotSplitEnd'));
       return;
     }
 
@@ -1038,7 +1038,7 @@ export function DocumentIntelligenceEditor({
     const chunk = chunks.find(c => c.id === chunkId);
     if (!chunk) {
       console.error('[Blade Split] Chunk not found');
-      toast.error('Could not find chunk to split');
+      toast.error(t('contentAuthoring.toastCouldNotFindChunk'));
       return;
     }
 
