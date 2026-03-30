@@ -89,18 +89,18 @@ interface AssignmentQueueProps {
 // HELPER FUNCTIONS
 // ============================================================================
 
-function formatTrigger(trigger: AssignmentTrigger): string {
+function formatTrigger(trigger: AssignmentTrigger, t: (key: string) => string): string {
   const labels: Record<AssignmentTrigger, string> = {
-    onboarding: 'Onboarding',
-    transfer: 'Location Transfer',
-    promotion: 'Role Change',
-    expiration: 'Cert Expiring',
-    manual: 'Manual'
+    onboarding: t('compliance.queueSection.triggerOnboarding'),
+    transfer: t('compliance.queueSection.triggerTransfer'),
+    promotion: t('compliance.queueSection.triggerPromotion'),
+    expiration: t('compliance.queueSection.triggerExpiration'),
+    manual: t('compliance.queueSection.triggerManual')
   };
   return labels[trigger] || trigger;
 }
 
-function getStatusBadge(status: AssignmentStatus, dueDate: string | null) {
+function getStatusBadge(status: AssignmentStatus, dueDate: string | null, t: (key: string) => string) {
   const today = new Date().toISOString().split('T')[0];
   const isOverdue = dueDate && dueDate < today && ['pending', 'assigned'].includes(status);
 
@@ -108,7 +108,7 @@ function getStatusBadge(status: AssignmentStatus, dueDate: string | null) {
     return (
       <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0">
         <AlertTriangle className="h-3 w-3 mr-1" />
-        Overdue
+        {t('compliance.queueSection.statusOverdue')}
       </Badge>
     );
   }
@@ -117,32 +117,32 @@ function getStatusBadge(status: AssignmentStatus, dueDate: string | null) {
     pending: {
       className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0',
       icon: <Clock className="h-3 w-3 mr-1" />,
-      label: 'Pending'
+      label: t('compliance.queueSection.statusPending')
     },
     assigned: {
       className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0',
       icon: <PlayCircle className="h-3 w-3 mr-1" />,
-      label: 'Assigned'
+      label: t('compliance.queueSection.statusAssigned')
     },
     completed: {
       className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0',
       icon: <CheckCircle2 className="h-3 w-3 mr-1" />,
-      label: 'Completed'
+      label: t('compliance.queueSection.statusCompleted')
     },
     suppressed: {
       className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300 border-0',
       icon: <Ban className="h-3 w-3 mr-1" />,
-      label: 'Suppressed'
+      label: t('compliance.queueSection.statusSuppressed')
     },
     expired: {
       className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-0',
       icon: <XCircle className="h-3 w-3 mr-1" />,
-      label: 'Expired'
+      label: t('compliance.queueSection.statusExpired')
     },
     cancelled: {
       className: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400 border-0',
       icon: <XCircle className="h-3 w-3 mr-1" />,
-      label: 'Cancelled'
+      label: t('compliance.queueSection.statusCancelled')
     }
   };
 
@@ -155,7 +155,7 @@ function getStatusBadge(status: AssignmentStatus, dueDate: string | null) {
   );
 }
 
-function getTriggerBadge(trigger: AssignmentTrigger) {
+function getTriggerBadge(trigger: AssignmentTrigger, t: (key: string) => string) {
   const variants: Record<AssignmentTrigger, string> = {
     onboarding: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
     transfer: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
@@ -166,7 +166,7 @@ function getTriggerBadge(trigger: AssignmentTrigger) {
 
   return (
     <Badge variant="outline" className={`${variants[trigger]} border-0`}>
-      {formatTrigger(trigger)}
+      {formatTrigger(trigger, t)}
     </Badge>
   );
 }
@@ -508,14 +508,14 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
   const handleAssign = async (assignmentId: string, playlistId: string) => {
     try {
       await assignCompliancePlaylist(assignmentId, playlistId);
-      toast.success('Playlist assigned successfully', {
-        description: 'The compliance playlist has been assigned to the employee.'
+      toast.success(t('compliance.queueSection.toastAssignSuccess'), {
+        description: t('compliance.queueSection.toastAssignSuccessDesc')
       });
       await loadData(true);
     } catch (error) {
       console.error('Failed to assign playlist:', error);
-      toast.error('Failed to assign playlist', {
-        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(t('compliance.queueSection.toastAssignError'), {
+        description: error instanceof Error ? error.message : t('compliance.queueSection.toastAssignErrorDesc')
       });
       throw error;
     }
@@ -524,14 +524,14 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
   const handleSuppress = async (assignmentId: string, reason: string) => {
     try {
       await suppressComplianceAssignment(assignmentId, reason);
-      toast.success('Assignment suppressed', {
-        description: 'The compliance assignment has been suppressed.'
+      toast.success(t('compliance.queueSection.toastSuppressSuccess'), {
+        description: t('compliance.queueSection.toastSuppressSuccessDesc')
       });
       await loadData(true);
     } catch (error) {
       console.error('Failed to suppress assignment:', error);
-      toast.error('Failed to suppress assignment', {
-        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(t('compliance.queueSection.toastSuppressError'), {
+        description: error instanceof Error ? error.message : t('compliance.queueSection.toastSuppressErrorDesc')
       });
       throw error;
     }
@@ -737,14 +737,14 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                         </p>
                       </div>
                     </TableCell>
-                    <TableCell>{getTriggerBadge(assignment.triggered_by)}</TableCell>
+                    <TableCell>{getTriggerBadge(assignment.triggered_by, t)}</TableCell>
                     <TableCell>
                       <div className="flex items-center">
                         <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
                         {formatDate(assignment.due_date)}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(assignment.status, assignment.due_date)}</TableCell>
+                    <TableCell>{getStatusBadge(assignment.status, assignment.due_date, t)}</TableCell>
                     <TableCell className="text-right">
                       {assignment.status === 'pending' ? (
                         <div className="flex items-center justify-end space-x-2">
@@ -754,7 +754,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                             onClick={() => openAssignDialog(assignment)}
                           >
                             <ArrowUpRight className="h-3 w-3 mr-1" />
-                            Assign
+                            {t('compliance.queueSection.assign')}
                           </Button>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
