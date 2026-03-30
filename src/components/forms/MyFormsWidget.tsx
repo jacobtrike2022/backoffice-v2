@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -26,32 +27,18 @@ interface MyFormsWidgetProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const RECURRENCE_LABELS: Record<string, string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
-};
-
 function isOverdue(dueDate: string | null): boolean {
   if (!dueDate) return false;
   return new Date(dueDate) < new Date();
 }
 
-function formatDueDate(dateStr: string | null): string {
-  if (!dateStr) return 'No due date';
+function formatDueDate(dateStr: string | null, noDueDateLabel: string): string {
+  if (!dateStr) return noDueDateLabel;
   return new Date(dateStr).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function submissionStatusLabel(status: 'not_started' | 'in_progress' | 'completed'): string {
-  switch (status) {
-    case 'not_started': return 'Not Started';
-    case 'in_progress': return 'In Progress';
-    case 'completed': return 'Completed';
-  }
 }
 
 function submissionStatusClass(status: 'not_started' | 'in_progress' | 'completed'): string {
@@ -65,6 +52,7 @@ function submissionStatusClass(status: 'not_started' | 'in_progress' | 'complete
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
+  const { t } = useTranslation();
   const [items, setItems] = useState<FormAssignmentItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -214,7 +202,7 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-primary" />
-            My Forms
+            {t('forms.myFormsTitle')}
           </CardTitle>
           <Button
             variant="ghost"
@@ -222,11 +210,11 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
             className="h-7 text-xs self-start sm:self-auto"
             onClick={() => onNavigate?.('forms')}
           >
-            View All
+            {t('forms.viewAll')}
             <ArrowRight className="h-3 w-3 ml-1" />
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">Forms assigned to you that need attention</p>
+        <p className="text-xs text-muted-foreground">{t('forms.myFormsSubtitle')}</p>
       </CardHeader>
       <CardContent className="pb-4">
         {loading ? (
@@ -240,9 +228,9 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
             <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-3">
               <ClipboardList className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground">No forms assigned</p>
+            <p className="text-sm font-medium text-muted-foreground">{t('forms.noFormsAssigned')}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              When forms are assigned to you, they will appear here.
+              {t('forms.noFormsAssignedDesc')}
             </p>
           </div>
         ) : (
@@ -264,7 +252,7 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
                       {item.recurrence_rule && item.recurrence_rule !== 'once' && (
                         <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-xs flex items-center gap-1">
                           <Repeat className="h-3 w-3" />
-                          {RECURRENCE_LABELS[item.recurrence_rule] || item.recurrence_rule}
+                          {t(`forms.recurrence_${item.recurrence_rule}`, { defaultValue: item.recurrence_rule })}
                         </Badge>
                       )}
                     </div>
@@ -272,11 +260,15 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
                       <span className={`flex items-center gap-1 ${overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}`}>
                         {overdue && <AlertCircle className="h-3 w-3" />}
                         <Calendar className="h-3 w-3" />
-                        {overdue ? 'Overdue — ' : ''}
-                        {formatDueDate(item.due_date)}
+                        {overdue ? `${t('forms.overdue')} — ` : ''}
+                        {formatDueDate(item.due_date, t('forms.noDueDate'))}
                       </span>
                       <Badge className={`border-0 text-xs ${submissionStatusClass(item.submission_status)}`}>
-                        {submissionStatusLabel(item.submission_status)}
+                        {item.submission_status === 'not_started'
+                          ? t('forms.statusNotStarted')
+                          : item.submission_status === 'in_progress'
+                          ? t('forms.statusInProgress')
+                          : t('forms.statusCompleted')}
                       </Badge>
                     </div>
                   </div>
@@ -291,7 +283,7 @@ export function MyFormsWidget({ orgId, onNavigate }: MyFormsWidgetProps) {
                           window.location.hash = `fill/${item.form_id}`;
                         }}
                       >
-                        Fill Form
+                        {t('forms.fillForm')}
                       </Button>
                     )}
                   </div>

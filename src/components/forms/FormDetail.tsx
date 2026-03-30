@@ -580,7 +580,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
 
                 <div className="pt-4">
                   <Button className="w-full bg-brand-gradient text-white shadow-brand hover:opacity-90" size="sm">
-                    {t('forms.submitForm')}
+                    {t('forms.submitFormButton')}
                   </Button>
                 </div>
               </div>
@@ -802,7 +802,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             {versionsLoading ? (
               <p className="text-sm text-muted-foreground">{t('forms.loadingVersions')}</p>
             ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('forms.noPublishedVersions')}</p>
+              <p className="text-sm text-muted-foreground">{t('forms.noVersionsYet')}</p>
             ) : (
               <div className="space-y-2">
                 {versions.map((v) => {
@@ -855,7 +855,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                                     {b.type}
                                   </Badge>
                                   {b.is_required && (
-                                    <span className="text-red-500 text-xs">{t('forms.requiredLabel')}</span>
+                                    <span className="text-red-500 text-xs">{t('forms.required')}</span>
                                   )}
                                 </li>
                               ))}
@@ -863,7 +863,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                           )}
                           {v.change_notes && (
                             <p className="mt-3 text-xs text-muted-foreground italic">
-                              {t('forms.changeNote', { note: v.change_notes })}
+                              {t('forms.changeNoteLabel', { note: v.change_notes })}
                             </p>
                           )}
                         </div>

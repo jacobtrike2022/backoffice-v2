@@ -488,7 +488,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                 type="text"
                 value={cond.value}
                 onChange={(e) => updateCondition(i, { value: e.target.value })}
-                placeholder="value..."
+                placeholder={t('forms.conditionValuePlaceholder')}
                 className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background"
               />
             )}
@@ -512,7 +512,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
         onClick={addCondition}
         className="text-xs text-primary hover:underline"
       >
-        + Add condition
+        {t('forms.addCondition')}
       </button>
     </div>
   );
@@ -535,6 +535,7 @@ interface PropertiesDrawerProps {
 }
 
 function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete, onClose }: PropertiesDrawerProps) {
+  const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
   const hasChoices = ['radio', 'checkboxes', 'dropdown'].includes(block.block_type);
@@ -576,7 +577,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Label */}
         <div className="space-y-1.5">
-          <Label htmlFor="block-label" className="text-xs font-medium">Question Label</Label>
+          <Label htmlFor="block-label" className="text-xs font-medium">{t('forms.propQuestionLabel')}</Label>
           <Input
             id="block-label"
             value={block.label}
@@ -588,7 +589,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
 
         {/* Description */}
         <div className="space-y-1.5">
-          <Label htmlFor="block-description" className="text-xs font-medium">Helper Text</Label>
+          <Label htmlFor="block-description" className="text-xs font-medium">{t('forms.propHelperText')}</Label>
           <Textarea
             id="block-description"
             value={block.description ?? ''}
@@ -601,7 +602,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
 
         {/* Required toggle */}
         <div className="flex items-center justify-between">
-          <Label htmlFor="block-required" className="text-xs font-medium cursor-pointer">Required</Label>
+          <Label htmlFor="block-required" className="text-xs font-medium cursor-pointer">{t('forms.propRequired')}</Label>
           <Switch
             id="block-required"
             checked={block.is_required}
@@ -614,7 +615,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {/* Placeholder — text, textarea */}
         {['text', 'textarea', 'number'].includes(block.block_type) && (
           <div className="space-y-1.5">
-            <Label htmlFor="block-placeholder" className="text-xs font-medium">Placeholder Text</Label>
+            <Label htmlFor="block-placeholder" className="text-xs font-medium">{t('forms.propPlaceholderText')}</Label>
             <Input
               id="block-placeholder"
               value={block.placeholder ?? ''}
@@ -628,7 +629,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {/* Max length — text, textarea */}
         {['text', 'textarea'].includes(block.block_type) && (
           <div className="space-y-1.5">
-            <Label htmlFor="block-maxlength" className="text-xs font-medium">Max Length</Label>
+            <Label htmlFor="block-maxlength" className="text-xs font-medium">{t('forms.propMaxLength')}</Label>
             <Input
               id="block-maxlength"
               type="number"
@@ -651,7 +652,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
           <>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Min Value</Label>
+                <Label className="text-xs font-medium">{t('forms.propMinValue')}</Label>
                 <Input
                   type="number"
                   value={(block.validation_rules?.min as number) ?? ''}
@@ -668,7 +669,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Max Value</Label>
+                <Label className="text-xs font-medium">{t('forms.propMaxValue')}</Label>
                 <Input
                   type="number"
                   value={(block.validation_rules?.max as number) ?? ''}
@@ -686,7 +687,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Unit Label</Label>
+              <Label className="text-xs font-medium">{t('forms.propUnitLabel')}</Label>
               <Input
                 value={(block.settings?.unit as string) ?? ''}
                 onChange={e =>
@@ -702,7 +703,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {/* Options — radio, checkboxes, dropdown */}
         {hasChoices && (
           <div className="space-y-2">
-            <Label className="text-xs font-medium">Options</Label>
+            <Label className="text-xs font-medium">{t('forms.propOptions')}</Label>
             <div className="space-y-1.5">
               {options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-1.5">
@@ -729,7 +730,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               onClick={handleAddOption}
             >
               <Plus className="h-3 w-3 mr-1" />
-              Add option
+              {t('forms.propAddOption')}
             </Button>
           </div>
         )}
@@ -737,7 +738,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {/* Rating — max stars */}
         {block.block_type === 'rating' && (
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Max Stars</Label>
+            <Label className="text-xs font-medium">{t('forms.propMaxStars')}</Label>
             <Select
               value={String((block.settings?.max_stars as number) ?? 5)}
               onValueChange={(v: string) =>
@@ -749,7 +750,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               </SelectTrigger>
               <SelectContent>
                 {[3, 4, 5, 10].map(n => (
-                  <SelectItem key={n} value={String(n)}>{n} stars</SelectItem>
+                  <SelectItem key={n} value={String(n)}>{t('forms.propNStars', { count: n })}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -760,7 +761,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {block.block_type === 'yes_no' && (
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Yes Label</Label>
+              <Label className="text-xs font-medium">{t('forms.propYesLabel')}</Label>
               <Input
                 value={(block.settings?.yes_label as string) ?? 'Yes'}
                 onChange={e =>
@@ -770,7 +771,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">No Label</Label>
+              <Label className="text-xs font-medium">{t('forms.propNoLabel')}</Label>
               <Input
                 value={(block.settings?.no_label as string) ?? 'No'}
                 onChange={e =>
@@ -786,7 +787,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         {block.block_type === 'slider' && (
           <div className="grid grid-cols-3 gap-2">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Min</Label>
+              <Label className="text-xs font-medium">{t('forms.propMin')}</Label>
               <Input
                 type="number"
                 value={(block.settings?.min as number) ?? 0}
@@ -797,7 +798,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Max</Label>
+              <Label className="text-xs font-medium">{t('forms.propMax')}</Label>
               <Input
                 type="number"
                 value={(block.settings?.max as number) ?? 100}
@@ -808,7 +809,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Step</Label>
+              <Label className="text-xs font-medium">{t('forms.propStep')}</Label>
               <Input
                 type="number"
                 value={(block.settings?.step as number) ?? 1}
@@ -836,13 +837,13 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
           return (
             <div className="border-t border-border pt-4 mt-4 space-y-3">
               <div>
-                <p className="text-sm font-medium">Scoring</p>
-                <p className="text-xs text-muted-foreground">Configure scoring for this question</p>
+                <p className="text-sm font-medium">{t('forms.propScoring')}</p>
+                <p className="text-xs text-muted-foreground">{t('forms.propScoringDesc')}</p>
               </div>
 
               {/* Score Weight */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Score Weight (0-100)</Label>
+                <Label className="text-xs font-medium">{t('forms.propScoreWeight')}</Label>
                 <Input
                   type="number"
                   min={0}
@@ -855,22 +856,22 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                   placeholder="0"
                   className="text-sm"
                 />
-                <p className="text-[10px] text-muted-foreground">Set to 0 to exclude from scoring</p>
+                <p className="text-[10px] text-muted-foreground">{t('forms.propScoreWeightHint')}</p>
               </div>
 
               {/* Correct Answer */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Correct Answer</Label>
+                <Label className="text-xs font-medium">{t('forms.propCorrectAnswer')}</Label>
                 {['radio', 'dropdown'].includes(block.block_type) && options.length > 0 ? (
                   <Select
                     value={correctAnswer || 'none'}
                     onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
                   >
                     <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder="Select correct answer..." />
+                      <SelectValue placeholder={t('forms.propSelectCorrectAnswer')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Select correct answer...</SelectItem>
+                      <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
                       {options.map((opt, i) => (
                         <SelectItem key={i} value={opt}>{opt}</SelectItem>
                       ))}
@@ -878,7 +879,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                   </Select>
                 ) : block.block_type === 'checkboxes' && options.length > 0 ? (
                   <div className="space-y-1.5">
-                    <p className="text-[10px] text-muted-foreground">Select all correct options (comma-separated)</p>
+                    <p className="text-[10px] text-muted-foreground">{t('forms.propCheckboxesCorrectHint')}</p>
                     <Input
                       value={correctAnswer}
                       onChange={e => updateScoringSetting('correct_answer', e.target.value)}
@@ -892,12 +893,12 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                     onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
                   >
                     <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder="Select correct answer..." />
+                      <SelectValue placeholder={t('forms.propSelectCorrectAnswer')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Select correct answer...</SelectItem>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
+                      <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
+                      <SelectItem value="yes">{t('forms.propYes')}</SelectItem>
+                      <SelectItem value="no">{t('forms.propNo')}</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : block.block_type === 'rating' ? (
@@ -927,8 +928,8 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         <div className="border-t border-border pt-4 mt-4">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-sm font-medium">Conditional Logic</p>
-              <p className="text-xs text-muted-foreground">Show or hide this block based on other answers</p>
+              <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
+              <p className="text-xs text-muted-foreground">{t('forms.propConditionalLogicDesc')}</p>
             </div>
             <button
               type="button"
@@ -948,7 +949,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               }}
               className="text-xs text-primary underline"
             >
-              {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) ? 'Remove' : 'Add condition'}
+              {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) ? t('forms.propRemoveCondition') : t('forms.propAddCondition')}
             </button>
           </div>
 
@@ -971,7 +972,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
           onClick={onDelete}
         >
           <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-          Delete block
+          {t('forms.propDeleteBlock')}
         </Button>
       </div>
     </div>
@@ -1032,11 +1033,12 @@ interface AutosaveIndicatorProps {
 }
 
 function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
+  const { t } = useTranslation();
   if (isSaving) {
     return (
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Saving...
+        {t('forms.builderSaving')}
       </span>
     );
   }
@@ -1044,14 +1046,14 @@ function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
     return (
       <span className="flex items-center gap-1 text-xs text-amber-600">
         <AlertCircle className="h-3 w-3" />
-        Unsaved changes
+        {t('forms.builderUnsaved')}
       </span>
     );
   }
   return (
     <span className="flex items-center gap-1 text-xs text-muted-foreground">
       <Check className="h-3 w-3 text-green-500" />
-      Saved
+      {t('forms.builderSaved')}
     </span>
   );
 }
@@ -1076,6 +1078,7 @@ export function FormBuilder({
   onPublished,
   onCancel,
 }: FormBuilderProps) {
+  const { t } = useTranslation();
   const hook = useFormBuilder({ formId, orgId });
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
@@ -1153,14 +1156,14 @@ export function FormBuilder({
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <FileText className="h-10 w-10 text-muted-foreground opacity-60" />
         <div className="text-center">
-          <p className="font-semibold text-lg">No form selected</p>
+          <p className="font-semibold text-lg">{t('forms.builderNoFormSelected')}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Select a form from the Form Library to edit, or create a new one.
+            {t('forms.builderNoFormSelectedDesc')}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={onCancel}>
-            Go to Form Library
+            {t('forms.builderGoToLibrary')}
           </Button>
           <Button
             className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
@@ -1168,7 +1171,7 @@ export function FormBuilder({
             onClick={onCancel}
           >
             <Plus className="h-4 w-4 mr-2" />
-            Create New Form
+            {t('forms.builderCreateNew')}
           </Button>
         </div>
       </div>
@@ -1199,7 +1202,7 @@ export function FormBuilder({
             }}
           >
             <ChevronLeft className="h-4 w-4" />
-            Back
+            {t('forms.builderBack')}
           </Button>
 
           <Separator orientation="vertical" className="h-5" />
@@ -1211,11 +1214,11 @@ export function FormBuilder({
             onChange={e => hook.setFormTitle(e.target.value)}
             onBlur={e => {
               if (!e.target.value.trim()) {
-                hook.setFormTitle('Untitled Form');
+                hook.setFormTitle(t('forms.builderUntitledForm'));
               }
             }}
             className="flex-1 min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50 border-none border-b border-transparent hover:border-border focus:border-primary transition-colors"
-            placeholder="Untitled Form"
+            placeholder={t('forms.builderUntitledForm')}
           />
 
           {/* Status badge */}
@@ -1230,16 +1233,16 @@ export function FormBuilder({
             }`}
           >
             {hook.form?.status === 'published'
-              ? 'Published'
+              ? t('forms.builderStatusPublished')
               : hook.form?.status === 'archived'
-              ? 'Archived'
-              : 'Draft'}
+              ? t('forms.builderStatusArchived')
+              : t('forms.builderStatusDraft')}
           </Badge>
 
           {/* Template toggle — super admin only */}
           {currentRole === 'trike-super-admin' && (
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-muted-foreground">Template</span>
+              <span className="text-xs text-muted-foreground">{t('forms.builderTemplate')}</span>
               <Switch
                 checked={hook.form?.is_template ?? false}
                 onCheckedChange={(checked) => hook.setFormIsTemplate(checked)}
@@ -1258,7 +1261,7 @@ export function FormBuilder({
             onClick={() => setShowPreviewDialog(true)}
           >
             <Eye className="h-3.5 w-3.5" />
-            Preview
+            {t('forms.builderPreview')}
           </Button>
 
           {/* Publish button */}
@@ -1270,7 +1273,7 @@ export function FormBuilder({
               disabled={hook.isSaving}
             >
               <Send className="h-3.5 w-3.5" />
-              Publish
+              {t('forms.builderPublish')}
             </Button>
           )}
         </div>
@@ -1279,7 +1282,7 @@ export function FormBuilder({
         <div className="flex items-center gap-4 px-4 pb-2 border-b border-border mb-0">
           <div className="flex items-center gap-2">
             <Label htmlFor="scoring-toggle" className="text-xs font-medium cursor-pointer text-muted-foreground">
-              Scoring
+              {t('forms.builderScoring')}
             </Label>
             <Switch
               id="scoring-toggle"
@@ -1290,7 +1293,7 @@ export function FormBuilder({
           {hook.form?.scoring_enabled && (
             <div className="flex items-center gap-2">
               <Label htmlFor="pass-threshold" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                Pass Threshold
+                {t('forms.builderPassThreshold')}
               </Label>
               <Input
                 id="pass-threshold"
@@ -1329,7 +1332,7 @@ export function FormBuilder({
           ))}
           <input
             type="text"
-            placeholder="Add tag..."
+            placeholder={t('forms.builderAddTag')}
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => {
@@ -1357,7 +1360,7 @@ export function FormBuilder({
             {/* START node */}
             <div className="flex justify-center mb-0">
               <div className="bg-green-500 text-white text-xs font-bold px-6 py-2 rounded-full shadow-sm">
-                START
+                {t('forms.builderStart')}
               </div>
             </div>
 
@@ -1375,7 +1378,7 @@ export function FormBuilder({
             {hook.blocks.length === 0 && hook.sections.length === 0 && (
               <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground/60 pointer-events-none select-none">
                 <Plus className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-sm">Click + to add your first question</p>
+                <p className="text-sm">{t('forms.builderEmptyHint')}</p>
               </div>
             )}
 
@@ -1459,7 +1462,7 @@ export function FormBuilder({
                 onClick={hook.addSection}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add Section
+                {t('forms.builderAddSection')}
               </Button>
             </div>
 
@@ -1468,7 +1471,7 @@ export function FormBuilder({
             {/* END node */}
             <div className="flex justify-center mt-0">
               <div className="bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
-                END
+                {t('forms.builderEnd')}
               </div>
             </div>
 
@@ -1496,15 +1499,15 @@ export function FormBuilder({
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{hook.form?.title ?? 'Form Preview'}</DialogTitle>
+            <DialogTitle>{hook.form?.title ?? t('forms.builderFormPreviewTitle')}</DialogTitle>
             <DialogDescription>
-              Read-only preview of how respondents will see this form.
+              {t('forms.builderFormPreviewDesc')}
             </DialogDescription>
           </DialogHeader>
           <div>
             {previewBlocks.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No blocks yet. Add some questions to preview the form.
+                {t('forms.builderNoBlocksPreview')}
               </p>
             ) : (
               <FormRenderer blocks={previewBlocks} answers={{}} readOnly={false} />
@@ -1519,14 +1522,14 @@ export function FormBuilder({
       <Dialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Publish form?</DialogTitle>
+            <DialogTitle>{t('forms.builderPublishConfirm')}</DialogTitle>
             <DialogDescription>
-              This will make the form available for submissions. You can unpublish it later.
+              {t('forms.builderPublishConfirmDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 justify-end mt-4">
             <Button variant="outline" size="sm" onClick={() => setShowPublishConfirm(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button size="sm" onClick={handlePublish} disabled={hook.isSaving}>
               {hook.isSaving ? (
@@ -1534,7 +1537,7 @@ export function FormBuilder({
               ) : (
                 <Send className="h-3.5 w-3.5 mr-1.5" />
               )}
-              Publish
+              {t('forms.builderPublish')}
             </Button>
           </div>
         </DialogContent>

@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList, Loader2 } from 'lucide-react';
 import trikeLogoDark from '../../assets/trike-logo.png';
@@ -45,6 +46,7 @@ interface FormData {
 }
 
 export function PublicFormFill() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData | null>(null);
@@ -205,7 +207,7 @@ export function PublicFormFill() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950 gap-4">
         <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-800 border-t-primary rounded-full animate-spin" />
-        <p className="text-gray-600 dark:text-gray-400 text-sm">Loading form…</p>
+        <p className="text-gray-600 dark:text-gray-400 text-sm">{t('forms.publicFormLoadingForm')}</p>
       </div>
     );
   }
@@ -213,9 +215,9 @@ export function PublicFormFill() {
   // ── Error state ────────────────────────────────────────────────────────────
   if (error) {
     const messages: Record<string, string> = {
-      not_found: 'This form is no longer available. Please contact your manager.',
-      not_published: 'This form is not currently accepting responses.',
-      no_form_id: 'No form specified. Please use the link provided to you.',
+      not_found: t('forms.publicErrorNotFound'),
+      not_published: t('forms.publicErrorNotPublished'),
+      no_form_id: t('forms.publicErrorNoFormId'),
     };
     const message = messages[error] || error;
 
@@ -223,13 +225,13 @@ export function PublicFormFill() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
         <div className="bg-white dark:bg-gray-900 rounded-xl p-8 shadow-sm text-center max-w-md w-full">
           <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Form Not Available</h2>
+          <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">{t('forms.publicFormNotAvailable')}</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
           <button
             onClick={() => window.close()}
             className="px-6 py-3 bg-brand-gradient text-white rounded-lg hover:opacity-90 min-h-[44px] font-medium"
           >
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -278,17 +280,17 @@ export function PublicFormFill() {
               </div>
             </div>
             <h2 className="text-2xl font-bold mb-2 text-gray-900 dark:text-white">
-              Submission received!
+              {t('forms.publicSubmissionReceived')}
             </h2>
             <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
-              Your response has been recorded successfully.
+              {t('forms.publicSubmissionRecordedSuccess')}
             </p>
             {org?.name && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">{org.name}</p>
             )}
             {form.requires_approval && (
               <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-                This form requires approval. A manager will review your submission.
+                {t('forms.publicRequiresApproval')}
               </div>
             )}
           </div>
@@ -382,7 +384,7 @@ export function PublicFormFill() {
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
-              Submitting your response…
+              {t('forms.publicSubmitting')}
             </div>
           )}
         </div>
