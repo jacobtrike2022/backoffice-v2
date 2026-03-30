@@ -90,22 +90,16 @@ function assignmentTypeBadge(type: string) {
   return map[type] || 'bg-muted text-muted-foreground';
 }
 
-const RECURRENCE_OPTIONS = [
-  { value: 'once', label: 'Once (no repeat)' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-];
-
-const RECURRENCE_LABELS: Record<string, string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
+const RECURRENCE_LABEL_KEYS: Record<string, string> = {
+  daily: 'forms.recurrenceDaily',
+  weekly: 'forms.recurrenceWeekly',
+  monthly: 'forms.recurrenceMonthly',
 };
 
-function recurrenceBadge(rule: string | null) {
+function recurrenceBadge(rule: string | null, t: (key: string) => string) {
   if (!rule || rule === 'once') return null;
-  const label = RECURRENCE_LABELS[rule] || rule;
+  const labelKey = RECURRENCE_LABEL_KEYS[rule];
+  const label = labelKey ? t(labelKey) : rule;
   return (
     <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-xs flex items-center gap-1">
       <Repeat className="h-3 w-3" />
@@ -390,7 +384,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                         >
                           {a.assignment_type}
                         </Badge>
-                        {recurrenceBadge(a.recurrence_rule)}
+                        {recurrenceBadge(a.recurrence_rule, t)}
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3.5 w-3.5" />
                           {formatDate(a.due_date, t('forms.noDueDate'))}
