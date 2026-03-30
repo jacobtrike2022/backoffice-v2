@@ -1,5 +1,18 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -7,50 +20,6 @@ import { Badge } from '../ui/badge';
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { Separator } from '../ui/separator';
-import {
-  Save,
-  Eye,
-  Settings,
-  Plus,
-  GripVertical,
-  Type,
-  CheckSquare,
-  ChevronDown,
-  Hash,
-  Calendar,
-  Clock,
-  Mail,
-  Phone,
-  Upload,
-  PenTool,
-  Star,
-  List,
-  Grid3x3,
-  ToggleLeft,
-  Image as ImageIcon,
-  Calculator,
-  EyeOff,
-  Send,
-  GitBranch,
-  MessageSquare,
-  Divide,
-  Smartphone,
-  Monitor,
-  X,
-  Tag,
-  Users,
-  FileText,
-  AlertCircle,
-  Lock,
-  Globe,
-  ChevronRight
-} from 'lucide-react';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import {
   Select,
@@ -67,1170 +36,1338 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '../ui/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '../ui/popover';
+  GripVertical,
+  Type,
+  CheckSquare,
+  ChevronDown,
+  Hash,
+  Calendar,
+  Clock,
+  Upload,
+  PenTool,
+  Star,
+  ToggleLeft,
+  Image as ImageIcon,
+  MapPin,
+  Minus,
+  Info,
+  SlidersHorizontal,
+  X,
+  Plus,
+  ChevronLeft,
+  Eye,
+  Send,
+  GitBranch,
+  Loader2,
+  Check,
+  AlertCircle,
+  Trash2,
+} from 'lucide-react';
+import { useFormBuilder, type LocalBlock } from '../../hooks/useFormBuilder';
+import { FormRenderer } from './shared/FormRenderer';
+import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
 
-interface FormBlock {
-  id: string;
-  type: string;
-  label: string;
-  icon: any;
-  category: 'question' | 'action' | 'content';
-}
+// ============================================================================
+// TYPES
+// ============================================================================
 
-const formBlocks: FormBlock[] = [
-  // Question Blocks
-  { id: 'text', type: 'Text Input', label: 'Text Input (single line)', icon: Type, category: 'question' },
-  { id: 'textarea', type: 'Text Area', label: 'Text Area (multiple lines)', icon: Type, category: 'question' },
-  { id: 'multiple-choice', type: 'Multiple Choice', label: 'Multiple Choice', icon: CheckSquare, category: 'question' },
-  { id: 'checkboxes', type: 'Checkboxes', label: 'Checkboxes', icon: CheckSquare, category: 'question' },
-  { id: 'dropdown', type: 'Dropdown', label: 'Dropdown', icon: ChevronDown, category: 'question' },
-  { id: 'number', type: 'Number Input', label: 'Number Input', icon: Hash, category: 'question' },
-  { id: 'date', type: 'Date Picker', label: 'Date Picker', icon: Calendar, category: 'question' },
-  { id: 'time', type: 'Time Picker', label: 'Time Picker', icon: Clock, category: 'question' },
-  { id: 'email', type: 'Email Input', label: 'Email Input', icon: Mail, category: 'question' },
-  { id: 'phone', type: 'Phone Input', label: 'Phone Input', icon: Phone, category: 'question' },
-  { id: 'file', type: 'File Upload', label: 'File Upload', icon: Upload, category: 'question' },
-  { id: 'signature', type: 'Signature', label: 'Signature', icon: PenTool, category: 'question' },
-  { id: 'rating', type: 'Rating Scale', label: 'Rating Scale', icon: Star, category: 'question' },
-  { id: 'ranking', type: 'Ranking', label: 'Ranking', icon: List, category: 'question' },
-  { id: 'matrix', type: 'Matrix/Grid', label: 'Matrix/Grid', icon: Grid3x3, category: 'question' },
-  { id: 'yes-no', type: 'Yes/No Toggle', label: 'Yes/No Toggle', icon: ToggleLeft, category: 'question' },
-  { id: 'picture-choice', type: 'Picture Choice', label: 'Picture Choice', icon: ImageIcon, category: 'question' },
-  
-  // Action Blocks
-  { id: 'calculator', type: 'Calculator', label: 'Calculator (for scores)', icon: Calculator, category: 'action' },
-  { id: 'hidden', type: 'Hidden Field', label: 'Hidden Field', icon: EyeOff, category: 'action' },
-  { id: 'email-notification', type: 'Email Notification', label: 'Email Notification', icon: Send, category: 'action' },
-  { id: 'conditional', type: 'Conditional Logic', label: 'Conditional Logic', icon: GitBranch, category: 'action' },
-  
-  // Content Blocks
-  { id: 'welcome', type: 'Welcome Message', label: 'Welcome Message', icon: MessageSquare, category: 'content' },
-  { id: 'closing', type: 'Closing Message', label: 'Closing Message', icon: MessageSquare, category: 'content' },
-  { id: 'divider', type: 'Section Divider', label: 'Section Divider', icon: Divide, category: 'content' },
-  { id: 'statement', type: 'Statement/Info', label: 'Statement/Info Text', icon: MessageSquare, category: 'content' }
-];
-
-interface FormBuilderProps {
-  currentRole?: 'admin' | 'district-manager' | 'store-manager';
+export interface FormBuilderProps {
+  formId?: string;
+  orgId?: string;
+  currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   onSaveDraft?: () => void;
+  onPublished?: () => void;
+  onCancel?: () => void;
+  /** @deprecated — kept for backwards compatibility with Forms.tsx call site */
   onNavigateToAssignments?: () => void;
 }
 
-export function FormBuilder({ currentRole = 'admin', onSaveDraft, onNavigateToAssignments }: FormBuilderProps) {
-  const [formTitle, setFormTitle] = useState('Untitled Form');
-  const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
-  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
-  const [propertiesTab, setPropertiesTab] = useState<'preview' | 'properties'>('properties');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [canvasBlocks, setCanvasBlocks] = useState<any[]>([]);
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
-  
-  // Form metadata state
-  const [formDescription, setFormDescription] = useState('');
-  const [formType, setFormType] = useState('OJT Checklist');
-  const [formStatus, setFormStatus] = useState<'Draft' | 'Published'>('Draft');
-  const [formTags, setFormTags] = useState<string[]>([]);
-  const [newTag, setNewTag] = useState('');
-  const [assignedUnits, setAssignedUnits] = useState<string[]>([]);
-  const [formCategory, setFormCategory] = useState('');
-  const [requiresApproval, setRequiresApproval] = useState(false);
-  const [allowAnonymous, setAllowAnonymous] = useState(false);
-  const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
-  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+// ============================================================================
+// BLOCK TYPE DEFINITIONS
+// ============================================================================
 
-  // Sample assignments and tags
-  const sampleAssignments = [
-    { id: '1', name: 'New Hires - All Locations', type: 'Group', count: 24, active: true },
-    { id: '2', name: 'Store Managers', type: 'Role', count: 15, active: true },
-    { id: '3', name: 'District 1 - All Stores', type: 'Unit', count: 8, active: false },
-    { id: '4', name: 'Safety Compliance Team', type: 'Group', count: 12, active: true },
-    { id: '5', name: 'Night Shift Workers', type: 'Shift', count: 32, active: false }
-  ];
+interface BlockTypeDef {
+  type: string;
+  label: string;
+  icon: React.ElementType;
+  category: 'questions' | 'content' | 'actions';
+}
 
-  const suggestedTags = [
-    'Training',
-    'Compliance',
-    'Safety',
-    'Quality',
-    'Daily',
-    'Weekly',
-    'Monthly',
-    'Recurring',
-    'New Hire',
-    'Operations',
-    'Closing',
-    'Opening',
-    'Legal',
-    'Admin',
-    'Quarterly'
-  ];
+const BLOCK_TYPES: BlockTypeDef[] = [
+  // Questions
+  { type: 'text', label: 'Short Answer', icon: Type, category: 'questions' },
+  { type: 'textarea', label: 'Long Answer', icon: Type, category: 'questions' },
+  { type: 'number', label: 'Number', icon: Hash, category: 'questions' },
+  { type: 'date', label: 'Date', icon: Calendar, category: 'questions' },
+  { type: 'time', label: 'Time', icon: Clock, category: 'questions' },
+  { type: 'radio', label: 'Multiple Choice', icon: CheckSquare, category: 'questions' },
+  { type: 'checkboxes', label: 'Checkboxes', icon: CheckSquare, category: 'questions' },
+  { type: 'dropdown', label: 'Dropdown', icon: ChevronDown, category: 'questions' },
+  { type: 'yes_no', label: 'Yes / No', icon: ToggleLeft, category: 'questions' },
+  { type: 'rating', label: 'Rating', icon: Star, category: 'questions' },
+  { type: 'file', label: 'File Upload', icon: Upload, category: 'questions' },
+  { type: 'signature', label: 'Signature', icon: PenTool, category: 'questions' },
+  { type: 'slider', label: 'Slider', icon: SlidersHorizontal, category: 'questions' },
+  { type: 'location', label: 'Location', icon: MapPin, category: 'questions' },
+  { type: 'photo', label: 'Photo', icon: ImageIcon, category: 'questions' },
+  // Content
+  { type: 'instruction', label: 'Instruction', icon: Info, category: 'content' },
+  { type: 'divider', label: 'Divider', icon: Minus, category: 'content' },
+  // Actions
+  { type: 'conditional', label: 'Conditional Logic', icon: GitBranch, category: 'actions' },
+];
 
-  const addBlockToCanvas = (block: FormBlock) => {
-    const newBlock = {
-      ...block,
-      id: `${block.id}-${Date.now()}`,
-      label: block.type,
-      required: false,
-      description: ''
-    };
-    setCanvasBlocks([...canvasBlocks, newBlock]);
-    setSelectedBlock(newBlock.id);
-  };
+function getBlockTypeDef(blockType: string): BlockTypeDef | undefined {
+  return BLOCK_TYPES.find(b => b.type === blockType);
+}
 
-  const removeBlockFromCanvas = (blockId: string) => {
-    setCanvasBlocks(canvasBlocks.filter(block => block.id !== blockId));
-    if (selectedBlock === blockId) {
-      setSelectedBlock(null);
+// ============================================================================
+// BLOCK PICKER POPOVER
+// ============================================================================
+
+interface BlockPickerProps {
+  onSelect: (blockType: string) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
+  const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(e.target as Node) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
     }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [onClose, anchorRef]);
+
+  const filtered = BLOCK_TYPES.filter(b => b.category === activeTab);
+
+  return (
+    <div
+      ref={pickerRef}
+      className="absolute z-50 mt-1 w-64 rounded-lg border border-border bg-popover shadow-lg p-3"
+    >
+      <div className="flex gap-1 mb-2 text-xs">
+        {(['questions', 'content', 'actions'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 rounded px-2 py-1 capitalize transition-colors ${
+              activeTab === tab
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        {filtered.map(bt => {
+          const Icon = bt.icon;
+          return (
+            <button
+              key={bt.type}
+              onClick={() => {
+                onSelect(bt.type);
+                onClose();
+              }}
+              className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted transition-colors text-left"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{bt.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ADD BLOCK BUTTON (between blocks)
+// ============================================================================
+
+interface AddBlockButtonProps {
+  afterBlockId?: string;
+  sectionId?: string | null;
+  onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
+}
+
+function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div className="relative flex justify-center my-1" ref={anchorRef}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="h-7 w-7 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary hover:shadow-[0_0_8px_2px_hsl(var(--primary)/0.35)] transition-all duration-200"
+        aria-label="Add block"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <BlockPicker
+          onSelect={(blockType) => onAdd(blockType, sectionId, afterBlockId)}
+          onClose={() => setOpen(false)}
+          anchorRef={anchorRef}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// SORTABLE BLOCK CARD
+// ============================================================================
+
+interface BlockCardProps {
+  block: LocalBlock;
+  isSelected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
+}
+
+function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: BlockCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: block.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
   };
 
-  const updateBlockProperty = (blockId: string, property: string, value: any) => {
-    setCanvasBlocks(canvasBlocks.map(block => 
-      block.id === blockId ? { ...block, [property]: value } : block
-    ));
+  const typeDef = getBlockTypeDef(block.block_type);
+  const Icon = typeDef?.icon ?? Type;
+  const borderAccent = typeDef?.category === 'content'
+    ? 'border-l-blue-400'
+    : typeDef?.category === 'actions'
+    ? 'border-l-purple-400'
+    : 'border-l-primary';
+
+  return (
+    <div>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+          isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
+        }`}
+        onClick={onSelect}
+      >
+        {/* Drag handle */}
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={e => e.stopPropagation()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+
+        {/* Delete button */}
+        <button
+          className="absolute right-2 top-2 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={e => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label="Delete block"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="pl-8 pr-8 py-4">
+          {/* Block type label */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <Icon className="h-3 w-3 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">
+              {typeDef?.label ?? block.block_type}
+            </span>
+            {!!block.conditional_logic && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
+                <GitBranch className="h-2.5 w-2.5 mr-0.5" />
+                logic
+              </Badge>
+            )}
+          </div>
+
+          {/* Question label */}
+          <p className="text-sm font-medium truncate">
+            {block.label
+              ? (
+                <>
+                  {block.label}
+                  {block.is_required && (
+                    <span className="text-destructive ml-1 text-xs">*</span>
+                  )}
+                </>
+              )
+              : (
+                <span className="text-muted-foreground italic">
+                  {typeDef ? `${typeDef.label} question` : 'Untitled question'}
+                </span>
+              )
+            }
+          </p>
+
+          {/* Preview for choice blocks */}
+          {block.options && block.options.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {block.options.slice(0, 3).map((opt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className={`h-3 w-3 shrink-0 border border-muted-foreground/40 ${
+                    block.block_type === 'checkboxes' ? 'rounded-sm' : 'rounded-full'
+                  }`} />
+                  <span className="text-xs text-muted-foreground truncate">{opt}</span>
+                </div>
+              ))}
+              {block.options.length > 3 && (
+                <p className="text-xs text-muted-foreground/60 pl-5">
+                  +{block.options.length - 3} more
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add block button after this card */}
+      <AddBlockButton
+        afterBlockId={block.id}
+        sectionId={block.section_id}
+        onAdd={onAdd}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// CONDITION BUILDER
+// ============================================================================
+
+interface ConditionBuilderProps {
+  block: LocalBlock;
+  allBlocks: LocalBlock[];
+  onChange: (logic: ConditionalLogic) => void;
+}
+
+function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps) {
+  const logic: ConditionalLogic = (block.conditional_logic as ConditionalLogic) || {
+    action: 'show',
+    operator: 'AND',
+    conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
   };
 
-  const getSelectedBlockData = () => {
-    return canvasBlocks.find(block => block.id === selectedBlock);
+  const updateLogic = (patch: Partial<ConditionalLogic>) => {
+    onChange({ ...logic, ...patch });
   };
 
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', index.toString());
+  const updateCondition = (index: number, patch: Partial<ConditionalLogic['conditions'][0]>) => {
+    const updated = logic.conditions.map((c, i) => i === index ? { ...c, ...patch } : c);
+    updateLogic({ conditions: updated });
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+  const addCondition = () => {
+    updateLogic({
+      conditions: [...logic.conditions, { source_block_id: '', operator: 'equals', value: '' }],
+    });
   };
 
-  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    const dragIndex = parseInt(e.dataTransfer.getData('text/html'));
-    
-    if (dragIndex === dropIndex) return;
-    
-    const newBlocks = [...canvasBlocks];
-    const [draggedBlock] = newBlocks.splice(dragIndex, 1);
-    newBlocks.splice(dropIndex, 0, draggedBlock);
-    
-    setCanvasBlocks(newBlocks);
-  };
-
-  const renderFormField = (block: any) => {
-    switch (block.id.split('-')[0]) {
-      case 'text':
-        return <Input placeholder={`Enter ${block.label.toLowerCase()}...`} />;
-      
-      case 'textarea':
-        return <Textarea placeholder={`Enter ${block.label.toLowerCase()}...`} rows={4} />;
-      
-      case 'multiple':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-primary" />
-              <label className="text-sm">Option 1</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-              <label className="text-sm">Option 2</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
-              <label className="text-sm">Option 3</label>
-            </div>
-          </div>
-        );
-      
-      case 'checkboxes':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-primary bg-primary" />
-              <label className="text-sm">Option 1</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-muted-foreground" />
-              <label className="text-sm">Option 2</label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-4 w-4 rounded border-2 border-muted-foreground" />
-              <label className="text-sm">Option 3</label>
-            </div>
-          </div>
-        );
-      
-      case 'dropdown':
-        return (
-          <Select>
-            <SelectTrigger>
-              <SelectValue placeholder="Select an option..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">Option 1</SelectItem>
-              <SelectItem value="2">Option 2</SelectItem>
-              <SelectItem value="3">Option 3</SelectItem>
-            </SelectContent>
-          </Select>
-        );
-      
-      case 'number':
-        return <Input type="number" placeholder="Enter a number..." />;
-      
-      case 'date':
-        return <Input type="date" />;
-      
-      case 'time':
-        return <Input type="time" />;
-      
-      case 'email':
-        return <Input type="email" placeholder="Enter email address..." />;
-      
-      case 'phone':
-        return <Input type="tel" placeholder="Enter phone number..." />;
-      
-      case 'file':
-        return (
-          <div className="border-2 border-dashed rounded-lg p-8 text-center">
-            <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
-          </div>
-        );
-      
-      case 'signature':
-        return (
-          <div className="border-2 border-dashed rounded-lg p-8 text-center">
-            <PenTool className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Click to sign</p>
-          </div>
-        );
-      
-      case 'rating':
-        return (
-          <div className="flex items-center space-x-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Star key={star} className="h-8 w-8 text-primary fill-primary cursor-pointer" />
-            ))}
-          </div>
-        );
-      
-      case 'yes':
-        return (
-          <div className="flex items-center space-x-4">
-            <Button variant="outline" className="flex-1">Yes</Button>
-            <Button variant="outline" className="flex-1">No</Button>
-          </div>
-        );
-      
-      case 'welcome':
-      case 'closing':
-      case 'statement':
-        return (
-          <Card className="bg-muted/50">
-            <CardContent className="p-4">
-              <p className="text-sm">
-                {block.description || 'This is a welcome message that will appear to users when they start the form.'}
-              </p>
-            </CardContent>
-          </Card>
-        );
-      
-      case 'divider':
-        return <Separator className="my-4" />;
-      
-      default:
-        return <Input placeholder={`Enter ${block.label.toLowerCase()}...`} />;
-    }
+  const removeCondition = (index: number) => {
+    updateLogic({ conditions: logic.conditions.filter((_, i) => i !== index) });
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
+      {/* Action + Operator row */}
+      <div className="flex items-center gap-2 text-xs flex-wrap">
+        <Select
+          value={logic.action}
+          onValueChange={(v) => updateLogic({ action: v as 'show' | 'hide' })}
+        >
+          <SelectTrigger className="h-7 text-xs w-20">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="show">Show</SelectItem>
+            <SelectItem value="hide">Hide</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground">this block when</span>
+        <Select
+          value={logic.operator}
+          onValueChange={(v) => updateLogic({ operator: v as 'AND' | 'OR' })}
+        >
+          <SelectTrigger className="h-7 text-xs w-16">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="AND">ALL</SelectItem>
+            <SelectItem value="OR">ANY</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground">of these are true:</span>
+      </div>
+
+      {/* Conditions list */}
+      {logic.conditions.map((cond, i) => (
+        <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
+          {/* Source block picker */}
+          <Select
+            value={cond.source_block_id || 'none'}
+            onValueChange={(v) => updateCondition(i, { source_block_id: v === 'none' ? '' : v })}
+          >
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue placeholder="Select a question..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Select a question...</SelectItem>
+              {allBlocks
+                .filter(b => b.label && !['instruction', 'divider', 'section'].includes(b.block_type))
+                .map(b => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {(b.label?.slice(0, 40)) || 'Untitled'}
+                  </SelectItem>
+                ))
+              }
+            </SelectContent>
+          </Select>
+
+          {/* Operator + Value row */}
+          <div className="flex gap-1.5">
+            <Select
+              value={cond.operator}
+              onValueChange={(v) => updateCondition(i, { operator: v as ConditionalLogic['conditions'][0]['operator'] })}
+            >
+              <SelectTrigger className="h-7 text-xs w-36 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="equals">equals</SelectItem>
+                <SelectItem value="not_equals">does not equal</SelectItem>
+                <SelectItem value="contains">contains</SelectItem>
+                <SelectItem value="not_contains">does not contain</SelectItem>
+                <SelectItem value="greater_than">greater than</SelectItem>
+                <SelectItem value="less_than">less than</SelectItem>
+                <SelectItem value="is_empty">is empty</SelectItem>
+                <SelectItem value="is_not_empty">is not empty</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {!['is_empty', 'is_not_empty'].includes(cond.operator) && (
+              <input
+                type="text"
+                value={cond.value}
+                onChange={(e) => updateCondition(i, { value: e.target.value })}
+                placeholder="value..."
+                className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background"
+              />
+            )}
+
+            {logic.conditions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeCondition(i)}
+                className="text-muted-foreground hover:text-destructive text-xs px-1"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Add condition */}
+      <button
+        type="button"
+        onClick={addCondition}
+        className="text-xs text-primary hover:underline"
+      >
+        + Add condition
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// PROPERTIES DRAWER
+// ============================================================================
+
+interface PropertiesDrawerProps {
+  block: LocalBlock;
+  allBlocks: LocalBlock[];
+  onUpdate: (updates: Partial<LocalBlock>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: PropertiesDrawerProps) {
+  const typeDef = getBlockTypeDef(block.block_type);
+  const Icon = typeDef?.icon ?? Type;
+  const hasChoices = ['radio', 'checkboxes', 'dropdown'].includes(block.block_type);
+  const options = block.options ?? [];
+
+  const handleOptionChange = (index: number, value: string) => {
+    const updated = [...options];
+    updated[index] = value;
+    onUpdate({ options: updated });
+  };
+
+  const handleAddOption = () => {
+    onUpdate({ options: [...options, `Option ${options.length + 1}`] });
+  };
+
+  const handleRemoveOption = (index: number) => {
+    const updated = options.filter((_, i) => i !== index);
+    onUpdate({ options: updated });
+  };
+
+  return (
+    <div className="fixed right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex-1 max-w-xl">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">{typeDef?.label ?? block.block_type}</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Label */}
+        <div className="space-y-1.5">
+          <Label htmlFor="block-label" className="text-xs font-medium">Question Label</Label>
           <Input
-            value={formTitle}
-            onChange={(e) => setFormTitle(e.target.value)}
-            className="text-xl font-semibold border-0 px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-            placeholder="Enter form title..."
+            id="block-label"
+            value={block.label}
+            onChange={e => onUpdate({ label: e.target.value })}
+            placeholder="Enter question..."
+            className="text-sm"
           />
         </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={() => setShowPreviewModal(true)}>
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-          <Button variant="outline" onClick={onSaveDraft}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Draft
-          </Button>
-          <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
-            <Settings className="h-4 w-4 mr-2" />
-            Settings
-          </Button>
-        </div>
-      </div>
 
-      {/* Form Details Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Form Details</CardTitle>
-          <p className="text-sm text-muted-foreground">Configure form metadata and settings</p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* First Row - Description and Type */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                placeholder="Enter a brief description of what this form is for..."
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                rows={3}
+        {/* Description */}
+        <div className="space-y-1.5">
+          <Label htmlFor="block-description" className="text-xs font-medium">Helper Text</Label>
+          <Textarea
+            id="block-description"
+            value={block.description ?? ''}
+            onChange={e => onUpdate({ description: e.target.value })}
+            placeholder="Optional helper text..."
+            rows={2}
+            className="text-sm resize-none"
+          />
+        </div>
+
+        {/* Required toggle */}
+        <div className="flex items-center justify-between">
+          <Label htmlFor="block-required" className="text-xs font-medium cursor-pointer">Required</Label>
+          <Switch
+            id="block-required"
+            checked={block.is_required}
+            onCheckedChange={checked => onUpdate({ is_required: checked })}
+          />
+        </div>
+
+        <Separator />
+
+        {/* Placeholder — text, textarea */}
+        {['text', 'textarea', 'number'].includes(block.block_type) && (
+          <div className="space-y-1.5">
+            <Label htmlFor="block-placeholder" className="text-xs font-medium">Placeholder Text</Label>
+            <Input
+              id="block-placeholder"
+              value={block.placeholder ?? ''}
+              onChange={e => onUpdate({ placeholder: e.target.value })}
+              placeholder="Placeholder..."
+              className="text-sm"
+            />
+          </div>
+        )}
+
+        {/* Max length — text, textarea */}
+        {['text', 'textarea'].includes(block.block_type) && (
+          <div className="space-y-1.5">
+            <Label htmlFor="block-maxlength" className="text-xs font-medium">Max Length</Label>
+            <Input
+              id="block-maxlength"
+              type="number"
+              min={1}
+              value={(block.validation_rules?.max_length as number) ?? ''}
+              onChange={e => {
+                const val = e.target.value ? parseInt(e.target.value) : undefined;
+                onUpdate({
+                  validation_rules: { ...block.validation_rules, max_length: val },
+                });
+              }}
+              placeholder="No limit"
+              className="text-sm"
+            />
+          </div>
+        )}
+
+        {/* Min/Max/Unit — number */}
+        {block.block_type === 'number' && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Min Value</Label>
+                <Input
+                  type="number"
+                  value={(block.validation_rules?.min as number) ?? ''}
+                  onChange={e =>
+                    onUpdate({
+                      validation_rules: {
+                        ...block.validation_rules,
+                        min: e.target.value ? parseFloat(e.target.value) : undefined,
+                      },
+                    })
+                  }
+                  placeholder="—"
+                  className="text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Max Value</Label>
+                <Input
+                  type="number"
+                  value={(block.validation_rules?.max as number) ?? ''}
+                  onChange={e =>
+                    onUpdate({
+                      validation_rules: {
+                        ...block.validation_rules,
+                        max: e.target.value ? parseFloat(e.target.value) : undefined,
+                      },
+                    })
+                  }
+                  placeholder="—"
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Unit Label</Label>
+              <Input
+                value={(block.settings?.unit as string) ?? ''}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, unit: e.target.value } })
+                }
+                placeholder="e.g. kg, $, hours"
+                className="text-sm"
               />
             </div>
+          </>
+        )}
 
-            <div className="space-y-2">
-              <Label>Form Type</Label>
-              <Select value={formType} onValueChange={setFormType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select form type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="OJT Checklist">OJT Checklist</SelectItem>
-                  <SelectItem value="Inspection">Inspection</SelectItem>
-                  <SelectItem value="Audit">Audit</SelectItem>
-                  <SelectItem value="Survey">Survey</SelectItem>
-                  <SelectItem value="Assessment">Assessment</SelectItem>
-                  <SelectItem value="Incident Report">Incident Report</SelectItem>
-                </SelectContent>
-              </Select>
+        {/* Options — radio, checkboxes, dropdown */}
+        {hasChoices && (
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Options</Label>
+            <div className="space-y-1.5">
+              {options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 cursor-grab shrink-0" />
+                  <Input
+                    value={opt}
+                    onChange={e => handleOptionChange(i, e.target.value)}
+                    className="text-sm h-8 flex-1"
+                  />
+                  <button
+                    onClick={() => handleRemoveOption(i)}
+                    className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs h-7 px-2"
+              onClick={handleAddOption}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add option
+            </Button>
+          </div>
+        )}
+
+        {/* Rating — max stars */}
+        {block.block_type === 'rating' && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Max Stars</Label>
+            <Select
+              value={String((block.settings?.max_stars as number) ?? 5)}
+              onValueChange={(v: string) =>
+                onUpdate({ settings: { ...block.settings, max_stars: parseInt(v) } })
+              }
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[3, 4, 5, 10].map(n => (
+                  <SelectItem key={n} value={String(n)}>{n} stars</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Yes/No labels */}
+        {block.block_type === 'yes_no' && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Yes Label</Label>
+              <Input
+                value={(block.settings?.yes_label as string) ?? 'Yes'}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, yes_label: e.target.value } })
+                }
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">No Label</Label>
+              <Input
+                value={(block.settings?.no_label as string) ?? 'No'}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, no_label: e.target.value } })
+                }
+                className="text-sm"
+              />
             </div>
           </div>
+        )}
 
-          <Separator />
-
-          {/* Second Row - Status, Category, and Tags */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Status */}
-            <div className="space-y-2">
-              <Label>Publication Status</Label>
-              <div className="flex items-center space-x-4">
-                <Button
-                  variant={formStatus === 'Draft' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFormStatus('Draft')}
-                  className={formStatus === 'Draft' ? 'bg-yellow-500 hover:bg-yellow-600' : ''}
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Draft
-                </Button>
-                <Button
-                  variant={formStatus === 'Published' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFormStatus('Published')}
-                  className={formStatus === 'Published' ? 'bg-green-500 hover:bg-green-600' : ''}
-                >
-                  <Globe className="h-4 w-4 mr-2" />
-                  Published
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {formStatus === 'Draft' 
-                  ? 'Only visible to admins' 
-                  : 'Visible to assigned users'}
-              </p>
+        {/* Slider */}
+        {block.block_type === 'slider' && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Min</Label>
+              <Input
+                type="number"
+                value={(block.settings?.min as number) ?? 0}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, min: parseFloat(e.target.value) } })
+                }
+                className="text-sm"
+              />
             </div>
-
-            {/* Category */}
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <Select value={formCategory} onValueChange={setFormCategory}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Training">Training</SelectItem>
-                  <SelectItem value="Compliance">Compliance</SelectItem>
-                  <SelectItem value="Operations">Operations</SelectItem>
-                  <SelectItem value="Safety">Safety</SelectItem>
-                  <SelectItem value="Quality">Quality</SelectItem>
-                  <SelectItem value="HR">Human Resources</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Max</Label>
+              <Input
+                type="number"
+                value={(block.settings?.max as number) ?? 100}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, max: parseFloat(e.target.value) } })
+                }
+                className="text-sm"
+              />
             </div>
-
-            {/* Tags */}
-            <div className="space-y-2">
-              <Label>Tags</Label>
-              <div className="flex items-center space-x-2">
-                <Input
-                  placeholder="Add tag..."
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newTag.trim()) {
-                      e.preventDefault();
-                      setFormTags([...formTags, newTag.trim()]);
-                      setNewTag('');
-                    }
-                  }}
-                />
-                <Popover open={tagPickerOpen} onOpenChange={setTagPickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button size="sm" variant="outline">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[250px] p-0" align="end">
-                    <Command>
-                      <CommandInput placeholder="Search tags..." />
-                      <CommandList>
-                        <CommandEmpty>No tags found.</CommandEmpty>
-                        <CommandGroup heading="Suggested Tags">
-                          {suggestedTags
-                            .filter(tag => !formTags.includes(tag))
-                            .map((tag) => (
-                              <CommandItem
-                                key={tag}
-                                onSelect={() => {
-                                  setFormTags([...formTags, tag]);
-                                  setTagPickerOpen(false);
-                                }}
-                              >
-                                <Tag className="h-4 w-4 mr-2" />
-                                {tag}
-                              </CommandItem>
-                            ))}
-                        </CommandGroup>
-                        {newTag.trim() && !suggestedTags.includes(newTag.trim()) && (
-                          <CommandGroup heading="Create New">
-                            <CommandItem
-                              onSelect={() => {
-                                setFormTags([...formTags, newTag.trim()]);
-                                setNewTag('');
-                                setTagPickerOpen(false);
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              Create &quot;{newTag.trim()}&quot;
-                            </CommandItem>
-                          </CommandGroup>
-                        )}
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              {formTags.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {formTags.map((tag, index) => (
-                    <Badge
-                      key={index}
-                      className="bg-brand-gradient text-white border-0"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => setFormTags(formTags.filter((_, i) => i !== index))}
-                        className="ml-2 hover:text-red-200"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Step</Label>
+              <Input
+                type="number"
+                value={(block.settings?.step as number) ?? 1}
+                onChange={e =>
+                  onUpdate({ settings: { ...block.settings, step: parseFloat(e.target.value) } })
+                }
+                className="text-sm"
+              />
             </div>
           </div>
+        )}
 
-          <Separator />
-
-          {/* Third Row - Assignments and Settings */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Assignments */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Assignments</Label>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Assign this form to specific units or employees
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowAssignmentDialog(true)}
-                >
-                  <Users className="h-4 w-4 mr-2" />
-                  Manage
-                </Button>
-              </div>
-              {assignedUnits.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {assignedUnits.map((unit, index) => (
-                    <Badge key={index} variant="outline">
-                      {unit}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-dashed rounded-lg p-4 text-center">
-                  <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">No assignments yet</p>
-                  <p className="text-xs text-muted-foreground">Click Manage to assign</p>
-                </div>
-              )}
+        {/* ── Conditional Logic ─────────────────────────────── */}
+        <div className="border-t border-border pt-4 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-medium">Conditional Logic</p>
+              <p className="text-xs text-muted-foreground">Show or hide this block based on other answers</p>
             </div>
-
-            {/* Form Settings */}
-            <div className="space-y-4">
-              <Label>Form Settings</Label>
-              
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Requires Approval</p>
-                    <p className="text-xs text-muted-foreground">Submissions need manager review</p>
-                  </div>
-                </div>
-                <Switch
-                  checked={requiresApproval}
-                  onCheckedChange={setRequiresApproval}
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <Lock className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Allow Anonymous</p>
-                    <p className="text-xs text-muted-foreground">Users can submit without logging in</p>
-                  </div>
-                </div>
-                <Switch
-                  checked={allowAnonymous}
-                  onCheckedChange={setAllowAnonymous}
-                />
-              </div>
-
-              {formStatus === 'Published' && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                  <div className="flex items-start space-x-2">
-                    <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5" />
-                    <div className="text-xs text-blue-700 dark:text-blue-300">
-                      <p className="font-medium mb-1">Form is Live</p>
-                      <p>This form is currently published and visible to assigned users.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
+                if (hasLogic) {
+                  onUpdate({ conditional_logic: null });
+                } else {
+                  onUpdate({
+                    conditional_logic: {
+                      action: 'show',
+                      operator: 'AND',
+                      conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
+                    } as ConditionalLogic,
+                  });
+                }
+              }}
+              className="text-xs text-primary underline"
+            >
+              {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) ? 'Remove' : 'Add condition'}
+            </button>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Builder Interface */}
-      <div className="grid grid-cols-12 gap-6 min-h-[600px]">
-        {/* Left Sidebar - Block Palette */}
-        <div className={`${sidebarCollapsed ? 'col-span-1' : 'col-span-2'} transition-all`}>
-          <Card className="h-full">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                {!sidebarCollapsed && <CardTitle className="text-base">Block Palette</CardTitle>}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                  className="h-8 w-8 p-0"
-                >
-                  {sidebarCollapsed ? <ChevronDown className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                </Button>
-              </div>
-            </CardHeader>
-            {!sidebarCollapsed && (
-              <CardContent className="p-0">
-                <Accordion type="multiple" defaultValue={['questions', 'actions', 'content']} className="w-full">
-                  {/* Question Blocks */}
-                  <AccordionItem value="questions" className="border-0 px-4">
-                    <AccordionTrigger className="hover:no-underline text-sm font-semibold">
-                      Question Blocks
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-1">
-                        {formBlocks.filter(b => b.category === 'question').map(block => (
-                          <Button
-                            key={block.id}
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => addBlockToCanvas(block)}
-                          >
-                            <block.icon className="h-3 w-3 mr-2 flex-shrink-0" />
-                            <span className="text-left">{block.label}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  {/* Action Blocks */}
-                  <AccordionItem value="actions" className="border-0 px-4">
-                    <AccordionTrigger className="hover:no-underline text-sm font-semibold">
-                      Action Blocks
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-1">
-                        {formBlocks.filter(b => b.category === 'action').map(block => (
-                          <Button
-                            key={block.id}
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => addBlockToCanvas(block)}
-                          >
-                            <block.icon className="h-3 w-3 mr-2 flex-shrink-0" />
-                            <span className="text-left">{block.label}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  {/* Content Blocks */}
-                  <AccordionItem value="content" className="border-0 px-4">
-                    <AccordionTrigger className="hover:no-underline text-sm font-semibold">
-                      Content Blocks
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-1">
-                        {formBlocks.filter(b => b.category === 'content').map(block => (
-                          <Button
-                            key={block.id}
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => addBlockToCanvas(block)}
-                          >
-                            <block.icon className="h-3 w-3 mr-2 flex-shrink-0" />
-                            <span className="text-left">{block.label}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </CardContent>
-            )}
-          </Card>
-        </div>
-
-        {/* Center - Canvas Area */}
-        <div className={`${sidebarCollapsed ? 'col-span-7' : 'col-span-6'} transition-all`}>
-          <Card className="h-full">
-            <CardContent className="p-6 h-full">
-              <div className="flex flex-col h-full">
-                {/* Start Node */}
-                <div className="flex justify-center mb-4">
-                  <div className="bg-green-500 text-white px-6 py-3 rounded-lg font-semibold text-sm">
-                    START
-                  </div>
-                </div>
-
-                {/* Canvas - Scrollable Area */}
-                <div className="flex-1 overflow-y-auto space-y-4 px-4">
-                  {canvasBlocks.length === 0 ? (
-                    <div className="flex items-center justify-center h-64 border-2 border-dashed rounded-lg">
-                      <div className="text-center">
-                        <Plus className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                        <p className="text-muted-foreground">
-                          Click blocks from the palette to add them to your form
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    canvasBlocks.map((block, index) => (
-                      <div key={block.id}>
-                        {/* Connection Line */}
-                        <div className="flex justify-center">
-                          <div className="w-0.5 h-4 bg-muted-foreground/30" />
-                        </div>
-
-                        {/* Block */}
-                        <Card
-                          className={`cursor-pointer transition-all ${
-                            selectedBlock === block.id
-                              ? 'ring-2 ring-primary shadow-md'
-                              : 'hover:shadow-md'
-                          }`}
-                          onClick={() => setSelectedBlock(block.id)}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, index)}
-                          onDragOver={handleDragOver}
-                          onDrop={(e) => handleDrop(e, index)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start space-x-3">
-                              <GripVertical className="h-5 w-5 text-muted-foreground mt-1 cursor-grab" />
-                              <div className="flex-1">
-                                <div className="flex items-center space-x-2 mb-2">
-                                  <block.icon className="h-4 w-4 text-primary" />
-                                  <span className="font-semibold text-sm">{block.label}</span>
-                                  {block.required && (
-                                    <Badge variant="outline" className="text-xs">Required</Badge>
-                                  )}
-                                </div>
-                                {block.required && (
-                                  <p className="text-xs text-muted-foreground mb-1">Required</p>
-                                )}
-                                {block.description && (
-                                  <p className="text-xs text-muted-foreground">{block.description}</p>
-                                )}
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0 hover:bg-destructive hover:text-destructive-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeBlockFromCanvas(block.id);
-                                }}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* End Node */}
-                <div className="flex justify-center mt-4">
-                  <div className="flex flex-col items-center">
-                    <div className="w-0.5 h-4 bg-muted-foreground/30" />
-                    <div className="bg-red-500 text-white px-6 py-3 rounded-lg font-semibold text-sm">
-                      END
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Panel - Preview & Properties */}
-        <div className="col-span-4">
-          <Card className="h-full">
-            <CardHeader className="pb-4">
-              <Tabs value={propertiesTab} onValueChange={(v: any) => setPropertiesTab(v)}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
-                  <TabsTrigger value="properties">Properties</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </CardHeader>
-            <CardContent className="h-[calc(100%-80px)] overflow-y-auto">
-              {propertiesTab === 'preview' ? (
-                <div className="space-y-4">
-                  {/* Device Toggle */}
-                  <div className="flex justify-center space-x-2">
-                    <Button
-                      variant={previewMode === 'desktop' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setPreviewMode('desktop')}
-                      className={previewMode === 'desktop' ? 'bg-brand-gradient' : ''}
-                    >
-                      <Monitor className="h-4 w-4 mr-2" />
-                      Desktop
-                    </Button>
-                    <Button
-                      variant={previewMode === 'mobile' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setPreviewMode('mobile')}
-                      className={previewMode === 'mobile' ? 'bg-brand-gradient' : ''}
-                    >
-                      <Smartphone className="h-4 w-4 mr-2" />
-                      Mobile
-                    </Button>
-                  </div>
-
-                  {/* Preview Area */}
-                  <div className={`border rounded-lg p-4 bg-muted/30 ${previewMode === 'mobile' ? 'max-w-xs mx-auto' : ''}`}>
-                    <h3 className="font-semibold mb-4">{formTitle}</h3>
-                    <div className="space-y-4">
-                      {canvasBlocks.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-8">
-                          No blocks to preview
-                        </p>
-                      ) : (
-                        canvasBlocks.map((block) => (
-                          <div key={block.id} className="space-y-2">
-                            <Label className="text-sm">
-                              {block.label}
-                              {block.required && <span className="text-red-500 ml-1">*</span>}
-                            </Label>
-                            {renderFormField(block)}
-                            {block.description && (
-                              <p className="text-xs text-muted-foreground">{block.description}</p>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {selectedBlock ? (
-                    <>
-                      <div>
-                        <h3 className="font-semibold mb-4">Block Properties</h3>
-                        <p className="text-sm text-muted-foreground mb-4">
-                          Configure the selected block
-                        </p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>Field Label</Label>
-                          <Input placeholder="Enter field label..." />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Placeholder Text</Label>
-                          <Input placeholder="Enter placeholder text..." />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Description / Help Text</Label>
-                          <Textarea placeholder="Optional help text for users..." rows={2} />
-                        </div>
-
-                        <Separator />
-
-                        <div className="flex items-center justify-between">
-                          <Label>Required Field</Label>
-                          <Switch 
-                            checked={getSelectedBlockData()?.required || false}
-                            onCheckedChange={(checked) => {
-                              if (selectedBlock) {
-                                updateBlockProperty(selectedBlock, 'required', checked);
-                              }
-                            }}
-                          />
-                        </div>
-
-                        <Separator />
-
-                        <Accordion type="single" collapsible>
-                          <AccordionItem value="validation">
-                            <AccordionTrigger className="text-sm">Validation Rules</AccordionTrigger>
-                            <AccordionContent className="space-y-4">
-                              <div className="space-y-2">
-                                <Label className="text-sm">Validation Type</Label>
-                                <Select>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select validation" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none">None</SelectItem>
-                                    <SelectItem value="email">Email</SelectItem>
-                                    <SelectItem value="phone">Phone</SelectItem>
-                                    <SelectItem value="number">Number</SelectItem>
-                                    <SelectItem value="custom">Custom Regex</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm">Error Message</Label>
-                                <Input placeholder="Custom error message..." className="text-sm" />
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-
-                          <AccordionItem value="conditional">
-                            <AccordionTrigger className="text-sm">Conditional Logic</AccordionTrigger>
-                            <AccordionContent className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-sm">Show/Hide based on answer</Label>
-                                <Switch />
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                Configure visibility rules based on previous answers
-                              </p>
-                            </AccordionContent>
-                          </AccordionItem>
-
-                          <AccordionItem value="scoring">
-                            <AccordionTrigger className="text-sm">Scoring Options</AccordionTrigger>
-                            <AccordionContent className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-sm">Include in score</Label>
-                                <Switch />
-                              </div>
-                              <div className="space-y-2">
-                                <Label className="text-sm">Point Value</Label>
-                                <Input type="number" placeholder="0" className="text-sm" />
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-
-                          <AccordionItem value="advanced">
-                            <AccordionTrigger className="text-sm">Advanced Options</AccordionTrigger>
-                            <AccordionContent className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <Label className="text-sm">Exportable</Label>
-                                <Switch defaultChecked />
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <Label className="text-sm">Include in analytics</Label>
-                                <Switch defaultChecked />
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-                        </Accordion>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-center">
-                      <div>
-                        <Settings className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                        <p className="text-muted-foreground">
-                          Select a block to configure its properties
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) && (
+            <ConditionBuilder
+              block={block}
+              allBlocks={allBlocks}
+              onChange={(logic) => onUpdate({ conditional_logic: logic })}
+            />
+          )}
         </div>
       </div>
 
-      {/* Full Preview Modal */}
-      <Dialog open={showPreviewModal} onOpenChange={setShowPreviewModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      {/* Footer — delete */}
+      <div className="p-4 border-t border-border shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+          Delete block
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SECTION HEADER CARD
+// ============================================================================
+
+interface SectionHeaderCardProps {
+  title: string;
+  description?: string;
+  onTitleChange: (v: string) => void;
+  onDescriptionChange: (v: string) => void;
+  onDelete: () => void;
+}
+
+function SectionHeaderCard({
+  title,
+  description,
+  onTitleChange,
+  onDescriptionChange,
+  onDelete,
+}: SectionHeaderCardProps) {
+  return (
+    <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-5 py-3 mb-2 group relative">
+      <button
+        onClick={onDelete}
+        className="absolute right-2 top-2 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+      <Input
+        value={title}
+        onChange={e => onTitleChange(e.target.value)}
+        className="font-semibold text-sm bg-transparent border-none shadow-none h-auto p-0 focus-visible:ring-0 mb-1"
+        placeholder="Section title..."
+      />
+      <Input
+        value={description ?? ''}
+        onChange={e => onDescriptionChange(e.target.value)}
+        className="text-xs text-muted-foreground bg-transparent border-none shadow-none h-auto p-0 focus-visible:ring-0"
+        placeholder="Section description (optional)..."
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// AUTOSAVE INDICATOR
+// ============================================================================
+
+interface AutosaveIndicatorProps {
+  isSaving: boolean;
+  isDirty: boolean;
+}
+
+function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
+  if (isSaving) {
+    return (
+      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Saving...
+      </span>
+    );
+  }
+  if (isDirty) {
+    return (
+      <span className="flex items-center gap-1 text-xs text-amber-600">
+        <AlertCircle className="h-3 w-3" />
+        Unsaved changes
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Check className="h-3 w-3 text-green-500" />
+      Saved
+    </span>
+  );
+}
+
+// ============================================================================
+// CONNECTOR LINE
+// ============================================================================
+
+function ConnectorLine() {
+  return <div className="w-px h-6 bg-border mx-auto" />;
+}
+
+// ============================================================================
+// MAIN FORM BUILDER COMPONENT
+// ============================================================================
+
+export function FormBuilder({
+  formId,
+  orgId = '',
+  currentRole,
+  onSaveDraft,
+  onPublished,
+  onCancel,
+}: FormBuilderProps) {
+  const hook = useFormBuilder({ formId, orgId });
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+  const [tagInput, setTagInput] = useState('');
+
+  const addTag = useCallback((tag: string) => {
+    const trimmed = tag.trim().replace(/,/g, '');
+    if (!trimmed) return;
+    const current = hook.form?.tags || [];
+    if (!current.includes(trimmed)) {
+      hook.setFormTags([...current, trimmed]);
+    }
+    setTagInput('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hook.form?.tags, hook.setFormTags]);
+
+  const removeTag = useCallback((tag: string) => {
+    const current = hook.form?.tags || [];
+    hook.setFormTags(current.filter(t => t !== tag));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hook.form?.tags, hook.setFormTags]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  // Group blocks by section
+  const unsectionedBlocks = hook.blocks.filter(b => !b.section_id);
+  const blocksBySection: Record<string, LocalBlock[]> = {};
+  for (const section of hook.sections) {
+    blocksBySection[section.id] = hook.blocks.filter(b => b.section_id === section.id);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const allBlockIds = hook.blocks.map(b => b.id);
+    const oldIndex = allBlockIds.indexOf(active.id as string);
+    const newIndex = allBlockIds.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const movedBlock = hook.blocks[oldIndex];
+    hook.reorderBlock(active.id as string, newIndex, movedBlock.section_id);
+  }
+
+  async function handlePublish() {
+    setShowPublishConfirm(false);
+    await hook.publishForm();
+    onPublished?.();
+  }
+
+  // Map blocks to FormRenderer format for preview
+  const previewBlocks = hook.blocks.map(b => ({
+    id: b.id,
+    type: b.block_type,
+    label: b.label,
+    description: b.description,
+    placeholder: b.placeholder,
+    is_required: b.is_required,
+    options: b.options,
+    validation_rules: b.validation_rules,
+  }));
+
+  if (hook.isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (hook.error && !hook.form) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <p className="text-sm text-destructive">{hook.error}</p>
+        <Button variant="outline" size="sm" onClick={onCancel}>Go back</Button>
+      </div>
+    );
+  }
+
+  const selectedBlock = hook.selectedBlockId
+    ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
+    : null;
+
+  return (
+    <div className="flex flex-col h-screen bg-muted/30 overflow-hidden">
+      {/* ================================================================
+          TOOLBAR
+      ================================================================ */}
+      <div className="sticky top-0 z-30 bg-background border-b border-border shrink-0">
+        {/* Primary toolbar row */}
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          {/* Back */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-muted-foreground"
+            onClick={() => {
+              hook.saveForm();
+              onCancel?.();
+              onSaveDraft?.();
+            }}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </Button>
+
+          <Separator orientation="vertical" className="h-5" />
+
+          {/* Form title inline editor */}
+          <input
+            type="text"
+            value={hook.form?.title ?? ''}
+            onChange={e => hook.setFormTitle(e.target.value)}
+            onBlur={e => {
+              if (!e.target.value.trim()) {
+                hook.setFormTitle('Untitled Form');
+              }
+            }}
+            className="flex-1 min-w-0 bg-transparent text-base font-semibold outline-none placeholder:text-muted-foreground/50 border-none border-b border-transparent hover:border-border focus:border-primary transition-colors"
+            placeholder="Untitled Form"
+          />
+
+          {/* Status badge */}
+          <Badge
+            variant="outline"
+            className={`shrink-0 text-xs ${
+              hook.form?.status === 'published'
+                ? 'border-green-500 text-green-600 bg-green-50'
+                : hook.form?.status === 'archived'
+                ? 'border-muted-foreground text-muted-foreground'
+                : 'border-amber-500 text-amber-600 bg-amber-50'
+            }`}
+          >
+            {hook.form?.status === 'published'
+              ? 'Published'
+              : hook.form?.status === 'archived'
+              ? 'Archived'
+              : 'Draft'}
+          </Badge>
+
+          {/* Template toggle — super admin only */}
+          {currentRole === 'trike-super-admin' && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs text-muted-foreground">Template</span>
+              <Switch
+                checked={hook.form?.is_template ?? false}
+                onCheckedChange={(checked) => hook.setFormIsTemplate(checked)}
+              />
+            </div>
+          )}
+
+          {/* Autosave indicator */}
+          <AutosaveIndicator isSaving={hook.isSaving} isDirty={hook.isDirty} />
+
+          {/* Preview button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowPreviewDialog(true)}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Preview
+          </Button>
+
+          {/* Publish button */}
+          {hook.form?.status !== 'published' && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowPublishConfirm(true)}
+              disabled={hook.isSaving}
+            >
+              <Send className="h-3.5 w-3.5" />
+              Publish
+            </Button>
+          )}
+        </div>
+
+        {/* Tags row */}
+        <div className="flex items-center gap-2 flex-wrap px-4 pb-2">
+          {(hook.form?.tags || []).map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                className="hover:text-destructive leading-none"
+                aria-label={`Remove tag ${tag}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            type="text"
+            placeholder="Add tag..."
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                e.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+            className="text-xs bg-transparent border-none outline-none placeholder:text-muted-foreground w-24"
+          />
+        </div>
+      </div>
+
+      {/* ================================================================
+          MAIN AREA
+      ================================================================ */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Canvas */}
+        <div
+          className={`flex-1 overflow-y-auto py-8 transition-all ${
+            selectedBlock ? 'pr-[356px]' : ''
+          }`}
+        >
+          <div className="mx-auto w-full max-w-[680px] px-4">
+            {/* START node */}
+            <div className="flex justify-center mb-0">
+              <div className="bg-green-500 text-white text-xs font-bold px-6 py-2 rounded-full shadow-sm">
+                START
+              </div>
+            </div>
+
+            <ConnectorLine />
+
+            {/* Add block button at the very top (before all blocks) */}
+            <AddBlockButton
+              sectionId={null}
+              onAdd={hook.addBlock}
+            />
+
+            {/* Empty canvas hint */}
+            {hook.blocks.length === 0 && hook.sections.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground/60 pointer-events-none select-none">
+                <Plus className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">Click + to add your first question</p>
+              </div>
+            )}
+
+            {/* Unsectioned blocks */}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={unsectionedBlocks.map(b => b.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {unsectionedBlocks.map(block => (
+                  <SortableBlockCard
+                    key={block.id}
+                    block={block}
+                    isSelected={hook.selectedBlockId === block.id}
+                    onSelect={() =>
+                      hook.setSelectedBlockId(
+                        hook.selectedBlockId === block.id ? null : block.id
+                      )
+                    }
+                    onDelete={() => hook.deleteBlock(block.id)}
+                    onAdd={hook.addBlock}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+
+            {/* Sectioned blocks */}
+            {hook.sections.map(section => (
+              <div key={section.id} className="mt-4">
+                <SectionHeaderCard
+                  title={section.title}
+                  description={section.description}
+                  onTitleChange={v => hook.updateSection(section.id, { title: v })}
+                  onDescriptionChange={v => hook.updateSection(section.id, { description: v })}
+                  onDelete={() => hook.deleteSection(section.id)}
+                />
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={(blocksBySection[section.id] ?? []).map(b => b.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {(blocksBySection[section.id] ?? []).map(block => (
+                      <SortableBlockCard
+                        key={block.id}
+                        block={block}
+                        isSelected={hook.selectedBlockId === block.id}
+                        onSelect={() =>
+                          hook.setSelectedBlockId(
+                            hook.selectedBlockId === block.id ? null : block.id
+                          )
+                        }
+                        onDelete={() => hook.deleteBlock(block.id)}
+                        onAdd={hook.addBlock}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+
+                {/* Add block inside this section */}
+                <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+              </div>
+            ))}
+
+            {/* Add Section button */}
+            <div className="flex justify-center mt-6 mb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs gap-1.5 text-muted-foreground border-dashed border-border"
+                onClick={hook.addSection}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Section
+              </Button>
+            </div>
+
+            <ConnectorLine />
+
+            {/* END node */}
+            <div className="flex justify-center mt-0">
+              <div className="bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
+                END
+              </div>
+            </div>
+
+            {/* Bottom padding */}
+            <div className="h-16" />
+          </div>
+        </div>
+
+        {/* Properties Drawer — fixed right panel */}
+        {selectedBlock && (
+          <PropertiesDrawer
+            block={selectedBlock}
+            allBlocks={hook.blocks.filter(b => b.id !== selectedBlock.id)}
+            onUpdate={updates => hook.updateBlock(selectedBlock.id, updates)}
+            onDelete={() => hook.deleteBlock(selectedBlock.id)}
+            onClose={() => hook.setSelectedBlockId(null)}
+          />
+        )}
+      </div>
+
+      {/* ================================================================
+          PREVIEW DIALOG
+      ================================================================ */}
+      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <DialogTitle>Form Preview</DialogTitle>
-                <DialogDescription>
-                  This is how your form will appear to end users
-                </DialogDescription>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant={previewDevice === 'desktop' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setPreviewDevice('desktop')}
-                  className={previewDevice === 'desktop' ? 'bg-brand-gradient' : ''}
-                >
-                  <Monitor className="h-4 w-4 mr-2" />
-                  Desktop
-                </Button>
-                <Button
-                  variant={previewDevice === 'mobile' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setPreviewDevice('mobile')}
-                  className={previewDevice === 'mobile' ? 'bg-brand-gradient' : ''}
-                >
-                  <Smartphone className="h-4 w-4 mr-2" />
-                  Mobile
-                </Button>
-              </div>
-            </div>
+            <DialogTitle>{hook.form?.title ?? 'Form Preview'}</DialogTitle>
+            <DialogDescription>
+              Read-only preview of how respondents will see this form.
+            </DialogDescription>
           </DialogHeader>
-
-          <div className="mt-6">
-            <div className={`mx-auto transition-all ${previewDevice === 'mobile' ? 'max-w-md' : 'max-w-3xl'}`}>
-              <Card className="shadow-lg">
-                <CardHeader className="bg-brand-gradient text-white">
-                  <CardTitle className="text-2xl">{formTitle}</CardTitle>
-                  <p className="text-white/80 text-sm">Please complete all required fields marked with *</p>
-                </CardHeader>
-                <CardContent className="p-6 space-y-6">
-                  {canvasBlocks.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Eye className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                      <p className="text-muted-foreground">
-                        No form blocks added yet. Add blocks from the palette to see them in the preview.
-                      </p>
-                    </div>
-                  ) : (
-                    canvasBlocks.map((block) => (
-                      <div key={block.id} className="space-y-2">
-                        {block.id.split('-')[0] !== 'divider' && block.category !== 'action' && (
-                          <Label className="text-base">
-                            {block.label}
-                            {block.required && <span className="text-red-500 ml-1">*</span>}
-                          </Label>
-                        )}
-                        {renderFormField(block)}
-                        {block.description && (
-                          <p className="text-sm text-muted-foreground">{block.description}</p>
-                        )}
-                      </div>
-                    ))
-                  )}
-
-                  {canvasBlocks.length > 0 && (
-                    <>
-                      <Separator className="my-6" />
-                      <div className="flex justify-end space-x-2">
-                        <Button variant="outline">Cancel</Button>
-                        <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
-                          Submit Form
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+          <div className="mt-2">
+            {previewBlocks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No blocks yet. Add some questions to preview the form.
+              </p>
+            ) : (
+              <FormRenderer blocks={previewBlocks} answers={{}} readOnly={false} />
+            )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Assignment Management Dialog */}
-      <Dialog open={showAssignmentDialog} onOpenChange={setShowAssignmentDialog}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+      {/* ================================================================
+          PUBLISH CONFIRM DIALOG
+      ================================================================ */}
+      <Dialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Manage Form Assignments</DialogTitle>
+            <DialogTitle>Publish form?</DialogTitle>
             <DialogDescription>
-              Select existing assignments or create a new one
+              This will make the form available for submissions. You can unpublish it later.
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-6 mt-4">
-            {/* Quick Actions */}
-            <div className="flex items-center justify-between">
-              <Input placeholder="Search assignments..." className="max-w-sm" />
-              <Button 
-                className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-                onClick={() => {
-                  setShowAssignmentDialog(false);
-                  onNavigateToAssignments?.();
-                }}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Assignment
-              </Button>
-            </div>
-
-            {/* Sample Assignments List */}
-            <div className="space-y-3">
-              <Label>Available Assignments</Label>
-              {sampleAssignments.map((assignment) => (
-                <Card
-                  key={assignment.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => {
-                    if (!assignedUnits.includes(assignment.name)) {
-                      setAssignedUnits([...assignedUnits, assignment.name]);
-                    }
-                  }}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                          <Users className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-2 mb-1">
-                            <p className="font-semibold">{assignment.name}</p>
-                            <Badge variant="outline" className="text-xs">
-                              {assignment.type}
-                            </Badge>
-                            {assignment.active && (
-                              <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 text-xs">
-                                Active
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {assignment.count} {assignment.count === 1 ? 'person' : 'people'}
-                          </p>
-                        </div>
-                      </div>
-                      <div>
-                        {assignedUnits.includes(assignment.name) ? (
-                          <Badge className="bg-brand-gradient text-white border-0">
-                            <CheckSquare className="h-3 w-3 mr-1" />
-                            Assigned
-                          </Badge>
-                        ) : (
-                          <Button size="sm" variant="outline">
-                            Select
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Currently Assigned */}
-            {assignedUnits.length > 0 && (
-              <div className="space-y-3">
-                <Separator />
-                <div>
-                  <Label>Currently Assigned ({assignedUnits.length})</Label>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    These assignments will receive this form
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {assignedUnits.map((unit, index) => (
-                    <Badge key={index} variant="outline" className="px-3 py-2">
-                      {unit}
-                      <button
-                        onClick={() => setAssignedUnits(assignedUnits.filter((_, i) => i !== index))}
-                        className="ml-2 hover:text-red-500"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <Separator />
-
-            {/* Dialog Actions */}
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setShowAssignmentDialog(false)}>
-                Cancel
-              </Button>
-              <Button 
-                className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-                onClick={() => setShowAssignmentDialog(false)}
-              >
-                Save Assignments
-              </Button>
-            </div>
+          <div className="flex gap-2 justify-end mt-4">
+            <Button variant="outline" size="sm" onClick={() => setShowPublishConfirm(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handlePublish} disabled={hook.isSaving}>
+              {hook.isSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <Send className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Publish
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+export default FormBuilder;

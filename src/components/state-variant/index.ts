@@ -13,6 +13,7 @@ export { VariantEditorLayout } from './VariantEditorLayout';
 export { RolePillsSelector } from './RolePillsSelector';
 export { ResearchPlanPreview } from './ResearchPlanPreview';
 export { ProgressZapScreen } from './ProgressZapScreen';
+export { VariantPipelineFailureDetails } from './VariantPipelineFailureDetails';
 export { DiffRenderer } from './DiffRenderer';
 export type { ViewMode } from './DiffRenderer';
 export { ChangeNotesRail } from './ChangeNotesRail';

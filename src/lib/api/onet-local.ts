@@ -156,10 +156,13 @@ export const onetLocal = {
       .from('onet_occupations')
       .select('*')
       .eq('onet_code', onetCode)
-      .single();
+      .maybeSingle();
 
-    if (occError || !occupation) {
+    if (occError) {
       console.error('Error fetching occupation:', occError);
+      return null;
+    }
+    if (!occupation) {
       return null;
     }
 

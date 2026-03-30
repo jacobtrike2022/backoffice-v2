@@ -12,6 +12,7 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { MessageSquare, ExternalLink, Link2 } from 'lucide-react';
 import type { DiffOp, ChangeNote, CitationRef } from '../../lib/crud/trackRelationships';
+import { sanitizeHtml } from '../../lib/utils/sanitizeHtml';
 
 export type ViewMode = 'redline' | 'clean';
 
@@ -329,7 +330,7 @@ export function DiffRenderer({
         <div
           ref={containerRef}
           className="prose prose-invert max-w-none"
-          dangerouslySetInnerHTML={{ __html: draftContent }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(draftContent) }}
         />
       );
     }
@@ -508,7 +509,7 @@ function HtmlDiffRenderer({
       <div
         ref={containerRef}
         className="prose prose-invert max-w-none diff-html-container"
-        dangerouslySetInnerHTML={{ __html: processedHtml }}
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(processedHtml) }}
       />
 
       {/* Comment bubble anchored to highlighted text */}

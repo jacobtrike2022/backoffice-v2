@@ -15,6 +15,7 @@ import {
 import { Button } from '../ui/button';
 import { Loader2, CheckCircle2, CreditCard } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { publicAnonKey } from '../../utils/supabase/info';
 
 const stripeKey = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '').trim();
 const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
@@ -87,11 +88,13 @@ export function PaymentSetup({ open, onOpenChange, organizationId }: PaymentSetu
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || publicAnonKey;
       const response = await fetch(`${TRIKE_SERVER_URL}/billing/setup-intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || ''}`,
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({ organization_id: organizationId }),
       });

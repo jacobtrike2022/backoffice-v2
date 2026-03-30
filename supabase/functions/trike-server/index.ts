@@ -20,6 +20,7 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
 // ── Rate Limiting ──────────────────────────────────────────
 interface RateLimitEntry {
@@ -593,6 +594,23 @@ Deno.serve(async (req: Request) => {
       return await handleRetrieveEvidence(req);
     }
 
+    // Verify URL (lightweight HEAD request)
+    if (method === "GET" && path === "/track-relationships/variant/verify-url") {
+      const urlParam = new URL(req.url).searchParams.get('url');
+      if (!urlParam) {
+        return jsonResponse({ error: "url parameter required" }, 400);
+      }
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const headResp = await fetch(urlParam, { method: 'HEAD', signal: controller.signal, redirect: 'follow' });
+        clearTimeout(timeout);
+        return jsonResponse({ accessible: headResp.ok, statusCode: headResp.status, finalUrl: headResp.url, responseTimeMs: 0 });
+      } catch {
+        return jsonResponse({ accessible: false, statusCode: null, finalUrl: urlParam, responseTimeMs: 0 });
+      }
+    }
+
     // Extract Key Facts
     if (method === "POST" && path === "/track-relationships/variant/key-facts") {
       return await handleExtractKeyFacts(req);
@@ -611,13 +629,19 @@ Deno.serve(async (req: Request) => {
 
     // Get Draft
     if (method === "GET" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+$/)) {
-      const draftId = path.split("/")[3];
+      const draftParts = path.split("/");
+      const draftIdx = draftParts.indexOf("draft");
+      const draftId = draftIdx >= 0 ? draftParts[draftIdx + 1] : "";
+      if (!draftId) return jsonResponse({ error: "Draft ID is required" }, 400);
       return await handleGetDraft(draftId, req);
     }
 
     // Apply Instructions to Draft
     if (method === "POST" && path.match(/^\/track-relationships\/variant\/draft\/[^/]+\/apply-instructions$/)) {
-      const draftId = path.split("/")[3];
+      const draftParts = path.split("/");
+      const draftIdx = draftParts.indexOf("draft");
+      const draftId = draftIdx >= 0 ? draftParts[draftIdx + 1] : "";
+      if (!draftId) return jsonResponse({ error: "Draft ID is required" }, 400);
       return await handleApplyInstructions(draftId, req);
     }
 
@@ -786,9 +810,38 @@ Deno.serve(async (req: Request) => {
       return await handleKBPublicGet(req, path);
     }
 
+    // =========================================================================
+    // FORMS PUBLIC ENDPOINTS (no auth required — demo mode compatible)
+    // =========================================================================
+
+    // Get published form by ID for public fill page
+    if (method === "GET" && path.startsWith("/forms/public/") && !path.includes("/submit")) {
+      return await handleFormsPublicGet(req, path);
+    }
+
+    // Branded HTML export for a form submission (print-to-PDF)
+    if (method === "GET" && path.match(/^\/forms\/submissions\/[^\/]+\/pdf$/)) {
+      return await handleFormSubmissionHtml(req, path);
+    }
+
+    // Submit a form response (anonymous, no auth required)
+    if (method === "POST" && path.startsWith("/forms/public/") && path.endsWith("/submit")) {
+      return await handleFormsPublicSubmit(req, path);
+    }
+
     // Record page view
     if (method === "POST" && path === "/kb/page-view") {
       return await handleKBPageView(req);
+    }
+
+    // List demo activity telemetry (for Trike admin analytics UI)
+    if (method === "GET" && path === "/demo/activity") {
+      return await handleDemoActivityList(req);
+    }
+
+    // Record demo activity events (org/session/page/track telemetry)
+    if (method === "POST" && path === "/demo/activity") {
+      return await handleDemoActivity(req);
     }
 
     // Record feedback
@@ -861,6 +914,10 @@ Deno.serve(async (req: Request) => {
 
     if (method === "POST" && path === "/tags/assign") {
       return await handleAssignTags(req);
+    }
+
+    if (method === "POST" && path === "/tags/tracks/batch") {
+      return await handleBatchTrackTags(req);
     }
 
     // =========================================================================
@@ -1203,6 +1260,7 @@ Deno.serve(async (req: Request) => {
         "GET /districts",
         "GET /tags/entity/:type/:id",
         "POST /tags/assign",
+        "POST /tags/tracks/batch",
         "POST /track-relationships/variant/create",
         "GET /track-relationships/variants/:trackId",
         "GET /track-relationships/variant/find",
@@ -5647,27 +5705,49 @@ async function getOrgIdFromToken(req: Request): Promise<string | null> {
   }
 }
 
+/** True when the caller uses the public anon key (demo / no Supabase Auth session). */
+function isAnonBearer(req: Request): boolean {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return false;
+  const token = authHeader.replace("Bearer ", "").trim();
+  const publicAnonKey = Deno.env.get("PUBLIC_ANON_KEY");
+  return !!token && !!publicAnonKey && token === publicAnonKey;
+}
+
+/**
+ * Authorize access to a tenant-scoped resource. Demo/anon callers must use the resource's org
+ * (matches track's organization_id). JWT callers must belong to the same org. No spoofing via ID alone.
+ */
+async function requireOrgAccess(
+  req: Request,
+  resourceOrganizationId: string | null | undefined,
+): Promise<string | null> {
+  if (!resourceOrganizationId) return null;
+  if (isAnonBearer(req)) {
+    return resourceOrganizationId;
+  }
+  const tokenOrgId = await getOrgIdFromToken(req);
+  if (!tokenOrgId || tokenOrgId !== resourceOrganizationId) return null;
+  return tokenOrgId;
+}
+
 async function handleGetSourceTrack(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
+    console.log(`🔍 [GetSourceTrack] trackId: ${trackId}, relationshipType: ${relationshipType}`);
 
-    // Fallback: Get org_id from the track itself if token extraction failed
+    const { data: derivedTrack, error: trackError } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trackError || !derivedTrack?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, derivedTrack.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetSourceTrack] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetSourceTrack] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetSourceTrack] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Query ALL source relationships (a checkpoint can have multiple sources)
@@ -5745,25 +5825,21 @@ async function handleGetSourceTrack(trackId: string, relationshipType: string | 
 
 async function handleGetDerivedTracks(trackId: string, relationshipType: string | null, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    console.log(`🔍 [GetDerivedTracks] trackId: ${trackId}, relationshipType: ${relationshipType}, orgId: ${orgId}`);
-    
-    // Fallback: Get org_id from the track itself if token extraction failed
+    console.log(`🔍 [GetDerivedTracks] trackId: ${trackId}, relationshipType: ${relationshipType}`);
+
+    const { data: srcTrack, error: trackErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trackErr || !srcTrack?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, srcTrack.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetDerivedTracks] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetDerivedTracks] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetDerivedTracks] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     let query = supabase
@@ -5845,24 +5921,19 @@ async function handleGetDerivedTracks(trackId: string, relationshipType: string 
 
 async function handleGetRelationshipStats(trackId: string, req: Request): Promise<Response> {
   try {
-    let orgId = await getOrgIdFromToken(req);
-    
-    // Fallback: Get org_id from the track itself if token extraction failed
+    const { data: tr, error: trErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", trackId)
+      .single();
+
+    if (trErr || !tr?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, tr.organization_id);
     if (!orgId) {
-      console.log("⚠️ [GetRelationshipStats] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", trackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [GetRelationshipStats] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [GetRelationshipStats] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Get derived tracks (where this is the source)
@@ -5950,29 +6021,29 @@ async function handleCreateRelationship(req: Request): Promise<Response> {
   try {
     const body = await req.json();
     const { sourceTrackId, derivedTrackId, relationshipType = "source" } = body;
-    
-    let orgId = await getOrgIdFromToken(req);
-    
-    // Fallback: Get org_id from one of the tracks if token extraction failed
-    if (!orgId) {
-      console.log("⚠️ [CreateRelationship] No orgId from token, trying to get from track...");
-      const { data: track, error: trackError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId || derivedTrackId)
-        .single();
-      
-      if (!trackError && track?.organization_id) {
-        orgId = track.organization_id;
-        console.log(`✅ [CreateRelationship] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [CreateRelationship] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
-    }
-    
+
     if (!sourceTrackId || !derivedTrackId) {
       return jsonResponse({ error: "sourceTrackId and derivedTrackId are required" }, 400);
+    }
+
+    const { data: src } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .single();
+    const { data: der } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", derivedTrackId)
+      .single();
+
+    if (!src?.organization_id || !der?.organization_id || src.organization_id !== der.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, src.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
 
@@ -10853,6 +10924,43 @@ async function sendWelcomeEmail(params: {
   }
 }
 
+const VALID_VARIANT_TYPES = new Set(["geographic", "company", "unit"]);
+
+function validateVariantInputs(variantType: string, variantContext: any): { ok: true } | { ok: false; error: string } {
+  if (!VALID_VARIANT_TYPES.has(variantType)) {
+    return { ok: false, error: "variantType must be geographic, company, or unit" };
+  }
+  if (!variantContext || typeof variantContext !== "object") {
+    return { ok: false, error: "variantContext must be an object" };
+  }
+  const ctx = variantContext as Record<string, unknown>;
+  if (variantType === "geographic") {
+    if (!ctx.state_code && !ctx.state_name) {
+      return { ok: false, error: "Geographic variant requires state_code or state_name in variantContext" };
+    }
+  }
+  if (variantType === "company") {
+    if (!ctx.org_name && !ctx.org_id) {
+      return { ok: false, error: "Company variant requires org_name or org_id in variantContext" };
+    }
+  }
+  if (variantType === "unit") {
+    if (!ctx.store_id && !ctx.store_name) {
+      return { ok: false, error: "Unit variant requires store_id or store_name in variantContext" };
+    }
+  }
+  return { ok: true };
+}
+
+/** Primary body text for variant adaptation (articles: transcript first). */
+function getTrackSourceTextForVariant(track: { type?: string | null; transcript?: string | null; content_text?: string | null }): string {
+  const t = (track.type || "").toLowerCase();
+  if (t === "article") {
+    return (track.transcript || track.content_text || "").trim();
+  }
+  return (track.content_text || track.transcript || "").trim();
+}
+
 /**
  * AI-Assisted Variant Generation: Chat
  * Uses OpenAI Responses API with web search for research-first workflow
@@ -10867,23 +10975,14 @@ async function handleVariantChat(req: Request): Promise<Response> {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [VariantChat] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
+    const validation = validateVariantInputs(variantType, variantContext);
+    if (!validation.ok) {
+      return jsonResponse({ error: validation.error }, 400);
+    }
 
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [VariantChat] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [VariantChat] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: track, error: trackError } = await supabase
@@ -10895,7 +10994,7 @@ async function handleVariantChat(req: Request): Promise<Response> {
 
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
-    const sourceContent = track.content_text || track.transcript || '';
+    const sourceContent = getTrackSourceTextForVariant(track);
 
     // Derive audience from source content for all phases
     const audience = deriveAudienceFromContent(sourceContent);
@@ -11081,7 +11180,7 @@ ${topicAnalysis.map(t => `• ${t}`).join('\n')}
 
 Or type "proceed" to generate the variant with a "Needs Review" flag.
 
-[NEEDS_REVIEW]`;
+[[VARIANT_CHAT_META:${JSON.stringify({ status: "NEEDS_REVIEW", needsReview: true })}]]`;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -11573,6 +11672,22 @@ function validateResearchQuality(
   };
 }
 
+function formatVariantOpenQuestionsList(variantType: string, targetLabel: string): string {
+  if (variantType === 'geographic') {
+    return `1. **POS Flow** — How does your register handle age-restricted items?\n` +
+      `2. **Escalation Path** — Who should staff call if there's a dispute?\n` +
+      `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
+  }
+  if (variantType === 'company') {
+    return `1. **Policy names** — Which internal SOP or policy title should we reference for "${targetLabel}"?\n` +
+      `2. **Terminology** — Any brand-specific words we must use or avoid?\n` +
+      `3. **Escalation** — Who should learners contact for exceptions?\n`;
+  }
+  return `1. **Local contacts** — Manager or safety lead for this unit?\n` +
+    `2. **Equipment/layout** — Anything location-specific learners must know?\n` +
+    `3. **Neighborhood context** — Any local hazards or customer norms to mention?\n`;
+}
+
 /**
  * Format the research result for display
  */
@@ -11626,19 +11741,16 @@ function formatResearchResult(
     result += '\n';
   }
 
-  // Open Questions
-  result += `---\n### Open Questions (Company-Specific Only)\n\n`;
-  result += `1. **POS Flow** — How does your register handle age-restricted items?\n`;
-  result += `2. **Escalation Path** — Who should the cashier call if there's a dispute?\n`;
-  result += `3. **Card-All Policy** — Do you require ID for all purchases?\n`;
+  // Open Questions (variant-specific)
+  result += `---\n### Open Questions\n\n`;
+  result += formatVariantOpenQuestionsList(variantType, targetLabel);
   result += `\n*These are optional. Type "proceed" to generate with standard ${targetLabel} adaptation defaults.*\n\n`;
 
-  // Status indicator for UI
-  if (!qualityCheck.passed) {
-    result += `[NEEDS_REVIEW]`;
-  } else {
-    result += `[READY_TO_GENERATE]`;
-  }
+  // Structured status for UI (parsed by VariantGenerationChat; avoids ambiguous marker text)
+  const needsReviewFlag = !qualityCheck.passed;
+  const statusToken = needsReviewFlag ? "NEEDS_REVIEW" : "READY_TO_GENERATE";
+  result +=
+    `\n\n[[VARIANT_CHAT_META:${JSON.stringify({ status: statusToken, needsReview: needsReviewFlag })}]]`;
 
   return result;
 }
@@ -11656,23 +11768,14 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [VariantGenerate] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
+    const validation = validateVariantInputs(variantType, variantContext);
+    if (!validation.ok) {
+      return jsonResponse({ error: validation.error }, 400);
+    }
 
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [VariantGenerate] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [VariantGenerate] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: track, error: trackError } = await supabase
@@ -11684,7 +11787,7 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
 
     if (trackError || !track) return jsonResponse({ error: "Source track not found" }, 404);
 
-    const sourceContent = track.content_text || track.transcript || '';
+    const sourceContent = getTrackSourceTextForVariant(track);
     const qaContent = clarificationAnswers
       ? clarificationAnswers.map((qa: any) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')
       : 'No specific clarifications provided.';
@@ -11693,14 +11796,34 @@ async function handleVariantGenerate(req: Request): Promise<Response> {
     const audience = deriveAudienceFromContent(sourceContent);
     const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
     const roleLabelLower = audience.primaryRole.replace('_', ' ');
+    const defaultLearnerActions =
+      variantType === 'geographic'
+        ? 'check id, verify age, refuse sale'
+        : variantType === 'company'
+          ? 'follow company policy, use approved terminology, escalate per SOP'
+          : 'follow store procedures, use local contacts, report issues per SOP';
     const learnerActionsStr = audience.learnerActions.length
       ? audience.learnerActions.join(', ')
-      : 'check id, verify age, refuse sale';
+      : defaultLearnerActions;
     const targetLabel = getVariantTargetLabel(variantType, variantContext);
     const adaptationFocus =
       variantType === 'geographic' ? `${targetLabel} laws/regulations` :
       variantType === 'company' ? `${targetLabel} company policies/terminology` :
       `${targetLabel} store/location procedures`;
+
+    const openQuestionsHint =
+      variantType === 'geographic'
+        ? 'POS flow, escalation path, card-all policy, ID scanning (0-3 max) — not state law questions'
+        : variantType === 'company'
+          ? 'internal policy names, brand terminology, escalation roles, tools/systems (0-3 max)'
+          : 'local manager contacts, store layout/equipment, neighborhood or safety notes (0-3 max)';
+
+    const citationHint =
+      variantType === 'geographic'
+        ? 'Tier-1 government sources (.gov / official regulatory portals) where possible'
+        : variantType === 'company'
+          ? 'cite internal policy doc names/SOP IDs when asserting mandatory rules; otherwise mark [NEEDS REVIEW]'
+          : 'cite store SOP or manager-approved guidance when asserting mandatory rules; otherwise mark [NEEDS REVIEW]';
 
     // Enhanced generation prompt with structured output format
     const generationPrompt = `
@@ -11733,7 +11856,8 @@ For each rule, identify:
 If a rule doesn't modify a SourceAction above, DISCARD it.
 
 ### CITATION REQUIREMENT
-Any "must", "required", "illegal", or "penalty" needs [Source: URL]
+Any "must", "required", "illegal", or "penalty" needs a citation or explicit [NEEDS REVIEW].
+${citationHint}
 
 ### ROLE AWARENESS
 Write for a ${roleLabel} ("you must..."). Use second person.
@@ -11762,7 +11886,7 @@ Write for a ${roleLabel} ("you must..."). Use second person.
     }
   ],
   "openQuestions": [
-    "Optional company-specific question (0-3 max, only if truly needed)"
+    "Optional follow-up question (0-3 max, only if truly needed)"
   ],
   "qualityFlags": {
     "needsReview": false,
@@ -11775,8 +11899,8 @@ IMPORTANT:
 - researchFindings should have 3-8 rules MAX, each mapped to a learner action
 - generatedContent should be nearly identical to source, with only target-context-specific swaps
 - adaptations should list EVERY change made, with reason and source action
-- openQuestions should ONLY be about company-specific items (POS, escalation, card-all)
-- Set needsReview: true if any claim lacks Tier-1 citation
+- openQuestions: ${openQuestionsHint}
+- Set needsReview: true if any strong claim lacks an appropriate citation
 - outOfScopeDiscarded should list any topics you found but discarded as out of scope
 `;
 
@@ -11807,19 +11931,44 @@ IMPORTANT:
     const result = await response.json();
     const content = result.choices[0]?.message?.content;
 
+    const fallbackTitle = `${track.title} (${variantType} variant)`;
     try {
-      return jsonResponse(JSON.parse(content));
+      const parsed = content ? JSON.parse(content) : {};
+      return jsonResponse(normalizeVariantGeneratePayload(parsed, fallbackTitle, String(content || ""), false));
     } catch (e) {
-      return jsonResponse({ 
-        generatedTitle: `${track.title} (${variantType} variant)`,
-        generatedContent: content,
-        adaptations: []
-      });
+      return jsonResponse(
+        normalizeVariantGeneratePayload({}, fallbackTitle, String(content || ""), true)
+      );
     }
   } catch (error: any) {
     console.error("Error in handleVariantGenerate:", error);
     return jsonResponse({ error: error.message }, 500);
   }
+}
+
+function normalizeVariantGeneratePayload(
+  raw: Record<string, unknown>,
+  fallbackTitle: string,
+  rawModelText: string,
+  parseError: boolean
+): Record<string, unknown> {
+  const g = (k: string) => raw[k];
+  return {
+    generatedTitle: typeof g("generatedTitle") === "string" ? (g("generatedTitle") as string) : fallbackTitle,
+    generatedContent: typeof g("generatedContent") === "string" ? (g("generatedContent") as string) : rawModelText,
+    researchFindings: Array.isArray(g("researchFindings")) ? g("researchFindings") : [],
+    adaptations: Array.isArray(g("adaptations")) ? g("adaptations") : [],
+    openQuestions: Array.isArray(g("openQuestions")) ? g("openQuestions") : [],
+    qualityFlags:
+      g("qualityFlags") && typeof g("qualityFlags") === "object"
+        ? g("qualityFlags")
+        : {
+            needsReview: true,
+            unresolvedCitations: [] as string[],
+            outOfScopeDiscarded: [] as string[],
+          },
+    parseError,
+  };
 }
 
 // ============================================================================
@@ -11849,9 +11998,15 @@ function getVariantSystemPrompt(
   const roleLabelLower = audience?.primaryRole
     ? audience.primaryRole.replace('_', ' ')
     : 'learner';
+  const defaultLearnerActions =
+    variantType === 'geographic'
+      ? 'check id, verify age, refuse sale'
+      : variantType === 'company'
+        ? 'follow company policy, use approved terminology, escalate per SOP'
+        : 'follow store procedures, use local contacts, report issues per SOP';
   const learnerActionsStr = audience?.learnerActions?.length
     ? audience.learnerActions.join(', ')
-    : 'check id, verify age, refuse sale';
+    : defaultLearnerActions;
 
   switch (variantType) {
     case 'geographic':
@@ -11925,9 +12080,7 @@ Your output should be as close to the source as possible. Only change what MUST 
 - Do not add sections, warnings, or "nice to know" information
 - If unsure whether something should change, leave it as-is
 
-## CITATION REQUIREMENT
-Any claim using "must", "required", "illegal", or "penalty" needs a citation.
-If you cannot cite it to a Tier-1 source (state .gov), mark it [NEEDS REVIEW].
+${getVariantCitationBlock(variantType)}
 
 ## OUTPUT FORMAT
 Structure your variant generation response as:
@@ -11938,11 +12091,39 @@ Structure your variant generation response as:
 2. **${getVariantTargetLabel(variantType, variantContext)}-Specific Draft Script** — Rewritten transcript
    Minimal changes from source. Track what was adapted and why.
 
-3. **Open Questions (Company-Specific Only)** — 0-3 questions max
-   ONLY: POS flow, escalation path, signage template, card-all policy, ID scanning
-   NEVER: state laws, regulations, age requirements (you already have those)
+3. **Open Questions** — 0-3 questions max
+${getVariantOpenQuestionBlock(variantType)}
 
 BE PROFESSIONAL: Use clear, operational language suitable for ${roleLabelLower}s.`;
+}
+
+function getVariantCitationBlock(variantType: string): string {
+  if (variantType === 'geographic') {
+    return `## CITATION REQUIREMENT
+Any claim using "must", "required", "illegal", or "penalty" needs a citation to a Tier-1 government or official regulatory source when possible.
+If you cannot cite it, mark it [NEEDS REVIEW].`;
+  }
+  if (variantType === 'company') {
+    return `## CITATION REQUIREMENT
+For internal "must" rules, cite the policy/SOP name or document ID when possible.
+If you cannot cite an internal source, mark it [NEEDS REVIEW] instead of inventing policy.`;
+  }
+  return `## CITATION REQUIREMENT
+For location-specific "must" rules, cite the store SOP, approved memo, or manager directive when possible.
+If you cannot cite a local source, mark it [NEEDS REVIEW] instead of inventing procedures.`;
+}
+
+function getVariantOpenQuestionBlock(variantType: string): string {
+  if (variantType === 'geographic') {
+    return `   ONLY: POS flow, escalation path, signage template, card-all policy, ID scanning (operational preferences)
+   NEVER: ask the user to supply state law — you handle regulatory research`;
+  }
+  if (variantType === 'company') {
+    return `   ONLY: internal policy names, brand terminology, escalation roles, tools/systems
+   NEVER: invent company policy — ask when truly unknown`;
+  }
+  return `   ONLY: local manager contacts, store layout/equipment, neighborhood or safety context
+   NEVER: invent store facts — ask when truly unknown`;
 }
 
 function getVariantTargetLabel(variantType: string, variantContext: any): string {
@@ -11987,9 +12168,15 @@ function getClarificationPrompt(variantType: string, variantContext: any, source
   // Derive audience from source content
   const audience = deriveAudienceFromContent(sourceContent);
   const roleLabel = audience.primaryRole.replace('_', ' ').toUpperCase();
+  const defaultClarifyActions =
+    variantType === 'geographic'
+      ? 'check id, verify age, refuse sale'
+      : variantType === 'company'
+        ? 'follow company policy, use approved terminology, escalate per SOP'
+        : 'follow store procedures, use local contacts, report issues per SOP';
   const learnerActionsStr = audience.learnerActions.length
     ? audience.learnerActions.join(', ')
-    : 'check id, verify age, refuse sale';
+    : defaultClarifyActions;
 
   switch (variantType) {
     case 'geographic':
@@ -12077,23 +12264,19 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
       return jsonResponse({ error: "sourceTrackId, variantType, and variantContext are required" }, 400);
     }
 
-    // Try to get org from token, fallback to track's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [BuildScopeContract] No orgId from token, trying to get from track...");
-      const { data: trackOrg, error: trackOrgError } = await supabase
-        .from("tracks")
-        .select("organization_id")
-        .eq("id", sourceTrackId)
-        .single();
+    const { data: trackOrgRow, error: trackOrgErr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .single();
 
-      if (!trackOrgError && trackOrg?.organization_id) {
-        orgId = trackOrg.organization_id;
-        console.log(`✅ [BuildScopeContract] Got orgId from track: ${orgId}`);
-      } else {
-        console.error("❌ [BuildScopeContract] Could not get orgId from track either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (trackOrgErr || !trackOrgRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, trackOrgRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the source track
@@ -12108,8 +12291,11 @@ async function handleBuildScopeContract(req: Request): Promise<Response> {
       return jsonResponse({ error: "Source track not found" }, 404);
     }
 
-    // Get source content
-    const sourceContent = track.content_text || track.transcript || track.description || '';
+    const primary = getTrackSourceTextForVariant(track);
+    const sourceContent =
+      primary.length >= 50
+        ? primary
+        : `${primary}\n${track.description || ""}`.trim() || (track.description || "").trim();
 
     if (!sourceContent || sourceContent.trim().length < 50) {
       return jsonResponse({ error: "Source track has insufficient content for scope analysis" }, 400);
@@ -12248,6 +12434,35 @@ CRITICAL for allowedLearnerActions:
 Good examples: "monitor fuel delivery", "report spills", "verify safety cones placement", "respond to alarms", "notify supervisor of violations"
 Bad examples: "stay alert", "stay ready", "prevent emergencies", "keep store running smoothly"
 
+CRITICAL for audienceNegativeExamples:
+- List 4-6 specific topics that SOUND RELATED to the training but are OUT OF SCOPE
+- These are topics a naive search engine might return but are NOT relevant to the learner
+- Think: what would a bad search return? List those topics to exclude them
+- Example for "Class C Fueling Safety for cashiers": ["underground storage tank installation", "wholesale fuel transport DOT regulations", "refinery worker safety protocols", "service station construction codes", "fuel tanker delivery CDL requirements"]
+- Example for "Tobacco Sales Compliance": ["tobacco manufacturing regulations", "cigarette tax stamp production", "tobacco farming subsidies", "tobacco advertising law for media companies"]
+
+CRITICAL for regulatoryDomainHints:
+- List 2-4 types of state regulatory bodies that would govern THIS specific content
+- These help focus research on the RIGHT state agencies
+- Example for fueling safety: ["State Fire Marshal", "State Occupational Safety agency", "State Environmental Agency (spill reporting)"]
+- Example for alcohol sales: ["State Alcohol Beverage Control board", "State Liquor Authority"]
+
+CRITICAL for adaptableHooks — THIS IS THE MOST IMPORTANT OUTPUT:
+- Scan the source content for GENERIC statements that obviously have state-specific counterparts
+- These are sentences that say something general/national that BEGS for a state-specific replacement
+- Each hook is an EXACT quote from the source + what state-specific info should replace/enhance it
+- The research pipeline will use these hooks as PRIMARY research targets
+- Examples from an alcohol sales article:
+  - "Laws and regulations for selling alcohol vary by state" → research: what are THIS state's specific alcohol laws?
+  - "hours of sale" → research: what are THIS state's specific hours of sale?
+  - "severe penalties, including fines and the potential loss of the store's liquor license" → research: what are THIS state's specific penalty structures?
+  - "the legal drinking age" → research: any state-specific age verification requirements beyond federal?
+- Examples from a fueling safety article:
+  - "follow your state's reporting requirements" → research: what are THIS state's specific spill reporting requirements?
+  - "local fire codes may apply" → research: what are THIS state's fire marshal requirements for fueling?
+- PRIORITIZE hooks that are already in the template as generic statements — these are the easiest and most natural places for state-specific adaptation
+- Include 4-10 hooks, ordered by importance (most regulation-dense topics first)
+
 Output this exact JSON structure:
 {
   "primaryRole": "<one of: frontline_store_associate, manager_supervisor, delivery_driver, owner_executive, back_office_admin, other>",
@@ -12256,6 +12471,16 @@ Output this exact JSON structure:
   "roleEvidenceQuotes": ["<exact quotes from source, max 6>"],
   "allowedLearnerActions": ["<5-12 SPECIFIC imperative verb+object phrases - NO motivational/generic phrases>"],
   "disallowedActionClasses": ["<5-10 action types NOT taught>"],
+  "audienceNegativeExamples": ["<4-6 related-sounding topics that are OUT OF SCOPE for this audience>"],
+  "regulatoryDomainHints": ["<2-4 types of state regulatory bodies that govern this content>"],
+  "adaptableHooks": [
+    {
+      "exactQuote": "<exact sentence or phrase from source content>",
+      "hookType": "<one of: generic_claim, vague_reference, placeholder, federal_only>",
+      "researchTarget": "<what state-specific info should be found to replace/enhance this>",
+      "priority": "<high|medium|low>"
+    }
+  ],
   "domainAnchors": ["<6-15 nouns/noun-phrases defining the topic>"],
   "instructionalGoal": "<single sentence describing what learner will be able to do>"
 }`;
@@ -12290,6 +12515,8 @@ Analyze this content and output the Scope Contract JSON.`;
       roleEvidenceQuotes: audience.evidence.slice(0, 5),
       allowedLearnerActions: audience.learnerActions,
       disallowedActionClasses: [],
+      audienceNegativeExamples: [],
+      regulatoryDomainHints: [],
       domainAnchors: [],
       instructionalGoal: `Adapt content for ${variantType} variant while maintaining core instructional objectives`,
     };
@@ -12371,19 +12598,19 @@ async function handleFreezeScopeContractRoles(contractId: string, req: Request):
       return jsonResponse({ error: "primaryRole is required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
+    const { data: crow } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
+
+    if (!crow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, crow.organization_id);
     if (!orgId) {
-      const { data: contract } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
-      if (contract?.organization_id) {
-        orgId = contract.organization_id;
-      } else {
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch existing contract
@@ -12437,23 +12664,19 @@ async function handleFreezeScopeContractRoles(contractId: string, req: Request):
  */
 async function handleGetScopeContract(contractId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetScopeContract] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: contractOrg, error: contractOrgError } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [GetScopeContract] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [GetScopeContract] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (contractOrgError || !contractOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, contractOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: contract, error } = await supabase
@@ -12489,12 +12712,19 @@ async function generateResearchQueries(
   stateCode: string,
   stateName: string,
   domainContext: string,
-  learnerActions: string[]
-): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[] }>> {
+  learnerActions: string[],
+  scopeContract?: any
+): Promise<Array<{ query: string; mappedAction: string; why: string; keywords: string[]; scopeJustification?: string }>> {
   if (!OPENAI_API_KEY) {
     console.warn("OpenAI API key missing, skipping LLM query generation");
     return [];
   }
+
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const disallowed = scopeContract?.disallowedActionClasses || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const regulatoryHints = scopeContract?.regulatoryDomainHints || [];
+  const instructionalGoal = scopeContract?.instructionalGoal || '';
 
   const systemPrompt = `You are a research expert specializing in regulatory compliance search strategies.
 Your goal is to generate HIGH-QUALITY search queries to find official state regulations.
@@ -12502,12 +12732,38 @@ Your goal is to generate HIGH-QUALITY search queries to find official state regu
 INPUT CONTEXT:
 State: ${stateName} (${stateCode})
 Business Domain: ${domainContext}
+Target Audience: ${primaryRoleLabel}
 Learner Actions: ${learnerActions.join(', ')}
+${instructionalGoal ? `Instructional Goal: ${instructionalGoal}` : ''}
+${regulatoryHints.length > 0 ? `Relevant Regulatory Bodies: ${regulatoryHints.join(', ')}` : ''}
+
+═══ SCOPE FENCE ═══
+All queries MUST stay within these boundaries:
+- AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations
+- THEIR JOB ACTIONS: ${learnerActions.join(', ')}
+${disallowed.length > 0 ? `- EXPLICITLY OUT OF SCOPE: ${disallowed.join(', ')}` : ''}
+${negativeExamples.length > 0 ? `- DO NOT SEARCH FOR THESE TOPICS: ${negativeExamples.join(', ')}` : ''}
+
+CRITICAL: If a regulation applies to a DIFFERENT ROLE than ${primaryRoleLabel}, it is OUT OF SCOPE.
+For example, if the audience is "cashiers", do NOT search for regulations about tank technicians, wholesale distributors, or construction crews.
+═══════════════════
+
+ADAPTABLE HOOKS FROM SOURCE CONTENT:
+${(scopeContract?.adaptableHooks || []).map((h: any, i: number) => `${i + 1}. "${h.exactQuote}" → Find: ${h.researchTarget} [${h.priority}]`).join('\n') || 'None extracted'}
 
 TASK:
-Generate exactly 4 search queries that are most likely to yield official state regulations (.gov, administrative code, statutes) covering the provided Learner Actions.
-Do NOT just concatenate words. Use boolean operators or natural language phrasing that legal search engines or Google would understand best.
-Focus on the most critical compliance risks.
+Generate exactly 4-6 search queries. PRIORITIZE queries that target the Adaptable Hooks above — these are generic statements in the source content that need state-specific replacements.
+
+For each hook marked "high" priority, there MUST be at least one query targeting it.
+Use natural language phrasing that search engines understand best.
+Focus on finding the SPECIFIC ${stateName} regulations that replace the generic statements.
+
+QUERY STRATEGY:
+- For "hours of sale" hooks → search for "${stateName} alcohol sale hours restrictions"
+- For "penalties/fines" hooks → search for "${stateName} [topic] violation penalties fine schedule"
+- For "licensing" hooks → search for "${stateName} [specific license type] requirements"
+- For vague "state laws vary" hooks → search for the specific ${stateName} statute governing that area
+- ALWAYS include the target audience context (e.g., "retail", "convenience store", "cashier")
 
 OUTPUT FORMAT (JSON):
 {
@@ -12516,7 +12772,9 @@ OUTPUT FORMAT (JSON):
       "query": "search string",
       "mappedAction": "The specific learner action this query covers (or 'general' if broad)",
       "why": "Brief explanation of what regulation this targets",
-      "keywords": ["keyword1", "keyword2"]
+      "keywords": ["keyword1", "keyword2"],
+      "scopeJustification": "Why this query is relevant to ${primaryRoleLabel} specifically",
+      "targetHookQuote": "The exact quote from adaptableHooks this query targets, or null if general"
     }
   ]
 }
@@ -12533,7 +12791,7 @@ OUTPUT FORMAT (JSON):
         model: "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: "Generate the 4 best research queries for this context." }
+          { role: "user", content: `Generate the 4 best research queries for ${stateName} regulations relevant to ${primaryRoleLabel}. Remember: stay within the Scope Fence.` }
         ],
         temperature: 0.2,
         response_format: { type: "json_object" }
@@ -12559,29 +12817,25 @@ OUTPUT FORMAT (JSON):
  */
 async function handleBuildResearchPlan(req: Request): Promise<Response> {
   try {
-    const { contractId, stateCode, stateName, useLLM } = await req.json();
+    const { contractId, stateCode, stateName, useLLM, avoidTopics } = await req.json();
 
     if (!contractId || !stateCode) {
       return jsonResponse({ error: "contractId and stateCode are required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [BuildResearchPlan] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: contractRow, error: contractOrgError } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [BuildResearchPlan] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [BuildResearchPlan] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (contractOrgError || !contractRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, contractRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the scope contract
@@ -12611,7 +12865,8 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       stateCode,
       stateName || stateCode,
       topDomainContext,
-      actions
+      actions,
+      scopeContract
     );
 
     if (generatedQueries && generatedQueries.length > 0) {
@@ -12623,6 +12878,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
         negativeTerms: [],
         targetType: 'statute',
         why: q.why,
+        scopeJustification: q.scopeJustification || '',
       }));
     } else {
       // Fallback: Pick top 4 actions and build simple queries
@@ -12640,19 +12896,34 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       });
     }
 
-    // CRITICAL: Add a "state differences" query to catch unique state laws
-    // This explicitly asks what's different/unique about this state
+    // Add a scope-locked "state differences" query to catch unique state laws
+    const primaryRoleLabel = scopeContract.primaryRole?.label || scopeContract.primaryRole || 'frontline employee';
+    const negativeExamples = scopeContract.audienceNegativeExamples || [];
     const stateDifferenceQuery = {
       id: `q${queries.length + 1}`,
-      query: `${stateCode} ${stateName || ''} unique different laws regulations ${topDomainContext}`,
+      query: `${stateName || stateCode} unique laws regulations for ${primaryRoleLabel} ${topDomainContext}`,
       mappedAction: 'state-specific compliance',
-      anchorTerms: [stateCode, stateName || '', 'unique', 'different', 'only state', 'unlike other states', ...domainAnchors.slice(0, 2)].filter(Boolean),
-      negativeTerms: [],
+      anchorTerms: [stateCode, stateName || '', 'unique', 'different', ...domainAnchors.slice(0, 2)].filter(Boolean),
+      negativeTerms: [...negativeExamples],
       targetType: 'statute',
-      why: `Find what makes ${stateName || stateCode} DIFFERENT from other states in this domain`,
-      isStateDifferenceQuery: true,  // Flag for special handling
+      why: `Find what makes ${stateName || stateCode} DIFFERENT from other states for ${primaryRoleLabel}`,
+      scopeJustification: `Identifies state-unique regulations that affect ${primaryRoleLabel} specifically`,
+      isStateDifferenceQuery: true,
     };
     queries.push(stateDifferenceQuery);
+
+    const avoidList: string[] =
+      typeof avoidTopics === "string"
+        ? avoidTopics.split(/[,;\n]+/).map((s: string) => s.trim()).filter(Boolean)
+        : Array.isArray(avoidTopics)
+          ? avoidTopics.map((s: unknown) => String(s).trim()).filter(Boolean)
+          : [];
+
+    if (avoidList.length > 0) {
+      for (const q of queries as Array<{ negativeTerms?: string[] }>) {
+        q.negativeTerms = [...new Set([...(q.negativeTerms || []), ...avoidList])];
+      }
+    }
 
     const researchPlan = {
       id: crypto.randomUUID(),
@@ -12662,7 +12933,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       contractId,
       primaryRole: scopeContract.primaryRole,
       queries,
-      globalNegativeTerms: [],
+      globalNegativeTerms: avoidList,
       sourcePolicy: {
         preferTier1: true,
         allowTier2Justia: true,
@@ -12692,7 +12963,7 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
       planId: plan.id,
       researchPlan,
       queryCount: queries.length,
-      globalNegativeCount: 0,
+      globalNegativeCount: avoidList.length,
     });
 
   } catch (error: any) {
@@ -12706,23 +12977,19 @@ async function handleBuildResearchPlan(req: Request): Promise<Response> {
  */
 async function handleGetResearchPlan(planId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to plan's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetResearchPlan] No orgId from token, trying to get from plan...");
-      const { data: planOrg, error: planOrgError } = await supabase
-        .from("variant_research_plans")
-        .select("organization_id")
-        .eq("id", planId)
-        .single();
+    const { data: planOrg, error: planOrgError } = await supabase
+      .from("variant_research_plans")
+      .select("organization_id")
+      .eq("id", planId)
+      .single();
 
-      if (!planOrgError && planOrg?.organization_id) {
-        orgId = planOrg.organization_id;
-        console.log(`✅ [GetResearchPlan] Got orgId from plan: ${orgId}`);
-      } else {
-        console.error("❌ [GetResearchPlan] Could not get orgId from plan either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (planOrgError || !planOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, planOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: plan, error } = await supabase
@@ -12749,102 +13016,187 @@ async function handleGetResearchPlan(planId: string, req: Request): Promise<Resp
 }
 
 /**
- * Use GPT-4o with knowledge cutoff to find regulatory information
- * Returns structured legal facts with source references
- * Note: This uses the model's training data, not live web search
+ * Build a scope-locked system prompt for Perplexity research
+ * Embeds the Scope Fence to prevent drift into irrelevant regulations
  */
-async function findRegulatoryInfo(
+function buildScopedResearchSystemPrompt(
+  scopeContract: any,
+  stateCode: string,
+  stateName: string
+): string {
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
+  const disallowed = scopeContract?.disallowedActionClasses || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const domainAnchors = scopeContract?.domainAnchors || [];
+  const regulatoryHints = scopeContract?.regulatoryDomainHints || [];
+  const instructionalGoal = scopeContract?.instructionalGoal || '';
+
+  return `You are a regulatory research assistant finding ${stateName} (${stateCode}) state-specific laws and regulations.
+
+SCOPE FENCE — All research MUST stay within these boundaries:
+- AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations
+- THEIR JOB ACTIONS: ${allowedActions.slice(0, 10).join(', ')}
+- TOPIC BOUNDARY: ${domainAnchors.slice(0, 10).join(', ')}
+- INSTRUCTIONAL GOAL: ${instructionalGoal}
+${disallowed.length > 0 ? `- EXPLICITLY OUT OF SCOPE: ${disallowed.join(', ')}` : ''}
+${negativeExamples.length > 0 ? `- DO NOT RESEARCH THESE TOPICS: ${negativeExamples.join(', ')}` : ''}
+${regulatoryHints.length > 0 ? `- RELEVANT REGULATORY BODIES TO CHECK: ${regulatoryHints.join(', ')}` : ''}
+
+CRITICAL SCOPE RULE: If a regulation applies to a DIFFERENT ROLE (tank technicians, refinery workers, wholesale distributors, construction crews, tanker truck drivers) than the target audience (${primaryRoleLabel}), it is OUT OF SCOPE even if it's in the same general industry domain.
+
+SPECIFIC TOPICS TO RESEARCH (from source content analysis):
+${(scopeContract?.adaptableHooks || []).filter((h: any) => h.priority === 'high').map((h: any) => `- ${h.researchTarget}`).join('\n') || '(none extracted — use learner actions above)'}
+
+RESPONSE REQUIREMENTS:
+1. Cite specific statute numbers, administrative code sections, or regulation citations
+2. Prefer official .gov sources, state legislature sites, and state agency sites
+3. Every factual claim must have a specific citation
+4. Focus on what the TARGET AUDIENCE (${primaryRoleLabel}) must know or do
+5. Include penalties and consequences for violations where applicable
+6. Note any recent changes or pending legislation
+7. CRITICAL: Only cite a bill/statute if you can confirm it addresses the TOPIC being researched. Do NOT cite a real bill number that covers a different subject.`;
+}
+
+/**
+ * Search for state regulations using Perplexity API (real web search with citations)
+ * Replaces the old findRegulatoryInfo() which only used GPT-4o training data
+ */
+async function searchStateRegulations(
   stateCode: string,
   stateName: string,
   action: string,
   domainContext: string,
+  scopeContract: any,
   isStateDifferenceQuery: boolean = false
 ): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
-  if (!OPENAI_API_KEY) {
-    throw new Error("OpenAI API key not configured");
+  if (!PERPLEXITY_API_KEY) {
+    console.warn("[searchStateRegulations] PERPLEXITY_API_KEY not set, falling back to OpenAI Responses API");
+    return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
   }
 
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
 
-  const systemPrompt = `You are a legal research assistant specializing in state regulatory compliance for businesses.
-Your task is to provide accurate, factual information about state regulations.
+  // Build scope-locked query
+  const scopedQuery = isStateDifferenceQuery
+    ? `What ${stateName} (${stateCode}) laws and regulations are UNIQUE or DIFFERENT from federal standards regarding: ${domainContext}
 
-TODAY'S DATE: ${today}
+This is specifically for training ${primaryRoleLabel} at convenience stores / retail fuel stations.
+Only include regulations relevant to someone who: ${allowedActions.slice(0, 5).join(', ')}
+${negativeExamples.length > 0 ? `DO NOT include regulations about: ${negativeExamples.join(', ')}` : ''}
 
-IMPORTANT GUIDELINES:
-1. Only state facts you are confident about from your training data
-2. Include specific statute numbers, code sections, or regulation citations when known
-3. Cite the official source (e.g., "Texas Alcoholic Beverage Code §106.03")
-4. If you're uncertain about specific details, say so
-5. Focus on regulations relevant to retail/convenience store operations
-6. Your training data has a cutoff. Flag if regulations might have changed recently or if there's pending legislation you're aware of
-7. Include the year/version of any statute you reference when known
+What makes ${stateName} different from most other states for THIS SPECIFIC AUDIENCE?
+Cite specific statutes and official sources.`
+    : `${stateName} (${stateCode}) state regulations for: ${action}
 
-Return your response as JSON with this structure:
-{
-  "summary": "Brief summary of the key regulatory requirements",
-  "facts": [
-    {
-      "fact": "The specific regulatory fact or requirement",
-      "citation": "Official citation (e.g., Texas ABC Code §106.03)",
-      "source_type": "statute" | "regulation" | "administrative_code",
-      "confidence": "high" | "medium" | "low",
-      "year_referenced": "2023 or unknown"
+This is for training ${primaryRoleLabel} at convenience stores / retail fuel stations.
+Focus on: employee duties, required procedures, penalties for violations, age restrictions, required training.
+${negativeExamples.length > 0 ? `DO NOT include regulations about: ${negativeExamples.join(', ')}` : ''}
+
+Cite specific statute numbers and official sources.`;
+
+  const systemPrompt = buildScopedResearchSystemPrompt(scopeContract, stateCode, stateName);
+
+  console.log(`[searchStateRegulations] Perplexity search: ${stateCode} - ${action}${isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
+
+  try {
+    const response = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${PERPLEXITY_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: scopedQuery }
+        ],
+        search_recency_filter: "year",
+        return_related_questions: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[searchStateRegulations] Perplexity API error:", response.status, errorText);
+      return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
     }
-  ],
-  "source_urls": [
-    {
-      "url": "https://statutes.capitol.texas.gov/...",
-      "title": "Texas Statutes - Alcoholic Beverage Code",
-      "description": "Official state statute source"
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const perplexityCitations: string[] = data.citations || [];
+    const searchResults: Array<{ title?: string; url: string; snippet?: string }> = data.search_results || [];
+
+    // Build a lookup from URL → search result for rich title/snippet
+    const searchResultMap = new Map<string, { title: string; snippet: string }>();
+    for (const sr of searchResults) {
+      if (sr.url) {
+        searchResultMap.set(sr.url, { title: sr.title || '', snippet: sr.snippet || '' });
+      }
     }
-  ],
-  "freshness_warning": "Optional: note if this area of law changes frequently or if you're aware of recent/pending changes"
-}`;
 
-  // Use different prompt for state differences query
-  const userPrompt = isStateDifferenceQuery
-    ? `What makes ${stateName} (${stateCode}) UNIQUE or DIFFERENT from most other states regarding: ${domainContext}
+    // Build citations from Perplexity's citation URLs + search_results
+    const citations: Array<{ url: string; title: string; snippet?: string }> = [];
+    const seenUrls = new Set<string>();
 
-CRITICALLY IMPORTANT: Focus on laws, regulations, or requirements that are:
-1. UNIQUE to ${stateName} - things that are true ONLY in ${stateCode} or in very few states
-2. OPPOSITE of most states - where ${stateName} requires something most states don't, or bans something most states allow
-3. UNUSUAL restrictions or requirements specific to this state
-4. Notable exceptions or special rules that employees from other states wouldn't expect
+    for (const url of perplexityCitations) {
+      if (url && !seenUrls.has(url)) {
+        seenUrls.add(url);
+        const sr = searchResultMap.get(url);
+        let title = sr?.title || '';
+        if (!title) {
+          try {
+            const parsed = new URL(url);
+            title = `${parsed.hostname}${parsed.pathname.substring(0, 60)}`;
+          } catch { title = url; }
+        }
 
-Examples of what we're looking for:
-- "New Jersey is the ONLY state that bans self-service gas stations"
-- "Oregon requires..." (only 1 of 2 states with this rule)
-- "Unlike most states, ${stateName} does NOT allow..."
-- "While most states require X, ${stateName} instead requires Y"
+        citations.push({
+          url,
+          title,
+          snippet: sr?.snippet || '',
+        });
+      }
+    }
 
-BUSINESS CONTEXT:
-${domainContext}
+    console.log(`[searchStateRegulations] Perplexity returned ${citations.length} citations, content length: ${content.length}`);
 
-This is for adapting national training content to be state-specific. We need to know what's DIFFERENT in ${stateName}, not what's the same everywhere.
+    return { content, citations };
 
-Provide specific statute citations where known.`
-    : `Find ${stateName} (${stateCode}) state regulations related to: ${action}
+  } catch (error: any) {
+    console.error("[searchStateRegulations] Perplexity error:", error.message);
+    return searchStateRegulationsFallback(stateCode, stateName, action, domainContext, scopeContract, isStateDifferenceQuery);
+  }
+}
 
-BUSINESS CONTEXT:
-${domainContext}
+/**
+ * Fallback: Use OpenAI Responses API with web_search_preview when Perplexity is unavailable
+ */
+async function searchStateRegulationsFallback(
+  stateCode: string,
+  stateName: string,
+  action: string,
+  domainContext: string,
+  scopeContract: any,
+  isStateDifferenceQuery: boolean
+): Promise<{ content: string; citations: Array<{ url: string; title: string; snippet?: string }> }> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("Neither PERPLEXITY_API_KEY nor OPENAI_API_KEY configured");
+  }
 
-This is for training frontline employees. Focus on:
-- Specific legal requirements applicable to this industry/business type
-- What employees MUST do or CANNOT do
-- Penalties or consequences for violations
-- Required procedures or documentation
-- Age restrictions if applicable
-- On-premise vs off-premise distinctions if relevant (e.g., for alcohol: bars/restaurants vs retail stores)
-- Any relevant administrative rules
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
 
-IMPORTANT: Tailor your response to the specific industry context provided. A convenience store cashier has different compliance requirements than a bartender, even for the same topic like alcohol sales.
+  const searchPrompt = isStateDifferenceQuery
+    ? `Search for ${stateName} (${stateCode}) laws that are UNIQUE or DIFFERENT from federal standards regarding: ${domainContext}. This is for ${primaryRoleLabel} at convenience stores.${negativeExamples.length > 0 ? ` Exclude: ${negativeExamples.join(', ')}.` : ''} Cite specific statutes.`
+    : `Search for ${stateName} (${stateCode}) state regulations for: ${action}. This is for ${primaryRoleLabel} at convenience stores.${negativeExamples.length > 0 ? ` Exclude: ${negativeExamples.join(', ')}.` : ''} Focus on employee duties, penalties, required training. Cite specific statutes.`;
 
-Provide official statute/code citations where known.`;
+  console.log(`[searchStateRegulations] Fallback: OpenAI Responses API for ${stateCode} - ${action}`);
 
-  console.log(`[RegulatoryInfo] Querying GPT-4o for: ${stateCode} - ${action}${isStateDifferenceQuery ? ' (STATE DIFFERENCES QUERY)' : ''}`);
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -12852,81 +13204,22 @@ Provide official statute/code citations where known.`;
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 2000,
-      response_format: { type: "json_object" }
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("OpenAI Chat error:", response.status, errorText);
-    throw new Error(`OpenAI API error: ${response.status}`);
+    console.error("[searchStateRegulations] OpenAI Responses API error:", errorText);
+    throw new Error(`OpenAI Responses API error: ${response.status}`);
   }
 
-  const data = await response.json();
-  const responseText = data.choices?.[0]?.message?.content || '{}';
+  const result = await response.json();
+  const content = extractResponseText(result);
+  const citations = extractCitations(result);
 
-  console.log(`[RegulatoryInfo] Got response, parsing JSON...`);
-
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(responseText);
-  } catch (e) {
-    console.error('[RegulatoryInfo] Failed to parse JSON response:', responseText.substring(0, 200));
-    parsed = { summary: responseText, facts: [], source_urls: [] };
-  }
-
-  // Build citations from facts and source_urls
-  const citations: Array<{ url: string; title: string; snippet?: string }> = [];
-
-  // Add source URLs as citations
-  if (parsed.source_urls && Array.isArray(parsed.source_urls)) {
-    for (const source of parsed.source_urls) {
-      citations.push({
-        url: source.url || '',
-        title: source.title || '',
-        snippet: source.description || '',
-      });
-    }
-  }
-
-  // If no URLs but we have facts with citations, create pseudo-citations
-  if (citations.length === 0 && parsed.facts && Array.isArray(parsed.facts)) {
-    const seenCitations = new Set<string>();
-    for (const fact of parsed.facts) {
-      if (fact.citation && !seenCitations.has(fact.citation)) {
-        seenCitations.add(fact.citation);
-        // Generate likely URL based on state
-        const baseUrl = stateCode === 'TX'
-          ? 'https://statutes.capitol.texas.gov/Docs/AL/htm/AL.106.htm'
-          : `https://law.justia.com/codes/${stateName.toLowerCase().replace(/\s+/g, '-')}/`;
-        citations.push({
-          url: baseUrl,
-          title: `${stateName} State Code - ${fact.citation}`,
-          snippet: fact.fact,
-        });
-      }
-    }
-  }
-
-  // Build content from summary and facts
-  let content = parsed.summary || '';
-  if (parsed.facts && Array.isArray(parsed.facts)) {
-    content += '\n\nKey Requirements:\n';
-    for (const fact of parsed.facts) {
-      content += `- ${fact.fact}`;
-      if (fact.citation) content += ` (${fact.citation})`;
-      content += '\n';
-    }
-  }
-
-  console.log(`[RegulatoryInfo] Parsed ${citations.length} citations, ${(parsed.facts || []).length} facts`);
-
+  console.log(`[searchStateRegulations] Fallback returned ${citations.length} citations`);
   return { content, citations };
 }
 
@@ -12982,7 +13275,168 @@ function classifySourceTier(url: string): 1 | 2 | 3 {
 }
 
 /**
- * Handler: Retrieve Evidence - Uses GPT-4o to find regulatory information
+ * Score evidence blocks for relevance against the scope contract (balanced mode)
+ * Uses GPT-4o-mini for fast, cheap relevance classification
+ * Returns scored evidence with relevanceScore (0-10), relevanceReason, relevanceStatus
+ */
+async function scoreEvidenceRelevance(
+  evidenceBlocks: any[],
+  scopeContract: any,
+  stateCode: string,
+  stateName: string
+): Promise<any[]> {
+  if (evidenceBlocks.length === 0) return [];
+
+  const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+  const allowedActions = scopeContract?.allowedLearnerActions || [];
+  const negativeExamples = scopeContract?.audienceNegativeExamples || [];
+  const domainAnchors = scopeContract?.domainAnchors || [];
+
+  // Batch evidence for scoring (up to 10 per call)
+  const batches: any[][] = [];
+  for (let i = 0; i < evidenceBlocks.length; i += 10) {
+    batches.push(evidenceBlocks.slice(i, i + 10));
+  }
+
+  const scoredResults: any[] = [];
+
+  for (const batch of batches) {
+    const snippetSummaries = batch.map((eb, idx) => ({
+      idx,
+      id: eb.id,
+      title: (eb.title || '').substring(0, 100),
+      snippet: (eb.snippet || '').substring(0, 300),
+      url: eb.url || '',
+    }));
+
+    const scoringPrompt = `Rate each evidence snippet's relevance to training content.
+
+TARGET AUDIENCE: ${primaryRoleLabel} at convenience stores / retail fuel stations in ${stateName}
+RELEVANT ACTIONS: ${allowedActions.slice(0, 8).join(', ')}
+TOPIC DOMAIN: ${domainAnchors.slice(0, 8).join(', ')}
+${negativeExamples.length > 0 ? `OUT OF SCOPE (reject these): ${negativeExamples.join(', ')}` : ''}
+
+Score 0-3 = NOT relevant to this audience/topic (e.g., about different roles, different industry segment, infrastructure not operated by target audience)
+Score 4-6 = POSSIBLY relevant but not directly about target audience actions (e.g., general industry regulation that may affect them indirectly)
+Score 7-10 = DIRECTLY relevant to what ${primaryRoleLabel} must know or do
+
+Evidence to score:
+${JSON.stringify(snippetSummaries, null, 1)}
+
+Return JSON array: [{ "id": "...", "score": 0-10, "reason": "one sentence" }]`;
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are a relevance scoring assistant. Output valid JSON only." },
+            { role: "user", content: scoringPrompt }
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("[scoreEvidenceRelevance] OpenAI error:", response.status);
+        // If scoring fails, pass everything through as-is with neutral score
+        for (const eb of batch) {
+          scoredResults.push({ ...eb, relevanceScore: 7, relevanceReason: 'Scoring unavailable', relevanceStatus: 'pass' });
+        }
+        continue;
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '{}';
+      let scores: any[] = [];
+      try {
+        const parsed = JSON.parse(content);
+        scores = Array.isArray(parsed) ? parsed : (parsed.scores || parsed.results || []);
+      } catch {
+        console.error("[scoreEvidenceRelevance] Failed to parse scoring response");
+        scores = [];
+      }
+
+      // Map scores back to evidence blocks
+      const scoreMap = new Map(scores.map((s: any) => [s.id, s]));
+      for (const eb of batch) {
+        const score = scoreMap.get(eb.id);
+        scoredResults.push({
+          ...eb,
+          relevanceScore: score?.score ?? 7,
+          relevanceReason: score?.reason || 'No scoring data',
+        });
+      }
+    } catch (error: any) {
+      console.error("[scoreEvidenceRelevance] Error:", error.message);
+      for (const eb of batch) {
+        scoredResults.push({ ...eb, relevanceScore: 7, relevanceReason: 'Scoring error', relevanceStatus: 'pass' });
+      }
+    }
+  }
+
+  return scoredResults;
+}
+
+/**
+ * Verify evidence URLs with lightweight HEAD requests
+ * Tags each evidence block with url_verified and url_status_code
+ */
+async function verifyEvidenceUrls(evidenceBlocks: any[]): Promise<any[]> {
+  if (evidenceBlocks.length === 0) return [];
+
+  const verifyUrl = async (eb: any): Promise<any> => {
+    if (!eb.url || eb.isSynthesized) {
+      return { ...eb, url_verified: null, url_status_code: null };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(eb.url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        redirect: 'follow',
+      });
+
+      clearTimeout(timeout);
+
+      return {
+        ...eb,
+        url_verified: response.ok,
+        url_status_code: response.status,
+        url_final: response.url !== eb.url ? response.url : undefined,
+      };
+    } catch {
+      // Timeout or network error — don't reject the evidence, just mark as unverified
+      return { ...eb, url_verified: false, url_status_code: null };
+    }
+  };
+
+  // Verify in parallel (max 10 concurrent)
+  const results: any[] = [];
+  for (let i = 0; i < evidenceBlocks.length; i += 10) {
+    const batch = evidenceBlocks.slice(i, i + 10);
+    const batchResults = await Promise.all(batch.map(verifyUrl));
+    results.push(...batchResults);
+  }
+
+  const verified = results.filter(r => r.url_verified === true).length;
+  const unverified = results.filter(r => r.url_verified === false).length;
+  console.log(`[verifyEvidenceUrls] ${verified} verified, ${unverified} unverified, ${results.length - verified - unverified} skipped`);
+
+  return results;
+}
+
+/**
+ * Handler: Retrieve Evidence - Uses Perplexity/OpenAI to find real regulatory information
  */
 async function handleRetrieveEvidence(req: Request): Promise<Response> {
   try {
@@ -12992,23 +13446,19 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       return jsonResponse({ error: "planId and contractId are required" }, 400);
     }
 
-    // Try to get org from token, fallback to plan's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [RetrieveEvidence] No orgId from token, trying to get from plan...");
-      const { data: planOrg, error: planOrgError } = await supabase
-        .from("variant_research_plans")
-        .select("organization_id")
-        .eq("id", planId)
-        .single();
+    const { data: planOrgRow, error: planOrgErr0 } = await supabase
+      .from("variant_research_plans")
+      .select("organization_id")
+      .eq("id", planId)
+      .single();
 
-      if (!planOrgError && planOrg?.organization_id) {
-        orgId = planOrg.organization_id;
-        console.log(`✅ [RetrieveEvidence] Got orgId from plan: ${orgId}`);
-      } else {
-        console.error("❌ [RetrieveEvidence] Could not get orgId from plan either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (planOrgErr0 || !planOrgRow?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, planOrgRow.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Fetch the research plan
@@ -13035,7 +13485,8 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       .eq('id', contractId)
       .single();
 
-    const domainAnchors = contractRecord?.scope_contract?.domainAnchors || [];
+    const scopeContract = contractRecord?.scope_contract || {};
+    const domainAnchors = scopeContract.domainAnchors || [];
 
     // Get organization industry context
     const { data: orgRecord } = await supabase
@@ -13060,21 +13511,24 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
     console.log(`[RetrieveEvidence] Starting evidence retrieval for ${stateName} (${stateCode}) with ${queries.length} queries`);
     console.log(`[RetrieveEvidence] Industry context: ${industryName}, Services: ${servicesOffered.join(', ')}`);
+    console.log(`[RetrieveEvidence] Using ${PERPLEXITY_API_KEY ? 'Perplexity' : 'OpenAI Responses'} for search`);
 
     const evidence: any[] = [];
     const rejected: any[] = [];
     const seenUrls = new Set<string>();
+    const passMetrics = { pass1: { queryCount: 0, evidenceCount: 0, highRelevanceCount: 0, flaggedCount: 0, rejectedCount: 0 } };
 
-    // Execute queries in parallel for speed (max 3 concurrent)
+    // ── PASS 1: Broad Retrieval ──────────────────────────────────
     const processQuery = async (queryDef: any) => {
       try {
-        console.log(`[RetrieveEvidence] Processing action: "${queryDef.mappedAction}"${queryDef.isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
+        console.log(`[RetrieveEvidence] Pass 1 - Processing: "${queryDef.mappedAction}"${queryDef.isStateDifferenceQuery ? ' (STATE DIFFERENCES)' : ''}`);
 
-        const searchResult = await findRegulatoryInfo(
+        const searchResult = await searchStateRegulations(
           stateCode,
           stateName,
           queryDef.mappedAction,
           domainContext,
+          scopeContract,
           queryDef.isStateDifferenceQuery || false
         );
 
@@ -13083,7 +13537,9 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
 
         // Process citations into evidence blocks
         for (const citation of searchResult.citations) {
-          const tier = classifySourceTier(citation.url || '');
+          if (!citation.url) continue;
+
+          const tier = classifySourceTier(citation.url);
 
           const evidenceBlock = {
             id: crypto.randomUUID(),
@@ -13094,38 +13550,36 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
             snippet: citation.snippet || '',
             tier,
             retrievedAt: new Date().toISOString(),
+            source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
             anchorHits: queryDef.anchorTerms?.filter((term: string) =>
               (citation.snippet || '').toLowerCase().includes(term.toLowerCase()) ||
               (citation.title || '').toLowerCase().includes(term.toLowerCase())
             ) || [],
           };
 
-          // Accept all tiers - Tier 3 will be flagged for review in key facts extraction
           queryEvidence.push(evidenceBlock);
 
-          // Log tier 3 sources for visibility
           if (tier === 3) {
-            console.log(`[RetrieveEvidence] Tier 3 source accepted (flagged): ${evidenceBlock.url}`);
+            console.log(`[RetrieveEvidence] Tier 3 source: ${evidenceBlock.url}`);
           }
         }
 
-        // Also extract any relevant content from the search result text
-        if (searchResult.content && searchResult.content.length > 100) {
-          if (searchResult.citations.length > 0) {
-            queryEvidence.push({
-              id: crypto.randomUUID(),
-              queryId: queryDef.id,
-              mappedAction: queryDef.mappedAction,
-              url: searchResult.citations[0]?.url || '',
-              title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
-              snippet: searchResult.content.substring(0, 1500),
-              tier: 2,
-              retrievedAt: new Date().toISOString(),
-              anchorHits: queryDef.anchorTerms || [],
-              isSynthesized: true,
-              sourceUrls: searchResult.citations.map((c: any) => c.url),
-            });
-          }
+        // Add synthesized research summary as evidence block
+        if (searchResult.content && searchResult.content.length > 100 && searchResult.citations.length > 0) {
+          queryEvidence.push({
+            id: crypto.randomUUID(),
+            queryId: queryDef.id,
+            mappedAction: queryDef.mappedAction,
+            url: searchResult.citations[0]?.url || '',
+            title: `${stateName} ${queryDef.mappedAction} - Research Summary`,
+            snippet: searchResult.content.substring(0, 2000),
+            tier: 2,
+            retrievedAt: new Date().toISOString(),
+            source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+            anchorHits: queryDef.anchorTerms || [],
+            isSynthesized: true,
+            sourceUrls: searchResult.citations.map((c: any) => c.url),
+          });
         }
 
         return { evidence: queryEvidence, rejected: queryRejected };
@@ -13135,12 +13589,13 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       }
     };
 
-    // Run all queries in parallel
-    console.log(`[RetrieveEvidence] Running ${queries.length} queries in parallel...`);
-    const results = await Promise.all(queries.map(processQuery));
+    // Run Pass 1 queries in parallel
+    console.log(`[RetrieveEvidence] Pass 1: Running ${queries.length} queries in parallel...`);
+    passMetrics.pass1.queryCount = queries.length;
+    const pass1Results = await Promise.all(queries.map(processQuery));
 
-    // Merge results and deduplicate by URL
-    for (const result of results) {
+    // Merge Pass 1 results and deduplicate by URL
+    for (const result of pass1Results) {
       for (const eb of result.evidence) {
         if (!eb.url || seenUrls.has(eb.url)) continue;
         seenUrls.add(eb.url);
@@ -13153,16 +13608,168 @@ async function handleRetrieveEvidence(req: Request): Promise<Response> {
       }
     }
 
-    console.log(`[RetrieveEvidence] Complete. Found ${evidence.length} evidence blocks, rejected ${rejected.length}`);
+    passMetrics.pass1.evidenceCount = evidence.length;
+
+    // ── RELEVANCE SCORING ──────────────────────────────────
+    // Score each evidence block against the scope contract (balanced mode)
+    const scoredEvidence = await scoreEvidenceRelevance(evidence, scopeContract, stateCode, stateName);
+
+    // Apply balanced thresholds: 0-3 reject, 4-6 flag, 7-10 pass
+    const finalEvidence: any[] = [];
+    const relevanceRejected: any[] = [];
+
+    for (const scored of scoredEvidence) {
+      if (scored.relevanceScore <= 3) {
+        relevanceRejected.push({ ...scored, rejectionReason: `Scope drift: ${scored.relevanceReason}` });
+        passMetrics.pass1.rejectedCount++;
+      } else if (scored.relevanceScore <= 6) {
+        finalEvidence.push({ ...scored, relevanceStatus: 'flagged', scopeDriftWarning: scored.relevanceReason });
+        passMetrics.pass1.flaggedCount++;
+      } else {
+        finalEvidence.push({ ...scored, relevanceStatus: 'pass' });
+        passMetrics.pass1.highRelevanceCount++;
+      }
+    }
+
+    console.log(`[RetrieveEvidence] After relevance scoring: ${passMetrics.pass1.highRelevanceCount} pass, ${passMetrics.pass1.flaggedCount} flagged, ${passMetrics.pass1.rejectedCount} rejected`);
+
+    // ── PASS 2: Targeted Follow-Up (conditional) ──────────────────────────────────
+    let pass2Triggered = false;
+    const pass2Reason: string[] = [];
+
+    if (passMetrics.pass1.highRelevanceCount < 3) {
+      pass2Triggered = true;
+      pass2Reason.push(`Only ${passMetrics.pass1.highRelevanceCount} high-relevance sources in Pass 1 (need at least 3)`);
+
+      console.log(`[RetrieveEvidence] Pass 2 triggered: ${pass2Reason.join(', ')}`);
+
+      // Extract statute references from Pass 1 content for targeted follow-up
+      const allSnippets = finalEvidence.map(e => e.snippet || '').join(' ');
+      const statuteRefs = allSnippets.match(/(?:NRS|ORS|RCW|§|Section|Chapter|Title)\s*[\d.]+[\w.-]*/gi) || [];
+      const uniqueStatutes = [...new Set(statuteRefs.slice(0, 5))];
+
+      const regulatoryHints = scopeContract.regulatoryDomainHints || [];
+      const primaryRoleLabel = scopeContract?.primaryRole?.label || scopeContract?.primaryRole || 'frontline employee';
+
+      // Build targeted queries
+      const pass2Queries: any[] = [];
+
+      // Targeted statute lookups
+      for (const statute of uniqueStatutes.slice(0, 2)) {
+        pass2Queries.push({
+          id: `p2_statute_${pass2Queries.length}`,
+          mappedAction: `statute lookup: ${statute}`,
+          isStateDifferenceQuery: false,
+          anchorTerms: [stateCode, statute],
+          _searchOverride: `${stateName} ${statute} requirements for ${primaryRoleLabel} retail convenience store`,
+        });
+      }
+
+      // Regulatory body targeted searches
+      for (const hint of regulatoryHints.slice(0, 2)) {
+        pass2Queries.push({
+          id: `p2_agency_${pass2Queries.length}`,
+          mappedAction: `${hint} requirements`,
+          isStateDifferenceQuery: false,
+          anchorTerms: [stateCode, hint],
+          _searchOverride: `${stateName} ${hint} ${domainAnchors.slice(0, 3).join(' ')} requirements for ${primaryRoleLabel}`,
+        });
+      }
+
+      if (pass2Queries.length > 0) {
+        console.log(`[RetrieveEvidence] Pass 2: Running ${pass2Queries.length} targeted queries...`);
+
+        const processPass2Query = async (queryDef: any) => {
+          try {
+            const searchTerm = queryDef._searchOverride || queryDef.mappedAction;
+            const searchResult = await searchStateRegulations(
+              stateCode, stateName, searchTerm, domainContext, scopeContract, false
+            );
+
+            const queryEvidence: any[] = [];
+            for (const citation of searchResult.citations) {
+              if (!citation.url || seenUrls.has(citation.url)) continue;
+              seenUrls.add(citation.url);
+              const tier = classifySourceTier(citation.url);
+              queryEvidence.push({
+                id: crypto.randomUUID(),
+                queryId: queryDef.id,
+                mappedAction: queryDef.mappedAction,
+                url: citation.url,
+                title: citation.title,
+                snippet: citation.snippet || '',
+                tier,
+                retrievedAt: new Date().toISOString(),
+                source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+                pass: 2,
+                anchorHits: [],
+              });
+            }
+
+            if (searchResult.content && searchResult.content.length > 100 && searchResult.citations.length > 0) {
+              queryEvidence.push({
+                id: crypto.randomUUID(),
+                queryId: queryDef.id,
+                mappedAction: queryDef.mappedAction,
+                url: searchResult.citations[0]?.url || '',
+                title: `${stateName} ${queryDef.mappedAction} - Targeted Research`,
+                snippet: searchResult.content.substring(0, 2000),
+                tier: 2,
+                retrievedAt: new Date().toISOString(),
+                source: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+                pass: 2,
+                isSynthesized: true,
+                sourceUrls: searchResult.citations.map((c: any) => c.url),
+                anchorHits: [],
+              });
+            }
+
+            return queryEvidence;
+          } catch (err: any) {
+            console.error(`[RetrieveEvidence] Pass 2 query failed: ${queryDef.mappedAction}`, err.message);
+            return [];
+          }
+        };
+
+        const pass2Results = await Promise.all(pass2Queries.map(processPass2Query));
+
+        // Score and merge Pass 2 results
+        const pass2Evidence = pass2Results.flat();
+        if (pass2Evidence.length > 0) {
+          const pass2Scored = await scoreEvidenceRelevance(pass2Evidence, scopeContract, stateCode, stateName);
+          for (const scored of pass2Scored) {
+            if (scored.relevanceScore <= 3) {
+              relevanceRejected.push({ ...scored, rejectionReason: `Pass 2 scope drift: ${scored.relevanceReason}` });
+            } else if (scored.relevanceScore <= 6) {
+              finalEvidence.push({ ...scored, relevanceStatus: 'flagged', scopeDriftWarning: scored.relevanceReason, pass: 2 });
+            } else {
+              finalEvidence.push({ ...scored, relevanceStatus: 'pass', pass: 2 });
+            }
+          }
+        }
+
+        console.log(`[RetrieveEvidence] Pass 2 complete. Total evidence now: ${finalEvidence.length}`);
+      }
+    }
+
+    // ── URL VERIFICATION ──────────────────────────────────
+    // Lightweight HEAD request verification for citation URLs
+    const verifiedEvidence = await verifyEvidenceUrls(finalEvidence);
+
+    console.log(`[RetrieveEvidence] Complete. ${verifiedEvidence.length} evidence blocks, ${relevanceRejected.length} rejected`);
 
     return jsonResponse({
       planId,
-      evidenceCount: evidence.length,
-      rejectedCount: rejected.length,
-      evidence,
-      rejected,
+      evidenceCount: verifiedEvidence.length,
+      rejectedCount: relevanceRejected.length,
+      evidence: verifiedEvidence,
+      rejected: relevanceRejected,
       stateCode,
       stateName,
+      searchEngine: PERPLEXITY_API_KEY ? 'perplexity' : 'openai_responses',
+      pass2Triggered,
+      pass2Reason,
+      passMetrics,
     });
 
   } catch (error: any) {
@@ -13182,23 +13789,19 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       return jsonResponse({ error: "contractId, planId, and stateCode are required" }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [ExtractKeyFacts] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: cOrg, error: cOrgErr } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [ExtractKeyFacts] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [ExtractKeyFacts] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (cOrgErr || !cOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, cOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[ExtractKeyFacts] Starting extraction for ${stateCode} with ${evidenceBlocks?.length || 0} evidence blocks`);
@@ -13362,7 +13965,10 @@ async function handleExtractKeyFacts(req: Request): Promise<Response> {
       };
 
       // Run QA gates
-      const gateResults = runKeyFactQAGates(fact, scopeContract, passedFacts);
+      const gateResults = runKeyFactQAGates(fact, scopeContract, passedFacts, {
+        stateCode,
+        stateName: stateName || stateCode,
+      });
       fact.qaStatus = gateResults.status;
       fact.qaFlags = gateResults.flags;
 
@@ -13470,14 +14076,60 @@ function isStrongClaimCheck(factText: string): boolean {
   return STRONG_CLAIM_PATTERNS.some(pattern => pattern.test(factText));
 }
 
+/** Statute / rule anchor in the fact sentence (not just "In New York…"). */
+function hasStatutoryOrAgencyAnchor(factText: string): boolean {
+  return /\b(§\s*[\d.\-]+|(section|sec\.?)\s*\d+[a-z]?|article\s*\d+|chapter\s*\d+\b|ABC\b|SLA\b|statute\s+\d+|alcoholic\s+beverage\s+control|r\.?\s*cr\s*\d+|comp\.?\s*codes?|c\.?\s*f\.?\s*r\.?|G\.?O\.?\s*\d+|N\.?Y\.?\s*CRR|N\.?Y\.?\s*CR\s*\d+)/i.test(
+    factText,
+  );
+}
+
+/** Strip leading "In {State}," so we can detect generic retail clichés. */
+function stripLeadingStateClause(factText: string, stateName: string, stateCode: string): string {
+  let t = factText.trim();
+  if (stateName) {
+    const escaped = stateName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    t = t.replace(new RegExp(`^In\\s+${escaped},?\\s+`, "i"), "");
+  }
+  if (stateCode) {
+    t = t.replace(new RegExp(`^In\\s+${stateCode}\\b,?\\s+`, "i"), "");
+  }
+  return t.trim();
+}
+
+/**
+ * Generic US retail alcohol training lines that are useless for "state variant"
+ * unless paired with a real statutory/agency anchor in the same sentence.
+ */
+function matchesGenericRetailComplianceCliche(
+  factText: string,
+  stateName: string,
+  stateCode: string,
+): boolean {
+  const body = stripLeadingStateClause(factText, stateName, stateCode);
+  const b = body.toLowerCase();
+  const patterns = [
+    /\b(must|shall|required to)\s+(ask|check|verify|request)\s+(for\s+)?(a\s+)?(valid\s+)?id\b/i,
+    /\b(check|verify|request)\s+(for\s+)?(a\s+)?(valid\s+)?id\b/i,
+    /\b(age|id)\s+verification\b/i,
+    /\brefuse\s+(the\s+)?sale\b.*\b(intoxicated|intoxication)\b/i,
+    /\brefuse\s+to\s+sell\b.*\b(intoxicated|intoxication)\b/i,
+    /\bdo\s+not\s+sell\b.*\b(intoxicated|minor|minors)\b/i,
+    /\brefuse\s+service\b.*\b(intoxicated|intoxication)\b/i,
+  ];
+  return patterns.some((p) => p.test(b));
+}
+
 // QA Gate runner for key facts
 function runKeyFactQAGates(
   fact: any,
   scopeContract: any,
-  existingFacts: any[]
+  existingFacts: any[],
+  opts?: { stateCode?: string; stateName?: string },
 ): { status: string; flags: string[]; failedGates: string[] } {
   const flags: string[] = [];
   const failedGates: string[] = [];
+  const stateCode = opts?.stateCode || "";
+  const stateName = opts?.stateName || "";
 
   // Gate A: Mapping/Scope - must map to allowed action and hit anchor
   const actionMatch = (scopeContract.allowedLearnerActions || []).some((action: string) => {
@@ -13492,12 +14144,30 @@ function runKeyFactQAGates(
     failedGates.push('A');
   }
 
+  // Gate F: State-variant specificity — reject generic nationwide training clichés
+  if (stateCode && stateName) {
+    if (
+      matchesGenericRetailComplianceCliche(fact.factText, stateName, stateCode) &&
+      !hasStatutoryOrAgencyAnchor(fact.factText)
+    ) {
+      flags.push(
+        `F: Generic nationwide compliance cliché — cite a statute section, ABC/SLA rule, or concrete state-specific regulatory detail in the fact`,
+      );
+      failedGates.push('F');
+    }
+  }
+
   // Gate B: Strong claim support - strong claims need tier1/tier2 citations
   if (fact.isStrongClaim) {
     const hasTier1or2 = fact.citations.some((c: any) => c.tier === 'tier1' || c.tier === 'tier2');
-    if (!hasTier1or2) {
+    const anchoredInText = hasStatutoryOrAgencyAnchor(fact.factText);
+    if (!hasTier1or2 && !anchoredInText) {
       flags.push(`B: Strong claim lacks Tier-1/Tier-2 citation support`);
       failedGates.push('B');
+    } else if (!hasTier1or2 && anchoredInText) {
+      flags.push(
+        `B: Strong claim — statute/rule cited in text; tier may be secondary; verify against source`,
+      );
     }
   }
 
@@ -13530,6 +14200,34 @@ function runKeyFactQAGates(
     failedGates.push('D');
   }
 
+  // Gate G: Semantic citation-claim alignment
+  // Check that the cited evidence quote actually supports what the fact claims.
+  // A real bill number attached to the wrong topic is worse than no citation.
+  for (const citation of fact.citations) {
+    if (citation.quote && fact.factText) {
+      const quoteWords = new Set(citation.quote.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
+      const factWords = fact.factText.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+
+      // Extract key subject nouns from the fact (skip common legal words)
+      const legalStopwords = new Set(['state', 'requires', 'required', 'must', 'shall', 'may', 'law', 'regulation', 'statute', 'section', 'code', 'act', 'bill', 'stores', 'convenience', 'employees', 'new', 'york']);
+      const factSubjectWords = factWords.filter(w => !legalStopwords.has(w) && w.length > 4);
+
+      // Check: do the key subject words in the fact appear in the quote?
+      const subjectOverlap = factSubjectWords.filter(w => quoteWords.has(w));
+      const subjectOverlapRatio = factSubjectWords.length > 0 ? subjectOverlap.length / factSubjectWords.length : 1;
+
+      if (subjectOverlapRatio < 0.2 && factSubjectWords.length >= 3) {
+        // The fact's subject matter doesn't appear in the cited evidence
+        flags.push(`G: Citation quote may not support the claim — fact subject words [${factSubjectWords.slice(0, 5).join(', ')}] have <20% overlap with citation text`);
+        // Don't hard-fail, but flag for review
+        if (!failedGates.includes('G')) {
+          // Only add PASS_WITH_REVIEW, not FAIL — human can verify
+          flags.push('G: Verify that the cited source actually addresses this specific topic');
+        }
+      }
+    }
+  }
+
   // Check if any citations are Tier 3
   const hasTier3Only = fact.citations.every((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
   const hasTier3 = fact.citations.some((c: any) => c.tier === 3 || c.tier === 'tier3' || c.tier === 'tier3_secondary');
@@ -13557,6 +14255,18 @@ function runKeyFactQAGates(
 // Gate E: Size guardrails
 function runGateE(facts: any[], evidenceCount: number): any {
   if (facts.length === 0) {
+    // Evidence existed but every candidate failed QA/citation — fail-closed is harsh for authors.
+    // Degrade to PASS_WITH_REVIEW so generateDraft can still produce a source-copy draft for manual edit.
+    if (evidenceCount > 0) {
+      return {
+        gate: 'E',
+        gateName: 'Size Guardrail Gate',
+        status: 'PASS_WITH_REVIEW',
+        reason:
+          'No key facts passed validation, but retrieved evidence is available. Proceeding with a source-based draft flagged for manual review.',
+        details: { evidenceCount, passedFactCount: 0 },
+      };
+    }
     return {
       gate: 'E',
       gateName: 'Size Guardrail Gate',
@@ -13602,13 +14312,13 @@ async function extractKeyFactsWithLLM(
   stateCode: string,
   stateName?: string
 ): Promise<any[]> {
-  const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence.
+  const systemPrompt = `You are a legal research analyst extracting grounded Key Facts from evidence for STATE-SPECIFIC training adaptation.
 
 OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
 {
   "keyFacts": [
     {
-      "factText": "Single sentence atomic claim about a specific state requirement",
+      "factText": "Single sentence atomic claim with a concrete regulatory anchor",
       "mappedAction": "The learner action this fact relates to",
       "anchorHit": ["relevant", "domain", "terms"],
       "citations": [
@@ -13623,14 +14333,13 @@ OUTPUT FORMAT: Valid JSON only. No markdown. No explanations.
 }
 
 CRITICAL RULES:
-1. factText must be a single atomic sentence - one claim per fact
-2. mappedAction MUST relate to one of the allowedLearnerActions provided
-3. Each fact MUST be specific to ${stateName || stateCode}
-4. quote MUST be an exact substring from the evidence - no paraphrasing
-5. evidenceId MUST be copied EXACTLY as provided - do NOT abbreviate or modify UUIDs
-6. Extract ONLY facts relevant to the domain anchors and learner role
-7. Do NOT include generic facts that apply to all states
-8. Focus on actionable requirements for the learner role`;
+1. factText must be ONE atomic sentence with ONE claim, and must name a concrete legal hook: e.g. ABC Law section, SLA rule, statute section number, or agency requirement that is specific to ${stateName || stateCode} (not generic US retail training).
+2. mappedAction MUST relate to one of the allowedLearnerActions provided.
+3. quote MUST be an exact substring from the evidence — no paraphrasing.
+4. evidenceId MUST be copied EXACTLY as provided — do NOT abbreviate UUIDs.
+5. BANNED (do not output): generic nationwide alcohol retail clichés that would still read true if you swapped in another state, such as only "must check ID", "must verify age", "must refuse intoxicated patrons" UNLESS the same sentence cites a specific ${stateName || stateCode} statute/ABC/SLA section or rule number found in the evidence quote.
+6. PREFERRED: facts that cite or restate obligations tied to named provisions (sections, articles, license types, state agency rules) visible in the snippets.
+7. If the evidence only supports weak generic duties, extract fewer facts — quality over filler.`;
 
   const evidenceSummary = evidenceBlocks.map((eb: any) => {
     // Handle both old format (evidenceId, snippets array) and new format (id, snippet string)
@@ -13667,13 +14376,12 @@ ${(scopeContract.disallowedActionClasses || []).join(', ') || 'None specified'}
 EVIDENCE BLOCKS:
 ${JSON.stringify(evidenceSummary, null, 2)}
 
-Extract atomic Key Facts. Each fact must:
-1. Be a single sentence with one specific claim
-2. Be grounded with an exact quote from evidence
-3. Be specific to ${stateName || stateCode}
-4. Be actionable for ${scopeContract.primaryRole || 'the learner'}
+Extract atomic Key Facts for ${stateName || stateCode}. Each fact must:
+1. Tie the obligation to something identifiable in ${stateName || stateCode} law or agency rules (cite section/article/agency in the sentence when the evidence supports it).
+2. Include an exact quote from evidence that substantiates that tie.
+3. Avoid filler that duplicates generic US compliance training; if you cannot ground a state-specific claim, omit the fact.
 
-Output valid JSON with keyFacts array.`;
+Output valid JSON with keyFacts array (may be empty if evidence does not support substantive state-specific claims).`;
 
   console.log(`[ExtractKeyFacts] Calling LLM with ${evidenceBlocks.length} evidence blocks`);
   console.log(`[ExtractKeyFacts] Evidence summary being sent:`, JSON.stringify(evidenceSummary, null, 2));
@@ -13705,23 +14413,19 @@ Output valid JSON with keyFacts array.`;
  */
 async function handleGetKeyFactsExtraction(extractionId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to extraction's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetKeyFactsExtraction] No orgId from token, trying to get from extraction...");
-      const { data: extractionOrg, error: extractionOrgError } = await supabase
-        .from("variant_key_facts_extractions")
-        .select("organization_id")
-        .eq("id", extractionId)
-        .single();
+    const { data: extractionOrg, error: extractionOrgError } = await supabase
+      .from("variant_key_facts_extractions")
+      .select("organization_id")
+      .eq("id", extractionId)
+      .single();
 
-      if (!extractionOrgError && extractionOrg?.organization_id) {
-        orgId = extractionOrg.organization_id;
-        console.log(`✅ [GetKeyFactsExtraction] Got orgId from extraction: ${orgId}`);
-      } else {
-        console.error("❌ [GetKeyFactsExtraction] Could not get orgId from extraction either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (extractionOrgError || !extractionOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, extractionOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     // Get extraction from variant_key_facts_extractions table
@@ -13790,23 +14494,19 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
       }, 400);
     }
 
-    // Try to get org from token, fallback to contract's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GenerateDraft] No orgId from token, trying to get from contract...");
-      const { data: contractOrg, error: contractOrgError } = await supabase
-        .from("variant_scope_contracts")
-        .select("organization_id")
-        .eq("id", contractId)
-        .single();
+    const { data: genContractOrg, error: genContractErr } = await supabase
+      .from("variant_scope_contracts")
+      .select("organization_id")
+      .eq("id", contractId)
+      .single();
 
-      if (!contractOrgError && contractOrg?.organization_id) {
-        orgId = contractOrg.organization_id;
-        console.log(`✅ [GenerateDraft] Got orgId from contract: ${orgId}`);
-      } else {
-        console.error("❌ [GenerateDraft] Could not get orgId from contract either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (genContractErr || !genContractOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, genContractOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[GenerateDraft] Starting draft generation for ${stateCode}, track: ${sourceTrackId}`);
@@ -14044,25 +14744,7 @@ async function handleGenerateDraft(req: Request): Promise<Response> {
     }
 
     return jsonResponse({
-      draft: {
-        draftId: record.id,
-        contractId: record.contract_id,
-        extractionId: record.extraction_id,
-        sourceTrackId: record.source_track_id,
-        stateCode: record.state_code,
-        stateName: record.state_name,
-        trackType: record.track_type,
-        status: record.status,
-        draftTitle: record.draft_title,
-        draftContent: record.draft_content,
-        sourceContent: sourceContent || '',  // Return in response but not stored
-        diffOps: record.diff_ops || [],
-        changeNotes: changeNotes,  // Return the change notes we created
-        appliedKeyFactIds: record.applied_key_fact_ids || [],
-        needsReviewKeyFactIds: record.needs_review_key_fact_ids || [],
-        createdAt: record.created_at,
-        updatedAt: record.updated_at,
-      },
+      draft: formatDraftResponse(record, changeNotes, sourceContent || ""),
       success: true,
       message: `Draft generated with ${changeNotes.length} state-specific changes`,
     });
@@ -14093,13 +14775,22 @@ You must preserve structure and change as little as possible.
 
 HARD RULES:
 - You may ONLY use the provided Key Facts for state-specific changes.
-- Do NOT add new topics, new sections, or new compliance info.
+- Do NOT add new topics, new sections, or new compliance info beyond what Key Facts provide.
 - Do NOT change anything unless a Key Fact requires it.
 - Any sentence you modify must end with [[KF:<id>]] where <id> is the Key Fact ID that justifies the change.
 - If you change text without a marker, the output is invalid.
 - Preserve all HTML tags exactly for articles.
 - Maintain the same paragraph structure and order.
 - Keep the same tone and voice appropriate for the learner role.
+
+CRITICAL — REPLACEMENT OVER ADDITION:
+- FIRST look for existing generic sentences in the source that a Key Fact makes state-specific.
+  Example: if the source says "hours of sale vary by state" and a Key Fact says "${stateName || stateCode} prohibits alcohol sales between 2am-8am", REPLACE the generic sentence in-place.
+  Example: if the source says "severe penalties, including fines" and a Key Fact gives specific fine amounts, REPLACE the generic penalty sentence in-place.
+- ONLY add a new sentence if there is NO existing generic sentence to replace.
+- NEVER add a sentence that duplicates information already in the source, even if phrased differently.
+- NEVER add new paragraphs or sections. All changes should be in-place modifications of existing text.
+- When a Key Fact specifies a state agency name (e.g., "SLA", "ABC"), replace the generic term (e.g., "your state's liquor authority") with the specific name.
 
 ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
 - Use second-person voice ("you must", "you should")
@@ -14120,12 +14811,19 @@ ROLE VOICE GUIDELINES for ${scopeContract.primaryRole || 'frontline employee'}:
 ${citationsStr}`;
   }).join('\n\n');
 
+  // Build adaptable hooks section if available
+  const hooksSection = (scopeContract.adaptableHooks || []).length > 0
+    ? `\nADAPTABLE HOOKS — These are generic sentences in the source that should be replaced in-place with state-specific info:\n${(scopeContract.adaptableHooks || []).map((h: any, i: number) =>
+      `${i + 1}. "${h.exactQuote}" → Replace with ${stateName || stateCode}-specific: ${h.researchTarget}`
+    ).join('\n')}\n`
+    : '';
+
   const userPrompt = `Track type: ${trackType}
 Target state: ${stateName || stateCode} (${stateCode})
 Learner role: ${scopeContract.primaryRole || 'frontline employee'}
 Allowed actions: ${(scopeContract.allowedLearnerActions || []).join(', ')}
 Domain anchors: ${(scopeContract.domainAnchors || []).join(', ')}
-
+${hooksSection}
 VALIDATED KEY FACTS:
 ${keyFactsSection}
 
@@ -14134,9 +14832,11 @@ ${sourceContent}
 
 INSTRUCTIONS:
 Rewrite the source for ${stateName || stateCode} with minimal changes.
+PRIORITY: First, find the Adaptable Hooks sentences listed above and replace them IN-PLACE using the Key Facts.
 Only edit where Key Facts require changes.
 Every changed sentence must end with [[KF:<id>]] where <id> is the exact Key Fact ID.
 Preserve headings, paragraph order, and HTML structure.
+Do NOT add new paragraphs. Modify existing sentences in-place.
 Return revised content only. No explanations.`;
 
   try {
@@ -14305,28 +15005,116 @@ function buildChangeNoteTitleSimple(mappedAction: string, anchorHit: string[]): 
   return `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${object} requirement`;
 }
 
+function mapChangeNoteRowToApi(note: any): any {
+  return {
+    id: note.id,
+    title: note.title,
+    description: note.description,
+    mappedAction: note.mapped_action,
+    anchorMatches: note.anchor_matches || [],
+    affectedRangeStart: note.affected_range_start,
+    affectedRangeEnd: note.affected_range_end,
+    affectedRange: {
+      start: note.affected_range_start,
+      end: note.affected_range_end,
+    },
+    keyFactIds: note.key_fact_ids || [],
+    citations: note.citations || [],
+    status: note.status,
+  };
+}
+
+async function getSourceContentForDraftTrack(
+  sourceTrackId: string | null | undefined,
+  orgId: string,
+): Promise<string> {
+  if (!sourceTrackId) return "";
+  const { data: tr } = await supabase
+    .from("tracks")
+    .select("type, content_text, transcript")
+    .eq("id", sourceTrackId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (!tr) return "";
+  return getTrackSourceTextForVariant(tr);
+}
+
+function noteApiToDbRow(note: any, draftId: string, orgId: string) {
+  return {
+    id: note.id,
+    draft_id: draftId,
+    organization_id: orgId,
+    title: note.title || "",
+    description: note.description || "",
+    mapped_action: note.mappedAction || "",
+    anchor_matches: note.anchorMatches || [],
+    affected_range_start: note.affectedRangeStart ?? 0,
+    affected_range_end: note.affectedRangeEnd ?? 0,
+    key_fact_ids: note.keyFactIds || [],
+    citations: note.citations || [],
+    status: note.status || "applied",
+  };
+}
+
+function formatDraftResponse(draft: any, changeNotes: any[] = [], sourceContent = ""): any {
+  return {
+    draftId: draft.id,
+    contractId: draft.contract_id,
+    extractionId: draft.extraction_id,
+    sourceTrackId: draft.source_track_id,
+    stateCode: draft.state_code,
+    stateName: draft.state_name,
+    trackType: draft.track_type,
+    status: draft.status,
+    draftTitle: draft.draft_title,
+    draftContent: draft.draft_content,
+    sourceContent,
+    diffOps: draft.diff_ops || [],
+    changeNotes,
+    appliedKeyFactIds: draft.applied_key_fact_ids || [],
+    needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
+    blockedReasons: draft.blocked_reasons,
+    createdAt: draft.created_at,
+    updatedAt: draft.updated_at,
+  };
+}
+
+async function loadDraftApiPayload(draftId: string, orgId: string): Promise<any | null> {
+  const { data: draft } = await supabase
+    .from("variant_drafts")
+    .select("*")
+    .eq("id", draftId)
+    .eq("organization_id", orgId)
+    .single();
+  if (!draft) return null;
+  const { data: noteRows } = await supabase
+    .from("variant_change_notes")
+    .select("*")
+    .eq("draft_id", draftId)
+    .eq("organization_id", orgId)
+    .order("id");
+  const sourceContent = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+  return formatDraftResponse(draft, (noteRows || []).map(mapChangeNoteRowToApi), sourceContent);
+}
+
 /**
  * Handler: Get Draft
  */
 async function handleGetDraft(draftId: string, req: Request): Promise<Response> {
   try {
-    // Try to get org from token, fallback to draft's org
-    let orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      console.log("⚠️ [GetDraft] No orgId from token, trying to get from draft...");
-      const { data: draftOrg, error: draftOrgError } = await supabase
-        .from("variant_drafts")
-        .select("organization_id")
-        .eq("id", draftId)
-        .single();
+    const { data: draftOrg, error: draftOrgError } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
 
-      if (!draftOrgError && draftOrg?.organization_id) {
-        orgId = draftOrg.organization_id;
-        console.log(`✅ [GetDraft] Got orgId from draft: ${orgId}`);
-      } else {
-        console.error("❌ [GetDraft] Could not get orgId from draft either");
-        return jsonResponse({ error: "Unauthorized" }, 401);
-      }
+    if (draftOrgError || !draftOrg?.organization_id) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const orgId = await requireOrgAccess(req, draftOrg.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const { data: draft, error } = await supabase
@@ -14348,41 +15136,10 @@ async function handleGetDraft(draftId: string, req: Request): Promise<Response> 
       .eq('organization_id', orgId)
       .order('id');
 
-    // Transform change notes to expected format
-    const formattedChangeNotes = (changeNotes || []).map((note: any) => ({
-      id: note.id,
-      title: note.title,
-      description: note.description,
-      mappedAction: note.mapped_action,
-      anchorMatches: note.anchor_matches || [],
-      affectedRange: {
-        start: note.affected_range_start,
-        end: note.affected_range_end,
-      },
-      keyFactIds: note.key_fact_ids || [],
-      citations: note.citations || [],
-      status: note.status,
-    }));
+    const sourceContentOut = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+    const formattedChangeNotes = (changeNotes || []).map(mapChangeNoteRowToApi);
 
-    return jsonResponse({
-      draftId: draft.id,
-      contractId: draft.contract_id,
-      extractionId: draft.extraction_id,
-      sourceTrackId: draft.source_track_id,
-      stateCode: draft.state_code,
-      stateName: draft.state_name,
-      trackType: draft.track_type,
-      status: draft.status,
-      draftTitle: draft.draft_title,
-      draftContent: draft.draft_content,
-      sourceContent: draft.source_content,
-      diffOps: draft.diff_ops || [],
-      changeNotes: formattedChangeNotes,
-      appliedKeyFactIds: draft.applied_key_fact_ids || [],
-      needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
-      createdAt: draft.created_at,
-      updatedAt: draft.updated_at,
-    });
+    return jsonResponse(formatDraftResponse(draft, formattedChangeNotes, sourceContentOut));
 
   } catch (error: any) {
     console.error('handleGetDraft error:', error);
@@ -14401,61 +15158,64 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
       return jsonResponse({ error: "instruction is required" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    const { data: draftOrgRow } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, draftOrgRow?.organization_id);
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[ApplyInstructions] Processing instruction for draft: ${draftId}`);
 
-    // Fetch existing draft
     const { data: draft, error } = await supabase
-      .from('variant_drafts')
-      .select('*')
-      .eq('id', draftId)
-      .eq('organization_id', orgId)
+      .from("variant_drafts")
+      .select("*")
+      .eq("id", draftId)
+      .eq("organization_id", orgId)
       .single();
 
     if (error || !draft) {
       return jsonResponse({ error: "Draft not found" }, 404);
     }
 
-    // Check if draft is blocked
-    if (draft.status === 'blocked') {
+    if (draft.status === "blocked") {
+      const payload = await loadDraftApiPayload(draftId, orgId);
       return jsonResponse({
-        draft: formatDraftResponse(draft),
+        draft: payload,
         success: false,
         changesApplied: 0,
         blockedChanges: [{
           instruction,
-          reason: 'Draft is blocked and cannot be edited',
+          reason: "Draft is blocked and cannot be edited",
+          suggestedText: "",
         }],
         message: "Cannot apply instructions to blocked draft",
       });
     }
 
-    // Fetch scope contract
     const { data: contractRecord } = await supabase
-      .from('variant_scope_contracts')
-      .select('scope_contract')
-      .eq('id', contractId || draft.contract_id)
-      .eq('organization_id', orgId)
+      .from("variant_scope_contracts")
+      .select("scope_contract")
+      .eq("id", contractId || draft.contract_id)
+      .eq("organization_id", orgId)
       .single();
 
     const scopeContract = contractRecord?.scope_contract || {};
 
-    // Fetch validated key facts
     const { data: keyFacts } = await supabase
-      .from('variant_key_facts')
-      .select('*')
-      .eq('extraction_id', extractionId || draft.extraction_id)
-      .eq('organization_id', orgId);
+      .from("variant_key_facts")
+      .select("*")
+      .eq("extraction_id", extractionId || draft.extraction_id)
+      .eq("organization_id", orgId);
 
     const validatedKeyFacts = (keyFacts || []).filter((f: any) =>
-      f.qa_status === 'PASS' || f.qa_status === 'PASS_WITH_REVIEW'
+      f.qa_status === "PASS" || f.qa_status === "PASS_WITH_REVIEW"
     );
 
-    // Check if instruction would require new research
     const blockedChanges: any[] = [];
     const newFactPatterns = [
       /add.*(?:law|regulation|requirement|statute)/i,
@@ -14468,121 +15228,133 @@ async function handleApplyInstructions(draftId: string, req: Request): Promise<R
       if (pattern.test(instruction)) {
         const instructionLower = instruction.toLowerCase();
         const hasCoveringFact = validatedKeyFacts.some((kf: any) =>
-          (kf.fact_text || '').toLowerCase().includes(instructionLower.substring(0, 20))
+          (kf.fact_text || "").toLowerCase().includes(instructionLower.substring(0, 20))
         );
 
         if (!hasCoveringFact) {
           blockedChanges.push({
             instruction,
-            reason: 'This change would require new compliance information not in validated Key Facts.',
-            suggestion: 'Run research and key facts extraction again to include this information.',
+            reason: "This change would require new compliance information not in validated Key Facts.",
+            suggestion: "Run research and key facts extraction again to include this information.",
           });
         }
       }
     }
 
-    // Apply instruction via LLM
     const result = await applyInstructionWithLLM(
-      draft.draft_content || '',
+      draft.draft_content || "",
       instruction,
       scopeContract,
       validatedKeyFacts,
       draft.state_code,
-      draft.state_name
+      draft.state_name,
     );
 
-    // Compute new diff ops and change notes
-    const newDiffOps = computeDiffOpsSimple(draft.source_content || '', result.draftContent);
-    const existingNotes = draft.change_notes || [];
+    const sourceBaseline = await getSourceContentForDraftTrack(draft.source_track_id, orgId);
+    const newDiffOps = computeDiffOpsSimple(sourceBaseline, result.draftContent);
 
-    // Merge new change notes with existing ones
+    const { data: existingRows } = await supabase
+      .from("variant_change_notes")
+      .select("*")
+      .eq("draft_id", draftId)
+      .eq("organization_id", orgId);
+
+    const existingApi = (existingRows || []).map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      mappedAction: row.mapped_action,
+      anchorMatches: row.anchor_matches || [],
+      affectedRangeStart: row.affected_range_start,
+      affectedRangeEnd: row.affected_range_end,
+      keyFactIds: row.key_fact_ids || [],
+      citations: row.citations || [],
+      status: row.status,
+    }));
+
     const newChangeNotes = buildChangeNotesFromMarkers(
       result.markedContent,
       result.draftContent,
       validatedKeyFacts,
-      scopeContract
+      scopeContract,
     );
 
-    // Combine notes, avoiding duplicates
-    const combinedNotes = [...existingNotes];
+    const combinedNotes: any[] = [...existingApi];
     for (const newNote of newChangeNotes) {
-      const exists = combinedNotes.some(n =>
-        n.keyFactIds?.some((id: string) => newNote.keyFactIds?.includes(id))
+      const exists = combinedNotes.some((n) =>
+        (n.keyFactIds || []).some((id: string) => (newNote.keyFactIds || []).includes(id))
       );
       if (!exists) {
         combinedNotes.push(newNote);
       }
     }
 
-    // Collect all applied fact IDs
     const appliedKeyFactIds = [...new Set([
       ...(draft.applied_key_fact_ids || []),
       ...result.appliedKeyFactIds,
     ])];
 
-    // Update draft in database
-    const { data: updatedDraft, error: updateError } = await supabase
-      .from('variant_drafts')
+    const { error: delErr } = await supabase
+      .from("variant_change_notes")
+      .delete()
+      .eq("draft_id", draftId)
+      .eq("organization_id", orgId);
+
+    if (delErr) {
+      console.error("Error clearing change notes:", delErr);
+    }
+
+    if (combinedNotes.length > 0) {
+      const toInsert = combinedNotes.map((n) => noteApiToDbRow(n, draftId, orgId));
+      const { error: insErr } = await supabase.from("variant_change_notes").insert(toInsert);
+      if (insErr) {
+        console.error("Error inserting change notes:", insErr);
+        return jsonResponse({ error: `Failed to save change notes: ${insErr.message}` }, 500);
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("variant_drafts")
       .update({
         draft_content: result.draftContent,
         diff_ops: newDiffOps,
-        change_notes: combinedNotes,
         applied_key_fact_ids: appliedKeyFactIds,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', draftId)
-      .eq('organization_id', orgId)
-      .select()
-      .single();
+      .eq("id", draftId)
+      .eq("organization_id", orgId);
 
     if (updateError) {
-      console.error('Error updating draft:', updateError);
+      console.error("Error updating draft:", updateError);
       return jsonResponse({ error: `Failed to update draft: ${updateError.message}` }, 500);
     }
 
     const changesApplied = newChangeNotes.length;
     console.log(`[ApplyInstructions] Applied ${changesApplied} changes to draft`);
 
+    const payload = await loadDraftApiPayload(draftId, orgId);
+
     return jsonResponse({
-      draft: formatDraftResponse(updatedDraft),
+      draft: payload,
       success: true,
       changesApplied,
-      blockedChanges: blockedChanges.length > 0 ? blockedChanges : undefined,
+      blockedChanges: blockedChanges.length > 0
+        ? blockedChanges.map((b: any) => ({
+          instruction: b.instruction,
+          reason: b.reason,
+          suggestedText: b.suggestion ?? b.suggestedText ?? "",
+        }))
+        : undefined,
       message: changesApplied > 0
         ? `Applied ${changesApplied} change(s) based on instruction`
         : blockedChanges.length > 0
-          ? 'Some changes were blocked'
-          : 'Instruction applied but no changes were needed',
+          ? "Some changes were blocked"
+          : "Instruction applied but no changes were needed",
     });
-
   } catch (error: any) {
-    console.error('handleApplyInstructions error:', error);
+    console.error("handleApplyInstructions error:", error);
     return jsonResponse({ error: error.message || "Internal server error" }, 500);
   }
-}
-
-// Format draft for API response
-function formatDraftResponse(draft: any): any {
-  return {
-    draftId: draft.id,
-    contractId: draft.contract_id,
-    extractionId: draft.extraction_id,
-    sourceTrackId: draft.source_track_id,
-    stateCode: draft.state_code,
-    stateName: draft.state_name,
-    trackType: draft.track_type,
-    status: draft.status,
-    draftTitle: draft.draft_title,
-    draftContent: draft.draft_content,
-    sourceContent: draft.source_content,
-    diffOps: draft.diff_ops || [],
-    changeNotes: draft.change_notes || [],
-    appliedKeyFactIds: draft.applied_key_fact_ids || [],
-    needsReviewKeyFactIds: draft.needs_review_key_fact_ids || [],
-    blockedReasons: draft.blocked_reasons,
-    createdAt: draft.created_at,
-    updatedAt: draft.updated_at,
-  };
 }
 
 // LLM-based instruction application
@@ -14659,6 +15431,314 @@ If the instruction cannot be applied safely, return the original unchanged.`;
 // =============================================================================
 // KB (KNOWLEDGE BASE) HANDLERS
 // =============================================================================
+
+/**
+ * Handler: Get published form by ID for public fill page (no auth required)
+ * Returns: { form, blocks, sections, org: { name, logo_dark_url, logo_light_url } }
+ */
+async function handleFormsPublicGet(req: Request, path: string): Promise<Response> {
+  try {
+    // Extract formId from path: /forms/public/:formId
+    const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
+
+    if (!formId) {
+      return jsonResponse({ error: 'Form ID is required' }, 400);
+    }
+
+    // Fetch the form (any status first so we can distinguish not_found vs not_published)
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('id, title, description, type, status, allow_anonymous, requires_approval, organization_id, slug')
+      .eq('id', formId)
+      .maybeSingle();
+
+    if (formError || !form) {
+      console.log('❌ Form not found:', formId);
+      return jsonResponse({ error: 'not_found', message: 'Form not found' }, 404);
+    }
+
+    if (form.status !== 'published') {
+      console.log('❌ Form not published:', formId, form.status);
+      return jsonResponse({ error: 'not_published', message: 'This form is not currently accepting responses' }, 403);
+    }
+
+    // Fetch sections
+    const { data: sections } = await supabase
+      .from('form_sections')
+      .select('id, title, description, display_order, is_repeatable')
+      .eq('form_id', formId)
+      .order('display_order', { ascending: true });
+
+    // Fetch blocks
+    const { data: blocks } = await supabase
+      .from('form_blocks')
+      .select('id, type, label, description, placeholder, is_required, options, validation_rules, conditional_logic, display_order, section_id')
+      .eq('form_id', formId)
+      .order('display_order', { ascending: true });
+
+    // Fetch org branding
+    const { data: org, error: orgError } = await supabase
+      .from('organizations')
+      .select('id, name, logo_dark_url, logo_light_url, primary_color')
+      .eq('id', form.organization_id)
+      .single();
+
+    if (orgError || !org) {
+      console.error('❌ Organization not found for form:', form.organization_id);
+      return jsonResponse({ error: 'organization_not_found' }, 404);
+    }
+
+    return jsonResponse({
+      form,
+      sections: sections || [],
+      blocks: blocks || [],
+      org: {
+        id: org.id,
+        name: org.name,
+        logo_dark_url: org.logo_dark_url || null,
+        logo_light_url: org.logo_light_url || null,
+        primary_color: org.primary_color || null,
+      },
+    });
+  } catch (err) {
+    console.error('❌ handleFormsPublicGet error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Submit a form response (no auth required — anonymous submissions)
+ * Body: { answers: Record<string, unknown>, submitter_name?: string, submitter_email?: string, start_time?: string }
+ */
+async function handleFormsPublicSubmit(req: Request, path: string): Promise<Response> {
+  try {
+    // Extract formId from path: /forms/public/:formId/submit
+    const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
+
+    if (!formId) {
+      return jsonResponse({ error: 'Form ID is required' }, 400);
+    }
+
+    // Verify form exists and is published
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('id, organization_id, status, requires_approval')
+      .eq('id', formId)
+      .eq('status', 'published')
+      .maybeSingle();
+
+    if (formError || !form) {
+      return jsonResponse({ error: 'not_found', message: 'Form not found or not published' }, 404);
+    }
+
+    let body: Record<string, unknown> = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const answers = (body.answers as Record<string, unknown>) || {};
+    const startTime = body.start_time ? new Date(body.start_time as string) : null;
+    const completionSeconds = startTime
+      ? Math.round((Date.now() - startTime.getTime()) / 1000)
+      : null;
+
+    const submissionStatus = form.requires_approval ? 'pending_review' : 'approved';
+
+    const { data: submission, error: insertError } = await supabase
+      .from('form_submissions')
+      .insert({
+        form_id: formId,
+        organization_id: form.organization_id,
+        responses: answers,
+        status: submissionStatus,
+        submitted_at: new Date().toISOString(),
+        completion_time_seconds: completionSeconds,
+        device_type: (body.device_type as string) || null,
+      })
+      .select('id, status, submitted_at')
+      .single();
+
+    if (insertError) {
+      console.error('❌ Failed to insert submission:', insertError);
+      return jsonResponse({ error: 'Failed to save submission', details: insertError.message }, 500);
+    }
+
+    // TODO: trigger notification to form owner / admins when requires_approval is true.
+    // Follow the notifications pattern: insert into `notifications` table via
+    //   supabase.from('notifications').insert({ user_id, type, title, message, link_url })
+    // For public/anonymous submissions there is no submitter user_id, so target the
+    // form's created_by user or org admins. Defer to a scheduled job or webhook for now.
+
+    return jsonResponse({
+      success: true,
+      submission_id: submission.id,
+      status: submission.status,
+      submitted_at: submission.submitted_at,
+      requires_approval: form.requires_approval,
+    });
+  } catch (err) {
+    console.error('❌ handleFormsPublicSubmit error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+// ─── HTML escape helper ────────────────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Handler: Generate a print-optimised HTML page for a form submission.
+ * Opens in a new browser tab; user prints (Ctrl+P) to save as PDF.
+ * Route: GET /forms/submissions/:submissionId/pdf
+ */
+async function handleFormSubmissionHtml(req: Request, path: string): Promise<Response> {
+  try {
+    // path = /forms/submissions/:submissionId/pdf
+    const segments = path.split('/');
+    const submissionId = segments[3];
+    if (!submissionId) {
+      return jsonResponse({ error: 'submissionId required' }, 400);
+    }
+
+    // Fetch submission + form title + org id + blocks
+    const { data: submission, error: subError } = await supabase
+      .from('form_submissions')
+      .select(`
+        id,
+        status,
+        submitted_at,
+        answers,
+        total_score,
+        max_possible_score,
+        score_percentage,
+        form:forms(
+          title,
+          organization_id,
+          form_blocks(id, label, display_order)
+        )
+      `)
+      .eq('id', submissionId)
+      .single();
+
+    if (subError || !submission) {
+      return jsonResponse({ error: 'Submission not found' }, 404);
+    }
+
+    const form = (submission as any).form;
+    const orgId = form?.organization_id;
+
+    // Fetch org branding
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('name, logo_dark_url, logo_light_url')
+      .eq('id', orgId)
+      .single();
+
+    const orgName: string = org?.name ?? 'Organization';
+    const logoUrl: string = org?.logo_dark_url ?? org?.logo_light_url ?? '';
+    const formTitle: string = form?.title ?? 'Form Submission';
+
+    const rawBlocks: any[] = form?.form_blocks ?? [];
+    const blocks = [...rawBlocks].sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
+
+    const answers: Record<string, unknown> = (submission as any).answers ?? {};
+
+    const submittedAt = submission.submitted_at
+      ? new Date(submission.submitted_at).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '—';
+
+    // Build per-question HTML
+    const answersHtml = blocks
+      .map((block: any) => {
+        const answer = answers[block.id] ?? answers[block.label] ?? '—';
+        return `
+      <div class="question">
+        <div class="question-label">${escapeHtml(block.label || 'Question')}</div>
+        <div class="answer">${escapeHtml(String(answer))}</div>
+      </div>`;
+      })
+      .join('');
+
+    const scorePercentage = (submission as any).score_percentage;
+    const totalScore = (submission as any).total_score;
+    const maxPossibleScore = (submission as any).max_possible_score;
+
+    const scoreHtml =
+      scorePercentage != null
+        ? `<div class="score-row">
+        <span>Score</span>
+        <strong>${scorePercentage}% (${totalScore}/${maxPossibleScore})</strong>
+      </div>`
+        : '';
+
+    const submissionStatus: string = (submission as any).status ?? 'submitted';
+    const isApproved = submissionStatus === 'approved';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(formTitle)} — ${escapeHtml(orgName)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 2px solid #f97316; margin-bottom: 32px; }
+    .logo { max-height: 48px; max-width: 160px; object-fit: contain; }
+    .org-name { font-size: 20px; font-weight: 700; color: #f97316; }
+    .form-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .meta { font-size: 13px; color: #666; margin-bottom: 8px; }
+    .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #166534; }
+    .status.pending { background: #fef9c3; color: #854d0e; }
+    .score-row { display: flex; align-items: center; gap: 8px; font-size: 15px; margin-top: 8px; }
+    .questions { margin-top: 32px; }
+    .question { padding: 16px 0; border-bottom: 1px solid #e5e7eb; }
+    .question:last-child { border-bottom: none; }
+    .question-label { font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .answer { font-size: 16px; color: #111; }
+    .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #999; text-align: center; }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 20mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(orgName)}" class="logo" />` : ''}
+    <div class="org-name">${escapeHtml(orgName)}</div>
+  </div>
+  <div class="form-title">${escapeHtml(formTitle)}</div>
+  <div class="meta">Submitted: ${submittedAt}</div>
+  <div class="meta">Status: <span class="status${isApproved ? '' : ' pending'}">${escapeHtml(submissionStatus)}</span></div>
+  ${scoreHtml}
+  <div class="questions">${answersHtml || '<p style="color:#999;font-size:14px;">No answers recorded.</p>'}</div>
+  <div class="footer">Generated by Trike Backoffice &middot; ${escapeHtml(orgName)}</div>
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  } catch (err) {
+    console.error('❌ handleFormSubmissionHtml error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
 
 /**
  * Handler: Get public track by KB slug
@@ -14789,6 +15869,170 @@ async function handleKBPublicGet(req: Request, path: string): Promise<Response> 
   } catch (error: any) {
     console.error('❌ Error in handleKBPublicGet:', error);
     return jsonResponse({ error: error.message || 'Internal server error' }, 500);
+  }
+}
+
+/**
+ * Handler: Read demo activity telemetry (service-role query)
+ */
+async function handleDemoActivityList(req: Request): Promise<Response> {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return jsonResponse({ error: "Missing Authorization header" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const publicAnonKey = Deno.env.get("PUBLIC_ANON_KEY");
+    const isDemoAnonRequest = !!publicAnonKey && token === publicAnonKey;
+
+    if (!isDemoAnonRequest) {
+      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !userData?.user) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      const { data: roleRow } = await supabase
+        .from("users")
+        .select("organization_id, role:roles(name)")
+        .eq("auth_user_id", userData.user.id)
+        .maybeSingle();
+
+      const roleName = ((roleRow as any)?.role?.name || "") as string;
+      const organizationId = (roleRow as any)?.organization_id as string | undefined;
+      const isTrikeCoInternal = organizationId === "10000000-0000-0000-0000-000000000001";
+      if (roleName !== "Trike Super Admin" && !isTrikeCoInternal) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+    }
+
+    const url = new URL(req.url);
+    const daysRaw = Number(url.searchParams.get("days") || "30");
+    const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 365) : 30;
+    const orgId = url.searchParams.get("organizationId");
+    const limitRaw = Number(url.searchParams.get("limit") || "5000");
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 10000) : 5000;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    let query = supabase
+      .from("demo_activity_events")
+      .select(
+        "organization_id, organization_name_snapshot, event_type, path, from_path, track_title, track_id, visitor_id, session_id, occurred_at"
+      )
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: false })
+      .limit(limit);
+
+    if (orgId) {
+      query = query.eq("organization_id", orgId);
+    } else {
+      // Demo analytics should show attributable activity only.
+      query = query.not("organization_id", "is", null);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("Error querying demo activity list:", error);
+      return jsonResponse({ error: "Failed to fetch activity" }, 500);
+    }
+
+    return jsonResponse({ data: data || [] });
+  } catch (error: any) {
+    console.error("Error in handleDemoActivityList:", error);
+    return jsonResponse({ error: error.message || "Internal error" }, 500);
+  }
+}
+
+/**
+ * Handler: Record demo activity telemetry
+ * Always returns success-like responses to avoid impacting end-user UX.
+ */
+async function handleDemoActivity(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return jsonResponse({ success: true, accepted: false, reason: "invalid_body" });
+    }
+
+    const sanitizeText = (value: unknown, max = 256): string | null => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      return trimmed.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, max);
+    };
+
+    const toJsonObject = (value: unknown): Record<string, unknown> => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+      return value as Record<string, unknown>;
+    };
+
+    const organizationId = sanitizeText((body as any).organizationId, 64);
+    const visitorId = sanitizeText((body as any).visitorId, 128);
+    const sessionId = sanitizeText((body as any).sessionId, 128);
+    const eventType = sanitizeText((body as any).eventType, 64);
+    const path = sanitizeText((body as any).path, 512);
+    const fromPath = sanitizeText((body as any).fromPath, 512);
+    const referrer = sanitizeText((body as any).referrer, 512);
+    const trackId = sanitizeText((body as any).trackId, 64);
+    const trackTitle = sanitizeText((body as any).trackTitle, 256);
+    let organizationNameSnapshot = sanitizeText((body as any).organizationName, 256);
+    const metadata = toJsonObject((body as any).metadata);
+
+    if (!visitorId || !sessionId || !eventType || !path) {
+      return jsonResponse({ success: true, accepted: false, reason: "missing_required_fields" });
+    }
+
+    // Short dedupe window to avoid rapid duplicate beacons.
+    const dedupeSince = new Date(Date.now() - 5000).toISOString();
+    let dedupeQuery = supabase
+      .from("demo_activity_events")
+      .select("id")
+      .eq("visitor_id", visitorId)
+      .eq("session_id", sessionId)
+      .eq("event_type", eventType)
+      .eq("path", path)
+      .gte("occurred_at", dedupeSince)
+      .limit(1)
+      .maybeSingle();
+
+    if (organizationId) {
+      dedupeQuery = dedupeQuery.eq("organization_id", organizationId);
+    } else {
+      dedupeQuery = dedupeQuery.is("organization_id", null);
+    }
+
+    const { data: recentDuplicate } = await dedupeQuery;
+    if (recentDuplicate?.id) {
+      return jsonResponse({ success: true, accepted: true, deduped: true });
+    }
+
+    if (!organizationNameSnapshot && organizationId) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("name")
+        .eq("id", organizationId)
+        .maybeSingle();
+      organizationNameSnapshot = sanitizeText(org?.name, 256);
+    }
+
+    await supabase.from("demo_activity_events").insert({
+      organization_id: organizationId,
+      organization_name_snapshot: organizationNameSnapshot,
+      visitor_id: visitorId,
+      session_id: sessionId,
+      event_type: eventType,
+      path,
+      from_path: fromPath,
+      referrer,
+      track_id: trackId,
+      track_title: trackTitle,
+      metadata,
+      occurred_at: new Date().toISOString(),
+    });
+
+    return jsonResponse({ success: true, accepted: true });
+  } catch (error) {
+    console.error("Error recording demo activity:", error);
+    return jsonResponse({ success: true, accepted: false });
   }
 }
 
@@ -15920,6 +17164,16 @@ async function handleGetEntityTags(req: Request, path: string): Promise<Response
     let tags: any[] = [];
 
     if (entityType === 'track') {
+      const { data: trackRow } = await supabase
+        .from('tracks')
+        .select('organization_id')
+        .eq('id', entityId)
+        .maybeSingle();
+      const orgId = await requireOrgAccess(req, trackRow?.organization_id);
+      if (!orgId) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+
       const { data: trackTags } = await supabase
         .from('track_tags')
         .select(`tag_id, tags:tag_id (id, name, type, color)`)
@@ -15947,6 +17201,16 @@ async function handleAssignTags(req: Request): Promise<Response> {
     }
 
     if (entityType === 'track') {
+      const { data: trackRow } = await supabase
+        .from('tracks')
+        .select('organization_id')
+        .eq('id', entityId)
+        .maybeSingle();
+      const orgId = await requireOrgAccess(req, trackRow?.organization_id);
+      if (!orgId) {
+        return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
+
       // Delete existing tags
       await supabase
         .from('track_tags')
@@ -15955,12 +17219,16 @@ async function handleAssignTags(req: Request): Promise<Response> {
 
       // Insert new tags
       if (tagIds.length > 0) {
+        const uniqueTagIds = Array.from(new Set((tagIds || []).filter(Boolean)));
         const { error } = await supabase
           .from('track_tags')
-          .insert(tagIds.map(tagId => ({
+          .upsert(uniqueTagIds.map((tagId: string) => ({
             track_id: entityId,
             tag_id: tagId,
-          })));
+          })), {
+            onConflict: 'track_id,tag_id',
+            ignoreDuplicates: true,
+          });
 
         if (error) {
           console.error('Error assigning tags:', error);
@@ -15976,9 +17244,149 @@ async function handleAssignTags(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * Batch-read junction tag names for many tracks (service role). Used by Content Library / KB lists
+ * where client-side track_tags SELECT is blocked or inconsistent under demo RLS.
+ */
+async function handleBatchTrackTags(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const rawIds = body?.trackIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return jsonResponse({ byTrackId: {} });
+    }
+
+    const trackIds = [...new Set(rawIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))].slice(0, 300);
+
+    const { data: trackRows, error: trackErr } = await supabase
+      .from('tracks')
+      .select('id, organization_id')
+      .in('id', trackIds);
+
+    if (trackErr) {
+      console.error('[BatchTrackTags] tracks:', trackErr);
+      return jsonResponse({ error: 'Failed to resolve tracks' }, 500);
+    }
+
+    const allowedIds = new Set<string>();
+    for (const row of trackRows || []) {
+      const orgId = await requireOrgAccess(req, (row as { organization_id?: string }).organization_id);
+      if (orgId) {
+        allowedIds.add((row as { id: string }).id);
+      }
+    }
+
+    if (allowedIds.size === 0) {
+      return jsonResponse({ byTrackId: {} });
+    }
+
+    const { data: rels, error: relErr } = await supabase
+      .from('track_tags')
+      .select('track_id, tag_id')
+      .in('track_id', [...allowedIds]);
+
+    if (relErr) {
+      console.error('[BatchTrackTags] track_tags:', relErr);
+      return jsonResponse({ error: 'Failed to read track_tags' }, 500);
+    }
+
+    const tagIds = [...new Set((rels || []).map((r: { tag_id: string }) => r.tag_id))];
+    if (tagIds.length === 0) {
+      const empty: Record<string, string[]> = {};
+      for (const id of allowedIds) empty[id] = [];
+      return jsonResponse({ byTrackId: empty });
+    }
+
+    const { data: tagRows, error: tagErr } = await supabase
+      .from('tags')
+      .select('id, name')
+      .in('id', tagIds);
+
+    if (tagErr) {
+      console.error('[BatchTrackTags] tags:', tagErr);
+      return jsonResponse({ error: 'Failed to read tags' }, 500);
+    }
+
+    const idToName = new Map<string, string>();
+    for (const t of tagRows || []) {
+      idToName.set((t as { id: string }).id, (t as { name: string }).name);
+    }
+
+    const byTrackId: Record<string, string[]> = {};
+    for (const id of allowedIds) {
+      byTrackId[id] = [];
+    }
+    for (const r of rels || []) {
+      const tid = (r as { track_id: string }).track_id;
+      const tagId = (r as { tag_id: string }).tag_id;
+      if (!allowedIds.has(tid)) continue;
+      const name = idToName.get(tagId);
+      if (!name) continue;
+      if (!byTrackId[tid]) byTrackId[tid] = [];
+      byTrackId[tid].push(name);
+    }
+
+    return jsonResponse({ byTrackId });
+  } catch (error: any) {
+    console.error('Batch track tags error:', error);
+    return jsonResponse({ error: error.message || 'Failed to batch read tags' }, 500);
+  }
+}
+
 // =============================================================================
-// ADDITIONAL VARIANT HANDLERS (STUBS)
+// ADDITIONAL VARIANT HANDLERS
 // =============================================================================
+
+/**
+ * Resolve org for track-scoped variant/chat/generate APIs.
+ * Demo/anon: track's organization_id. JWT: must match track's organization_id.
+ */
+async function resolveOrgIdForTrack(req: Request, trackId: string): Promise<string | null> {
+  const { data: t } = await supabase
+    .from("tracks")
+    .select("organization_id")
+    .eq("id", trackId)
+    .maybeSingle();
+  return requireOrgAccess(req, t?.organization_id ?? null);
+}
+
+async function enrichDerivedTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
+  const rels = relationships || [];
+  const needsFallback = rels.some((rel: any) => !rel.derived_track && rel.derived_track_id);
+  if (!needsFallback || rels.length === 0) return rels;
+  const trackIds = rels.map((r: any) => r.derived_track_id).filter(Boolean);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, title, type, thumbnail_url, status, updated_at")
+    .in("id", trackIds)
+    .eq("organization_id", orgId);
+  const trackMap = new Map((tracks || []).map((t: any) => [t.id, t]));
+  rels.forEach((rel: any) => {
+    if (rel.derived_track_id && !rel.derived_track) {
+      rel.derived_track = trackMap.get(rel.derived_track_id);
+    }
+  });
+  return rels;
+}
+
+async function enrichSourceTrackRelationships(orgId: string, relationships: any[]): Promise<any[]> {
+  const rels = relationships || [];
+  const needsFallback = rels.some((rel: any) => !rel.source_track && rel.source_track_id);
+  if (!needsFallback || rels.length === 0) return rels;
+  const trackIds = rels.map((r: any) => r.source_track_id).filter(Boolean);
+  const { data: tracks } = await supabase
+    .from("tracks")
+    .select("id, title, type, thumbnail_url, status, updated_at")
+    .in("id", trackIds)
+    .eq("organization_id", orgId);
+  const trackMap = new Map((tracks || []).map((t: any) => [t.id, t]));
+  rels.forEach((rel: any) => {
+    if (rel.source_track_id && !rel.source_track) {
+      rel.source_track = trackMap.get(rel.source_track_id);
+    }
+  });
+  return rels;
+}
 
 async function handleCreateVariant(req: Request): Promise<Response> {
   try {
@@ -15989,7 +17397,37 @@ async function handleCreateVariant(req: Request): Promise<Response> {
       return jsonResponse({ error: "Missing required fields: sourceTrackId, derivedTrackId, variantType" }, 400);
     }
 
-    const orgId = await getOrgIdFromToken(req);
+    const { data: srcTr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", sourceTrackId)
+      .maybeSingle();
+    const { data: derTr } = await supabase
+      .from("tracks")
+      .select("organization_id")
+      .eq("id", derivedTrackId)
+      .maybeSingle();
+    const sourceOrg = srcTr?.organization_id ?? null;
+    const derivedOrg = derTr?.organization_id ?? null;
+    if (sourceOrg && derivedOrg && sourceOrg !== derivedOrg) {
+      return jsonResponse(
+        { error: "Source and derived tracks must belong to the same organization" },
+        400
+      );
+    }
+    const trackOrg = sourceOrg || derivedOrg;
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      orgId = trackOrg;
+    } else {
+      orgId = await getOrgIdFromToken(req);
+      if (orgId && trackOrg && orgId !== trackOrg) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      if (!orgId) orgId = trackOrg;
+    }
+
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
@@ -16020,43 +17458,619 @@ async function handleCreateVariant(req: Request): Promise<Response> {
 }
 
 async function handleGetVariants(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variants: [] });
+  try {
+    const trackId = path.replace(/^\/track-relationships\/variants\//, "").split("?")[0];
+    const url = new URL(req.url);
+    const variantTypeFilter = url.searchParams.get("type");
+
+    const orgId = await resolveOrgIdForTrack(req, trackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    let query = supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    if (variantTypeFilter) {
+      query = query.eq("variant_type", variantTypeFilter);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("handleGetVariants error:", error);
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const enriched = await enrichDerivedTrackRelationships(orgId, data || []);
+    return jsonResponse({ variants: enriched });
+  } catch (error: any) {
+    console.error("handleGetVariants error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleFindVariant(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variant: null });
+  try {
+    const url = new URL(req.url);
+    const sourceTrackId = url.searchParams.get("sourceTrackId");
+    const variantType = url.searchParams.get("variantType");
+    const contextKey = url.searchParams.get("contextKey");
+    const contextValue = url.searchParams.get("contextValue");
+
+    if (!sourceTrackId || !variantType || !contextKey || contextValue === null) {
+      return jsonResponse({ error: "sourceTrackId, variantType, contextKey, and contextValue are required" }, 400);
+    }
+
+    const orgId = await resolveOrgIdForTrack(req, sourceTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", sourceTrackId)
+      .eq("relationship_type", "variant")
+      .eq("variant_type", variantType);
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const rows = data || [];
+    const match = rows.find((rel: any) => {
+      const ctx = (rel.variant_context || {}) as Record<string, unknown>;
+      const v = ctx[contextKey];
+      return v !== undefined && String(v) === String(contextValue);
+    });
+
+    if (!match) {
+      return jsonResponse({ variant: null });
+    }
+
+    const [enriched] = await enrichDerivedTrackRelationships(orgId, [match]);
+    return jsonResponse({ variant: enriched || null });
+  } catch (error: any) {
+    console.error("handleFindVariant error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetBaseTrack(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ baseTrack: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/base/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        source_track:tracks!source_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", variantTrackId)
+      .eq("relationship_type", "variant")
+      .maybeSingle();
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    if (!data) {
+      return jsonResponse({ baseTrack: null });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [data]);
+    return jsonResponse({ baseTrack: enriched || null });
+  } catch (error: any) {
+    console.error("handleGetBaseTrack error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetStatsWithVariants(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ stats: {} });
+  try {
+    const trackId = path.replace("/track-relationships/stats-with-variants/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, trackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data: derivedData, error: derivedError } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        derived_track:tracks!derived_track_id(type)
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "source");
+
+    if (derivedError) {
+      return jsonResponse({ error: derivedError.message }, 500);
+    }
+
+    const relationships = derivedData || [];
+    const hasDerivedCheckpoints = relationships.some(
+      (rel: any) => rel.derived_track?.type === "checkpoint"
+    );
+
+    const { count: sourceCount, error: sourceError } = await supabase
+      .from("track_relationships")
+      .select("*", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", trackId);
+
+    if (sourceError) {
+      return jsonResponse({ error: sourceError.message }, 500);
+    }
+
+    const { data: variantRows, error: variantError } = await supabase
+      .from("track_relationships")
+      .select("variant_type")
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    if (variantError) {
+      return jsonResponse({ error: variantError.message }, 500);
+    }
+
+    const variants = { geographic: 0, company: 0, unit: 0 };
+    for (const row of variantRows || []) {
+      const vt = (row as any).variant_type as string | null;
+      if (vt === "geographic") variants.geographic++;
+      else if (vt === "company") variants.company++;
+      else if (vt === "unit") variants.unit++;
+    }
+
+    const { data: baseTrack } = await supabase
+      .from("tracks")
+      .select("updated_at")
+      .eq("id", trackId)
+      .eq("organization_id", orgId)
+      .single();
+
+    const baseUpdated = baseTrack?.updated_at ? new Date(baseTrack.updated_at).getTime() : 0;
+
+    let variantsNeedingReview = 0;
+    const { data: variantRels } = await supabase
+      .from("track_relationships")
+      .select("variant_context")
+      .eq("organization_id", orgId)
+      .eq("source_track_id", trackId)
+      .eq("relationship_type", "variant");
+
+    for (const rel of variantRels || []) {
+      const ctx = ((rel as any).variant_context || {}) as Record<string, unknown>;
+      const synced = ctx.base_synced_at ? new Date(String(ctx.base_synced_at)).getTime() : 0;
+      if (!ctx.base_synced_at || baseUpdated > synced) {
+        variantsNeedingReview++;
+      }
+    }
+
+    return jsonResponse({
+      stats: {
+        derivedCount: relationships.length,
+        sourceCount: sourceCount || 0,
+        hasDerivedCheckpoints,
+        variantCount: (variantRows || []).length,
+        variants,
+        variantsNeedingReview,
+      },
+    });
+  } catch (error: any) {
+    console.error("handleGetStatsWithVariants error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariantTree(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ tree: [] });
+  try {
+    const rootTrackId = path.replace("/track-relationships/variant-tree/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, rootTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const tree: any[] = [];
+    const visited = new Set<string>();
+    const queue: string[] = [rootTrackId];
+
+    while (queue.length > 0) {
+      const sourceId = queue.shift()!;
+      if (visited.has(sourceId)) continue;
+      visited.add(sourceId);
+
+      const { data, error } = await supabase
+        .from("track_relationships")
+        .select(`
+          id,
+          source_track_id,
+          derived_track_id,
+          relationship_type,
+          variant_type,
+          variant_context,
+          created_at,
+          derived_track:tracks!derived_track_id(
+            id,
+            title,
+            type,
+            thumbnail_url,
+            status,
+            updated_at
+          )
+        `)
+        .eq("organization_id", orgId)
+        .eq("source_track_id", sourceId)
+        .eq("relationship_type", "variant");
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+
+      const rels = data || [];
+      const enriched = await enrichDerivedTrackRelationships(orgId, rels);
+      for (const rel of enriched) {
+        tree.push(rel);
+        if (rel.derived_track_id && !visited.has(rel.derived_track_id)) {
+          queue.push(rel.derived_track_id);
+        }
+      }
+    }
+
+    return jsonResponse({ tree });
+  } catch (error: any) {
+    console.error("handleGetVariantTree error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetParentVariant(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ parent: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/parent/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        source_track:tracks!source_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("derived_track_id", variantTrackId)
+      .eq("relationship_type", "variant")
+      .maybeSingle();
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    if (!data) {
+      return jsonResponse({ parentVariant: null });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [data]);
+    return jsonResponse({ parentVariant: enriched || null });
+  } catch (error: any) {
+    console.error("handleGetParentVariant error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetVariantsNeedingReview(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ variants: [] });
+  try {
+    const baseTrackId = path.replace("/track-relationships/variants/needs-review/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, baseTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const { data: baseTrack } = await supabase
+      .from("tracks")
+      .select("updated_at")
+      .eq("id", baseTrackId)
+      .eq("organization_id", orgId)
+      .single();
+
+    const baseUpdated = baseTrack?.updated_at ? new Date(baseTrack.updated_at).getTime() : 0;
+
+    const { data, error } = await supabase
+      .from("track_relationships")
+      .select(`
+        id,
+        source_track_id,
+        derived_track_id,
+        relationship_type,
+        variant_type,
+        variant_context,
+        created_at,
+        derived_track:tracks!derived_track_id(
+          id,
+          title,
+          type,
+          thumbnail_url,
+          status,
+          updated_at
+        )
+      `)
+      .eq("organization_id", orgId)
+      .eq("source_track_id", baseTrackId)
+      .eq("relationship_type", "variant");
+
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    const rows = data || [];
+    const needing: any[] = [];
+    for (const rel of rows) {
+      const ctx = ((rel as any).variant_context || {}) as Record<string, unknown>;
+      const synced = ctx.base_synced_at ? new Date(String(ctx.base_synced_at)).getTime() : 0;
+      if (!ctx.base_synced_at || baseUpdated > synced) {
+        needing.push(rel);
+      }
+    }
+
+    const enriched = await enrichDerivedTrackRelationships(orgId, needing);
+    return jsonResponse({ variantsNeedingReview: enriched });
+  } catch (error: any) {
+    console.error("handleGetVariantsNeedingReview error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleMarkVariantSynced(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ success: true });
+  try {
+    const parts = path.split("/");
+    const idx = parts.indexOf("mark-synced");
+    const relationshipId = idx >= 0 ? parts[idx + 1] : "";
+    if (!relationshipId) {
+      return jsonResponse({ error: "Relationship ID is required" }, 400);
+    }
+
+    const { data: relRow } = await supabase
+      .from("track_relationships")
+      .select("organization_id")
+      .eq("id", relationshipId)
+      .maybeSingle();
+    const relOrgId = relRow?.organization_id ?? null;
+    if (!relOrgId) {
+      return jsonResponse({ error: "Relationship not found" }, 404);
+    }
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      orgId = relOrgId;
+    } else {
+      const tokenOrgId = await getOrgIdFromToken(req);
+      if (!tokenOrgId || tokenOrgId !== relOrgId) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      orgId = tokenOrgId;
+    }
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("track_relationships")
+      .select("id, variant_context")
+      .eq("id", relationshipId)
+      .eq("organization_id", orgId)
+      .single();
+
+    if (fetchError || !existing) {
+      return jsonResponse({ error: "Relationship not found" }, 404);
+    }
+
+    const ctx = { ...((existing as any).variant_context as Record<string, unknown> || {}) };
+    ctx.base_synced_at = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from("track_relationships")
+      .update({ variant_context: ctx })
+      .eq("id", relationshipId)
+      .eq("organization_id", orgId);
+
+    if (updateError) {
+      return jsonResponse({ error: updateError.message }, 500);
+    }
+
+    return jsonResponse({ success: true });
+  } catch (error: any) {
+    console.error("handleMarkVariantSynced error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleGetUltimateBaseTrack(req: Request, path: string): Promise<Response> {
-  return jsonResponse({ baseTrack: null });
+  try {
+    const variantTrackId = path.replace("/track-relationships/variant/ultimate-base/", "").split("?")[0];
+    const orgId = await resolveOrgIdForTrack(req, variantTrackId);
+    if (!orgId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    let currentId = variantTrackId;
+    let lastRel: any = null;
+    let depth = 0;
+    const maxDepth = 50;
+
+    while (depth < maxDepth) {
+      const { data, error } = await supabase
+        .from("track_relationships")
+        .select(`
+          id,
+          source_track_id,
+          derived_track_id,
+          relationship_type,
+          variant_type,
+          variant_context,
+          created_at,
+          source_track:tracks!source_track_id(
+            id,
+            title,
+            type,
+            thumbnail_url,
+            status,
+            updated_at
+          )
+        `)
+        .eq("organization_id", orgId)
+        .eq("derived_track_id", currentId)
+        .eq("relationship_type", "variant")
+        .maybeSingle();
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+      if (!data) {
+        break;
+      }
+
+      lastRel = data;
+      currentId = data.source_track_id;
+      depth++;
+    }
+
+    if (!lastRel) {
+      return jsonResponse({ baseTrack: null, depth: 0 });
+    }
+
+    const [enriched] = await enrichSourceTrackRelationships(orgId, [lastRel]);
+    return jsonResponse({ baseTrack: enriched || null, depth });
+  } catch (error: any) {
+    console.error("handleGetUltimateBaseTrack error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleBatchTrackRelationships(req: Request): Promise<Response> {
-  return jsonResponse({ relationships: [] });
+  try {
+    const body = await req.json().catch(() => ({}));
+    const relationships = (body as any).relationships;
+    if (!Array.isArray(relationships) || relationships.length === 0) {
+      return jsonResponse({ error: "relationships array is required" }, 400);
+    }
+
+    const first = relationships[0];
+    const firstTid = first?.sourceTrackId || first?.derivedTrackId;
+
+    let orgId: string | null = null;
+    if (isAnonBearer(req)) {
+      if (!firstTid) {
+        return jsonResponse({ error: "Each relationship must include sourceTrackId or derivedTrackId" }, 400);
+      }
+      const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", firstTid).maybeSingle();
+      orgId = t?.organization_id ?? null;
+    } else {
+      const tokenOrg = await getOrgIdFromToken(req);
+      let trackOrg: string | null = null;
+      if (firstTid) {
+        const { data: t } = await supabase.from("tracks").select("organization_id").eq("id", firstTid).maybeSingle();
+        trackOrg = t?.organization_id ?? null;
+      }
+      if (tokenOrg && trackOrg && tokenOrg !== trackOrg) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      orgId = tokenOrg || trackOrg;
+    }
+
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const trackIds = new Set<string>();
+    for (const r of relationships) {
+      if (r.sourceTrackId) trackIds.add(r.sourceTrackId);
+      if (r.derivedTrackId) trackIds.add(r.derivedTrackId);
+    }
+    const idList = [...trackIds];
+    if (idList.length === 0) {
+      return jsonResponse({ error: "No track IDs in relationships" }, 400);
+    }
+    const { data: tracksCheck } = await supabase
+      .from("tracks")
+      .select("id, organization_id")
+      .in("id", idList);
+    const orgByTrack = new Map((tracksCheck || []).map((tr: any) => [tr.id, tr.organization_id]));
+    for (const id of idList) {
+      const o = orgByTrack.get(id);
+      if (!o || o !== orgId) {
+        return jsonResponse({ error: "All tracks must belong to the same organization" }, 400);
+      }
+    }
+
+    const rows = relationships.map((r: any) => ({
+      organization_id: orgId,
+      source_track_id: r.sourceTrackId,
+      derived_track_id: r.derivedTrackId,
+      relationship_type: r.relationshipType || "source",
+      variant_type: r.variantType ?? null,
+      variant_context: r.variantContext ?? null,
+    }));
+
+    const { data, error } = await supabase.from("track_relationships").insert(rows).select();
+    if (error) {
+      return jsonResponse({ error: error.message }, 500);
+    }
+
+    return jsonResponse({ relationships: data || [] });
+  } catch (error: any) {
+    console.error("handleBatchTrackRelationships error:", error);
+    return jsonResponse({ error: error.message }, 500);
+  }
 }
 
 async function handleClassifySource(req: Request): Promise<Response> {
@@ -16253,8 +18267,14 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
     // Path: /track-relationships/variant/draft/:draftId/status
     // split: ["", "track-relationships", "variant", "draft", "draftId", "status"]
     const draftId = path.split("/")[4];
-    
-    const orgId = await getOrgIdFromToken(req);
+
+    const { data: dOrg } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, dOrg?.organization_id);
     if (!orgId) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
@@ -16282,7 +18302,11 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
         return jsonResponse({ error: "Failed to update draft status" }, 500);
       }
 
-      return jsonResponse(formatDraftResponse(draft));
+      const payload = await loadDraftApiPayload(draftId, orgId);
+      if (payload) {
+        return jsonResponse(payload);
+      }
+      return jsonResponse(formatDraftResponse(draft, [], ""));
     } else {
       // GET
       const { data: draft, error } = await supabase
@@ -16305,19 +18329,23 @@ async function handleDraftStatus(req: Request, path: string): Promise<Response> 
 
 async function handlePublishDraft(req: Request, path: string): Promise<Response> {
   try {
-    // Get org ID from token
-    const orgId = await getOrgIdFromToken(req);
-    if (!orgId) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
-    // Extract draftId from path: /track-relationships/variant/draft/:draftId/publish
     const pathParts = path.split('/');
     const draftIndex = pathParts.indexOf('draft');
     const draftId = draftIndex >= 0 ? pathParts[draftIndex + 1] : null;
 
     if (!draftId) {
       return jsonResponse({ error: "Draft ID is required" }, 400);
+    }
+
+    const { data: pubOrgRow } = await supabase
+      .from("variant_drafts")
+      .select("organization_id")
+      .eq("id", draftId)
+      .single();
+
+    const orgId = await requireOrgAccess(req, pubOrgRow?.organization_id);
+    if (!orgId) {
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     console.log(`[PublishDraft] Publishing draft ${draftId} for org ${orgId}`);
@@ -16347,7 +18375,6 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
         transcript: draft.draft_content, // Article HTML content goes in transcript field
         status: 'draft',
         description: `State variant for ${draft.state_name || draft.state_code}`,
-        tags: [draft.state_code, 'state-variant'].filter(Boolean),
       })
       .select()
       .single();
@@ -16358,6 +18385,79 @@ async function handlePublishDraft(req: Request, path: string): Promise<Response>
     }
 
     console.log(`[PublishDraft] Created article track ${newTrack.id}: ${newTrack.title}`);
+
+    // 2b. Assign tags via track_tags junction table
+    const tagNames = [draft.state_code, 'state-variant'].filter(Boolean);
+
+    // 2c. Ensure scope is set to STATE > X for state variants
+    // This keeps the "Content scope" panel aligned with the state the variant agent used.
+    const stateCode = (draft.state_code || draft.stateCode || '').toString().toUpperCase();
+    if (stateCode) {
+      const { data: stateRow, error: stateErr } = await supabase
+        .from('us_states')
+        .select('id')
+        .eq('code', stateCode)
+        .maybeSingle();
+
+      if (!stateErr && stateRow?.id) {
+        try {
+          await supabase.from('track_scopes').upsert({
+            track_id: newTrack.id,
+            organization_id: orgId,
+            scope_level: 'STATE',
+            sector: null,
+            industry_id: null,
+            state_id: stateRow.id,
+            company_id: null,
+            program_id: null,
+            unit_id: null,
+            metadata: {
+              source: 'state-variant',
+              variant_draft_id: draftId,
+              state_code: stateCode,
+            },
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'track_id',
+            ignoreDuplicates: true,
+          });
+          console.log(`[PublishDraft] Set track scope STATE (${stateCode}) for ${newTrack.id}`);
+        } catch (scopeErr) {
+          console.warn('[PublishDraft] Failed to set track scope:', scopeErr);
+        }
+      } else if (stateErr) {
+        console.warn('[PublishDraft] Failed to resolve us_state id:', stateErr);
+      }
+    }
+
+    if (tagNames.length > 0) {
+      for (const tagName of tagNames) {
+        // Find or create the tag
+        let { data: existingTag } = await supabase
+          .from('tags')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('name', tagName)
+          .single();
+
+        if (!existingTag) {
+          const { data: newTag } = await supabase
+            .from('tags')
+            .insert({ organization_id: orgId, name: tagName, type: 'track' })
+            .select('id')
+            .single();
+          existingTag = newTag;
+        }
+
+        if (existingTag) {
+          await supabase
+            .from('track_tags')
+            .insert({ track_id: newTrack.id, tag_id: existingTag.id })
+            .single();
+        }
+      }
+      console.log(`[PublishDraft] Assigned tags: ${tagNames.join(', ')}`);
+    }
 
     // 3. Create variant relationship between source track and new article
     let relationshipId: string | null = null;
@@ -17737,6 +19837,14 @@ async function handlePlaybookConfirmTrack(req: Request): Promise<Response> {
       }, 400);
     }
 
+    const assignedChunkCount = (track.playbook_track_chunks || []).length;
+    if (assignedChunkCount === 0) {
+      return jsonResponse({
+        success: false,
+        error: "Cannot confirm track with no chunks. Drag at least one chunk into this track first."
+      }, 400);
+    }
+
     // Update track status
     const { data: updatedTrack, error: updateError } = await supabase
       .from("playbook_tracks")
@@ -17815,11 +19923,14 @@ async function handlePlaybookGenerateDraft(req: Request): Promise<Response> {
         .from("playbook_tracks")
         .update({
           status: 'confirmed',
-          generation_error: 'No chunks found for this track'
+          generation_error: 'No chunks found for this track. Assign chunks before generating draft.'
         })
         .eq("id", playbook_track_id);
 
-      return jsonResponse({ success: false, error: "No chunks found for this track" }, 400);
+      return jsonResponse({
+        success: false,
+        error: "No chunks found for this track. Drag chunks into this track first, then Generate Draft."
+      }, 400);
     }
 
     console.log('[playbook/generate-draft] Generating draft from', sortedChunks.length, 'chunks');

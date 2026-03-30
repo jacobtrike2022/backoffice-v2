@@ -49,6 +49,7 @@ import {
   getComplianceRequirementsWithTopics,
   getComplianceRequirementsForOrg,
   getOrgStates,
+  getAllComplianceStates,
   getComplianceTopics,
   getComplianceAuthorities,
   createComplianceRequirement,
@@ -134,15 +135,16 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
         setAuthorities(authData);
         setOrgStates(states);
       } else {
-        const [reqData, topicData, authData] = await Promise.all([
+        const [reqData, topicData, authData, states] = await Promise.all([
           getComplianceRequirementsWithTopics(),
           getComplianceTopics(),
-          getComplianceAuthorities()
+          getComplianceAuthorities(),
+          getAllComplianceStates()
         ]);
         setRequirements(reqData);
         setTopics(topicData);
         setAuthorities(authData);
-        setOrgStates([]);
+        setOrgStates(states);
       }
     } catch (err: any) {
       console.error('Error fetching data:', err);
@@ -157,13 +159,13 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
       const filters: { topicId?: string; status?: string; stateCode?: string; stateCodes?: string[] } = {};
       if (topicFilter && topicFilter !== 'all') filters.topicId = topicFilter;
       if (statusFilter && statusFilter !== 'all') filters.status = statusFilter;
+      if (stateFilter && stateFilter !== 'all') filters.stateCode = stateFilter;
 
       if (useOrgScope) {
         if (stateFilter === 'all') {
           const data = await getComplianceRequirementsForOrg(filters);
           setRequirements(data);
         } else {
-          filters.stateCode = stateFilter;
           const data = await getComplianceRequirementsWithTopics(filters);
           setRequirements(data);
         }
@@ -371,21 +373,6 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                 className="pl-10"
               />
             </div>
-            {useOrgScope && orgStates.length > 0 && (
-              <Select value={stateFilter} onValueChange={setStateFilter}>
-                <SelectTrigger className="w-full md:w-40">
-                  <SelectValue placeholder="State" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All states ({orgStates.join(', ')})</SelectItem>
-                  {orgStates.map((code) => (
-                    <SelectItem key={code} value={code}>
-                      {code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
             <Select value={topicFilter} onValueChange={setTopicFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <Filter className="h-4 w-4 mr-2" />
@@ -400,6 +387,21 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                 ))}
               </SelectContent>
             </Select>
+            {orgStates.length > 0 && (
+              <Select value={stateFilter} onValueChange={setStateFilter}>
+                <SelectTrigger className="w-full md:w-40">
+                  <SelectValue placeholder="States" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All states ({orgStates.length})</SelectItem>
+                  {orgStates.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full md:w-40">
                 <SelectValue placeholder="Status" />
