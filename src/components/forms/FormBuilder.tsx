@@ -156,7 +156,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
   return (
     <div
       ref={pickerRef}
-      className="absolute z-50 mt-1 w-80 rounded-lg border border-border bg-popover shadow-lg p-3"
+      className="absolute z-50 mt-1 w-[400px] rounded-lg border border-border bg-popover shadow-lg p-3"
     >
       <div className="flex gap-1 mb-2 text-xs">
         {(['questions', 'content', 'actions'] as const).map(tab => (
