@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, FileText, CreditCard, Phone, Mail } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -6,6 +7,7 @@ import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
 import trikeLogo from '../../assets/trike-logo.png';
 
 export function FrozenDemoScreen() {
+  const { t } = useTranslation();
   const [orgData, setOrgData] = useState<{
     name: string;
     logo_dark_url: string | null;
@@ -57,14 +59,14 @@ export function FrozenDemoScreen() {
 
         {/* Heading */}
         <div>
-          <h1 className="text-3xl font-bold mb-2">Your Demo Has Expired</h1>
+          <h1 className="text-3xl font-bold mb-2">{t('frozenDemo.title')}</h1>
           <p className="text-muted-foreground text-lg">
             {orgData?.name
-              ? `The demo period for ${orgData.name} has ended.`
-              : 'Your demo period has ended.'}
+              ? t('frozenDemo.periodEndedOrg', { name: orgData.name })
+              : t('frozenDemo.periodEnded')}
           </p>
           <p className="text-muted-foreground mt-1">
-            Ready to unlock the full platform? Choose an option below to continue.
+            {t('frozenDemo.readyToUnlock')}
           </p>
         </div>
 
@@ -75,18 +77,17 @@ export function FrozenDemoScreen() {
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Calendar className="h-5 w-5 text-primary" />
-                Schedule a Call
+                {t('frozenDemo.scheduleCall')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Talk to your Trike representative to discuss your needs, ask questions,
-                or request a demo extension.
+                {t('frozenDemo.talkToRep')}
               </p>
               <div className="space-y-2">
                 <Button className="w-full" variant="outline">
                   <Phone className="h-4 w-4 mr-2" />
-                  Request a Call
+                  {t('frozenDemo.requestCall')}
                 </Button>
                 <Button className="w-full" variant="ghost" size="sm">
                   <Mail className="h-4 w-4 mr-2" />
@@ -103,12 +104,12 @@ export function FrozenDemoScreen() {
                 {hasProposal ? (
                   <>
                     <FileText className="h-5 w-5 text-primary" />
-                    Ready to Get Started?
+                    {t('frozenDemo.readyToStart')}
                   </>
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5 text-primary" />
-                    Activate Your Account
+                    {t('frozenDemo.activateAccount')}
                   </>
                 )}
               </CardTitle>
@@ -117,23 +118,21 @@ export function FrozenDemoScreen() {
               {hasProposal ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    You have a proposal ready for review. Accept it and set up billing
-                    to unlock the full Trike platform.
+                    {t('frozenDemo.proposalReady')}
                   </p>
                   <Button className="w-full">
                     <FileText className="h-4 w-4 mr-2" />
-                    Review & Accept Proposal
+                    {t('frozenDemo.reviewProposal')}
                   </Button>
                 </>
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Contact your Trike representative to receive a proposal and
-                    get started with the full platform.
+                    {t('frozenDemo.contactForProposal')}
                   </p>
                   <Button className="w-full" variant="outline">
                     <Mail className="h-4 w-4 mr-2" />
-                    Contact Your Rep
+                    {t('frozenDemo.contactRep')}
                   </Button>
                 </>
               )}

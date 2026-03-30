@@ -156,12 +156,13 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
   return (
     <div
       ref={pickerRef}
-      className="absolute z-50 mt-1 w-64 rounded-lg border border-border bg-popover shadow-lg p-3"
+      className="absolute z-50 mt-1 w-[400px] rounded-lg border border-border bg-popover shadow-lg p-3"
     >
       <div className="flex gap-1 mb-2 text-xs">
         {(['questions', 'content', 'actions'] as const).map(tab => (
           <button
             key={tab}
+            type="button"
             onClick={() => setActiveTab(tab)}
             className={`flex-1 rounded px-2 py-1 capitalize transition-colors ${
               activeTab === tab
@@ -179,6 +180,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
           return (
             <button
               key={bt.type}
+              type="button"
               onClick={() => {
                 onSelect(bt.type);
                 onClose();
@@ -186,7 +188,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
               className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted transition-colors text-left"
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{bt.label}</span>
+              <span>{bt.label}</span>
             </button>
           );
         })}
@@ -212,6 +214,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps)
   return (
     <div className="relative flex justify-center my-1" ref={anchorRef}>
       <button
+        type="button"
         onClick={() => setOpen(v => !v)}
         className="h-7 w-7 rounded-full border-2 border-border bg-background flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary hover:shadow-[0_0_8px_2px_hsl(var(--primary)/0.35)] transition-all duration-200"
         aria-label="Add block"
@@ -544,7 +547,7 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
   };
 
   return (
-    <div className="fixed right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
+    <div className="absolute right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -552,6 +555,7 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
           <span className="text-sm font-medium">{typeDef?.label ?? block.block_type}</span>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted transition-colors"
         >
@@ -700,6 +704,7 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
                     className="text-sm h-8 flex-1"
                   />
                   <button
+                    type="button"
                     onClick={() => handleRemoveOption(i)}
                     className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
                   >
@@ -884,6 +889,7 @@ function SectionHeaderCard({
   return (
     <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-5 py-3 mb-2 group relative">
       <button
+        type="button"
         onClick={onDelete}
         className="absolute right-2 top-2 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
       >
@@ -1046,7 +1052,7 @@ export function FormBuilder({
     : null;
 
   return (
-    <div className="flex flex-col h-screen bg-muted/30 overflow-hidden">
+    <div className="flex flex-col bg-muted/30 overflow-hidden" style={{ height: 'calc(100vh - 120px)', minHeight: '600px' }}>
       {/* ================================================================
           TOOLBAR
       ================================================================ */}
@@ -1178,7 +1184,7 @@ export function FormBuilder({
       {/* ================================================================
           MAIN AREA
       ================================================================ */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Canvas */}
         <div
           className={`flex-1 overflow-y-auto py-8 transition-all ${
@@ -1195,11 +1201,13 @@ export function FormBuilder({
 
             <ConnectorLine />
 
-            {/* Add block button at the very top (before all blocks) */}
-            <AddBlockButton
-              sectionId={null}
-              onAdd={hook.addBlock}
-            />
+            {/* Top-level + only when canvas is empty (cards render their own + after themselves) */}
+            {unsectionedBlocks.length === 0 && hook.sections.length === 0 && (
+              <AddBlockButton
+                sectionId={null}
+                onAdd={hook.addBlock}
+              />
+            )}
 
             {/* Empty canvas hint */}
             {hook.blocks.length === 0 && hook.sections.length === 0 && (
@@ -1273,8 +1281,10 @@ export function FormBuilder({
                   </SortableContext>
                 </DndContext>
 
-                {/* Add block inside this section */}
-                <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+                {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
+                {(blocksBySection[section.id] ?? []).length === 0 && (
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+                )}
               </div>
             ))}
 

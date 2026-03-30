@@ -100,9 +100,15 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
     }
   }
 
-  // Don't render if no relationships
-  if (!isLoading && sourceTracks.length === 0 && !baseTrack && derivedTracks.length === 0 && variants.length === 0) {
-    return null;
+  // Keep a stable wrapper when there is nothing to show (do not return null — unmounting this
+  // sibling while VersionHistory finishes loading caused React/Radix removeChild errors in production).
+  const hasAnyRelationships =
+    sourceTracks.length > 0 ||
+    derivedTracks.length > 0 ||
+    variants.length > 0 ||
+    !!baseTrack;
+  if (!isLoading && !hasAnyRelationships) {
+    return <div className="space-y-4" aria-hidden />;
   }
 
   const getTrackTypeBadge = (type: string) => {

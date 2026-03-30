@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -59,6 +60,7 @@ interface UnitsProps {
 }
 
 export function Units({ role: currentRole, selectedStoreId: initialStoreId, onStoreSelect, onNavigate }: UnitsProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
@@ -87,10 +89,10 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
     id: store.id,
     name: store.name,
     storeNumber: store.code ? `#${store.code}` : '#N/A',
-    district: store.district?.name || 'Unassigned',
-    manager: store.manager 
+    district: store.district?.name || t('units.unassigned'),
+    manager: store.manager
       ? `${store.manager.first_name} ${store.manager.last_name}`
-      : 'No Manager',
+      : t('units.noManager'),
     employees: store.employeeCount || 0,
     avgProgress: store.avgProgress || 0,
     compliance: store.compliance || 0,
@@ -245,9 +247,9 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-foreground">Units Management</h1>
+            <h1 className="text-foreground">{t('units.unitsManagement')}</h1>
             <p className="text-muted-foreground mt-1">
-              Monitor and manage store performance and training metrics
+              {t('units.monitorAndManage')}
             </p>
           </div>
         </div>
@@ -274,23 +276,23 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground">Units Management</h1>
+          <h1 className="text-foreground">{t('units.unitsManagement')}</h1>
           <p className="text-muted-foreground mt-1">
-            Monitor and manage store performance and training metrics
+            {t('units.monitorAndManage')}
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          <Button 
-            variant="default" 
+          <Button
+            variant="default"
             size="sm"
             onClick={() => onNavigate?.('new-unit')}
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Unit
+            {t('units.newUnit')}
           </Button>
           <Button variant="outline" size="sm">
             <Download className="w-4 h-4 mr-2" />
-            Export
+            {t('common.export')}
           </Button>
         </div>
       </div>
@@ -301,7 +303,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Units</p>
+                <p className="text-sm text-muted-foreground">{t('units.totalUnits')}</p>
                 <p className="text-3xl font-bold text-foreground mt-1">{totalStores}</p>
               </div>
               <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
@@ -315,7 +317,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Employees</p>
+                <p className="text-sm text-muted-foreground">{t('units.totalEmployees')}</p>
                 <p className="text-3xl font-bold text-foreground mt-1">{totalEmployees}</p>
               </div>
               <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
@@ -329,7 +331,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg. Progress</p>
+                <p className="text-sm text-muted-foreground">{t('units.avgProgress')}</p>
                 <p className="text-3xl font-bold text-foreground mt-1">{avgProgress}%</p>
               </div>
               <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
@@ -348,7 +350,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search units by name, number, manager, or city..."
+                  placeholder={t('units.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -360,7 +362,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
                 className="relative"
               >
                 <Filter className="w-4 h-4 mr-2" />
-                Filters
+                {t('common.filters')}
                 {activeFiltersCount > 0 && (
                   <Badge className="ml-2 bg-white text-primary border-0 px-1.5 py-0 h-5 min-w-5">
                     {activeFiltersCount}
@@ -373,7 +375,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
             {showFilters && (
               <div className="border rounded-lg p-4 bg-accent/50 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-foreground">Filter Options</h3>
+                  <h3 className="font-semibold text-foreground">{t('units.filterOptions')}</h3>
                   {activeFiltersCount > 0 && (
                     <Button
                       variant="ghost"
@@ -382,7 +384,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <X className="w-3 h-3 mr-1" />
-                      Clear All
+                      {t('common.clearAll')}
                     </Button>
                   )}
                 </div>
@@ -391,7 +393,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
                   {/* District Filter - Only for Admin */}
                   {currentRole === 'admin' && (
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">District</label>
+                      <label className="text-sm font-medium text-foreground">{t('units.district')}</label>
                       <div className="space-y-2">
                         {uniqueDistricts.map(district => (
                           <div key={district} className="flex items-center space-x-2">
@@ -414,7 +416,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
 
                   {/* Performance Filter */}
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Performance</label>
+                    <label className="text-sm font-medium text-foreground">{t('units.performance')}</label>
                     <div className="space-y-2">
                       {['excellent', 'good', 'needs-improvement'].map(perf => (
                         <div key={perf} className="flex items-center space-x-2">
@@ -454,18 +456,18 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
             style={{ gridTemplateColumns: 'auto 1fr 150px 120px 140px 100px 32px' }}
           >
             <div className="w-12"></div>
-            <div>Unit</div>
-            <div>District</div>
-            <div>Employees</div>
-            <div>Avg. Progress</div>
-            <div className="text-center">Compliance</div>
+            <div>{t('units.unit')}</div>
+            <div>{t('units.district')}</div>
+            <div>{t('units.employees')}</div>
+            <div>{t('units.avgProgress')}</div>
+            <div className="text-center">{t('units.compliance')}</div>
             <div></div>
           </div>
           <div className="divide-y divide-border">
             {filteredStores.length === 0 ? (
               <div className="p-12 text-center">
                 <Building className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No units found matching your criteria</p>
+                <p className="text-muted-foreground">{t('units.noUnitsFound')}</p>
               </div>
             ) : (
               filteredStores.map((store) => (
@@ -488,7 +490,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
                       </Badge>
                     </div>
                     <div className="flex items-center space-x-3 text-xs text-muted-foreground">
-                      <span className="truncate">Manager: {store.manager}</span>
+                      <span className="truncate">{t('units.manager', { name: store.manager })}</span>
                       <span>•</span>
                       <span className="flex items-center flex-shrink-0">
                         <MapPin className="h-3 w-3 mr-1" />
