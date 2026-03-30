@@ -1005,7 +1005,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding ability:', error);
-      toast.error('Failed to add ability', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1018,10 +1018,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.addCustomWorkStyle(role.id, name, impact);
       await loadMergedData();
-      toast.success('Custom work style added');
+      toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding work style:', error);
-      toast.error('Failed to add work style', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1034,10 +1034,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.addCustomSkill(role.id, organizationId, name, description, importance);
       await loadMergedData();
-      toast.success('Custom skill added');
+      toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding skill:', error);
-      toast.error('Failed to add skill', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1050,10 +1050,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.addCustomKnowledge(role.id, organizationId, name, description, importance);
       await loadMergedData();
-      toast.success('Custom knowledge area added');
+      toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding knowledge:', error);
-      toast.error('Failed to add knowledge', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1072,7 +1072,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         await onetLocal.modifyTask(role.id, organizationId, task.task_id, customDescription, notes);
       }
       await loadMergedData();
-      toast.success('Task updated');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error editing task:', error);
       toast.error(t('roles.detail.toastSaveFailed'), {
@@ -1088,7 +1088,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.modifyAbility(role.id, ability.ability_id, customName, undefined, undefined, notes);
       await loadMergedData();
-      toast.success('Ability updated');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error editing ability:', error);
       toast.error(t('roles.detail.toastSaveFailed'), {
@@ -1104,7 +1104,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.modifyWorkStyle(role.id, workStyle.work_style_id, customName, undefined, notes);
       await loadMergedData();
-      toast.success('Work style updated');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error editing work style:', error);
       toast.error(t('roles.detail.toastSaveFailed'), {
@@ -1120,7 +1120,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.modifySkill(role.id, organizationId, skill.skill_id, customName, customDescription, notes);
       await loadMergedData();
-      toast.success('Skill updated');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error editing skill:', error);
       toast.error(t('roles.detail.toastSaveFailed'), {
@@ -1136,7 +1136,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.modifyKnowledge(role.id, organizationId, knowledge.knowledge_id, customName, customDescription, notes);
       await loadMergedData();
-      toast.success('Knowledge area updated');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error editing knowledge:', error);
       toast.error(t('roles.detail.toastSaveFailed'), {
@@ -1150,10 +1150,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.deleteCustomTask(customizationId);
       await loadMergedData();
-      toast.success('Task deleted');
+      toast.success(t('roles.detail.toastRoleArchived'));
     } catch (error: any) {
       console.error('Error deleting task:', error);
-      toast.error('Failed to delete task', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1163,10 +1163,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.deleteCustomAbility(customizationId);
       await loadMergedData();
-      toast.success('Ability deleted');
+      toast.success(t('roles.detail.toastRoleArchived'));
     } catch (error: any) {
       console.error('Error deleting ability:', error);
-      toast.error('Failed to delete ability', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1176,10 +1176,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.deleteCustomWorkStyle(customizationId);
       await loadMergedData();
-      toast.success('Work style deleted');
+      toast.success(t('roles.detail.toastRoleArchived'));
     } catch (error: any) {
       console.error('Error deleting work style:', error);
-      toast.error('Failed to delete work style', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1189,10 +1189,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.deleteCustomSkill(customizationId);
       await loadMergedData();
-      toast.success('Skill deleted');
+      toast.success(t('roles.detail.toastRoleArchived'));
     } catch (error: any) {
       console.error('Error deleting skill:', error);
-      toast.error('Failed to delete skill', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1202,10 +1202,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.deleteCustomKnowledge(customizationId);
       await loadMergedData();
-      toast.success('Knowledge area deleted');
+      toast.success(t('roles.detail.toastRoleArchived'));
     } catch (error: any) {
       console.error('Error deleting knowledge:', error);
-      toast.error('Failed to delete knowledge', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1215,10 +1215,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.revertTaskModification(customizationId);
       await loadMergedData();
-      toast.success('Task reverted to standard');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting task:', error);
-      toast.error('Failed to revert task', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1228,10 +1228,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.revertAbilityModification(customizationId);
       await loadMergedData();
-      toast.success('Ability reverted to standard');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting ability:', error);
-      toast.error('Failed to revert ability', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1241,10 +1241,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.revertWorkStyleModification(customizationId);
       await loadMergedData();
-      toast.success('Work style reverted to standard');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting work style:', error);
-      toast.error('Failed to revert work style', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1254,10 +1254,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.revertSkillModification(customizationId);
       await loadMergedData();
-      toast.success('Skill reverted to standard');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting skill:', error);
-      toast.error('Failed to revert skill', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1267,7 +1267,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.revertKnowledgeModification(customizationId);
       await loadMergedData();
-      toast.success('Knowledge area reverted to standard');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error reverting knowledge:', error);
       toast.error('Failed to revert knowledge', {

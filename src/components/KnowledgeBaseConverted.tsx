@@ -171,22 +171,22 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
   const getTrackBadge = (displayType?: string, tags?: string[]) => {
     // Check display_type from KB assignment
     if (displayType === 'required') {
-      return <Badge variant="destructive" className="text-xs">Required</Badge>;
+      return <Badge variant="destructive" className="text-xs">{t('knowledgeBase.badgeRequired')}</Badge>;
     }
     if (displayType === 'manager-only') {
-      return <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">Manager-Only</Badge>;
+      return <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">{t('knowledgeBase.badgeManagerOnly')}</Badge>;
     }
-    
+
     // Fallback to checking tags
     if (!tags || tags.length === 0) return null;
-    
-    const tagStrings = tags.map(t => typeof t === 'string' ? t : t.name || '').filter(Boolean);
-    
+
+    const tagStrings = tags.map(tag => typeof tag === 'string' ? tag : (tag as any).name || '').filter(Boolean);
+
     if (tagStrings.some(tag => tag.toLowerCase().includes('required'))) {
-      return <Badge variant="destructive" className="text-xs">Required</Badge>;
+      return <Badge variant="destructive" className="text-xs">{t('knowledgeBase.badgeRequired')}</Badge>;
     }
     if (tagStrings.some(tag => tag.toLowerCase().includes('manager'))) {
-      return <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">Manager-Only</Badge>;
+      return <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">{t('knowledgeBase.badgeManagerOnly')}</Badge>;
     }
     return null;
   };
@@ -217,10 +217,10 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
     return (
       <Card>
         <CardContent className="py-12 text-center">
-          <p className="text-destructive mb-4">Failed to load knowledge base</p>
+          <p className="text-destructive mb-4">{t('knowledgeBase.failedLoadKB')}</p>
           <Button onClick={() => refetchCategories()} variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
-            Try Again
+            {t('knowledgeBase.tryAgain')}
           </Button>
         </CardContent>
       </Card>
@@ -234,18 +234,18 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
         <CardContent className="p-8">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h1 className="text-3xl mb-2">Knowledge Base</h1>
+              <h1 className="text-3xl mb-2">{t('knowledgeBase.title')}</h1>
               <p className="text-white/90 text-lg mb-6 max-w-2xl">
-                Your central hub for policies, procedures, and how-to guides. Everything your team needs to succeed.
+                {t('knowledgeBase.heroSubtitle')}
               </p>
               <div className="flex gap-8 text-sm">
                 <div>
                   <div className="text-2xl">{categoryTracks?.length || 0}</div>
-                  <div className="text-white/80">Tracks</div>
+                  <div className="text-white/80">{t('knowledgeBase.tracks')}</div>
                 </div>
                 <div>
                   <div className="text-2xl">{categories?.length || 0}</div>
-                  <div className="text-white/80">Categories</div>
+                  <div className="text-white/80">{t('knowledgeBase.categories')}</div>
                 </div>
               </div>
             </div>
@@ -261,7 +261,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search across titles, tags, and content..."
+              placeholder={t('knowledgeBase.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -273,13 +273,13 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
                 className="absolute right-2 top-1/2 transform -translate-y-1/2"
                 onClick={() => setSearchQuery('')}
               >
-                Clear
+                {t('common.clearAll')}
               </Button>
             )}
           </div>
           {debouncedSearch && (
             <p className="text-sm text-muted-foreground mt-2">
-              Found {categoryTracks.length} result{categoryTracks.length !== 1 ? 's' : ''}
+              {t('knowledgeBase.searchResultsCount', { count: categoryTracks.length })}
             </p>
           )}
         </CardContent>
@@ -287,7 +287,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
 
       {/* Browse by Category */}
       <div>
-        <h2 className="text-xl mb-4">Browse by Category</h2>
+        <h2 className="text-xl mb-4">{t('knowledgeBase.browseByCategory')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories && categories.length > 0 ? (
             categories.map((category) => {
@@ -310,10 +310,10 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold mb-1">{category.name}</h3>
                         <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                          {category.description || 'No description'}
+                          {category.description || t('knowledgeBase.noDescription')}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {category.trackCount || 0} track{category.trackCount !== 1 ? 's' : ''}
+                          {t('knowledgeBase.trackCount', { count: category.trackCount || 0 })}
                         </p>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
@@ -324,7 +324,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
             })
           ) : (
             <div className="col-span-full text-center py-12 text-muted-foreground">
-              No categories found
+              {t('knowledgeBase.noCategoriesFound')}
             </div>
           )}
         </div>
@@ -337,7 +337,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <RefreshCw className="h-5 w-5" />
-              Recently Updated
+              {t('knowledgeBase.recentlyUpdated')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -373,7 +373,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
               ))
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No tracks yet
+                {t('knowledgeBase.noTracksYet')}
               </p>
             )}
           </CardContent>
@@ -384,7 +384,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Eye className="h-5 w-5" />
-              Most Viewed
+              {t('knowledgeBase.mostViewed')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -420,7 +420,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
               ))
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">
-                No tracks yet
+                {t('knowledgeBase.noTracksYet')}
               </p>
             )}
           </CardContent>
@@ -431,9 +431,9 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
       <Card id="all-content">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>All Content</CardTitle>
+            <CardTitle>{t('knowledgeBase.allContent')}</CardTitle>
             <div className="text-sm text-muted-foreground">
-              {categoryTracks.length} track{categoryTracks.length !== 1 ? 's' : ''}
+              {t('knowledgeBase.trackCount', { count: categoryTracks.length })}
               {selectedCategory && (
                 <Button
                   variant="ghost"
@@ -441,7 +441,7 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
                   onClick={() => setSelectedCategory(null)}
                   className="ml-2"
                 >
-                  Clear Filter
+                  {t('knowledgeBase.clearFilter')}
                 </Button>
               )}
             </div>
@@ -511,16 +511,16 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
               <div className="text-center py-12">
                 <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
                 <h3 className="font-medium mb-2">
-                  {debouncedSearch ? 'No content matches your search' : 'No content found'}
+                  {debouncedSearch ? t('knowledgeBase.noContentMatchesSearch') : t('knowledgeBase.noContentFound')}
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  {debouncedSearch 
-                    ? 'Try different keywords or browse by category' 
-                    : 'Create your first track to help your team succeed'}
+                  {debouncedSearch
+                    ? t('knowledgeBase.tryDifferentKeywords')
+                    : t('knowledgeBase.createFirstTrack')}
                 </p>
                 {debouncedSearch && (
                   <Button variant="outline" onClick={() => setSearchQuery('')}>
-                    Clear Search
+                    {t('knowledgeBase.clearSearch')}
                   </Button>
                 )}
               </div>
