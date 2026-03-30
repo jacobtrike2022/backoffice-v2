@@ -277,6 +277,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       status: 'active',
       recurrence_rule: recurrenceRule,
       next_due_at: nextDueAt,
+      organization_id: orgId,
     });
 
     if (error) {
