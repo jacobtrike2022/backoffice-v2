@@ -259,10 +259,10 @@ export function VariantGenerationChat({
         })
       });
 
-      if (!response.ok) throw new Error('Failed to connect to AI assistant');
+      if (!response.ok) throw new Error(t('contentAuthoring.failedConnectAI'));
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      if (!reader) throw new Error(t('contentAuthoring.noResponseBody'));
 
       let assistantContent = '';
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
@@ -303,7 +303,7 @@ export function VariantGenerationChat({
       }
     } catch (error: any) {
       console.error('Chat error:', error);
-      toast.error(error.message || 'Error communicating with AI');
+      toast.error(error.message || t('contentAuthoring.errorCommunicatingAI'));
     } finally {
       setIsLoading(false);
     }
@@ -352,14 +352,14 @@ export function VariantGenerationChat({
         })
       });
 
-      if (!response.ok) throw new Error('Failed to generate variant');
+      if (!response.ok) throw new Error(t('contentAuthoring.failedGenerateVariant'));
 
       const data = await response.json();
       setGeneratedData(data);
       setState('PREVIEW');
     } catch (error: any) {
       console.error('Generation error:', error);
-      toast.error(error.message || 'Failed to generate variant');
+      toast.error(error.message || t('contentAuthoring.failedGenerateVariant'));
       setState('READY_TO_GENERATE');
     } finally {
       setIsLoading(false);
@@ -379,13 +379,13 @@ export function VariantGenerationChat({
   const getResearchingLabel = () => {
     switch (variantType) {
       case 'geographic':
-        return `Researching ${(variantContext.state_name || variantContext.state_code || 'state')} regulations`;
+        return t('contentAuthoring.researchingGeographic', { state: variantContext.state_name || variantContext.state_code || 'state' });
       case 'company':
-        return `Analyzing ${(variantContext.org_name || 'organization')} policies and standards`;
+        return t('contentAuthoring.researchingCompany', { org: variantContext.org_name || 'organization' });
       case 'unit':
-        return `Analyzing ${(variantContext.store_name || 'store')} local operating context`;
+        return t('contentAuthoring.researchingUnit', { store: variantContext.store_name || 'store' });
       default:
-        return 'Researching variant context';
+        return t('contentAuthoring.researchingDefault');
     }
   };
 

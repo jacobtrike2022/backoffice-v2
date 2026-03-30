@@ -133,7 +133,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       setLoading(true);
       const orgId = await getCurrentUserOrgId();
       if (!orgId) {
-        toast.error('Organization not found');
+        toast.error(t('knowledgeBase.organizationNotFound'));
         return;
       }
 
@@ -153,7 +153,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       }
     } catch (error: any) {
       console.error('Error loading source files:', error);
-      toast.error('Failed to load source files');
+      toast.error(t('knowledgeBase.failedLoadSourceFiles'));
     } finally {
       setLoading(false);
     }
@@ -204,7 +204,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       return data.signedUrl;
     } catch (error: any) {
       console.error('Error creating signed URL:', error);
-      toast.error('Failed to access file');
+      toast.error(t('knowledgeBase.failedAccessFile'));
       return null;
     }
   };
@@ -221,7 +221,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
 
     const orgId = await getCurrentUserOrgId();
     if (!orgId) {
-      toast.error('Organization not found');
+      toast.error(t('knowledgeBase.organizationNotFound'));
       return;
     }
 
@@ -233,13 +233,13 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
 
       // Validate file type
       if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
-        toast.error(`Invalid file type: ${file.name}`);
+        toast.error(t('knowledgeBase.invalidFileType', { name: file.name }));
         continue;
       }
 
       // Validate file size (50MB max)
       if (file.size > 50 * 1024 * 1024) {
-        toast.error(`File too large: ${file.name} (max 50MB)`);
+        toast.error(t('knowledgeBase.fileTooLarge', { name: file.name }));
         continue;
       }
 
@@ -273,7 +273,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
           throw insertError;
         }
 
-        toast.success(`Uploaded: ${file.name}`);
+        toast.success(t('knowledgeBase.fileUploaded', { name: file.name }));
 
         // Auto-trigger extraction for supported file types
         const extractableTypes = [
@@ -289,7 +289,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
 
       } catch (error: any) {
         console.error('Error uploading file:', error);
-        toast.error(`Failed to upload: ${file.name}`, {
+        toast.error(t('knowledgeBase.failedUploadFile', { name: file.name }), {
           description: error.message
         });
       }
@@ -301,7 +301,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
   };
 
   const triggerExtraction = async (fileId: string, fileName: string) => {
-    const toastId = toast.loading(`Processing ${fileName}...`);
+    const toastId = toast.loading(t('knowledgeBase.processingFile', { name: fileName }));
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -325,11 +325,11 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       }
 
       toast.dismiss(toastId);
-      toast.success(`Extracted ${responseData.stats?.word_count?.toLocaleString() || 0} words from ${fileName}`);
+      toast.success(t('knowledgeBase.extractedWords', { words: responseData.stats?.word_count?.toLocaleString() || 0, name: fileName }));
       await loadSourceFiles();
     } catch (error: any) {
       toast.dismiss(toastId);
-      toast.error(`Failed to process ${fileName}`, {
+      toast.error(t('knowledgeBase.failedProcessFile', { name: fileName }), {
         description: error.message
       });
     }
@@ -358,14 +358,14 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
         throw new Error(responseData.error || 'Extraction failed');
       }
 
-      toast.success('Extraction completed!', {
-        description: `${responseData.stats?.word_count || 0} words extracted`,
+      toast.success(t('knowledgeBase.extractionCompleted'), {
+        description: t('knowledgeBase.wordsExtracted', { count: responseData.stats?.word_count || 0 }),
       });
 
       await loadSourceFiles();
     } catch (error: any) {
       console.error('Extract error:', error);
-      toast.error('Extraction failed', { description: error.message });
+      toast.error(t('knowledgeBase.extractionFailed'), { description: error.message });
     } finally {
       setExtracting(null);
     }
@@ -402,15 +402,15 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       setSourceFiles(prev =>
         prev.map(f => f.id === fileId ? { ...f, source_type: sourceType } : f)
       );
-      toast.success('Source type updated');
+      toast.success(t('knowledgeBase.sourceTypeUpdated'));
     } catch (error: any) {
       console.error('Error updating source type:', error);
-      toast.error('Failed to update source type');
+      toast.error(t('knowledgeBase.failedUpdateSourceType'));
     }
   };
 
   const handleDeleteFile = async (file: SourceFile) => {
-    if (!confirm(`Delete "${file.file_name}"? This cannot be undone.`)) return;
+    if (!confirm(t('knowledgeBase.deleteFileConfirm', { name: file.file_name }))) return;
 
     try {
       // Delete from storage
@@ -425,10 +425,10 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       if (dbError) throw dbError;
 
       setSourceFiles(prev => prev.filter(f => f.id !== file.id));
-      toast.success('File deleted');
+      toast.success(t('knowledgeBase.fileDeleted'));
     } catch (error: any) {
       console.error('Error deleting file:', error);
-      toast.error('Failed to delete file');
+      toast.error(t('knowledgeBase.failedDeleteFile'));
     }
   };
 
@@ -445,10 +445,10 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
         prev.map(f => f.id === fileId ? { ...f, source_type: newType } : f)
       );
 
-      toast.success('Source type updated');
+      toast.success(t('knowledgeBase.sourceTypeUpdated'));
     } catch (error: any) {
       console.error('Error updating source type:', error);
-      toast.error('Failed to update source type');
+      toast.error(t('knowledgeBase.failedUpdateSourceType'));
     }
   };
 

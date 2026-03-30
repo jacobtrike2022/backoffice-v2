@@ -117,8 +117,52 @@ const BLOCK_TYPES: BlockTypeDef[] = [
   // Content
   { type: 'instruction', label: 'Instruction', icon: Info, category: 'content' },
   { type: 'divider', label: 'Divider', icon: Minus, category: 'content' },
-  // Actions
-  { type: 'conditional', label: 'Conditional Logic', icon: GitBranch, category: 'actions' },
+  // NOTE: 'conditional' is intentionally NOT listed here.
+  // Conditional logic is configured per-block via the Properties Drawer (Logic tab),
+  // not as a standalone block type. Keeping it here caused UX confusion.
+];
+
+// ─── Form Type Config ─────────────────────────────────────────────────────────
+
+interface FormTypeConfig {
+  value: string;
+  label: string;
+  description: string;
+  /** Block types that are especially relevant / auto-suggested for this form type */
+  suggestedBlocks?: string[];
+}
+
+const FORM_TYPES: FormTypeConfig[] = [
+  {
+    value: 'inspection',
+    label: 'Inspection',
+    description: 'Regular checklists and site audits',
+    suggestedBlocks: ['yes_no', 'photo', 'text'],
+  },
+  {
+    value: 'audit',
+    label: 'Audit',
+    description: 'Scored compliance audits',
+    suggestedBlocks: ['rating', 'yes_no', 'textarea'],
+  },
+  {
+    value: 'sign-off',
+    label: 'Sign-off',
+    description: 'Policy acknowledgement and training sign-offs',
+    suggestedBlocks: ['instruction', 'signature', 'checkboxes'],
+  },
+  {
+    value: 'ojt-checklist',
+    label: 'OJT Checklist',
+    description: 'On-the-job training evaluation',
+    suggestedBlocks: ['yes_no', 'rating', 'textarea'],
+  },
+  {
+    value: 'survey',
+    label: 'Survey',
+    description: 'Employee feedback and surveys',
+    suggestedBlocks: ['radio', 'rating', 'textarea'],
+  },
 ];
 
 function getBlockTypeDef(blockType: string): BlockTypeDef | undefined {
@@ -381,6 +425,15 @@ interface ConditionBuilderProps {
   onChange: (logic: ConditionalLogic) => void;
 }
 
+// Block types whose answers come from a predefined options list.
+const CHOICE_BLOCK_TYPES = ['radio', 'checkboxes', 'dropdown'];
+// yes_no has implicit options 'Yes' / 'No'.
+const YES_NO_OPTIONS = ['Yes', 'No'];
+
+// Operators that are sensible for choice/text vs. numeric blocks.
+const NUMERIC_OPERATORS = ['equals', 'not_equals', 'greater_than', 'less_than', 'is_empty', 'is_not_empty'] as const;
+const TEXT_OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'is_empty', 'is_not_empty'] as const;
+
 function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps) {
   const { t } = useTranslation();
   const logic: ConditionalLogic = (block.conditional_logic as ConditionalLogic) || {
@@ -408,6 +461,11 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
     updateLogic({ conditions: logic.conditions.filter((_, i) => i !== index) });
   };
 
+  // Eligible source blocks — anything except non-interactive content
+  const eligibleBlocks = allBlocks.filter(
+    b => !['instruction', 'divider', 'section', 'conditional'].includes(b.block_type)
+  );
+
   return (
     <div className="space-y-3">
       {/* Action + Operator row */}
@@ -425,95 +483,148 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
           </SelectContent>
         </Select>
         <span className="text-muted-foreground">{t('forms.conditionThisBlockWhen')}</span>
-        <Select
-          value={logic.operator}
-          onValueChange={(v) => updateLogic({ operator: v as 'AND' | 'OR' })}
-        >
-          <SelectTrigger className="h-7 text-xs w-16">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="AND">{t('forms.conditionAll')}</SelectItem>
-            <SelectItem value="OR">{t('forms.conditionAny')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <span className="text-muted-foreground">{t('forms.conditionOfTheseAreTrue')}</span>
+        {logic.conditions.length > 1 && (
+          <Select
+            value={logic.operator}
+            onValueChange={(v) => updateLogic({ operator: v as 'AND' | 'OR' })}
+          >
+            <SelectTrigger className="h-7 text-xs w-16">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="AND">{t('forms.conditionAll')}</SelectItem>
+              <SelectItem value="OR">{t('forms.conditionAny')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {logic.conditions.length > 1 && (
+          <span className="text-muted-foreground">{t('forms.conditionOfTheseAreTrue')}</span>
+        )}
       </div>
 
       {/* Conditions list */}
-      {logic.conditions.map((cond, i) => (
-        <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
-          {/* Source block picker */}
-          <Select
-            value={cond.source_block_id || 'none'}
-            onValueChange={(v) => updateCondition(i, { source_block_id: v === 'none' ? '' : v })}
-          >
-            <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder={t('forms.conditionSelectQuestion')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">{t('forms.conditionSelectQuestion')}</SelectItem>
-              {allBlocks
-                .filter(b => b.label && !['instruction', 'divider', 'section'].includes(b.block_type))
-                .map(b => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {(b.label?.slice(0, 40)) || t('forms.untitled')}
-                  </SelectItem>
-                ))
-              }
-            </SelectContent>
-          </Select>
+      {logic.conditions.map((cond, i) => {
+        const sourceBlock = eligibleBlocks.find(b => b.id === cond.source_block_id) ?? null;
+        const isChoiceBlock = sourceBlock ? CHOICE_BLOCK_TYPES.includes(sourceBlock.block_type) : false;
+        const isYesNo = sourceBlock?.block_type === 'yes_no';
+        const isNumeric = sourceBlock?.block_type === 'number' || sourceBlock?.block_type === 'rating' || sourceBlock?.block_type === 'slider';
+        const choiceOptions = isYesNo
+          ? YES_NO_OPTIONS
+          : isChoiceBlock
+          ? (sourceBlock?.options ?? [])
+          : [];
+        const showChoicePicker = (isChoiceBlock || isYesNo) && !['is_empty', 'is_not_empty'].includes(cond.operator);
+        const showValueInput = !showChoicePicker && !['is_empty', 'is_not_empty'].includes(cond.operator);
 
-          {/* Operator + Value row */}
-          <div className="flex gap-1.5">
+        return (
+          <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
+            {/* Source block picker */}
             <Select
-              value={cond.operator}
-              onValueChange={(v) => updateCondition(i, { operator: v as ConditionalLogic['conditions'][0]['operator'] })}
+              value={cond.source_block_id || 'none'}
+              onValueChange={(v) => {
+                // When source changes, clear value to avoid stale references
+                updateCondition(i, { source_block_id: v === 'none' ? '' : v, value: '' });
+              }}
             >
-              <SelectTrigger className="h-7 text-xs w-36 shrink-0">
-                <SelectValue />
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue placeholder={t('forms.conditionSelectQuestion')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="equals">{t('forms.opEquals')}</SelectItem>
-                <SelectItem value="not_equals">{t('forms.opNotEquals')}</SelectItem>
-                <SelectItem value="contains">{t('forms.opContains')}</SelectItem>
-                <SelectItem value="not_contains">{t('forms.opNotContains')}</SelectItem>
-                <SelectItem value="greater_than">{t('forms.opGreaterThan')}</SelectItem>
-                <SelectItem value="less_than">{t('forms.opLessThan')}</SelectItem>
-                <SelectItem value="is_empty">{t('forms.opIsEmpty')}</SelectItem>
-                <SelectItem value="is_not_empty">{t('forms.opIsNotEmpty')}</SelectItem>
+                <SelectItem value="none">{t('forms.conditionSelectQuestion')}</SelectItem>
+                {eligibleBlocks.map(b => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {(b.label?.slice(0, 40)) || `${b.block_type} ${t('forms.questionSuffix')}`}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
-            {!['is_empty', 'is_not_empty'].includes(cond.operator) && (
-              <input
-                type="text"
-                value={cond.value}
-                onChange={(e) => updateCondition(i, { value: e.target.value })}
-                placeholder={t('forms.conditionValuePlaceholder')}
-                className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background"
-              />
-            )}
-
-            {logic.conditions.length > 1 && (
-              <button
-                type="button"
-                onClick={() => removeCondition(i)}
-                className="text-muted-foreground hover:text-destructive text-xs px-1"
+            {/* Operator + Value row */}
+            <div className="flex gap-1.5">
+              <Select
+                value={cond.operator}
+                onValueChange={(v) => updateCondition(i, { operator: v as ConditionalLogic['conditions'][0]['operator'] })}
               >
-                ×
-              </button>
+                <SelectTrigger className="h-7 text-xs w-36 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="equals">{t('forms.opEquals')}</SelectItem>
+                  <SelectItem value="not_equals">{t('forms.opNotEquals')}</SelectItem>
+                  {!isChoiceBlock && !isYesNo && (
+                    <>
+                      <SelectItem value="contains">{t('forms.opContains')}</SelectItem>
+                      <SelectItem value="not_contains">{t('forms.opNotContains')}</SelectItem>
+                    </>
+                  )}
+                  {(isNumeric || (!isChoiceBlock && !isYesNo)) && (
+                    <>
+                      <SelectItem value="greater_than">{t('forms.opGreaterThan')}</SelectItem>
+                      <SelectItem value="less_than">{t('forms.opLessThan')}</SelectItem>
+                    </>
+                  )}
+                  <SelectItem value="is_empty">{t('forms.opIsEmpty')}</SelectItem>
+                  <SelectItem value="is_not_empty">{t('forms.opIsNotEmpty')}</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Smart value input: dropdown for choice blocks, text for everything else */}
+              {showChoicePicker && (
+                <Select
+                  value={cond.value || 'none'}
+                  onValueChange={(v) => updateCondition(i, { value: v === 'none' ? '' : v })}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder={t('forms.conditionSelectValue')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t('forms.conditionSelectValue')}</SelectItem>
+                    {choiceOptions.map(opt => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {showValueInput && (
+                <input
+                  type={isNumeric ? 'number' : 'text'}
+                  value={cond.value}
+                  onChange={(e) => updateCondition(i, { value: e.target.value })}
+                  placeholder={t('forms.conditionValuePlaceholder')}
+                  className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background"
+                />
+              )}
+
+              {logic.conditions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeCondition(i)}
+                  className="text-muted-foreground hover:text-destructive text-xs px-1 shrink-0"
+                  aria-label="Remove condition"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {/* AND/OR label between conditions */}
+            {i < logic.conditions.length - 1 && (
+              <div className="text-xs text-muted-foreground/60 pl-1 font-medium">
+                {logic.operator === 'AND' ? t('forms.conditionAnd') : t('forms.conditionOr')}
+              </div>
             )}
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Add condition */}
       <button
         type="button"
         onClick={addCondition}
-        className="text-xs text-primary hover:underline"
+        className="text-xs text-primary hover:underline flex items-center gap-1"
       >
+        <Plus className="h-3 w-3" />
         {t('forms.addCondition')}
       </button>
     </div>
@@ -544,6 +655,8 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
   const Icon = typeDef?.icon ?? Type;
   const hasChoices = ['radio', 'checkboxes', 'dropdown'].includes(block.block_type);
   const options = block.options ?? [];
+  const hasConditionalLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
+  const showScoringTab = scoringEnabled && SCOREABLE_BLOCK_TYPES.includes(block.block_type);
 
   const handleOptionChange = (index: number, value: string) => {
     const updated = [...options];
@@ -567,6 +680,12 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">{typeDef?.label ?? block.block_type}</span>
+          {hasConditionalLogic && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 gap-0.5">
+              <GitBranch className="h-2.5 w-2.5" />
+              {t('forms.logicBadge')}
+            </Badge>
+          )}
         </div>
         <button
           type="button"
@@ -577,8 +696,23 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
         </button>
       </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Tab navigation */}
+      <Tabs defaultValue="settings" className="flex flex-col flex-1 min-h-0">
+        <TabsList className="mx-4 mt-3 mb-0 shrink-0 w-auto self-start h-8">
+          <TabsTrigger value="settings" className="text-xs h-7 px-3">{t('forms.propTabSettings')}</TabsTrigger>
+          <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
+            {t('forms.propTabLogic')}
+            {hasConditionalLogic && (
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
+            )}
+          </TabsTrigger>
+          {showScoringTab && (
+            <TabsTrigger value="scoring" className="text-xs h-7 px-3">{t('forms.propTabScoring')}</TabsTrigger>
+          )}
+        </TabsList>
+
+        {/* ── SETTINGS TAB ─────────────────────────────────── */}
+        <TabsContent value="settings" className="flex-1 overflow-y-auto p-4 space-y-4 mt-2">
         {/* Label */}
         <div className="space-y-1.5">
           <Label htmlFor="block-label" className="text-xs font-medium">{t('forms.propQuestionLabel')}</Label>
@@ -826,20 +960,68 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
           </div>
         )}
 
-        {/* ── Scoring (only for scoreable block types when scoring is enabled) ── */}
-        {scoringEnabled && SCOREABLE_BLOCK_TYPES.includes(block.block_type) && (() => {
+        </TabsContent>
+
+        {/* ── LOGIC TAB ────────────────────────────────────── */}
+        <TabsContent value="logic" className="flex-1 overflow-y-auto p-4 mt-2">
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('forms.propConditionalLogicDesc')}</p>
+            </div>
+
+            {!hasConditionalLogic ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={() => {
+                  onUpdate({
+                    conditional_logic: {
+                      action: 'show',
+                      operator: 'AND',
+                      conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
+                    } as ConditionalLogic,
+                  });
+                }}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                {t('forms.propAddCondition')}
+              </Button>
+            ) : (
+              <>
+                <ConditionBuilder
+                  block={block}
+                  allBlocks={allBlocks}
+                  onChange={(logic) => onUpdate({ conditional_logic: logic })}
+                />
+                <Separator />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-destructive hover:bg-destructive/10 gap-1.5"
+                  onClick={() => onUpdate({ conditional_logic: null })}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  {t('forms.propRemoveCondition')}
+                </Button>
+              </>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ── SCORING TAB ──────────────────────────────────── */}
+        {showScoringTab && (() => {
           const scoreWeight = ((block.settings?.score_weight as number) ?? 0);
           const correctAnswer = ((block.settings?.correct_answer as string) ?? '');
-          const options = block.options ?? [];
+          const opts = block.options ?? [];
 
           const updateScoringSetting = (key: string, value: unknown) => {
-            onUpdate({
-              settings: { ...block.settings, [key]: value },
-            });
+            onUpdate({ settings: { ...block.settings, [key]: value } });
           };
 
           return (
-            <div className="border-t border-border pt-4 mt-4 space-y-3">
+            <TabsContent value="scoring" className="flex-1 overflow-y-auto p-4 space-y-4 mt-2">
               <div>
                 <p className="text-sm font-medium">{t('forms.propScoring')}</p>
                 <p className="text-xs text-muted-foreground">{t('forms.propScoringDesc')}</p>
@@ -866,7 +1048,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
               {/* Correct Answer */}
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">{t('forms.propCorrectAnswer')}</Label>
-                {['radio', 'dropdown'].includes(block.block_type) && options.length > 0 ? (
+                {['radio', 'dropdown'].includes(block.block_type) && opts.length > 0 ? (
                   <Select
                     value={correctAnswer || 'none'}
                     onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
@@ -876,12 +1058,12 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
-                      {options.map((opt, i) => (
+                      {opts.map((opt, i) => (
                         <SelectItem key={i} value={opt}>{opt}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                ) : block.block_type === 'checkboxes' && options.length > 0 ? (
+                ) : block.block_type === 'checkboxes' && opts.length > 0 ? (
                   <div className="space-y-1.5">
                     <p className="text-[10px] text-muted-foreground">{t('forms.propCheckboxesCorrectHint')}</p>
                     <Input
@@ -924,48 +1106,11 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                   />
                 )}
               </div>
-            </div>
+            </TabsContent>
           );
         })()}
 
-        {/* ── Conditional Logic ─────────────────────────────── */}
-        <div className="border-t border-border pt-4 mt-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
-              <p className="text-xs text-muted-foreground">{t('forms.propConditionalLogicDesc')}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
-                if (hasLogic) {
-                  onUpdate({ conditional_logic: null });
-                } else {
-                  onUpdate({
-                    conditional_logic: {
-                      action: 'show',
-                      operator: 'AND',
-                      conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
-                    } as ConditionalLogic,
-                  });
-                }
-              }}
-              className="text-xs text-primary underline"
-            >
-              {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) ? t('forms.propRemoveCondition') : t('forms.propAddCondition')}
-            </button>
-          </div>
-
-          {!!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length) && (
-            <ConditionBuilder
-              block={block}
-              allBlocks={allBlocks}
-              onChange={(logic) => onUpdate({ conditional_logic: logic })}
-            />
-          )}
-        </div>
-      </div>
+      </Tabs>
 
       {/* Footer — delete */}
       <div className="p-4 border-t border-border shrink-0">
@@ -1289,8 +1434,33 @@ export function FormBuilder({
           )}
         </div>
 
-        {/* Scoring settings row */}
-        <div className="flex items-center gap-4 px-4 pb-2 border-b border-border mb-0">
+        {/* Form type + Scoring settings row */}
+        <div className="flex items-center gap-4 px-4 pb-2 border-b border-border mb-0 flex-wrap">
+          {/* Form type picker */}
+          <div className="flex items-center gap-2">
+            <Label className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+              {t('forms.builderFormType')}
+            </Label>
+            <Select
+              value={hook.form?.type || 'inspection'}
+              onValueChange={(v) => hook.setFormType(v)}
+            >
+              <SelectTrigger className="h-7 text-xs w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FORM_TYPES.map(ft => (
+                  <SelectItem key={ft.value} value={ft.value}>
+                    {ft.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator orientation="vertical" className="h-4" />
+
+          {/* Scoring toggle */}
           <div className="flex items-center gap-2">
             <Label htmlFor="scoring-toggle" className="text-xs font-medium cursor-pointer text-muted-foreground">
               {t('forms.builderScoring')}

@@ -612,7 +612,7 @@ export function StoryEditor({
     if (file.size > MAX_FILE_SIZE) {
       const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
       toast.error(
-        `File too large (${sizeMB}MB). Maximum size is 100MB.`,
+        t('contentAuthoring.fileTooLargeMb', { size: sizeMB }),
         { duration: 5000 }
       );
       return null;
@@ -684,12 +684,12 @@ export function StoryEditor({
         wasCompressed = true;
         
         toast.success(
-          `Video compressed: ${result.originalSizeMB.toFixed(1)}MB → ${result.compressedSizeMB.toFixed(1)}MB`,
+          t('contentAuthoring.videoCompressed', { original: result.originalSizeMB.toFixed(1), compressed: result.compressedSizeMB.toFixed(1) }),
           { duration: 4000 }
         );
       } catch (error: any) {
         console.error('Compression error:', error);
-        toast.error(`Compression failed: ${error.message}. Using original file.`);
+        toast.error(t('contentAuthoring.compressionFailed', { error: error.message }));
         // Continue with original file
       } finally {
         setIsCompressing(false);
@@ -732,7 +732,7 @@ export function StoryEditor({
       return data.url;
     } catch (error: any) {
       console.error('Upload error:', error);
-      toast.error(`Upload failed: ${error.message}`);
+      toast.error(t('contentAuthoring.uploadFailed', { error: error.message }));
       return null;
     } finally {
       setIsUploading(false);
@@ -1028,12 +1028,12 @@ export function StoryEditor({
         transcript: storyDataString
       });
       
-      toast.success('Transcripts generated and saved successfully!');
+      toast.success(t('contentAuthoring.toastTranscriptsGenerated'));
       console.log('✅ Transcripts persisted to database');
     } catch (error: any) {
       console.error('❌ Failed to save transcripts:', error);
       console.error('❌ Error details:', error.message, error.stack);
-      toast.error('Transcripts generated but failed to save. Please save the story manually.');
+      toast.error(t('contentAuthoring.toastTranscriptsSaveFailed'));
     }
   };
 
@@ -1333,7 +1333,7 @@ export function StoryEditor({
     const videoSlides = slides.filter(slide => slide.type === 'video' && slide.url);
     
     if (videoSlides.length === 0) {
-      toast.error('Please add at least one video slide with audio to generate key facts');
+      toast.error(t('contentAuthoring.toastNeedVideoForFacts'));
       return;
     }
 
@@ -1417,7 +1417,7 @@ export function StoryEditor({
         console.log('📝 Combined transcript length:', combinedTranscript.length);
         
         if (combinedTranscript.length < 100) {
-          toast.error('Transcripts are too short to generate meaningful key facts');
+          toast.error(t('contentAuthoring.toastTranscriptsTooShort'));
           setIsGeneratingKeyFacts(false);
           return;
         }
@@ -1453,7 +1453,7 @@ export function StoryEditor({
         const newFacts = factsData.enriched || factsData.simple || [];
         
         if (newFacts.length === 0) {
-          toast.error('No key facts could be generated from the story transcripts');
+          toast.error(t('contentAuthoring.toastNoFactsGenerated'));
           return;
         }
         
@@ -1473,12 +1473,12 @@ export function StoryEditor({
             }), ...newFactsWithIds];
         
         setObjectives(updatedFacts);
-        
-        toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
-        
+
+        toast.success(t('contentAuthoring.toastFactsGenerated', { n: newFacts.length }));
+
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
-        toast.error(error.message || 'Failed to generate key facts');
+        toast.error(error.message || t('contentAuthoring.toastFactsGenerateFailed'));
       } finally {
         setIsGeneratingKeyFacts(false);
       }
@@ -1527,7 +1527,7 @@ export function StoryEditor({
           .join('\n\n');
         
         if (combinedTranscript.length < 100) {
-          toast.error('Transcripts are too short to generate meaningful key facts');
+          toast.error(t('contentAuthoring.toastTranscriptsTooShort'));
           setIsGeneratingKeyFacts(false);
           return;
         }
@@ -1563,7 +1563,7 @@ export function StoryEditor({
         const newFacts = factsData.enriched || factsData.simple || [];
         
         if (newFacts.length === 0) {
-          toast.error('No key facts could be generated from the story transcripts');
+          toast.error(t('contentAuthoring.toastNoFactsGenerated'));
           return;
         }
         
@@ -1575,12 +1575,12 @@ export function StoryEditor({
         }));
         
         setObjectives(newFactsWithIds);
-        
-        toast.success(`✨ Generated ${newFactsWithIds.length} key fact${newFactsWithIds.length > 1 ? 's' : ''}!`);
-        
+
+        toast.success(t('contentAuthoring.toastFactsGenerated', { n: newFactsWithIds.length }));
+
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
-        toast.error(error.message || 'Failed to generate key facts');
+        toast.error(error.message || t('contentAuthoring.toastFactsGenerateFailed'));
       } finally {
         setIsGeneratingKeyFacts(false);
       }
@@ -2550,7 +2550,7 @@ export function StoryEditor({
                     {ungroupedFacts.length > 0 && (
                       <div className="space-y-2">
                         {Object.keys(factsBySlide).length > 0 && (
-                          <h4 className="text-sm font-semibold text-muted-foreground">Other Facts</h4>
+                          <h4 className="text-sm font-semibold text-muted-foreground">{t('contentAuthoring.otherFacts')}</h4>
                         )}
                         <div className={Object.keys(factsBySlide).length > 0 ? "space-y-2 pl-6" : "space-y-2"}>
                           {ungroupedFacts.map(({ index, value }) => {
