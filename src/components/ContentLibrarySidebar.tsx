@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, FolderOpen, ChevronDown, ChevronUp, Edit, Filter } from 'lucide-react';
+import { useItemTranslations } from '../hooks/useItemTranslations';
 import { getRecentAlbums, type Album } from '../lib/crud/albums';
 import { getPlaylists } from '../lib/crud/playlists';
 import { getCurrentUserOrgId } from '../lib/supabase';
@@ -41,7 +42,7 @@ export function ContentLibrarySidebar({
   activeAlbumFilter,
   className
 }: ContentLibrarySidebarProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [playlistsExpanded, setPlaylistsExpanded] = useState(true);
   const [albumsExpanded, setAlbumsExpanded] = useState(true);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -129,6 +130,13 @@ export function ContentLibrarySidebar({
   const displayedPlaylists = playlistsExpanded ? allPlaylists : playlists.slice(0, 4);
   const displayedAlbums = albumsExpanded ? allAlbums : albums.slice(0, 4);
 
+  // Combine all items for batch translation
+  const allItemsForTranslation = [
+    ...allPlaylists.map((p) => ({ id: p.id, title: p.title })),
+    ...allAlbums.map((a) => ({ id: a.id, title: a.title })),
+  ];
+  const { translateTitle } = useItemTranslations(allItemsForTranslation, i18n.language);
+
   return (
     <div 
       className={cn(
@@ -171,7 +179,7 @@ export function ContentLibrarySidebar({
               {displayedPlaylists.map((playlist) => (
                 <PlaylistItem
                   key={playlist.id}
-                  playlist={playlist}
+                  playlist={{ ...playlist, title: translateTitle(playlist.id, playlist.title) }}
                   onClick={() => onPlaylistClick(playlist.id)}
                   onEdit={onEditPlaylist ? () => onEditPlaylist(playlist.id) : undefined}
                   isActive={activePlaylistFilter === playlist.id}
@@ -231,7 +239,7 @@ export function ContentLibrarySidebar({
               {displayedAlbums.map((album) => (
                 <AlbumItem
                   key={album.id}
-                  album={album}
+                  album={{ ...album, title: translateTitle(album.id, album.title) }}
                   onClick={() => onAlbumClick(album.id)}
                   onEdit={onEditAlbum ? () => onEditAlbum(album.id) : undefined}
                   isActive={activeAlbumFilter === album.id}

@@ -713,6 +713,11 @@ Deno.serve(async (req: Request) => {
       return await handleTranslateFacts(req);
     }
 
+    // Translate generic titled items: albums, playlists, categories (cached in item_translations)
+    if (method === "POST" && path === "/translate/items") {
+      return await handleTranslateItems(req);
+    }
+
     // Migrate tags from tracks.tags column to track_tags junction table (admin function)
     if (method === "POST" && path === "/migrate/tags-to-junction") {
       return await handleMigrateTagsToJunction(req);
@@ -22418,5 +22423,106 @@ Facts: ${JSON.stringify(items.map(({ i, title, content, steps }) => ({ i, title,
   } catch (err: any) {
     console.error("handleTranslateFacts error:", err);
     return jsonResponse({ error: err.message ?? "Fact translation failed" }, 500);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /translate/items — translate album/playlist/category titles
+// Caches in item_translations(item_id, language, translated_title)
+// ---------------------------------------------------------------------------
+async function handleTranslateItems(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const { items, language } = body as {
+      items: { id: string; title: string }[];
+      language: string;
+    };
+
+    if (!items || !Array.isArray(items) || !language) {
+      return jsonResponse({ error: "items (array) and language are required" }, 400);
+    }
+
+    if (language === "en") {
+      return jsonResponse({ translations: {} });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OpenAI not configured" }, 503);
+    }
+
+    const targetLanguage = LANGUAGE_NAMES[language] ?? language;
+    const itemIds = items.map((i) => i.id);
+
+    // Check cache
+    const { data: cached } = await supabase
+      .from("item_translations")
+      .select("item_id, translated_title")
+      .in("item_id", itemIds)
+      .eq("language", language);
+
+    const result: Record<string, string> = {};
+    const cachedIds = new Set<string>();
+    for (const row of cached ?? []) {
+      result[row.item_id] = row.translated_title;
+      cachedIds.add(row.item_id);
+    }
+
+    const needsTranslation = items.filter((i) => !cachedIds.has(i.id));
+    if (needsTranslation.length === 0) {
+      return jsonResponse({ translations: result });
+    }
+
+    // Batch-translate uncached titles
+    const prompt = `Translate the following content titles to ${targetLanguage}.
+Return ONLY a JSON object mapping each original title to its translation.
+Preserve proper nouns, abbreviations, and acronyms (SNAP, OSHA, etc.).
+Keep the tone professional and concise.
+
+Titles: ${JSON.stringify(needsTranslation.map((i) => i.title))}`;
+
+    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+      }),
+    });
+
+    if (!aiResp.ok) {
+      return jsonResponse({ translations: result });
+    }
+
+    const aiData = await aiResp.json();
+    let titleMap: Record<string, string> = {};
+    try {
+      titleMap = JSON.parse(aiData.choices[0].message.content);
+    } catch {
+      return jsonResponse({ translations: result });
+    }
+
+    // Store in cache and build result
+    const toInsert: { item_id: string; language: string; translated_title: string }[] = [];
+    for (const item of needsTranslation) {
+      const translated = titleMap[item.title] || item.title;
+      result[item.id] = translated;
+      toInsert.push({ item_id: item.id, language, translated_title: translated });
+    }
+
+    if (toInsert.length > 0) {
+      await supabase
+        .from("item_translations")
+        .upsert(toInsert, { onConflict: "item_id,language" });
+    }
+
+    return jsonResponse({ translations: result });
+  } catch (err: any) {
+    console.error("handleTranslateItems error:", err);
+    return jsonResponse({ error: err.message ?? "Item translation failed" }, 500);
   }
 }
