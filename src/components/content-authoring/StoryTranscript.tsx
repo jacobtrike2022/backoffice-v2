@@ -249,7 +249,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
                 {videoTranscript.error ? (
                   <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                     <p className="text-sm text-red-800 dark:text-red-200">
-                      ❌ Failed to transcribe: {videoTranscript.error}
+                      ❌ {t('contentAuthoring.failedToTranscribeSlide')}: {videoTranscript.error}
                     </p>
                   </div>
                 ) : videoTranscript.transcript ? (

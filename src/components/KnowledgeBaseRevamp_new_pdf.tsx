@@ -1,9 +1,9 @@
 // Temporary file for the new PDF handler - to be integrated
-export const handleDownloadPDF_NEW = async (selectedTrack: any, selectedTrackFacts: any[], processedContent: string, formatDate: (date: string) => string, toast: any) => {
+export const handleDownloadPDF_NEW = async (selectedTrack: any, selectedTrackFacts: any[], processedContent: string, formatDate: (date: string) => string, toast: any, t?: (key: string) => string) => {
   if (!selectedTrack) return;
 
   try {
-    toast.success("Preparing PDF...");
+    toast.success(t ? t('knowledgeBase.preparingPdf') : 'Preparing PDF...');
     
     // Dynamic import of jsPDF
     const { default: jsPDF } = await import('jspdf');
@@ -295,9 +295,9 @@ export const handleDownloadPDF_NEW = async (selectedTrack: any, selectedTrackFac
     const fileName = `${selectedTrack.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
     doc.save(fileName);
     
-    toast.success("PDF downloaded successfully!");
+    toast.success(t ? t('knowledgeBase.pdfDownloadSuccess') : 'PDF downloaded successfully!');
   } catch (error) {
     console.error('PDF generation error:', error);
-    toast.error("Failed to generate PDF. Please try again.");
+    toast.error(t ? t('knowledgeBase.pdfDownloadFailed') : 'Failed to generate PDF. Please try again.');
   }
 };
