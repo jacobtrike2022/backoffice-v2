@@ -1201,11 +1201,13 @@ export function FormBuilder({
 
             <ConnectorLine />
 
-            {/* Add block button at the very top (before all blocks) */}
-            <AddBlockButton
-              sectionId={null}
-              onAdd={hook.addBlock}
-            />
+            {/* Top-level + only when canvas is empty (cards render their own + after themselves) */}
+            {unsectionedBlocks.length === 0 && hook.sections.length === 0 && (
+              <AddBlockButton
+                sectionId={null}
+                onAdd={hook.addBlock}
+              />
+            )}
 
             {/* Empty canvas hint */}
             {hook.blocks.length === 0 && hook.sections.length === 0 && (
@@ -1279,8 +1281,10 @@ export function FormBuilder({
                   </SortableContext>
                 </DndContext>
 
-                {/* Add block inside this section */}
-                <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+                {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
+                {(blocksBySection[section.id] ?? []).length === 0 && (
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+                )}
               </div>
             ))}
 

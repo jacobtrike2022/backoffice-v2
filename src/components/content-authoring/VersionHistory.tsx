@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Separator } from '../ui/separator';
 import { 
   History, 
   ChevronRight, 
@@ -38,77 +37,19 @@ export function VersionHistory({
     setIsLoading(true);
     setHasError(false);
     try {
-      console.log('🔍 VersionHistory: Loading versions for track:', trackId);
       const versionsData = await crud.getTrackVersions(trackId);
-      console.log('🔍 VersionHistory: Received versions:', versionsData);
       setVersions(versionsData);
     } catch (error: any) {
-      console.error('❌ VersionHistory: Error loading versions:', error);
+      console.error('VersionHistory: Error loading versions:', error);
       setHasError(true);
-      // Set empty array so UI shows gracefully
       setVersions([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center">
-            <History className="h-4 w-4 mr-2" />
-            Version History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-6">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-            <p className="text-sm text-muted-foreground">Loading versions...</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (hasError) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center">
-            <History className="h-4 w-4 mr-2" />
-            Version History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-6">
-            <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Error loading versions</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (versions.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center">
-            <History className="h-4 w-4 mr-2" />
-            Version History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-6">
-            <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No version history</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
+  // Single stable Card shell — avoids replacing the whole subtree when loading finishes (reduces
+  // removeChild conflicts with sibling TrackRelationships and portaled dialogs).
   return (
     <Card>
       <CardHeader>
@@ -118,6 +59,23 @@ export function VersionHistory({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {isLoading ? (
+          <div className="text-center py-6">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">Loading versions...</p>
+          </div>
+        ) : hasError ? (
+          <div className="text-center py-6">
+            <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">Error loading versions</p>
+          </div>
+        ) : versions.length === 0 ? (
+          <div className="text-center py-6">
+            <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">No version history</p>
+          </div>
+        ) : (
+          <>
         {versions.map((version, index) => {
           const isLatest = version.is_latest_version;
           const isCurrent = version.version_number === currentVersion;
@@ -208,6 +166,8 @@ export function VersionHistory({
               Total: {versions.length} {versions.length === 1 ? 'version' : 'versions'}
             </p>
           </div>
+        )}
+          </>
         )}
       </CardContent>
     </Card>
