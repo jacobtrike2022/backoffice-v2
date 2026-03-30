@@ -144,14 +144,19 @@ function getFormTypeBadge(type: string, t: (key: string) => string): FormTypeBad
   }
 }
 
+function getTypeBadge(type: string, t: (key: string) => string) {
+  const { label, className } = getFormTypeBadge(type, t);
+  return <Badge className={`${className} border-0`}>{label}</Badge>;
+}
+
 // ─── New-form type options ─────────────────────────────────────────────────────
 
 const NEW_FORM_TYPES = [
-  { value: 'inspection', label: 'New Inspection' },
-  { value: 'audit', label: 'New Audit' },
-  { value: 'sign-off', label: 'New Sign-off' },
-  { value: 'ojt-checklist', label: 'New OJT Checklist' },
-  { value: 'survey', label: 'New Survey' },
+  { value: 'inspection', labelKey: 'forms.newInspection' },
+  { value: 'audit', labelKey: 'forms.newAudit' },
+  { value: 'sign-off', labelKey: 'forms.newSignOff' },
+  { value: 'ojt-checklist', labelKey: 'forms.newOJTChecklist' },
+  { value: 'survey', labelKey: 'forms.newSurvey' },
 ] as const;
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -549,7 +554,7 @@ export function FormLibrary({
             <DropdownMenuContent align="end">
               {NEW_FORM_TYPES.map((ft) => (
                 <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
-                  {ft.label}
+                  {t(ft.labelKey)}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -707,7 +712,7 @@ export function FormLibrary({
               <DropdownMenuContent align="center">
                 {NEW_FORM_TYPES.map((ft) => (
                   <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
-                    {ft.label}
+                    {t(ft.labelKey)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -731,8 +736,8 @@ export function FormLibrary({
                   <div>
                     <h3 className="font-semibold mb-2">{form.title}</h3>
                     <div className="flex flex-wrap gap-2">
-                      {getTypeBadge(form.type)}
-                      {getStatusBadge(form.status)}
+                      {getTypeBadge(form.type, t)}
+                      {getStatusBadge(form.status, t)}
                       {form.is_template && (
                         <Badge className="bg-amber-500 text-white border-0 font-semibold text-[10px] px-2">
                           {t('forms.templateBadge')}
@@ -755,7 +760,7 @@ export function FormLibrary({
                           {new Date(form.updated_at).toLocaleDateString()}
                         </p>
                         {(form.created_by?.first_name || form.created_by?.last_name) && (
-                          <p>by {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</p>
+                          <p>{t('forms.byAuthor')} {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</p>
                         )}
                       </div>
                       {form.tags && form.tags.length > 0 && (
@@ -791,17 +796,17 @@ export function FormLibrary({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-2">
                         <h3 className="font-semibold">{form.title}</h3>
-                        {getTypeBadge(form.type)}
-                        {getStatusBadge(form.status)}
+                        {getTypeBadge(form.type, t)}
+                        {getStatusBadge(form.status, t)}
                         {form.is_template && (
                           <Badge variant="outline" className="text-amber-500 border-amber-500/30 bg-amber-500/10">
-                            Template
+                            {t('forms.templateBadge')}
                           </Badge>
                         )}
                         {recurringFormIds.has(form.id) && (
                           <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-[10px] px-2 flex items-center gap-1">
                             <Repeat className="h-3 w-3" />
-                            Recurring
+                            {t('forms.recurring')}
                           </Badge>
                         )}
                       </div>
@@ -812,7 +817,7 @@ export function FormLibrary({
                           {new Date(form.updated_at).toLocaleDateString()}
                         </span>
                         {(form.created_by?.first_name || form.created_by?.last_name) && (
-                          <span>by {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</span>
+                          <span>{t('forms.byAuthor')} {[form.created_by.first_name, form.created_by.last_name].filter(Boolean).join(' ')}</span>
                         )}
                         {form.tags && form.tags.length > 0 && (
                           <span className="flex flex-wrap gap-1">
