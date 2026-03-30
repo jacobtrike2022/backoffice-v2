@@ -118,13 +118,15 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
       {/* Tab Navigation */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="analytics">Analytics Dashboard</TabsTrigger>
-          <TabsTrigger value="builder">Form Builder</TabsTrigger>
-          <TabsTrigger value="library">Form Library</TabsTrigger>
-          <TabsTrigger value="assignments">Form Assignments</TabsTrigger>
-          <TabsTrigger value="submissions">Submissions</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <TabsList className="inline-flex w-auto min-w-full sm:min-w-0">
+            <TabsTrigger value="analytics" className="whitespace-nowrap">Analytics Dashboard</TabsTrigger>
+            <TabsTrigger value="builder" className="whitespace-nowrap">Form Builder</TabsTrigger>
+            <TabsTrigger value="library" className="whitespace-nowrap">Form Library</TabsTrigger>
+            <TabsTrigger value="assignments" className="whitespace-nowrap">Form Assignments</TabsTrigger>
+            <TabsTrigger value="submissions" className="whitespace-nowrap">Submissions</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="analytics" className="space-y-6">
           <FormAnalytics orgId={effectiveOrgId} currentRole={legacyRole} />

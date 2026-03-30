@@ -473,6 +473,7 @@ export function FormLibrary({
         <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 flex items-center justify-between">
           <p className="text-sm text-destructive">{error}</p>
           <button
+            type="button"
             onClick={loadForms}
             className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
