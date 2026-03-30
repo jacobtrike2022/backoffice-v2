@@ -1490,14 +1490,14 @@ export function FormBuilder({
           PREVIEW DIALOG
       ================================================================ */}
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className="max-w-2xl !grid-rows-[auto_1fr] max-h-[85vh]" style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}>
+          <DialogHeader>
             <DialogTitle>{hook.form?.title ?? 'Form Preview'}</DialogTitle>
             <DialogDescription>
               Read-only preview of how respondents will see this form.
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-2 flex-1 overflow-y-auto min-h-0">
+          <div className="overflow-y-auto min-h-0 -mx-6 px-6 pb-2">
             {previewBlocks.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 No blocks yet. Add some questions to preview the form.
