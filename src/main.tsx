@@ -1,7 +1,8 @@
 
   import { createRoot } from "react-dom/client";
-  import App from "./App.tsx";
+  import App from "./App";
   import "./index.css";
+import { Analytics } from "@vercel/analytics/react";
 
   // Global error handlers to catch unhandled errors and prevent white screens
   window.addEventListener('error', (event) => {
@@ -16,5 +17,10 @@
     // You could send to error reporting service here
   });
 
-  createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <>
+    <App />
+    <Analytics />
+  </>
+);
   

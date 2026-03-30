@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -19,8 +19,12 @@ import {
   AlertCircle,
   Download,
   Share2,
-  MoreVertical
+  MoreVertical,
+  History,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
+import { getFormVersions, type FormVersion } from '../../lib/crud/formVersions';
 import {
   BarChart,
   Bar,
@@ -48,6 +52,7 @@ import {
 
 interface FormDetailProps {
   formId: string;
+  orgId?: string;
   onBack: () => void;
   onEdit: () => void;
   currentRole?: 'admin' | 'district-manager' | 'store-manager';
@@ -166,8 +171,29 @@ const scoreDistributionData = [
   { range: '96-100', count: 27 }
 ];
 
-export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: FormDetailProps) {
+export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin' }: FormDetailProps) {
   const [selectedView, setSelectedView] = useState<'overview' | 'submissions'>('overview');
+  const [versions, setVersions] = useState<FormVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+
+  useEffect(() => {
+    if (!versionHistoryOpen) return;
+    let cancelled = false;
+    setVersionsLoading(true);
+    getFormVersions(formId)
+      .then((data) => {
+        if (!cancelled) setVersions(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load form versions:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setVersionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [formId, versionHistoryOpen]);
 
   // Mock form data based on formId
   const formData = {
@@ -634,6 +660,104 @@ export function FormDetail({ formId, onBack, onEdit, currentRole = 'admin' }: Fo
             ))}
           </div>
         </CardContent>
+      </Card>
+
+      {/* Version History */}
+      <Card>
+        <CardHeader
+          className="cursor-pointer select-none"
+          onClick={() => setVersionHistoryOpen(prev => !prev)}
+        >
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center space-x-2">
+              <History className="h-5 w-5" />
+              <span>Version History</span>
+            </CardTitle>
+            {versionHistoryOpen
+              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            }
+          </div>
+        </CardHeader>
+
+        {versionHistoryOpen && (
+          <CardContent>
+            {versionsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading versions...</p>
+            ) : versions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No published versions yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {versions.map((v) => {
+                  const blockCount = v.snapshot?.blocks?.length ?? 0;
+                  const publishedDate = new Date(v.published_at).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+                  const isExpanded = expandedVersionId === v.id;
+
+                  return (
+                    <div key={v.id} className="border rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => setExpandedVersionId(isExpanded ? null : v.id)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          {isExpanded
+                            ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          }
+                          <span className="font-medium text-sm">v{v.version_number}</span>
+                          <span className="text-sm text-muted-foreground">{publishedDate}</span>
+                        </div>
+                        <Badge className="bg-muted text-muted-foreground border-0 text-xs">
+                          {blockCount} {blockCount === 1 ? 'block' : 'blocks'}
+                        </Badge>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t px-4 py-3 bg-muted/20">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                            Snapshot — {v.snapshot.title}
+                          </p>
+                          {blockCount === 0 ? (
+                            <p className="text-xs text-muted-foreground">No blocks in this version.</p>
+                          ) : (
+                            <ol className="space-y-1">
+                              {v.snapshot.blocks.map((b, idx) => (
+                                <li key={b.id} className="flex items-center space-x-2 text-xs">
+                                  <span className="text-muted-foreground w-5 text-right flex-shrink-0">
+                                    {idx + 1}.
+                                  </span>
+                                  <span className="font-medium">{b.label || '(unlabeled)'}</span>
+                                  <Badge className="bg-muted text-muted-foreground border-0 text-xs py-0">
+                                    {b.type}
+                                  </Badge>
+                                  {b.is_required && (
+                                    <span className="text-red-500 text-xs">required</span>
+                                  )}
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                          {v.change_notes && (
+                            <p className="mt-3 text-xs text-muted-foreground italic">
+                              Note: {v.change_notes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
     </div>
   );

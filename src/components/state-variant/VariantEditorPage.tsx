@@ -18,6 +18,7 @@ import {
   type VariantDraft
 } from '../../lib/crud/trackRelationships';
 import { getTrackById as getTrack } from '../../lib/crud/tracks';
+import { getTrackBodyForAdaptation } from '../../utils/variantTrackBody';
 
 interface VariantEditorPageProps {
   draftId?: string;
@@ -68,8 +69,13 @@ export function VariantEditorPage({
           try {
             const track = await getTrack(draftData.sourceTrackId);
             if (track) {
+              const body = getTrackBodyForAdaptation({
+                type: track.type,
+                transcript: track.transcript,
+                content_text: track.content_text,
+              });
               setSourceContent(
-                track.content_text || track.transcript || track.description || ''
+                body || (track.description || '')
               );
             }
           } catch (trackError) {

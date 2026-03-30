@@ -1,6 +1,8 @@
 // ============================================================================
 // CRUD OPERATIONS - CENTRAL EXPORT
 // ============================================================================
+// Prefer `import { fn } from '@/lib/crud/tracks'` (etc.) in hot paths so Vite
+// can tree-shake; `import * as crud from '@/lib/crud'` pulls the full barrel.
 
 // Tracks
 export * from './tracks';

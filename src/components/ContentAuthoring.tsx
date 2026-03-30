@@ -128,26 +128,24 @@ export function ContentAuthoring({
   useEffect(() => {
     // Handle initial creation mode
     if (initialMode === 'create-article' && !selectedType) {
-      console.log('📍 ContentAuthoring: Entering create article mode');
       handleCreateNew('article');
       return;
     }
 
     if (initialTrackId && !editingTrack && !hasLoadedInitialTrack) {
-      console.log('📍 ContentAuthoring: Loading initial track from URL:', initialTrackId);
-      setHasLoadedInitialTrack(true); // Mark as loaded immediately to prevent re-runs
-      import('../lib/crud').then(crud => {
-        crud.getTracks({ ids: [initialTrackId], includeAllVersions: true }).then(tracks => {
+      setHasLoadedInitialTrack(true);
+      import('../lib/crud/tracks')
+        .then(({ getTracks }) => getTracks({ ids: [initialTrackId!], includeAllVersions: true }))
+        .then((tracks) => {
           if (tracks && tracks.length > 0) {
             const track = tracks[0];
-            console.log('📍 ContentAuthoring: Initial track loaded:', track);
             setEditingTrack(track);
             setSelectedType(track.type);
           }
-        }).catch(error => {
-          console.error('📍 ContentAuthoring: Failed to load initial track:', error);
+        })
+        .catch((error) => {
+          console.error('ContentAuthoring: Failed to load initial track:', error);
         });
-      });
     }
   }, [initialTrackId, editingTrack, hasLoadedInitialTrack]);
 

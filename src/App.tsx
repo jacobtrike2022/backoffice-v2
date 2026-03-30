@@ -5,7 +5,7 @@ import { APP_CONFIG } from './lib/config';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
-import { supabase, getCurrentUserOrgId, setViewingOrgOverride, getUserHomeOrgId } from './lib/supabase';
+import { supabase, getCurrentUserOrgId, setViewingOrgOverride } from './lib/supabase';
 
 // Expose brain indexing utilities globally for console access
 // Usage: window.brainUtils.reindexAll() or window.brainUtils.backfill()
@@ -17,7 +17,6 @@ if (typeof window !== 'undefined') {
         console.error('Not logged in or no organization found');
         return;
       }
-      console.log(`Starting re-index for org: ${orgId}`);
       return reindexAllTracks(orgId);
     },
     backfill: async () => {
@@ -26,45 +25,105 @@ if (typeof window !== 'undefined') {
         console.error('Not logged in or no organization found');
         return;
       }
-      console.log(`Starting backfill for org: ${orgId}`);
       return backfillBrainIndex(orgId);
     },
     reindexAllTracks,
     backfillBrainIndex,
   };
-  console.log('[Brain] Utils available at window.brainUtils - use window.brainUtils.reindexAll() to re-index all content');
 }
-import { Reports } from "./components/Reports";
-import { Analytics } from "./components/Analytics";
-import { ContentAssignmentWizard } from "./components/ContentAssignmentWizard";
-import { ComplianceDashboard } from "./components/compliance/ComplianceDashboard";
-import { ComplianceAudit } from "./components/ComplianceAudit";
-import { ComplianceManagement } from "./components/compliance/ComplianceManagement";
-import { ProgramsManagement, TrikeAdminFunctions } from "./components/admin";
-import { People } from "./components/People";
-import { Units } from "./components/Units";
-import { NewUnit } from "./components/NewUnit";
-import { Organization } from "./components/Organization";
-import { ContentAuthoring } from "./components/ContentAuthoring";
-import { ContentLibrary } from "./components/ContentLibrary";
-import { AIReview } from "./components/AIReview";
-import { Playlists } from "./components/Playlists";
-import { PlaylistWizard } from "./components/PlaylistWizard";
-import { KnowledgeBaseRevamp } from "./components/KnowledgeBaseRevamp";
-import { Forms } from "./components/Forms";
-import { Settings } from "./components/Settings";
+
+const FrozenDemoScreen = React.lazy(() =>
+  import('./components/prospect/FrozenDemoScreen').then((m) => ({ default: m.FrozenDemoScreen }))
+);
+const ProspectJourneyView = React.lazy(() =>
+  import('./components/prospect/ProspectJourneyView').then((m) => ({ default: m.ProspectJourneyView }))
+);
+const Reports = React.lazy(() =>
+  import('./components/Reports').then((m) => ({ default: m.Reports }))
+);
+const Analytics = React.lazy(() =>
+  import('./components/Analytics').then((m) => ({ default: m.Analytics }))
+);
+const ComplianceDashboard = React.lazy(() =>
+  import('./components/compliance/ComplianceDashboard').then((m) => ({ default: m.ComplianceDashboard }))
+);
+const ComplianceAudit = React.lazy(() =>
+  import('./components/ComplianceAudit').then((m) => ({ default: m.ComplianceAudit }))
+);
+const ComplianceManagement = React.lazy(() =>
+  import('./components/compliance/ComplianceManagement').then((m) => ({ default: m.ComplianceManagement }))
+);
+const TrikeAdminFunctions = React.lazy(() =>
+  import('./components/admin').then((m) => ({ default: m.TrikeAdminFunctions }))
+);
+const ProgramsManagement = React.lazy(() =>
+  import('./components/admin').then((m) => ({ default: m.ProgramsManagement }))
+);
+const People = React.lazy(() =>
+  import('./components/People').then((m) => ({ default: m.People }))
+);
+const Units = React.lazy(() =>
+  import('./components/Units').then((m) => ({ default: m.Units }))
+);
+const NewUnit = React.lazy(() =>
+  import('./components/NewUnit').then((m) => ({ default: m.NewUnit }))
+);
+const Organization = React.lazy(() =>
+  import('./components/Organization').then((m) => ({ default: m.Organization }))
+);
+const ContentAuthoring = React.lazy(() =>
+  import('./components/ContentAuthoring').then((m) => ({ default: m.ContentAuthoring }))
+);
+const ContentLibrary = React.lazy(() =>
+  import('./components/ContentLibrary').then((m) => ({ default: m.ContentLibrary }))
+);
+const AIReview = React.lazy(() =>
+  import('./components/AIReview').then((m) => ({ default: m.AIReview }))
+);
+const Playlists = React.lazy(() =>
+  import('./components/Playlists').then((m) => ({ default: m.Playlists }))
+);
+const PlaylistWizard = React.lazy(() =>
+  import('./components/PlaylistWizard').then((m) => ({ default: m.PlaylistWizard }))
+);
+const KnowledgeBaseRevamp = React.lazy(() =>
+  import('./components/KnowledgeBaseRevamp').then((m) => ({ default: m.KnowledgeBaseRevamp }))
+);
+const Forms = React.lazy(() =>
+  import('./components/Forms').then((m) => ({ default: m.Forms }))
+);
+const Settings = React.lazy(() =>
+  import('./components/Settings').then((m) => ({ default: m.Settings }))
+);
+const PlaybookBuildView = React.lazy(() =>
+  import('./components/playbook').then((m) => ({ default: m.PlaybookBuildView }))
+);
+const TrikeAdminPage = React.lazy(() =>
+  import('./components/trike-admin').then((m) => ({ default: m.TrikeAdminPage }))
+);
+
 import { SuperAdminPasswordDialog } from "./components/SuperAdminPasswordDialog";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
-import { SupabaseDiagnostics } from "./components/SupabaseDiagnostics";
 import { PublicKBViewer } from "./components/PublicKBViewer";
+import { PublicFormFill } from "./components/forms/PublicFormFill";
 import { OnboardingPage } from "./components/Onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { PlaybookBuildView } from "./components/playbook";
 import { Toaster } from "./components/ui/sonner";
-import { TrikeAdminPage } from "./components/trike-admin";
 import { toast } from "sonner";
 import { checkServerHealth } from "./lib/serverHealth";
+import { trackDemoActivityEvent } from "./lib/analytics/demoTracking";
 
+function RouteLoadingFallback() {
+  return (
+    <div
+      className="flex items-center justify-center h-full min-h-[200px]"
+      role="status"
+      aria-label="Loading"
+    >
+      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+    </div>
+  );
+}
 
 type UserRole =
   | "admin"
@@ -128,8 +187,6 @@ export default function App() {
   const [organizationDeepLinkRoleId, setOrganizationDeepLinkRoleId] = useState<
     string | null
   >(() => getRolePathFromLocation().roleId);
-  const [showAssignmentWizard, setShowAssignmentWizard] =
-    useState(false);
   const [editingArticle, setEditingArticle] =
     useState<any>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<
@@ -187,6 +244,29 @@ export default function App() {
     useState<(() => boolean) | null>(null);
   const [pendingNavigationView, setPendingNavigationView] =
     useState<AppView | null>(null);
+  const demoSessionStartedAtRef = useRef<number>(Date.now());
+  const demoSessionStartSentRef = useRef<boolean>(false);
+  const demoSessionEndSentRef = useRef<boolean>(false);
+
+  const getTrackingContext = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get("demo_org_id");
+    return {
+      organizationId: viewingOrgId || demoOrgId || null,
+      organizationName: viewingOrgName || null,
+      currentRole,
+    };
+  }, [currentRole, viewingOrgId, viewingOrgName]);
+
+  const getPreservedOrgQuery = () => {
+    const current = new URLSearchParams(window.location.search);
+    const preserved = new URLSearchParams();
+    const demoOrgId = current.get("demo_org_id");
+    if (demoOrgId) {
+      preserved.set("demo_org_id", demoOrgId);
+    }
+    return preserved.toString();
+  };
 
   // Persist role changes to localStorage
   useEffect(() => {
@@ -230,8 +310,8 @@ export default function App() {
   }, [user]);
 
   // Read demo_org_id from URL on mount — activates org preview for demo links
+  // Works in both authenticated and demo (no-user) mode
   useEffect(() => {
-    if (!user) return;
     const params = new URLSearchParams(window.location.search);
     const demoOrgId = params.get('demo_org_id');
     if (!demoOrgId || viewingOrgId === demoOrgId) return;
@@ -255,7 +335,8 @@ export default function App() {
         // Silent — demo_org_id may be invalid
       }
     })();
-  }, [user]); // Only run when user auth state changes, not on viewingOrgId change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount — demo_org_id is read from URL, no user required
 
   // Handle previewing an org as Super Admin
   const handlePreviewOrg = async (orgId: string, orgName: string) => {
@@ -331,14 +412,14 @@ export default function App() {
       | null;
 
     if (trackId && trackType) {
-      // Dynamically import crud to avoid circular dependencies
-      import("./lib/crud").then((crud) => {
-        crud
-          .getTracks({
+      import("./lib/crud/tracks")
+        .then(({ getTracks }) => {
+          return getTracks({
             ids: [trackId],
             includeAllVersions: true,
-          })
-          .then((tracks) => {
+          });
+        })
+        .then((tracks) => {
             if (tracks && tracks.length > 0) {
               setEditingArticle(tracks[0]);
 
@@ -358,14 +439,16 @@ export default function App() {
               }
 
               // Clear URL params after routing
+              const preservedQuery = getPreservedOrgQuery();
               window.history.replaceState(
                 {},
                 "",
-                window.location.pathname,
+                preservedQuery
+                  ? `${window.location.pathname}?${preservedQuery}`
+                  : window.location.pathname,
               );
             }
           });
-      });
     }
 
     // Check for create-article mode
@@ -375,10 +458,13 @@ export default function App() {
       setCurrentView("content");
 
       // Clear URL params
+      const preservedQuery = getPreservedOrgQuery();
       window.history.replaceState(
         {},
         "",
-        window.location.pathname,
+        preservedQuery
+          ? `${window.location.pathname}?${preservedQuery}`
+          : window.location.pathname,
       );
     }
 
@@ -403,46 +489,46 @@ export default function App() {
     const playlistId = urlParams.get("playlist");
 
     if (trackId && trackType && playlistId) {
-      import("./lib/crud").then((crud) => {
-        crud
-          .getTracks({
+      import("./lib/crud/tracks")
+        .then(({ getTracks }) =>
+          getTracks({
             ids: [trackId],
             includeAllVersions: true,
-          })
-          .then((tracks) => {
-            if (tracks && tracks.length > 0) {
-              setEditingArticle(tracks[0]);
+          }),
+        )
+        .then((tracks) => {
+          if (tracks && tracks.length > 0) {
+            setEditingArticle(tracks[0]);
 
-              // Route to appropriate view based on track type
-              if (
-                trackType === "article" ||
-                trackType === "video"
-              ) {
-                setCurrentView("content");
-                setInitialTrackId(trackId);
-              } else if (
-                trackType === "checkpoint" ||
-                trackType === "story"
-              ) {
-                setCurrentView("authoring");
-                setInitialTrackId(trackId);
-              }
-
-              // Store the playlist ID for back navigation
-              setSelectedPlaylistId(playlistId);
-
-              // Clear URL params after routing
-              window.history.replaceState(
-                {},
-                "",
-                window.location.pathname,
-              );
+            if (
+              trackType === "article" ||
+              trackType === "video"
+            ) {
+              setCurrentView("content");
+              setInitialTrackId(trackId);
+            } else if (
+              trackType === "checkpoint" ||
+              trackType === "story"
+            ) {
+              setCurrentView("authoring");
+              setInitialTrackId(trackId);
             }
-          })
-          .catch(() => {
-            // Silent catch
-          });
-      });
+
+            setSelectedPlaylistId(playlistId);
+
+            const preservedQuery = getPreservedOrgQuery();
+            window.history.replaceState(
+              {},
+              "",
+              preservedQuery
+                ? `${window.location.pathname}?${preservedQuery}`
+                : window.location.pathname,
+            );
+          }
+        })
+        .catch(() => {
+          // Silent catch
+        });
     }
   }, []);
 
@@ -458,6 +544,21 @@ export default function App() {
   };
 
   const handleNavigate = (view: AppView) => {
+    void trackDemoActivityEvent(
+      {
+        eventType: "page_view",
+        path: `/app/${view}`,
+        fromPath: `/app/${currentView}`,
+        referrer: document.referrer || undefined,
+        metadata: {
+          source: "app_navigation",
+          fromView: currentView,
+          toView: view,
+        },
+      },
+      getTrackingContext()
+    );
+
     // Clear editing context when navigating away from content/authoring
     if (
       currentView === "content" ||
@@ -496,6 +597,55 @@ export default function App() {
     }
     setCurrentView(view);
   };
+
+  // Session lifecycle events for demo/prospect telemetry.
+  useEffect(() => {
+    if (demoSessionStartSentRef.current) return;
+    demoSessionStartSentRef.current = true;
+
+    void trackDemoActivityEvent(
+      {
+        eventType: "session_start",
+        path: `/app/${currentView}`,
+        referrer: document.referrer || undefined,
+        metadata: { source: "app_boot" },
+      },
+      getTrackingContext()
+    );
+  }, [currentView, getTrackingContext]);
+
+  useEffect(() => {
+    const emitSessionEnd = () => {
+      if (demoSessionEndSentRef.current) return;
+      demoSessionEndSentRef.current = true;
+      const durationMs = Math.max(0, Date.now() - demoSessionStartedAtRef.current);
+
+      void trackDemoActivityEvent(
+        {
+          eventType: "session_end",
+          path: `/app/${currentView}`,
+          metadata: {
+            durationMs,
+            source: "app_unload",
+          },
+        },
+        getTrackingContext()
+      );
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        emitSessionEnd();
+      }
+    };
+
+    window.addEventListener("beforeunload", emitSessionEnd);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", emitSessionEnd);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [currentView, getTrackingContext]);
 
   const handleRoleChange = (newRole: UserRole) => {
     if (
@@ -564,28 +714,11 @@ export default function App() {
 
     // Frozen demo: show frozen screen regardless of view
     if (orgStatusInfo.isDemoExpired && !isTrikeSuperAdmin) {
-      const FrozenDemoScreen = React.lazy(() =>
-        import('./components/prospect/FrozenDemoScreen').then(m => ({ default: m.FrozenDemoScreen }))
-      );
-      return (
-        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
-          <FrozenDemoScreen />
-        </React.Suspense>
-      );
+      return <FrozenDemoScreen />;
     }
 
-    // Prospect org: show journey view on dashboard, content library on content
     if (orgStatusInfo.isProspectOrg && !isTrikeSuperAdmin && currentView === 'dashboard') {
-      const ProspectJourneyView = React.lazy(() =>
-        import('./components/prospect/ProspectJourneyView').then(m => ({ default: m.ProspectJourneyView }))
-      );
-      return (
-        <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
-          <ProspectJourneyView
-            onNavigate={requestNavigate}
-          />
-        </React.Suspense>
-      );
+      return <ProspectJourneyView onNavigate={requestNavigate} />;
     }
 
     // Client onboarding view
@@ -599,13 +732,13 @@ export default function App() {
           />
         );
       case "reports":
-        return <Reports role={currentRole} />;
+        return <Reports currentRole={currentRole as 'admin' | 'district-manager' | 'store-manager'} />;
       case "analytics":
-        return <Analytics role={currentRole} />;
+        return <Analytics currentRole={currentRole as 'admin' | 'district-manager' | 'store-manager'} />;
       case "compliance":
         return <ComplianceDashboard />;
       case "compliance-audit":
-        return <ComplianceAudit role={currentRole} />;
+        return <ComplianceAudit currentRole={currentRole} />;
       case "compliance-management":
         // Only Trike Super Admin can access this
         if (currentRole !== 'trike-super-admin') {
@@ -748,7 +881,6 @@ export default function App() {
           />
         );
       case "playbook-build":
-        console.log('[App] playbook-build view - playbookSourceFileId:', playbookSourceFileId);
         return playbookSourceFileId ? (
           <PlaybookBuildView
             sourceFileId={playbookSourceFileId}
@@ -795,7 +927,6 @@ export default function App() {
             initialRoleId={organizationDeepLinkRoleId}
             onNavigate={requestNavigate}
             onStartPlaybook={(sourceFileId: string) => {
-              console.log('[App] onStartPlaybook called with sourceFileId:', sourceFileId);
               setPlaybookSourceFileId(sourceFileId);
               requestNavigate("playbook-build");
             }}
@@ -823,7 +954,7 @@ export default function App() {
       case "ai-review":
         return <AIReview onBack={() => requestNavigate("organization")} />;
       case "forms":
-        return <Forms role={currentRole} />;
+        return <Forms currentRole={currentRole} orgId={viewingOrgId || ''} />;
       case "knowledge-base":
         return (
           <KnowledgeBaseRevamp
@@ -838,7 +969,7 @@ export default function App() {
           />
         );
       case "settings":
-        return <Settings role={currentRole} />;
+        return <Settings currentRole={currentRole} />;
       case "trike-admin":
         // Only Trike Super Admin can access this
         if (currentRole !== 'trike-super-admin') {
@@ -862,10 +993,19 @@ export default function App() {
   const slug = urlParams.get("slug") || hashParams.get("slug");
   const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
 
+  // Check if this is a public form fill request (NO AUTH REQUIRED)
+  const formId = urlParams.get("form_id") || hashParams.get("form_id");
+  const isPublicFormFill = !!formId;
+
   // Check if this is the onboarding flow (NO AUTH REQUIRED)
   const isOnboardingView = window.location.pathname.includes("onboarding") ||
     urlParams.get("view") === "onboarding" ||
     hashParams.get("view") === "onboarding";
+
+  // If public form fill, show it immediately without auth check
+  if (isPublicFormFill) {
+    return <PublicFormFill />;
+  }
 
   // If public KB view, show it immediately without auth check
   if (isPublicKBView) {
@@ -923,7 +1063,9 @@ export default function App() {
               viewingOrgName={viewingOrgName}
               onExitOrgPreview={handleExitOrgPreview}
             >
-              {renderContent()}
+              <React.Suspense fallback={<RouteLoadingFallback />}>
+                {renderContent()}
+              </React.Suspense>
             </DashboardLayout>
 
             {showPasswordPrompt && (

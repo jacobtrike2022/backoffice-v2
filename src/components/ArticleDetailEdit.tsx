@@ -53,6 +53,7 @@ import {
   PopoverTrigger,
 } from './ui/popover';
 import * as crud from '../lib/crud';
+import { downloadKbTrackAsPdf } from '../lib/utils/kbPdfExport';
 import * as attachmentCrud from '../lib/crud/attachments';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -1439,6 +1440,20 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   </PopoverTrigger>
                   <PopoverContent className="w-48 p-1" align="end">
                     <div className="flex flex-col">
+                      <Button
+                        variant="ghost"
+                        className="justify-start h-9"
+                        onClick={async () => {
+                          setIsActionsMenuOpen(false);
+                          await downloadKbTrackAsPdf(track, { toast });
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download PDF
+                      </Button>
+                      {(onDuplicate || onCreateVariant || onArchive) && (
+                        <Separator className="my-1" />
+                      )}
                       {onDuplicate && (
                         <Button
                           variant="ghost"
@@ -2186,7 +2201,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                   <Separator />
                   <button
                     onClick={() => {
-                      window.location.href = `/?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}`;
+                      window.location.href = `/organization?tab=sources&sourceFileId=${sourceDocumentInfo.sourceFileId}&chunkId=${sourceDocumentInfo.sourceChunkId}`;
                     }}
                     className="flex items-center gap-2 w-full text-left hover:bg-muted/50 rounded-md p-1 -mx-1 transition-colors"
                   >

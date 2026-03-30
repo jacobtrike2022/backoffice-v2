@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -25,12 +25,20 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSupabaseClient } from '../../utils/supabase/client';
+import { getCurrentUserProfile } from '../../lib/supabase';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
 import * as storesCrud from '../../lib/crud/stores';
 import * as crud from '../../lib/crud';
 import * as tagsCrud from '../../lib/crud/tags';
 import { VariantGenerationChat } from './VariantGenerationChat';
 import { StateVariantWizard } from '../state-variant/StateVariantWizard';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../ui/dialog';
 
 interface CreateVariantModalProps {
   isOpen: boolean;
@@ -151,15 +159,19 @@ export function CreateVariantModal({
   const [selectedStore, setSelectedStore] = useState<string>('');
   const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [organizationName, setOrganizationName] = useState<string>('');
+  const [organizationId, setOrganizationId] = useState<string>('');
 
   // Generated title
   const [variantTitle, setVariantTitle] = useState<string>('');
 
-  // Generation method (Sprint 1 = manual only)
+  /** `manual` = clone source as draft; `ai` = inline VariantGenerationChat. Geographic also has StateVariantWizard (separate). */
   const [generationMethod, setGenerationMethod] = useState<'manual' | 'ai'>('manual');
 
   // Creating state
   const [isCreating, setIsCreating] = useState(false);
+
+  const [trackSearch, setTrackSearch] = useState('');
+  const [orgContextReady, setOrgContextReady] = useState(false);
 
   // Full source track with content
   const [fullSourceTrack, setFullSourceTrack] = useState<any>(null);
@@ -188,6 +200,8 @@ export function CreateVariantModal({
       setGenerationMethod('manual');
       setIsCreating(false);
       setShowStateVariantWizard(false);
+      setTrackSearch('');
+      setOrgContextReady(false);
 
       if (!initialSourceTrack) {
         loadTracks();
@@ -214,9 +228,11 @@ export function CreateVariantModal({
             suffix = ` (${state?.name || selectedState})`;
           }
           break;
-        case 'company':
-          suffix = organizationName ? ` (${organizationName})` : ' (Company)';
+        case 'company': {
+          const org = organizationName.trim();
+          suffix = org ? ` at ${org}` : '';
           break;
+        }
         case 'unit':
           if (selectedStore) {
             const store = stores.find(s => s.id === selectedStore);
@@ -227,6 +243,17 @@ export function CreateVariantModal({
       setVariantTitle(`${selectedTrack.title}${suffix}`);
     }
   }, [selectedTrack, selectedVariantType, selectedState, selectedStore, organizationName, stores]);
+
+  const filteredTracks = useMemo(() => {
+    const q = trackSearch.trim().toLowerCase();
+    if (!q) return tracks;
+    return tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.type.toLowerCase().includes(q) ||
+        (t.status && t.status.toLowerCase().includes(q))
+    );
+  }, [tracks, trackSearch]);
 
   async function loadTracks() {
     setIsLoadingTracks(true);
@@ -263,26 +290,42 @@ export function CreateVariantModal({
 
   async function loadOrganization() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // First try to get from users table via auth_user_id
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('organization_id, organizations:organizations!users_organization_id_fkey(name)')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-
-        if (userProfile?.organizations) {
-          setOrganizationName((userProfile.organizations as any).name || '');
-        }
+      const profile = await getCurrentUserProfile();
+      const orgId = profile?.organization_id as string | undefined;
+      if (!orgId) {
+        setOrganizationId('');
+        setOrganizationName('');
+        return;
       }
+      setOrganizationId(orgId);
+
+      const { data: org, error } = await supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', orgId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading organization name:', error);
+        setOrganizationName('');
+        return;
+      }
+      setOrganizationName((org?.name || '').trim());
     } catch (error) {
       console.error('Error loading organization:', error);
+    } finally {
+      setOrgContextReady(true);
     }
   }
 
   async function handleAIGenerated(generatedContent: string, generatedTitle: string) {
     if (!selectedTrack || !selectedVariantType) return;
+
+    const titleToUse = (generatedTitle || '').trim() || variantTitle.trim();
+    if (!titleToUse) {
+      toast.error('Generated content needs a title');
+      return;
+    }
 
     setIsCreating(true);
     setStep('creating');
@@ -298,11 +341,10 @@ export function CreateVariantModal({
       }
 
       // 2. Create the new track as a draft with AI content
-      const newTrackData = {
-        title: generatedTitle,
+      const t = sourceTrackData.type;
+      const newTrackData: Record<string, unknown> = {
+        title: titleToUse,
         description: sourceTrackData.description,
-        transcript: sourceTrackData.type === 'video' ? sourceTrackData.transcript : null,
-        content_text: sourceTrackData.type !== 'video' ? generatedContent : null,
         type: sourceTrackData.type,
         status: 'draft',
         thumbnail_url: sourceTrackData.thumbnail_url,
@@ -314,17 +356,23 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
-        tags: sourceTrackData.tags || [], // Copy tags from source
+        tags: sourceTrackData.tags || [],
       };
 
-      // If it's a video, we might want to update the transcript instead of content_text
-      if (sourceTrackData.type === 'video') {
+      if (t === 'article') {
         newTrackData.transcript = generatedContent;
+        newTrackData.content_text = sourceTrackData.content_text ?? null;
+      } else if (t === 'video') {
+        newTrackData.transcript = generatedContent;
+        newTrackData.content_text = sourceTrackData.content_text ?? null;
+      } else {
+        newTrackData.content_text = generatedContent;
+        newTrackData.transcript = sourceTrackData.transcript ?? null;
       }
 
       const { data: newTrack, error: createError } = await supabase
         .from('tracks')
-        .insert(newTrackData)
+        .insert(newTrackData as any)
         .select()
         .single();
 
@@ -336,7 +384,6 @@ export function CreateVariantModal({
       if (sourceTrackData.tags && sourceTrackData.tags.length > 0) {
         try {
           await tagsCrud.assignTrackTagsByName(newTrack.id, sourceTrackData.tags, false);
-          console.log(`🏷️ Synced ${sourceTrackData.tags.length} tags to track_tags junction for variant`);
         } catch (tagError) {
           console.warn('Failed to sync tags to junction table:', tagError);
         }
@@ -378,6 +425,7 @@ export function CreateVariantModal({
         break;
       case 'company':
         variantContext.org_name = organizationName;
+        if (organizationId) variantContext.org_id = organizationId;
         break;
       case 'unit':
         const store = stores.find(s => s.id === selectedStore);
@@ -391,6 +439,16 @@ export function CreateVariantModal({
   async function handleCreateVariant() {
     if (!selectedTrack || !selectedVariantType) {
       toast.error('Please complete all required steps');
+      return;
+    }
+
+    if (!variantTitle.trim()) {
+      toast.error('Please enter a variant title');
+      return;
+    }
+
+    if (selectedVariantType === 'company' && !organizationId && !organizationName.trim()) {
+      toast.error('Organization context could not be loaded. Refresh and try again.');
       return;
     }
 
@@ -409,6 +467,7 @@ export function CreateVariantModal({
           break;
         case 'company':
           variantContext.org_name = organizationName;
+          if (organizationId) variantContext.org_id = organizationId;
           break;
         case 'unit':
           const store = stores.find(s => s.id === selectedStore);
@@ -433,6 +492,7 @@ export function CreateVariantModal({
         title: variantTitle,
         description: sourceTrackData.description,
         transcript: sourceTrackData.transcript,
+        content_text: sourceTrackData.content_text ?? null,
         type: sourceTrackData.type,
         status: 'draft',
         thumbnail_url: sourceTrackData.thumbnail_url,
@@ -444,7 +504,7 @@ export function CreateVariantModal({
         is_latest_version: true,
         version_number: 1,
         view_count: 0,
-        tags: sourceTrackData.tags || [], // Copy tags from source
+        tags: sourceTrackData.tags || [],
       };
 
       const { data: newTrack, error: createError } = await supabase
@@ -455,6 +515,14 @@ export function CreateVariantModal({
 
       if (createError || !newTrack) {
         throw new Error('Failed to create variant track');
+      }
+
+      if (sourceTrackData.tags && sourceTrackData.tags.length > 0) {
+        try {
+          await tagsCrud.assignTrackTagsByName(newTrack.id, sourceTrackData.tags, false);
+        } catch (tagError) {
+          console.warn('Failed to sync tags to junction table:', tagError);
+        }
       }
 
       // 3. Create the variant relationship
@@ -496,13 +564,16 @@ export function CreateVariantModal({
           case 'geographic':
             return !!selectedState;
           case 'company':
-            return true; // Company variant uses current org
+            return orgContextReady && (!!organizationId || !!organizationName.trim());
           case 'unit':
             return !!selectedStore;
           default:
             return false;
         }
       case 'generation-method':
+        if (generationMethod === 'manual') {
+          return !!variantTitle.trim();
+        }
         return true;
       default:
         return false;
@@ -553,18 +624,35 @@ export function CreateVariantModal({
     return initialSourceTrack ? 3 : 4;
   }
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-      style={{ marginBottom: 0 }}
+    <>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !isCreating) onClose();
+      }}
     >
-      <div className={`bg-background border border-border rounded-lg shadow-xl w-full mx-4 flex flex-col transition-all duration-300 overflow-hidden ${
-        generationMethod === 'ai' && step === 'generation-method' 
-          ? 'max-w-4xl h-[85vh] max-h-[90vh]' 
-          : 'max-w-lg max-h-[90vh]'
-      }`}>
+      <DialogContent
+        hideCloseButton
+        aria-describedby={undefined}
+        className={`${
+          generationMethod === 'ai' && step === 'generation-method'
+            ? 'max-w-4xl h-[85vh] max-h-[90vh]'
+            : 'max-w-lg max-h-[90vh]'
+        } w-[calc(100%-2rem)] flex flex-col gap-0 p-0 overflow-hidden border-border sm:max-w-[calc(100%-2rem)]`}
+        onPointerDownOutside={(e) => {
+          if (isCreating) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (isCreating) e.preventDefault();
+        }}
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>Create Variant</DialogTitle>
+          <DialogDescription>
+            Step {getStepNumber()} of {getTotalSteps()}. Choose source track, variant type, and context.
+          </DialogDescription>
+        </DialogHeader>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -579,9 +667,11 @@ export function CreateVariantModal({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground transition-colors"
             disabled={isCreating}
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -618,43 +708,56 @@ export function CreateVariantModal({
                   <p>No tracks available.</p>
                 </div>
               ) : (
+                <>
+                <Input
+                  placeholder="Search tracks by title, type, or status..."
+                  value={trackSearch}
+                  onChange={(e) => setTrackSearch(e.target.value)}
+                  className="mb-2"
+                  aria-label="Filter tracks"
+                />
                 <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
-                  {tracks.map(track => (
-                    <button
-                      key={track.id}
-                      type="button"
-                      onClick={() => setSelectedTrack(track)}
-                      className={`w-full px-3 py-2.5 text-left border-b border-border last:border-b-0 transition-colors ${
-                        selectedTrack?.id === track.id
-                          ? 'bg-orange-500/10 border-l-2 border-l-orange-500'
-                          : 'hover:bg-muted'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        {track.thumbnail_url && (
-                          <img
-                            src={track.thumbnail_url}
-                            alt=""
-                            className="w-10 h-10 rounded object-cover"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-foreground text-sm truncate">
-                            {track.title}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge className="bg-brand-gradient text-white text-xs px-2 py-0.5">
-                              {track.type}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {track.status}
-                            </Badge>
+                  {filteredTracks.length === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground text-sm">No matches.</div>
+                  ) : (
+                    filteredTracks.map((track) => (
+                      <button
+                        key={track.id}
+                        type="button"
+                        onClick={() => setSelectedTrack(track)}
+                        className={`w-full px-3 py-2.5 text-left border-b border-border last:border-b-0 transition-colors ${
+                          selectedTrack?.id === track.id
+                            ? 'bg-orange-500/10 border-l-2 border-l-orange-500'
+                            : 'hover:bg-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {track.thumbnail_url && (
+                            <img
+                              src={track.thumbnail_url}
+                              alt=""
+                              className="w-10 h-10 rounded object-cover"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-foreground text-sm truncate">
+                              {track.title}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge className="bg-brand-gradient text-white text-xs px-2 py-0.5">
+                                {track.type}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {track.status}
+                              </Badge>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    ))
+                  )}
                 </div>
+                </>
               )}
             </div>
           )}
@@ -724,7 +827,13 @@ export function CreateVariantModal({
               )}
 
               {selectedVariantType === 'company' && (
-                <div className="bg-muted/50 border border-border rounded-lg p-4">
+                <div className="bg-muted/50 border border-border rounded-lg p-4 space-y-2">
+                  {!orgContextReady && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                      Loading organization…
+                    </p>
+                  )}
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                       <Building2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
@@ -789,9 +898,27 @@ export function CreateVariantModal({
           {step === 'generation-method' && (
             <div className={`space-y-4 flex flex-col ${generationMethod === 'ai' ? 'h-full' : ''}`}>
               <div className="flex-shrink-0">
-                <Label className="text-sm font-medium block mb-3">
+                <Label className="text-sm font-medium block mb-1">
                   Generation Method
                 </Label>
+                {selectedVariantType === 'geographic' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    <span className="font-medium text-foreground">Full workflow (recommended):</span>{' '}
+                    research plan, evidence, redline draft, and citations in a dedicated wizard.
+                    <span className="block mt-1">
+                      <span className="font-medium text-foreground">AI Chat:</span> conversational Q&amp;A, then
+                      AI writes the variant body when you generate.{' '}
+                      <span className="font-medium text-foreground">Manual copy:</span> duplicate source content as
+                      a draft—edit by hand; no AI run from this step.
+                    </span>
+                  </p>
+                )}
+                {selectedVariantType && selectedVariantType !== 'geographic' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    <span className="font-medium text-foreground">AI Chat:</span> Q&amp;A then AI-generated body.{' '}
+                    <span className="font-medium text-foreground">Manual copy:</span> clone source as draft for manual edits.
+                  </p>
+                )}
 
                 {/* For geographic variants, show the new State Research option */}
                 {selectedVariantType === 'geographic' && (
@@ -816,6 +943,10 @@ export function CreateVariantModal({
                       <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
                   </button>
+                )}
+
+                {selectedVariantType === 'geographic' && (
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Or choose a simpler path</p>
                 )}
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -876,7 +1007,8 @@ export function CreateVariantModal({
                       title: selectedTrack!.title,
                       type: selectedTrack!.type as any,
                       transcript: fullSourceTrack?.transcript,
-                      content: fullSourceTrack?.content_text || fullSourceTrack?.content,
+                      content_text: fullSourceTrack?.content_text,
+                      content: fullSourceTrack?.content,
                       thumbnail_url: selectedTrack!.thumbnail_url
                     }}
                     variantType={selectedVariantType!}
@@ -909,7 +1041,9 @@ export function CreateVariantModal({
         </div>
 
         {/* Footer */}
-        {step !== 'creating' && !(step === 'generation-method' && generationMethod === 'ai') && (
+        {step !== 'creating' &&
+          !(step === 'generation-method' && generationMethod === 'ai') &&
+          !showStateVariantWizard && (
           <div className="flex items-center justify-between gap-3 p-6 border-t border-border flex-shrink-0">
             <Button
               variant="outline"
@@ -944,7 +1078,8 @@ export function CreateVariantModal({
             </Button>
           </div>
         )}
-      </div>
+      </DialogContent>
+    </Dialog>
 
       {/* State Variant Wizard (v2 AI pipeline) */}
       {selectedTrack && selectedState && (
@@ -973,6 +1108,6 @@ export function CreateVariantModal({
           }}
         />
       )}
-    </div>
+    </>
   );
 }

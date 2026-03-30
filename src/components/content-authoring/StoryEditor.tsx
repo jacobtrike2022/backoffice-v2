@@ -45,7 +45,8 @@ import {
   MoreVertical,
   Copy,
   Archive,
-  GitBranch
+  GitBranch,
+  Download
 } from 'lucide-react';
 import {
   Popover,
@@ -53,6 +54,7 @@ import {
   PopoverTrigger,
 } from '../ui/popover';
 import { toast } from 'sonner@2.0.3';
+import { downloadKbTrackAsPdf } from '../../lib/utils/kbPdfExport';
 import * as crud from '../../lib/crud';
 import * as factsCrud from '../../lib/crud/facts';
 import * as trackRelCrud from '../../lib/crud/trackRelationships';
@@ -1691,6 +1693,21 @@ export function StoryEditor({
                 </PopoverTrigger>
                 <PopoverContent className="w-48 p-1" align="end">
                   <div className="flex flex-col">
+                    <Button
+                      variant="ghost"
+                      className="justify-start h-9"
+                      onClick={async () => {
+                        setIsActionsMenuOpen(false);
+                        const t = existingTrack || track;
+                        await downloadKbTrackAsPdf(t, { toast });
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download PDF
+                    </Button>
+                    {(onDuplicate || onCreateVariant || onArchive) && (
+                      <Separator className="my-1" />
+                    )}
                     {onDuplicate && (
                       <Button
                         variant="ghost"
