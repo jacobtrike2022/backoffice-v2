@@ -24,6 +24,7 @@ import {
   Download,
   QrCode,
   Repeat,
+  Upload,
 } from 'lucide-react';
 import {
   Select,
@@ -75,6 +76,7 @@ interface FormLibraryProps {
   onNewForm?: (type?: string) => void;
   onEditForm?: (formId: string) => void;
   onViewSubmissions?: (formId: string) => void;
+  onImportPDF?: () => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -377,6 +379,7 @@ export function FormLibrary({
   onNewForm,
   onEditForm,
   onViewSubmissions,
+  onImportPDF,
 }: FormLibraryProps) {
   const { t } = useTranslation();
   const [forms, setForms] = useState<FormRecord[]>([]);
@@ -544,21 +547,29 @@ export function FormLibrary({
           </p>
         </div>
         {canCreate && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
-                <Plus className="h-4 w-4 mr-2" />
-                {t('forms.newForm')}
+          <div className="flex items-center gap-2">
+            {onImportPDF && (
+              <Button variant="outline" onClick={onImportPDF}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import PDF
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {NEW_FORM_TYPES.map((ft) => (
-                <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
-                  {t(ft.labelKey)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  {t('forms.newForm')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {NEW_FORM_TYPES.map((ft) => (
+                  <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
+                    {t(ft.labelKey)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         )}
       </div>
 

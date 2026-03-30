@@ -35,6 +35,8 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   '/email/send': { limit: 20, windowMs: 60_000 },
   '/contracts/': { limit: 5, windowMs: 60_000 },
   '/billing/': { limit: 10, windowMs: 60_000 },
+  '/forms/on-submit': { limit: 20, windowMs: 60_000 },
+  '/forms/parse-pdf': { limit: 5, windowMs: 60_000 },
 };
 
 function checkRateLimit(path: string, identityKey: string): { allowed: boolean; retryAfterMs?: number } {
@@ -849,6 +851,11 @@ Deno.serve(async (req: Request) => {
       return await handleFormsPublicSubmit(req, path);
     }
 
+    // Post-submission email notifications (fire-and-forget from frontend or server-side)
+    if (method === "POST" && path === "/forms/on-submit") {
+      return await handleFormsOnSubmit(req);
+    }
+
     // Record page view
     if (method === "POST" && path === "/kb/page-view") {
       return await handleKBPageView(req);
@@ -1212,6 +1219,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // FORMS AI - Parse PDF to form blocks
+    // =========================================================================
+    if (method === "POST" && path === "/forms/parse-pdf") {
+      return await handleFormsParsePdf(req, path);
+    }
+
+    // =========================================================================
     // 404 - Route not found
     // =========================================================================
     console.error(`❌ Route not found: [${method}] ${path} (original: ${url.pathname})`);
@@ -1322,7 +1336,8 @@ Deno.serve(async (req: Request) => {
         "POST /billing/webhook",
         "POST /contracts/send",
         "POST /contracts/webhook",
-        "GET /contracts/:id/status"
+        "GET /contracts/:id/status",
+        "POST /forms/parse-pdf"
       ]
     }, 404);
 
@@ -1341,6 +1356,187 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// =============================================================================
+// FORMS AI - Parse PDF to form blocks
+// =============================================================================
+
+const VALID_BLOCK_TYPES = new Set([
+  'text', 'textarea', 'number', 'date', 'time', 'radio', 'checkboxes',
+  'dropdown', 'yes_no', 'rating', 'file', 'signature', 'slider',
+  'location', 'photo', 'instruction', 'divider',
+]);
+
+async function handleFormsParsePdf(req: Request, path: string): Promise<Response> {
+  // Rate limit check
+  const identityKey = req.headers.get("authorization") || "anon";
+  const rl = checkRateLimit(path, identityKey);
+  if (!rl.allowed) {
+    return jsonResponse({ error: "Rate limit exceeded. Try again shortly." }, 429);
+  }
+
+  if (!ANTHROPIC_API_KEY) {
+    return jsonResponse({ error: "Anthropic API key not configured" }, 500);
+  }
+
+  try {
+    let pdfBase64: string | null = null;
+
+    const contentType = req.headers.get("content-type") || "";
+
+    if (contentType.includes("multipart/form-data")) {
+      // Handle multipart upload
+      const formData = await req.formData();
+      const file = formData.get("file");
+      if (!file || !(file instanceof File)) {
+        return jsonResponse({ error: "No PDF file provided in 'file' field" }, 400);
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        return jsonResponse({ error: "File too large. Maximum size is 10MB." }, 400);
+      }
+      const bytes = await file.arrayBuffer();
+      // Encode to base64 in chunks to avoid call stack issues with large files
+      const uint8 = new Uint8Array(bytes);
+      let binaryStr = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < uint8.length; i += chunkSize) {
+        binaryStr += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
+      }
+      pdfBase64 = btoa(binaryStr);
+    } else {
+      // JSON body with file_url
+      const body = await req.json();
+      const fileUrl: string | undefined = body.file_url;
+      if (!fileUrl) {
+        return jsonResponse({ error: "Provide a PDF file via multipart upload or JSON { file_url }" }, 400);
+      }
+      const fileResp = await fetch(fileUrl);
+      if (!fileResp.ok) {
+        return jsonResponse({ error: `Failed to download file from URL: ${fileResp.status}` }, 400);
+      }
+      const fileBytes = await fileResp.arrayBuffer();
+      if (fileBytes.byteLength > 10 * 1024 * 1024) {
+        return jsonResponse({ error: "File too large. Maximum size is 10MB." }, 400);
+      }
+      const uint8 = new Uint8Array(fileBytes);
+      let binaryStr = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < uint8.length; i += chunkSize) {
+        binaryStr += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
+      }
+      pdfBase64 = btoa(binaryStr);
+    }
+
+    if (!pdfBase64) {
+      return jsonResponse({ error: "Could not read PDF content" }, 400);
+    }
+
+    const systemPrompt = `You are analyzing a document to extract form fields. Identify every place where a user would need to provide input (fill in a blank, check a box, sign, select an option, write a response, etc.).
+
+For each field, return a JSON object with:
+- block_type: one of [text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider]
+- label: the question or field label
+- description: optional helper text (string or null)
+- is_required: boolean
+- options: array of strings (for radio, checkboxes, dropdown only; null otherwise)
+
+Also identify instruction/header sections and return them as "instruction" blocks.
+
+Additionally, determine:
+- The overall form type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
+- A suggested title for the form
+- A brief one-sentence description
+
+Return ONLY valid JSON in this exact format, no other text:
+{
+  "blocks": [...],
+  "detected_form_type": "inspection" | "audit" | "sign-off" | "ojt-checklist" | "survey",
+  "title": "extracted form title",
+  "description": "brief description of the form"
+}`;
+
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8192,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: pdfBase64,
+                },
+              },
+              {
+                type: "text",
+                text: "Analyze this document and extract all form fields. Return the structured JSON as instructed.",
+              },
+            ],
+          },
+        ],
+        system: systemPrompt,
+      }),
+    });
+
+    if (!claudeResponse.ok) {
+      const errText = await claudeResponse.text();
+      console.error("Anthropic API error:", errText);
+      return jsonResponse({ error: `AI analysis failed: ${claudeResponse.status}` }, 502);
+    }
+
+    const claudeData = await claudeResponse.json();
+    const rawText = claudeData.content?.[0]?.text || "";
+
+    // Parse JSON from Claude's response (strip markdown code fences if present)
+    let parsed: any;
+    try {
+      const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
+      return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
+    }
+
+    // Validate and sanitize blocks
+    const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+    const validatedBlocks = blocks
+      .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
+      .map((b: any, idx: number) => ({
+        block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
+        label: b.label.trim(),
+        description: typeof b.description === "string" ? b.description : undefined,
+        is_required: typeof b.is_required === "boolean" ? b.is_required : false,
+        options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
+        display_order: idx,
+      }));
+
+    const validFormTypes = ["inspection", "audit", "sign-off", "ojt-checklist", "survey"];
+    const detectedType = validFormTypes.includes(parsed.detected_form_type)
+      ? parsed.detected_form_type
+      : "inspection";
+
+    return jsonResponse({
+      blocks: validatedBlocks,
+      detected_form_type: detectedType,
+      title: typeof parsed.title === "string" ? parsed.title : "Imported Form",
+      description: typeof parsed.description === "string" ? parsed.description : "",
+    });
+  } catch (err: unknown) {
+    console.error("Error in handleFormsParsePdf:", err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return jsonResponse({ error: `Failed to parse PDF: ${message}` }, 500);
+  }
 }
 
 async function hashString(str: string): Promise<string> {
@@ -15593,11 +15789,20 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
       return jsonResponse({ error: 'Failed to save submission', details: insertError.message }, 500);
     }
 
-    // TODO: trigger notification to form owner / admins when requires_approval is true.
-    // Follow the notifications pattern: insert into `notifications` table via
-    //   supabase.from('notifications').insert({ user_id, type, title, message, link_url })
-    // For public/anonymous submissions there is no submitter user_id, so target the
-    // form's created_by user or org admins. Defer to a scheduled job or webhook for now.
+    // Fire-and-forget: trigger post-submission email notifications
+    processFormSubmissionEmails({
+      form_id: formId,
+      submission_id: submission.id,
+      organization_id: form.organization_id,
+      submitter_email: (body.submitter_email as string) || undefined,
+      responses: answers,
+      score: scorePercentage != null ? {
+        total: totalScore ?? 0,
+        passed: typeof body.passed === 'boolean' ? body.passed : (scorePercentage >= 70),
+        max: maxPossibleScore ?? 0,
+      } : null,
+      form_title: (body.form_title as string) || '',
+    }).catch(err => console.error('[FormEmail] Fire-and-forget error:', err));
 
     return jsonResponse({
       success: true,
@@ -15608,6 +15813,421 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
     });
   } catch (err) {
     console.error('❌ handleFormsPublicSubmit error:', err);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+// =============================================================================
+// FORMS: POST-SUBMISSION EMAIL NOTIFICATIONS
+// =============================================================================
+
+interface FormEmailNotification {
+  id: string;
+  to_type: 'specific_email' | 'store_manager' | 'district_manager' | 'admin';
+  to_email?: string;
+  subject?: string;
+  include_score?: boolean;
+  include_responses?: boolean;
+  trigger: 'always' | 'on_fail' | 'on_pass';
+}
+
+interface FormSubmissionConfig {
+  confirmation_message?: string;
+  redirect_url?: string;
+  send_email_to_submitter?: boolean;
+  email_notifications?: FormEmailNotification[];
+  score_threshold_action?: {
+    below_threshold_email?: string;
+    below_threshold_message?: string;
+  };
+  allow_multiple_submissions?: boolean;
+}
+
+/**
+ * Build the branded HTML body for a form notification email.
+ */
+function buildFormEmailHtml(params: {
+  formTitle: string;
+  submitterInfo: string;
+  score?: { total: number; passed: boolean; max: number } | null;
+  includeScore: boolean;
+  includeResponses: boolean;
+  responses?: Record<string, unknown>;
+  blocks?: Array<{ id: string; label?: string; type?: string }>;
+  customMessage?: string;
+}): string {
+  const { formTitle, submitterInfo, score, includeScore, includeResponses, responses, blocks, customMessage } = params;
+
+  let scoreSection = '';
+  if (includeScore && score) {
+    const pct = score.max > 0 ? Math.round((score.total / score.max) * 100) : 0;
+    const statusColor = score.passed ? '#16a34a' : '#dc2626';
+    const statusLabel = score.passed ? 'PASSED' : 'FAILED';
+    scoreSection = `
+      <div style="background: #f8fafc; border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <h3 style="margin: 0 0 8px; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Score</h3>
+        <div style="font-size: 28px; font-weight: 700; color: #0f172a;">${score.total} / ${score.max} <span style="font-size: 16px; color: #64748b;">(${pct}%)</span></div>
+        <div style="display: inline-block; margin-top: 8px; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; color: #fff; background: ${statusColor};">${statusLabel}</div>
+      </div>`;
+  }
+
+  let responsesSection = '';
+  if (includeResponses && responses) {
+    const blockMap = new Map((blocks || []).map(b => [b.id, b]));
+    const rows = Object.entries(responses)
+      .filter(([key]) => !key.startsWith('_')) // skip internal keys like _scoring_passed
+      .map(([key, val]) => {
+        const block = blockMap.get(key);
+        const label = block?.label || key;
+        const displayVal = val === null || val === undefined
+          ? '—'
+          : Array.isArray(val) ? val.join(', ') : String(val);
+        return `<tr>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: 500; color: #334155; vertical-align: top; width: 35%;">${escapeHtml(label)}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">${escapeHtml(displayVal)}</td>
+        </tr>`;
+      })
+      .join('');
+
+    if (rows) {
+      responsesSection = `
+        <div style="margin: 16px 0;">
+          <h3 style="margin: 0 0 8px; font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Responses</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            ${rows}
+          </table>
+        </div>`;
+    }
+  }
+
+  const customMessageBlock = customMessage
+    ? `<div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px; font-size: 14px; color: #92400e;">${escapeHtml(customMessage)}</div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
+    <div style="background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, #3b82f6, #6366f1); padding: 24px; text-align: center;">
+        <div style="font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.02em;">TRIKE</div>
+      </div>
+      <!-- Body -->
+      <div style="padding: 24px;">
+        <h2 style="margin: 0 0 4px; font-size: 18px; color: #0f172a;">Form Submission: ${escapeHtml(formTitle)}</h2>
+        <p style="margin: 0 0 16px; font-size: 14px; color: #64748b;">Submitted by ${escapeHtml(submitterInfo)}</p>
+        ${customMessageBlock}
+        ${scoreSection}
+        ${responsesSection}
+      </div>
+      <!-- Footer -->
+      <div style="padding: 16px 24px; background: #f8fafc; text-align: center; font-size: 12px; color: #94a3b8;">
+        Sent by Trike Backoffice &middot; This is an automated notification
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Resolve recipient emails for a notification rule.
+ * Returns an array of email addresses to send to.
+ */
+async function resolveNotificationRecipients(
+  notification: FormEmailNotification,
+  organizationId: string,
+  submitterUserId?: string,
+): Promise<string[]> {
+  if (notification.to_type === 'specific_email') {
+    return notification.to_email ? [notification.to_email] : [];
+  }
+
+  // For role-based lookups, we need the submitter's context
+  if (notification.to_type === 'store_manager') {
+    // Look up submitter's store, then find store managers
+    if (!submitterUserId) return [];
+    const { data: submitter } = await supabase
+      .from('users')
+      .select('store_id')
+      .eq('id', submitterUserId)
+      .single();
+    if (!submitter?.store_id) return [];
+
+    const { data: managers } = await supabase
+      .from('users')
+      .select('email, role:roles(name)')
+      .eq('organization_id', organizationId)
+      .eq('store_id', submitter.store_id)
+      .eq('status', 'active');
+
+    return (managers || [])
+      .filter((u: any) => {
+        const roleName = (u.role as any)?.name?.toLowerCase() || '';
+        return roleName.includes('store manager');
+      })
+      .map((u: any) => u.email)
+      .filter(Boolean);
+  }
+
+  if (notification.to_type === 'district_manager') {
+    // Look up submitter's store → district → district managers
+    if (!submitterUserId) return [];
+    const { data: submitter } = await supabase
+      .from('users')
+      .select('store_id')
+      .eq('id', submitterUserId)
+      .single();
+    if (!submitter?.store_id) return [];
+
+    const { data: store } = await supabase
+      .from('stores')
+      .select('district_id')
+      .eq('id', submitter.store_id)
+      .single();
+    if (!store?.district_id) return [];
+
+    // Find users with District Manager role in the same org
+    const { data: districtManagers } = await supabase
+      .from('users')
+      .select('email, role:roles(name), store:stores(district_id)')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active');
+
+    return (districtManagers || [])
+      .filter((u: any) => {
+        const roleName = (u.role as any)?.name?.toLowerCase() || '';
+        return roleName.includes('district manager');
+      })
+      .map((u: any) => u.email)
+      .filter(Boolean);
+  }
+
+  if (notification.to_type === 'admin') {
+    const { data: admins } = await supabase
+      .from('users')
+      .select('email, role:roles(name)')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active');
+
+    return (admins || [])
+      .filter((u: any) => {
+        const roleName = (u.role as any)?.name?.toLowerCase() || '';
+        return roleName === 'admin' || roleName === 'trike super admin';
+      })
+      .map((u: any) => u.email)
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
+ * Fire-and-forget helper to process form submission email notifications.
+ * Called internally (no await needed) or via POST /forms/on-submit.
+ */
+async function processFormSubmissionEmails(params: {
+  form_id: string;
+  submission_id: string;
+  organization_id: string;
+  submitter_user_id?: string;
+  submitter_email?: string;
+  responses: Record<string, unknown>;
+  score?: { total: number; passed: boolean; max: number } | null;
+  form_title: string;
+}): Promise<{ sent: number; errors: number }> {
+  let sent = 0;
+  let errors = 0;
+
+  try {
+    // Read the form's submission_config and blocks from DB
+    const { data: form, error: formError } = await supabase
+      .from('forms')
+      .select('submission_config, title')
+      .eq('id', params.form_id)
+      .single();
+
+    if (formError || !form) {
+      console.error('[FormEmail] Form not found:', params.form_id);
+      return { sent: 0, errors: 1 };
+    }
+
+    const config: FormSubmissionConfig = (form.submission_config as FormSubmissionConfig) || {};
+    const formTitle = params.form_title || form.title || 'Untitled Form';
+
+    // Fetch form blocks for label mapping in response summaries
+    const { data: blocks } = await supabase
+      .from('form_blocks')
+      .select('id, label, type')
+      .eq('form_id', params.form_id)
+      .order('order_index', { ascending: true });
+
+    // Determine submitter info string
+    let submitterInfo = params.submitter_email || 'Anonymous';
+    if (params.submitter_user_id) {
+      const { data: submitterUser } = await supabase
+        .from('users')
+        .select('first_name, last_name, email')
+        .eq('id', params.submitter_user_id)
+        .single();
+      if (submitterUser) {
+        const name = [submitterUser.first_name, submitterUser.last_name].filter(Boolean).join(' ');
+        submitterInfo = name ? `${name} (${submitterUser.email || params.submitter_email || ''})` : (submitterUser.email || params.submitter_email || 'Unknown');
+      }
+    }
+
+    // Process each email_notification rule
+    const notifications = config.email_notifications || [];
+    for (const notification of notifications) {
+      try {
+        // Check trigger condition
+        if (notification.trigger === 'on_pass' && params.score && !params.score.passed) continue;
+        if (notification.trigger === 'on_fail' && params.score && params.score.passed) continue;
+        // 'always' → send regardless
+
+        // Resolve recipients
+        const recipients = await resolveNotificationRecipients(
+          notification,
+          params.organization_id,
+          params.submitter_user_id,
+        );
+
+        if (recipients.length === 0) continue;
+
+        const subject = notification.subject || `Form Submission: ${formTitle}`;
+        const html = buildFormEmailHtml({
+          formTitle,
+          submitterInfo,
+          score: params.score,
+          includeScore: notification.include_score ?? false,
+          includeResponses: notification.include_responses ?? false,
+          responses: params.responses,
+          blocks: blocks || [],
+        });
+
+        // Send to each recipient
+        for (const recipientEmail of recipients) {
+          const result = await sendEmailViaResend({
+            to: recipientEmail,
+            subject,
+            html,
+          });
+          if (result.success) {
+            sent++;
+          } else {
+            errors++;
+            console.error(`[FormEmail] Failed to send to ${recipientEmail}:`, result.error);
+          }
+        }
+      } catch (notifErr) {
+        errors++;
+        console.error('[FormEmail] Error processing notification rule:', notifErr);
+      }
+    }
+
+    // Send confirmation to submitter if enabled
+    if (config.send_email_to_submitter && params.submitter_email) {
+      try {
+        const confirmHtml = buildFormEmailHtml({
+          formTitle,
+          submitterInfo,
+          score: params.score,
+          includeScore: true,
+          includeResponses: false,
+          customMessage: config.confirmation_message || 'Your form submission has been received. Thank you!',
+        });
+
+        const result = await sendEmailViaResend({
+          to: params.submitter_email,
+          subject: `Submission Confirmed: ${formTitle}`,
+          html: confirmHtml,
+        });
+        if (result.success) sent++;
+        else {
+          errors++;
+          console.error('[FormEmail] Failed to send confirmation:', result.error);
+        }
+      } catch (confirmErr) {
+        errors++;
+        console.error('[FormEmail] Confirmation email error:', confirmErr);
+      }
+    }
+
+    // Score threshold action: send alert if below threshold
+    if (config.score_threshold_action?.below_threshold_email && params.score && !params.score.passed) {
+      try {
+        const alertHtml = buildFormEmailHtml({
+          formTitle,
+          submitterInfo,
+          score: params.score,
+          includeScore: true,
+          includeResponses: true,
+          responses: params.responses,
+          blocks: blocks || [],
+          customMessage: config.score_threshold_action.below_threshold_message || 'This submission scored below the passing threshold and may require attention.',
+        });
+
+        const result = await sendEmailViaResend({
+          to: config.score_threshold_action.below_threshold_email,
+          subject: `[Action Required] Below Threshold: ${formTitle}`,
+          html: alertHtml,
+        });
+        if (result.success) sent++;
+        else {
+          errors++;
+          console.error('[FormEmail] Threshold alert email error:', result.error);
+        }
+      } catch (threshErr) {
+        errors++;
+        console.error('[FormEmail] Threshold alert error:', threshErr);
+      }
+    }
+  } catch (err) {
+    console.error('[FormEmail] processFormSubmissionEmails error:', err);
+    errors++;
+  }
+
+  console.log(`[FormEmail] Done: ${sent} sent, ${errors} errors for submission ${params.submission_id}`);
+  return { sent, errors };
+}
+
+/**
+ * Handler: POST /forms/on-submit
+ * Triggers post-submission email notifications.
+ */
+async function handleFormsOnSubmit(req: Request): Promise<Response> {
+  try {
+    let body: Record<string, unknown> = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const formId = body.form_id as string;
+    const submissionId = body.submission_id as string;
+    const organizationId = body.organization_id as string;
+
+    if (!formId || !submissionId || !organizationId) {
+      return jsonResponse({ error: 'form_id, submission_id, and organization_id are required' }, 400);
+    }
+
+    const result = await processFormSubmissionEmails({
+      form_id: formId,
+      submission_id: submissionId,
+      organization_id: organizationId,
+      submitter_user_id: body.submitter_user_id as string | undefined,
+      submitter_email: body.submitter_email as string | undefined,
+      responses: (body.responses as Record<string, unknown>) || {},
+      score: body.score as { total: number; passed: boolean; max: number } | null | undefined,
+      form_title: (body.form_title as string) || '',
+    });
+
+    return jsonResponse({ success: true, emails_sent: result.sent, errors: result.errors });
+  } catch (err) {
+    console.error('❌ handleFormsOnSubmit error:', err);
     return jsonResponse({ error: 'Internal server error' }, 500);
   }
 }

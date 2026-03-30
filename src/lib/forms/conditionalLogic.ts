@@ -27,7 +27,7 @@ export type ConditionOperator =
   | 'less_than'
   | 'is_empty'
   | 'is_not_empty';
-export type LogicAction = 'show' | 'hide';
+export type LogicAction = 'show' | 'hide' | 'skip_to_section';
 
 export interface Condition {
   source_block_id: string;
@@ -39,6 +39,79 @@ export interface ConditionalLogic {
   action: LogicAction;
   operator: LogicOperator;
   conditions: Condition[];
+  target_section_id?: string; // For skip_to_section
+}
+
+/**
+ * Build a dependency map: for each block ID, which block IDs reference it
+ * in their conditional_logic.conditions[].source_block_id.
+ */
+export function buildBlockDependencyMap<T extends { id: string; conditional_logic?: ConditionalLogic | null }>(
+  blocks: T[]
+): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const block of blocks) {
+    const logic = block.conditional_logic;
+    if (!logic?.conditions) continue;
+    for (const cond of logic.conditions) {
+      if (cond.source_block_id) {
+        if (!map[cond.source_block_id]) {
+          map[cond.source_block_id] = [];
+        }
+        map[cond.source_block_id].push(block.id);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Generate a short human-readable summary of a block's conditional logic.
+ * E.g. "Show when 'Is area clean?' = Yes"
+ */
+export function conditionSummaryText<T extends { id: string; label: string; block_type: string }>(
+  logic: ConditionalLogic | null | undefined,
+  allBlocks: T[],
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  if (!logic?.conditions?.length) return '';
+
+  const OPERATOR_LABELS: Record<string, string> = {
+    equals: '=',
+    not_equals: '\u2260',
+    contains: '\u2283',
+    not_contains: '\u2285',
+    greater_than: '>',
+    less_than: '<',
+    is_empty: t('forms.opIsEmpty'),
+    is_not_empty: t('forms.opIsNotEmpty'),
+  };
+
+  const actionLabel =
+    logic.action === 'show'
+      ? t('forms.conditionShow')
+      : logic.action === 'hide'
+      ? t('forms.conditionHide')
+      : t('forms.conditionSkipToSection');
+
+  const condTexts = logic.conditions.map(c => {
+    const srcBlock = allBlocks.find(b => b.id === c.source_block_id);
+    const srcLabel = srcBlock?.label
+      ? `'${srcBlock.label.length > 25 ? srcBlock.label.slice(0, 25) + '\u2026' : srcBlock.label}'`
+      : '?';
+    const opLabel = OPERATOR_LABELS[c.operator] || c.operator;
+    if (c.operator === 'is_empty' || c.operator === 'is_not_empty') {
+      return `${srcLabel} ${opLabel}`;
+    }
+    return `${srcLabel} ${opLabel} ${c.value || '?'}`;
+  });
+
+  if (condTexts.length === 1) {
+    return `${actionLabel} ${t('forms.conditionSummaryWhen')} ${condTexts[0]}`;
+  }
+
+  const joiner = logic.operator === 'AND' ? t('forms.conditionAll') : t('forms.conditionAny');
+  return `${actionLabel} ${t('forms.conditionSummaryWhen')} ${joiner}: ${condTexts.join(` ${logic.operator === 'AND' ? '&' : '|'} `)}`;
 }
 
 /**
@@ -99,9 +172,11 @@ export function isBlockVisible(
 
   if (action === 'show') {
     return conditionsMet; // show when conditions met
-  } else {
-    // action === 'hide'
+  } else if (action === 'hide') {
     return !conditionsMet; // hide when conditions met = show when NOT met
+  } else {
+    // skip_to_section — block itself is always visible; section skipping is handled by the renderer
+    return true;
   }
 }
 

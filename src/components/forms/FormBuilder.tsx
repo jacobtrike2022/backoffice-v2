@@ -185,9 +185,10 @@ interface BlockPickerProps {
   onSelect: (blockType: string) => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLDivElement | null>;
+  formType?: string;
 }
 
-function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
+function BlockPicker({ onSelect, onClose, anchorRef, formType }: BlockPickerProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -210,6 +211,15 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
 
   const filtered = BLOCK_TYPES.filter(b => b.category === activeTab);
 
+  // Resolve suggested block types for the current form type
+  const formTypeConfig = formType ? FORM_TYPES.find(ft => ft.value === formType) : undefined;
+  const suggestedBlockTypes = formTypeConfig?.suggestedBlocks ?? [];
+  const suggestedDefs = activeTab === 'questions'
+    ? suggestedBlockTypes
+        .map(st => BLOCK_TYPES.find(bt => bt.type === st))
+        .filter((bt): bt is BlockTypeDef => !!bt)
+    : [];
+
   return (
     <div
       ref={pickerRef}
@@ -231,6 +241,39 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
           </button>
         ))}
       </div>
+
+      {/* Suggested blocks hint for current form type */}
+      {suggestedDefs.length > 0 && (
+        <div className="mb-2">
+          <p className="text-[11px] text-muted-foreground mb-1">
+            Suggested for {formTypeConfig?.labelKey ? t(formTypeConfig.labelKey) : formType}
+          </p>
+          <div className="grid grid-cols-2 gap-1">
+            {suggestedDefs.map(bt => {
+              const Icon = bt.icon;
+              return (
+                <button
+                  key={`suggested-${bt.type}`}
+                  type="button"
+                  onClick={() => {
+                    onSelect(bt.type);
+                    onClose();
+                  }}
+                  className="flex items-center gap-2 rounded-md px-2 py-2 text-sm bg-primary/5 border border-primary/20 hover:bg-primary/10 transition-colors text-left"
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span>{t(bt.labelKey)}</span>
+                  <Badge variant="outline" className="ml-auto text-[10px] px-1 py-0 h-4 border-primary/30 text-primary">
+                    suggested
+                  </Badge>
+                </button>
+              );
+            })}
+          </div>
+          <Separator className="mt-2" />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-1">
         {filtered.map(bt => {
           const Icon = bt.icon;
@@ -262,9 +305,10 @@ interface AddBlockButtonProps {
   afterBlockId?: string;
   sectionId?: string | null;
   onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
+  formType?: string;
 }
 
-function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps) {
+function AddBlockButton({ afterBlockId, sectionId, onAdd, formType }: AddBlockButtonProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -283,6 +327,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps)
           onSelect={(blockType) => onAdd(blockType, sectionId, afterBlockId)}
           onClose={() => setOpen(false)}
           anchorRef={anchorRef}
+          formType={formType}
         />
       )}
     </div>
@@ -302,9 +347,10 @@ interface BlockCardProps {
   onDelete: () => void;
   onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
   onOpenLogic: () => void;
+  formType?: string;
 }
 
-function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -454,6 +500,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         afterBlockId={block.id}
         sectionId={block.section_id}
         onAdd={onAdd}
+        formType={formType}
       />
     </div>
   );
@@ -2021,6 +2068,7 @@ export function FormBuilder({
               <AddBlockButton
                 sectionId={null}
                 onAdd={hook.addBlock}
+                formType={hook.form?.type}
               />
             )}
 
@@ -2070,6 +2118,7 @@ export function FormBuilder({
                     onDelete={() => hook.deleteBlock(block.id)}
                     onAdd={hook.addBlock}
                     onOpenLogic={() => handleOpenLogic(block.id)}
+                    formType={hook.form?.type}
                   />
                 ))}
               </SortableContext>
@@ -2106,6 +2155,7 @@ export function FormBuilder({
                         onDelete={() => hook.deleteBlock(block.id)}
                         onAdd={hook.addBlock}
                         onOpenLogic={() => handleOpenLogic(block.id)}
+                        formType={hook.form?.type}
                       />
                     ))}
                   </SortableContext>
@@ -2113,7 +2163,7 @@ export function FormBuilder({
 
                 {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
                 {(blocksBySection[section.id] ?? []).length === 0 && (
-                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} />
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} />
                 )}
               </div>
             ))}

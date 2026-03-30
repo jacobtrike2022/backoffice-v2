@@ -335,7 +335,43 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
           if (data) {
             setForm(formDataToMetadata(data));
             setSections(data.form_sections || []);
-            setBlocks(buildLocalBlocks(data));
+
+            // Check if there are imported blocks from PDF import in sessionStorage
+            const importedKey = `imported_form_blocks_${formId}`;
+            const importedRaw = sessionStorage.getItem(importedKey);
+            if (importedRaw) {
+              sessionStorage.removeItem(importedKey);
+              try {
+                const importedBlocks = JSON.parse(importedRaw) as Array<{
+                  block_type: string;
+                  label: string;
+                  description?: string;
+                  is_required: boolean;
+                  options?: string[];
+                  display_order: number;
+                }>;
+                const localBlocks: LocalBlock[] = importedBlocks.map((b, i) => ({
+                  id: `new-${crypto.randomUUID()}`,
+                  _isNew: true,
+                  _isDirty: true,
+                  form_id: formId,
+                  section_id: null,
+                  block_type: b.block_type,
+                  label: b.label,
+                  description: b.description,
+                  is_required: b.is_required,
+                  options: b.options,
+                  display_order: i,
+                }));
+                setBlocks(localBlocks);
+                markDirty();
+              } catch {
+                // Fallback to normal loaded blocks
+                setBlocks(buildLocalBlocks(data));
+              }
+            } else {
+              setBlocks(buildLocalBlocks(data));
+            }
           } else {
             setError('Form not found');
           }
@@ -702,4 +738,72 @@ function blockTypeLabel(blockType: string): string {
 
 function hasChoices(blockType: string): boolean {
   return ['radio', 'checkboxes', 'dropdown'].includes(blockType);
+}
+
+// ============================================================================
+// SCAFFOLD BLOCKS — pre-populate new forms based on type
+// ============================================================================
+
+interface ScaffoldBlockDef {
+  block_type: string;
+  label: string;
+  is_required: boolean;
+  description?: string;
+  options?: string[];
+}
+
+const SCAFFOLD_MAP: Record<string, ScaffoldBlockDef[]> = {
+  inspection: [
+    { block_type: 'instruction', label: 'Complete this inspection by answering each item. Add photos for any issues found.', is_required: false },
+    { block_type: 'yes_no', label: 'Area is clean and organized', is_required: true },
+    { block_type: 'yes_no', label: 'Equipment is functioning properly', is_required: true },
+    { block_type: 'yes_no', label: 'Safety standards are met', is_required: true },
+    { block_type: 'photo', label: 'Photo evidence', is_required: false },
+    { block_type: 'textarea', label: 'Additional notes or observations', is_required: false },
+  ],
+  audit: [
+    { block_type: 'instruction', label: 'Complete this audit checklist. Rate each item and provide detailed notes.', is_required: false },
+    { block_type: 'rating', label: 'Overall compliance rating', is_required: true },
+    { block_type: 'yes_no', label: 'Documentation is up to date', is_required: true },
+    { block_type: 'yes_no', label: 'Procedures are being followed', is_required: true },
+    { block_type: 'textarea', label: 'Findings and recommendations', is_required: false },
+  ],
+  'sign-off': [
+    { block_type: 'instruction', label: 'Please read the above document carefully, then acknowledge and sign below.', is_required: false },
+    { block_type: 'checkboxes', label: 'I have read and understand this document', is_required: true, options: ['I acknowledge'] },
+    { block_type: 'signature', label: 'Signature', is_required: true },
+  ],
+  'ojt-checklist': [
+    { block_type: 'instruction', label: 'Trainer: observe the trainee performing each task and rate their competency.', is_required: false },
+    { block_type: 'yes_no', label: 'Trainee demonstrated understanding of procedures', is_required: true },
+    { block_type: 'rating', label: 'Trainee competency level', is_required: true },
+    { block_type: 'yes_no', label: 'Trainee completed task independently', is_required: true },
+    { block_type: 'textarea', label: 'Trainer notes and feedback', is_required: false },
+    { block_type: 'signature', label: 'Trainer signature', is_required: true },
+  ],
+  survey: [
+    { block_type: 'instruction', label: 'We value your feedback. Please answer the following questions.', is_required: false },
+    { block_type: 'radio', label: 'How would you rate your overall experience?', is_required: true, options: ['Excellent', 'Good', 'Average', 'Below Average', 'Poor'] },
+    { block_type: 'rating', label: 'How likely are you to recommend this to others?', is_required: true },
+    { block_type: 'textarea', label: 'What could we improve?', is_required: false },
+  ],
+};
+
+function getScaffoldBlocks(formType: string, formId: string): LocalBlock[] {
+  const defs = SCAFFOLD_MAP[formType];
+  if (!defs) return [];
+
+  return defs.map((def, index) => ({
+    id: `new-${crypto.randomUUID()}`,
+    _isNew: true,
+    _isDirty: true,
+    form_id: formId,
+    section_id: null,
+    block_type: def.block_type,
+    label: def.label,
+    description: def.description,
+    is_required: def.is_required,
+    display_order: index,
+    options: def.options ?? (hasChoices(def.block_type) ? ['Option 1', 'Option 2', 'Option 3'] : undefined),
+  }));
 }

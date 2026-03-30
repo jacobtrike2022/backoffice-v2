@@ -2,9 +2,10 @@
 // FORMS CRUD OPERATIONS
 // ============================================================================
 
-import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
+import { supabase, getCurrentUserOrgId, getCurrentUserProfile, supabaseAnonKey } from '../supabase';
 import { createNotification } from './notifications';
 import { logActivity } from './activity';
+import { getServerUrl } from '../../utils/supabase/info';
 
 export interface CreateFormInput {
   title: string;
@@ -345,6 +346,42 @@ export async function submitFormResponse(
   } catch (error) {
     // Log error but don't fail the form submission
     console.error('Failed to log form submission activity:', error);
+  }
+
+  // Fire-and-forget: trigger post-submission email notifications
+  try {
+    const userId = userProfile?.data?.id || userProfile?.id;
+    const { data: userEmail } = userId
+      ? await supabase.from('users').select('email, organization_id').eq('id', userId).single()
+      : { data: null };
+
+    const session = (await supabase.auth.getSession()).data.session;
+    const authToken = session?.access_token || supabaseAnonKey;
+
+    fetch(`${getServerUrl()}/forms/on-submit`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'apikey': supabaseAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        form_id: formId,
+        submission_id: submission.id,
+        organization_id: userEmail?.organization_id || '',
+        submitter_user_id: userId,
+        submitter_email: userEmail?.email,
+        responses: responseData,
+        score: scoringData?.score_percentage != null ? {
+          total: scoringData.total_score ?? 0,
+          passed: scoringData.passed ?? false,
+          max: scoringData.max_possible_score ?? 0,
+        } : null,
+        form_title: form?.title || '',
+      }),
+    }).catch(err => console.error('Failed to trigger form email notifications:', err));
+  } catch {
+    // Non-critical — do not fail the submission
   }
 
   return submission;

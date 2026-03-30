@@ -6,6 +6,7 @@ import { FormLibrary } from './forms/FormLibrary';
 import { FormAssignments } from './forms/FormAssignments';
 import { FormSubmissions } from './forms/FormSubmissions';
 import { FormDetail } from './forms/FormDetail';
+import { ImportFromPDF } from './forms/ImportFromPDF';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Footer } from './Footer';
 
@@ -41,6 +42,9 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
   const [builderFormId, setBuilderFormId] = useState<string | undefined>(undefined);
   const [builderInitialType, setBuilderInitialType] = useState<string | undefined>(undefined);
   const [showBuilder, setShowBuilder] = useState(false);
+
+  // Import from PDF modal
+  const [showImportPDF, setShowImportPDF] = useState(false);
 
   // Legacy form-detail routing (kept for backwards compat with FormDetail component)
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
@@ -83,6 +87,13 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
   const handleViewSubmissions = (formId: string) => {
     setSelectedFormId(formId);
     setActiveTab('submissions');
+  };
+
+  const handleImportedFromPDF = (formId: string) => {
+    setShowImportPDF(false);
+    setBuilderFormId(formId);
+    setShowBuilder(true);
+    setActiveTab('builder');
   };
 
   // ─── Full-page Form Builder overlay ────────────────────────────────────────
@@ -170,6 +181,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
             onNewForm={handleNewForm}
             onEditForm={handleEditForm}
             onViewSubmissions={handleViewSubmissions}
+            onImportPDF={() => setShowImportPDF(true)}
           />
         </TabsContent>
 
@@ -182,6 +194,15 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
         </TabsContent>
       </Tabs>
       <Footer />
+
+      {/* Import from PDF modal */}
+      {showImportPDF && (
+        <ImportFromPDF
+          orgId={effectiveOrgId}
+          onImported={handleImportedFromPDF}
+          onCancel={() => setShowImportPDF(false)}
+        />
+      )}
     </div>
   );
 }
