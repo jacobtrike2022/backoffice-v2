@@ -1,4 +1,5 @@
 import React from 'react';
+import { isBlockVisible, ConditionalLogic } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,13 +23,14 @@ export interface FormBlockData {
   is_required?: boolean;
   options?: string[] | { choices?: string[] };
   validation_rules?: Record<string, unknown>;
+  conditional_logic?: ConditionalLogic | null;
 }
 
 export interface FormRendererProps {
   blocks: FormBlockData[];
   answers?: Record<string, unknown>;
   readOnly?: boolean;
-  onSubmit?: (data: Record<string, unknown>) => void;
+  onSubmit?: (data: Record<string, unknown>) => void | Promise<void>;
 }
 
 function getOptions(block: FormBlockData): string[] {
@@ -41,6 +43,8 @@ function getOptions(block: FormBlockData): string[] {
 
 export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit }: FormRendererProps) {
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
+  const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     setFormData(answers);
@@ -48,13 +52,57 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
 
   const handleChange = (blockId: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [blockId]: value }));
+    // Clear validation error for this field when user fills it
+    if (validationErrors[blockId]) {
+      setValidationErrors(prev => { const next = { ...prev }; delete next[blockId]; return next; });
+    }
   };
 
-  const handleSubmit = () => {
-    onSubmit?.(formData);
+  const handleSubmit = async () => {
+    // Validate required fields that are currently visible
+    const errors: Record<string, string> = {};
+    const INPUT_BLOCK_TYPES = new Set([
+      'text', 'textarea', 'number', 'date', 'time', 'radio', 'checkbox', 'checkboxes',
+      'select', 'dropdown', 'multiselect', 'rating', 'file', 'yes_no', 'slider',
+      'photo', 'signature', 'location',
+    ]);
+    for (const block of blocks) {
+      if (!block.is_required) continue;
+      if (!INPUT_BLOCK_TYPES.has(block.type)) continue;
+      if (!isBlockVisible(block.conditional_logic, formData)) continue;
+      const val = formData[block.id];
+      const isEmpty =
+        val === undefined ||
+        val === null ||
+        val === '' ||
+        (Array.isArray(val) && val.length === 0);
+      if (isEmpty) {
+        errors[block.id] = 'This field is required';
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      // Scroll to the first invalid field
+      const firstErrorId = Object.keys(errors)[0];
+      const el = document.getElementById(`form-field-${firstErrorId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setValidationErrors({});
+    setIsSubmitting(true);
+    try {
+      await onSubmit?.(formData);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderBlock = (block: FormBlockData) => {
+    // Evaluate conditional logic — skip blocks that should be hidden
+    if (!isBlockVisible(block.conditional_logic, formData)) {
+      return null;
+    }
+
     const value = formData[block.id];
     const options = getOptions(block);
 
@@ -72,7 +120,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
       );
     }
 
-    if (readOnly) {
+    if (readOnly && !['yes_no', 'slider', 'instruction', 'divider', 'location', 'photo', 'signature'].includes(block.type)) {
       const displayValue = value === undefined || value === null
         ? '—'
         : Array.isArray(value)
@@ -92,7 +140,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -111,7 +159,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -131,7 +179,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -153,7 +201,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -172,7 +220,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -191,7 +239,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -219,33 +267,30 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
         );
 
       case 'checkbox':
+      case 'checkboxes':
         return (
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
             <div className="space-y-2">
-              {(options.length ? options : ['Yes', 'No']).map((opt, i) => (
+              {(options.length ? options : ['Option 1', 'Option 2']).map((opt, i) => (
                 <div key={i} className="flex items-center space-x-2">
                   <Checkbox
                     id={`${block.id}-${i}`}
-                    checked={Array.isArray(value) ? value.includes(opt) : value === opt}
+                    checked={Array.isArray(value) ? (value as unknown[]).includes(opt) : value === opt}
                     onCheckedChange={(checked) => {
-                      if (options.length <= 2) {
-                        handleChange(block.id, checked ? opt : null);
+                      const arr = Array.isArray(value) ? [...(value as unknown[])] : [];
+                      if (checked) {
+                        arr.push(opt);
                       } else {
-                        const arr = Array.isArray(value) ? [...value] : [];
-                        if (checked) {
-                          arr.push(opt);
-                        } else {
-                          arr.splice(arr.indexOf(opt), 1);
-                        }
-                        handleChange(block.id, arr);
+                        arr.splice(arr.indexOf(opt), 1);
                       }
+                      handleChange(block.id, arr);
                     }}
                     disabled={readOnly}
                   />
@@ -259,11 +304,12 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
         );
 
       case 'select':
+      case 'dropdown':
         return (
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -293,7 +339,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -330,7 +376,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -362,7 +408,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           <div key={block.id} className="space-y-2">
             <Label>
               {block.label}
-              {block.is_required && <span className="text-red-500 ml-1">*</span>}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
             </Label>
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
@@ -392,6 +438,173 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           </div>
         );
 
+      case 'yes_no': {
+        const yesLabel = (block.validation_rules?.yes_label as string) || 'Yes';
+        const noLabel = (block.validation_rules?.no_label as string) || 'No';
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>
+              {block.label}
+              {block.is_required && <span className="text-destructive ml-1">*</span>}
+            </Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                value === 'yes' ? 'bg-green-500/20 text-green-400' :
+                value === 'no' ? 'bg-red-500/20 text-red-400' :
+                'text-muted-foreground'
+              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : '—'}</div>
+            ) : (
+              <div className="flex gap-3">
+                <button type="button" onClick={() => handleChange(block.id, 'yes')}
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                    value === 'yes' ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
+                  }`}>{yesLabel}</button>
+                <button type="button" onClick={() => handleChange(block.id, 'no')}
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                    value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
+                  }`}>{noLabel}</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'slider': {
+        const min = (block.validation_rules?.min as number) ?? 0;
+        const max = (block.validation_rules?.max as number) ?? 10;
+        const step = (block.validation_rules?.step as number) ?? 1;
+        const currentVal = (value as number) ?? min;
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className="text-sm font-medium">{value !== undefined && value !== null ? String(value) : '—'}</div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{min}</span>
+                  <span className="text-lg font-bold text-primary tabular-nums">{currentVal}</span>
+                  <span className="text-xs text-muted-foreground">{max}</span>
+                </div>
+                <input type="range" min={min} max={max} step={step}
+                  value={currentVal} onChange={(e) => handleChange(block.id, Number(e.target.value))}
+                  className="w-full accent-primary" />
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'photo':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              value && typeof value === 'string' ? (
+                value.startsWith('http') ? <img src={value} alt={block.label} className="max-w-xs rounded-md" /> :
+                <p className="text-sm text-muted-foreground">{String(value)}</p>
+              ) : <p className="text-sm text-muted-foreground">—</p>
+            ) : (
+              <Input type="file" accept="image/*" capture="environment"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleChange(block.id, f.name); }} />
+            )}
+          </div>
+        );
+
+      case 'signature':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <div className="h-24 border border-border rounded-md flex items-center justify-center text-sm italic text-muted-foreground">
+                {value ? 'Signature captured' : 'No signature'}
+              </div>
+            ) : (
+              <div className="relative">
+                <Textarea placeholder="Type your name to sign..."
+                  value={(value as string) || ''} onChange={(e) => handleChange(block.id, e.target.value)}
+                  className="italic font-serif min-h-[80px]" />
+                <p className="text-xs text-muted-foreground mt-1">Type your full name as your signature</p>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'location':
+        return (
+          <div key={block.id} className="space-y-2">
+            <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
+            {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+            {readOnly ? (
+              <p className="text-sm text-muted-foreground">{value ? String(value) : '—'}</p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button type="button"
+                  onClick={() => {
+                    if (navigator.geolocation) {
+                      navigator.geolocation.getCurrentPosition(
+                        (pos) => handleChange(block.id, `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`),
+                        () => handleChange(block.id, 'Location unavailable')
+                      );
+                    }
+                  }}
+                  className="px-4 py-2 rounded-md border border-border text-sm hover:bg-muted/50 transition-colors">
+                  📍 Capture Location
+                </button>
+                {value && <span className="text-xs text-muted-foreground">{String(value)}</span>}
+              </div>
+            )}
+          </div>
+        );
+
+      case 'instruction': {
+        // Render description with basic formatting: **bold**, _italic_, \n → <br>
+        const renderInstructionText = (text: string) => {
+          const parts = text.split(/(\*\*[^*]+\*\*|_[^_]+_|\n)/g);
+          return parts.map((part, idx) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+              return <strong key={idx}>{part.slice(2, -2)}</strong>;
+            }
+            if (part.startsWith('_') && part.endsWith('_')) {
+              return <em key={idx}>{part.slice(1, -1)}</em>;
+            }
+            if (part === '\n') {
+              return <br key={idx} />;
+            }
+            return <React.Fragment key={idx}>{part}</React.Fragment>;
+          });
+        };
+        return (
+          <div key={block.id} className="rounded-md bg-muted/50 border border-border p-4 space-y-1">
+            {block.label && <p className="text-sm font-semibold">{block.label}</p>}
+            {block.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {renderInstructionText(block.description)}
+              </p>
+            )}
+          </div>
+        );
+      }
+
+      case 'divider':
+        return (
+          <div key={block.id} className="py-2">
+            {block.label ? (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">{block.label}</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+            ) : (
+              <div className="border-t border-border" />
+            )}
+          </div>
+        );
+
       default:
         return (
           <div key={block.id} className="space-y-2">
@@ -409,15 +622,32 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
 
   return (
     <div className="space-y-6">
-      {blocks.map((block) => renderBlock(block))}
+      {blocks.map((block) => {
+        const rendered = renderBlock(block);
+        if (!rendered) return null;
+        const errorMsg = validationErrors[block.id];
+        return (
+          <div
+            key={block.id}
+            id={`form-field-${block.id}`}
+            className={errorMsg ? 'rounded-md ring-1 ring-destructive/50 p-1 -m-1' : undefined}
+          >
+            {rendered}
+            {errorMsg && (
+              <p className="mt-1 text-xs text-destructive font-medium">{errorMsg}</p>
+            )}
+          </div>
+        );
+      })}
       {!readOnly && onSubmit && (
         <div className="pt-4">
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+            disabled={isSubmitting}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Submit
+            {isSubmitting ? 'Submitting…' : 'Submit'}
           </button>
         </div>
       )}

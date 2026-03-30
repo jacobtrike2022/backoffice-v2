@@ -19,6 +19,9 @@ import { Card } from '../ui/card';
 import { toast } from 'sonner';
 import { getServerUrl, publicAnonKey } from '../../utils/supabase/info';
 import { getSupabaseClient } from '../../utils/supabase/client';
+import { getTrackBodyForAdaptation } from '../../utils/variantTrackBody';
+import { sanitizeHtml } from '../../lib/utils/sanitizeHtml';
+import { parseVariantAssistantContent } from '../../lib/utils/variantChatMeta';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -31,6 +34,7 @@ interface VariantGenerationChatProps {
     title: string;
     type: 'video' | 'article' | 'story' | 'checkpoint';
     transcript?: string;
+    content_text?: string;
     content?: string;
     thumbnail_url?: string;
   };
@@ -242,7 +246,8 @@ export function VariantGenerationChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({
           sourceTrackId: sourceTrack.id,
@@ -268,36 +273,31 @@ export function VariantGenerationChat({
         const chunk = decoder.decode(value, { stream: true });
         assistantContent += chunk;
 
-        // Check for special markers
-        if (assistantContent.includes('[READY_TO_GENERATE]')) {
-          const cleanContent = assistantContent.replace('[READY_TO_GENERATE]', '').trim();
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1].content = cleanContent;
-            return newMessages;
-          });
-          setNeedsReview(false);
-          setState('READY_TO_GENERATE');
-          break;
-        }
-
-        if (assistantContent.includes('[NEEDS_REVIEW]')) {
-          const cleanContent = assistantContent.replace('[NEEDS_REVIEW]', '').trim();
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1].content = cleanContent;
-            return newMessages;
-          });
-          setNeedsReview(true);
-          setState('READY_TO_GENERATE'); // Still allow generation, but flagged
-          break;
-        }
-
+        const { display } = parseVariantAssistantContent(assistantContent);
         setMessages(prev => {
           const newMessages = [...prev];
-          newMessages[newMessages.length - 1].content = assistantContent;
+          newMessages[newMessages.length - 1].content = display;
           return newMessages;
         });
+      }
+
+      const { display, meta, legacyReady, legacyNeedsReview } =
+        parseVariantAssistantContent(assistantContent);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1].content = display;
+        return newMessages;
+      });
+
+      const hasStructured =
+        meta &&
+        (meta.status === 'READY_TO_GENERATE' || meta.status === 'NEEDS_REVIEW');
+      const needsRev =
+        meta?.needsReview === true || (!meta && legacyNeedsReview);
+
+      if (hasStructured || legacyReady || legacyNeedsReview) {
+        setNeedsReview(needsRev);
+        setState('READY_TO_GENERATE');
       }
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -339,7 +339,8 @@ export function VariantGenerationChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         },
         body: JSON.stringify({
           sourceTrackId: sourceTrack.id,
@@ -407,17 +408,17 @@ export function VariantGenerationChat({
           <h1 className="text-2xl font-bold mb-4">{generatedData.generatedTitle}</h1>
           <div 
             className="prose dark:prose-invert max-w-none"
-            dangerouslySetInnerHTML={{ __html: generatedData.generatedContent }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(generatedData.generatedContent) }}
           />
 
-          {generatedData.adaptations.length > 0 && (
+          {(generatedData.adaptations || []).length > 0 && (
             <div className="mt-8 pt-8 border-t">
               <h4 className="font-semibold mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-orange-500" />
                 Adaptation Summary
               </h4>
               <div className="space-y-4">
-                {generatedData.adaptations.map((a, i) => (
+                {(generatedData.adaptations || []).map((a, i) => (
                   <Card key={i} className="p-4 bg-muted border-border">
                     <h5 className="font-medium text-orange-600 dark:text-orange-400">{a.section}</h5>
                     <p className="text-sm mt-1 text-muted-foreground">{a.reason}</p>
@@ -497,7 +498,11 @@ export function VariantGenerationChat({
         <div className="bg-muted p-4 border-b border-border text-sm max-h-40 overflow-auto">
           <p className="font-semibold mb-1 text-foreground">Source Content ({sourceTrack.type}):</p>
           <p className="text-muted-foreground italic">
-            {sourceTrack.transcript || sourceTrack.content || "No source content available for preview."}
+            {getTrackBodyForAdaptation({
+              type: sourceTrack.type,
+              transcript: sourceTrack.transcript,
+              content_text: sourceTrack.content_text ?? sourceTrack.content,
+            }) || "No source content available for preview."}
           </p>
         </div>
       )}
@@ -633,7 +638,9 @@ export function VariantGenerationChat({
         <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
           <div className="flex gap-3">
             <button 
-              className="hover:text-orange-500 transition-colors"
+              type="button"
+              className="hover:text-orange-500 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              disabled={isLoading || state === 'GENERATING'}
               onClick={handleGenerate}
             >
               Skip to Generate

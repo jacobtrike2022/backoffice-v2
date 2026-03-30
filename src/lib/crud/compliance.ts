@@ -1518,6 +1518,27 @@ export async function getOrgStates(): Promise<string[]> {
 }
 
 /**
+ * Get all distinct state codes present in compliance requirements.
+ * Used by Trike Admin to filter requirements across states.
+ */
+export async function getAllComplianceStates(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('compliance_requirements')
+    .select('state_code');
+
+  if (error) throw error;
+
+  const states = [
+    ...new Set((data || [])
+      .map((row: any) => String(row.state_code ?? '').toUpperCase())
+      .filter((s: string) => Boolean(s))
+    ),
+  ];
+
+  return states.sort();
+}
+
+/**
  * Get suggested requirements for an org based on their states and industry
  * This powers the initial setup recommendations
  */

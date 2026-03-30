@@ -433,6 +433,7 @@ export function ExtractedEntityProcessor({
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-5xl w-[90vw]">
+          <DialogTitle className="sr-only">Loading job description</DialogTitle>
           <div className="flex flex-col items-center justify-center py-16">
             <div className="relative">
               <div className="w-16 h-16 rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center">

@@ -26,7 +26,8 @@ import {
   User,
   MessageSquare,
   Send,
-  Zap
+  Zap,
+  Download
 } from 'lucide-react';
 import trikeLogoDark from '../assets/trike-logo.png';
 import { TTSPlayer } from './content/TTSPlayer';
@@ -40,6 +41,36 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
 import { cn } from './ui/utils';
+import { StoryPreview } from './content-authoring/StoryPreview';
+import { StoryTranscript } from './content-authoring/StoryTranscript';
+import { downloadKbTrackAsPdf } from '../lib/utils/kbPdfExport';
+import { toast } from 'sonner';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
+
+function parseStorySlidesFromTranscript(transcript?: string): Array<{
+  id: string;
+  name: string;
+  type: 'image' | 'video';
+  url: string;
+  order: number;
+  duration?: number;
+}> {
+  if (!transcript) return [];
+  try {
+    const storyData = typeof transcript === 'string' ? JSON.parse(transcript) : transcript;
+    if (!storyData?.slides || !Array.isArray(storyData.slides)) return [];
+    return storyData.slides.map((slide: any, index: number) => ({
+      id: slide.id || `slide-${index}`,
+      name: slide.name || slide.title || `Slide ${index + 1}`,
+      type: slide.type === 'video' ? 'video' : 'image',
+      url: slide.url || '',
+      order: slide.order !== undefined ? slide.order : index,
+      duration: slide.duration,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 interface Fact {
   id: string;
@@ -79,10 +110,16 @@ interface Track {
   thumbnail_url?: string;
   content_url?: string;
   article_body?: string;
+  content_text?: string;
+  content?: string;
   transcript?: string;
   duration_minutes?: number;
   updated_at: string;
   organization_id?: string;
+  view_count?: number;
+  likes?: number;
+  category?: { name?: string };
+  created_by?: { name?: string };
 }
 
 interface Organization {
@@ -247,8 +284,8 @@ export function PublicKBViewer() {
         'kb_allow_guest_access': data.org?.kb_allow_guest_access
       });
 
-      // Auto-expand transcript for stories and videos
-      if (data.track && (data.track.type === 'story' || data.track.type === 'video') && data.track.transcript) {
+      // Auto-expand transcript for videos only (story uses StoryTranscript for video slides)
+      if (data.track && data.track.type === 'video' && data.track.transcript) {
         setShowTranscript(true);
       }
 
@@ -321,6 +358,40 @@ export function PublicKBViewer() {
       
       // Track page view (with userId if logged in) - this also records activity event via edge function
       trackPageView(data.track.id, currentUserId);
+
+      const trackingOrgId = data.track?.organization_id || data.org?.id || null;
+      const trackingOrgName = data.org?.name || null;
+      void trackDemoActivityEvent(
+        {
+          eventType: 'page_view',
+          path: window.location.pathname + window.location.search,
+          referrer: document.referrer || undefined,
+          metadata: {
+            source: 'public_kb',
+            trackType: data.track?.type || 'unknown',
+          },
+        },
+        {
+          organizationId: trackingOrgId,
+          organizationName: trackingOrgName,
+        }
+      );
+      void trackDemoActivityEvent(
+        {
+          eventType: 'track_open',
+          path: '/kb/public',
+          trackId: data.track.id,
+          trackTitle: data.track.title,
+          metadata: {
+            source: 'public_kb',
+            trackType: data.track?.type || 'unknown',
+          },
+        },
+        {
+          organizationId: trackingOrgId,
+          organizationName: trackingOrgName,
+        }
+      );
       
       // Increment view count in tracks table (activity event is handled by trackPageView endpoint)
       try {
@@ -437,6 +508,19 @@ export function PublicKBViewer() {
         setLikes(data.likes);
         setHasLiked(true);
         localStorage.setItem(`kb_liked_${track.id}`, 'true');
+        void trackDemoActivityEvent(
+          {
+            eventType: 'like',
+            path: '/kb/public',
+            trackId: track.id,
+            trackTitle: track.title,
+            metadata: { source: 'public_kb' },
+          },
+          {
+            organizationId: track.organization_id || org?.id || null,
+            organizationName: org?.name || null,
+          }
+        );
       }
     } catch (err) {
       console.error('Failed to like:', err);
@@ -748,7 +832,22 @@ export function PublicKBViewer() {
               {/* Ask Button */}
               {track && (
                 <button
-                  onClick={() => setBrainDrawerOpen(true)}
+                  onClick={() => {
+                    void trackDemoActivityEvent(
+                      {
+                        eventType: 'ask_open',
+                        path: '/kb/public',
+                        trackId: track.id,
+                        trackTitle: track.title,
+                        metadata: { source: 'public_kb' },
+                      },
+                      {
+                        organizationId: track.organization_id || org?.id || null,
+                        organizationName: org?.name || null,
+                      }
+                    );
+                    setBrainDrawerOpen(true);
+                  }}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 text-white hover:opacity-90 transition-opacity min-h-[44px]"
                   title="Ask a question"
                 >
@@ -779,6 +878,37 @@ export function PublicKBViewer() {
               >
                 <Share2 className="w-4 h-4" />
               </button>
+
+              {/* PDF download — same export as in-app Knowledge Base */}
+              {track && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    void trackDemoActivityEvent(
+                      {
+                        eventType: 'download_pdf',
+                        path: '/kb/public',
+                        trackId: track.id,
+                        trackTitle: track.title,
+                        metadata: { source: 'public_kb' },
+                      },
+                      {
+                        organizationId: track.organization_id || org?.id || null,
+                        organizationName: org?.name || null,
+                      }
+                    );
+                    await downloadKbTrackAsPdf(
+                      { ...track, likes: likes ?? track.likes ?? 0 },
+                      { toast, factsOverride: facts }
+                    );
+                  }}
+                  className="min-h-[44px] px-3 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                  title="Download as PDF"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              )}
 
               {/* Dark Mode Toggle */}
               <button
@@ -884,6 +1014,18 @@ export function PublicKBViewer() {
             </div>
           )}
 
+          {/* Story carousel (slides) — same as in-app KB; transcript is JSON slide data, not shown raw */}
+          {track.type === 'story' && (() => {
+            const slides = parseStorySlidesFromTranscript(track.transcript);
+            return slides.length > 0 ? (
+              <div className="border-b border-gray-100 dark:border-gray-800">
+                <div className="p-6 sm:p-8">
+                  <StoryPreview slides={slides} />
+                </div>
+              </div>
+            ) : null;
+          })()}
+
           {/* Article Body (article type only) */}
           {track.type === 'article' && (track.article_body || track.transcript) && (
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -928,8 +1070,8 @@ export function PublicKBViewer() {
             </div>
           )}
 
-          {/* Interactive Transcript (video and story types only, NOT article) */}
-          {track.transcript && track.type !== 'article' && (
+          {/* Video transcript (speech text) — not used for story JSON */}
+          {track.type === 'video' && track.transcript && (
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
               <button
                 onClick={() => setShowTranscript(!showTranscript)}
@@ -948,7 +1090,6 @@ export function PublicKBViewer() {
 
               {showTranscript && (
                 <div className="space-y-4">
-                  {/* Search Bar */}
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
@@ -968,7 +1109,6 @@ export function PublicKBViewer() {
                     )}
                   </div>
 
-                  {/* Transcript Text */}
                   <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 max-h-96 overflow-y-auto text-sm leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
                     {transcriptSearch
                       ? track.transcript
@@ -987,6 +1127,17 @@ export function PublicKBViewer() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Story: video-slide transcripts only; image-only stories render nothing (no raw JSON) */}
+          {track.type === 'story' && track.transcript && (
+            <StoryTranscript
+              storyData={track.transcript}
+              trackId={track.id}
+              projectId={projectId}
+              publicAnonKey={publicAnonKey}
+              readOnly
+            />
           )}
 
           {/* Key Facts Section */}
