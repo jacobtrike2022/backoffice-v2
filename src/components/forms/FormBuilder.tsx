@@ -73,6 +73,7 @@ import {
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
 import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
+import { buildBlockDependencyMap, conditionSummaryText } from '../../lib/forms/conditionalLogic';
 
 // ============================================================================
 // TYPES
@@ -294,13 +295,16 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd }: AddBlockButtonProps)
 
 interface BlockCardProps {
   block: LocalBlock;
+  allBlocks: LocalBlock[];
   isSelected: boolean;
+  referencedByCount: number;
   onSelect: () => void;
   onDelete: () => void;
   onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
+  onOpenLogic: () => void;
 }
 
-function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -325,6 +329,11 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
     ? 'border-l-purple-400'
     : 'border-l-primary';
 
+  const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
+  const summaryText = hasLogic && !isSelected
+    ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
+    : '';
+
   return (
     <div>
       <div
@@ -345,29 +354,50 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
           <GripVertical className="h-4 w-4" />
         </div>
 
-        {/* Delete button */}
-        <button
-          className="absolute right-2 top-2 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={e => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          aria-label="Delete block"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        {/* Quick-add logic button + Delete button */}
+        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {!hasLogic && (
+            <button
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary transition-colors"
+              onClick={e => {
+                e.stopPropagation();
+                onOpenLogic();
+              }}
+              aria-label="Add conditional logic"
+              title={t('forms.quickAddLogic')}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
+            onClick={e => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label="Delete block"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
         <div className="pl-8 pr-8 py-4">
           {/* Block type label */}
-          <div className="flex items-center gap-1.5 mb-1">
+          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
             <Icon className="h-3 w-3 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">
               {typeDef ? t(typeDef.labelKey) : block.block_type}
             </span>
-            {!!block.conditional_logic && (
+            {hasLogic && (
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
                 <GitBranch className="h-2.5 w-2.5 mr-0.5" />
                 {t('forms.logicBadge')}
+              </Badge>
+            )}
+            {referencedByCount > 0 && (
+              <Badge variant="secondary" className="text-xs px-1 py-0 h-4 ml-1">
+                <GitBranch className="h-2.5 w-2.5 mr-0.5" />
+                {t('forms.referencedBy', { count: referencedByCount })}
               </Badge>
             )}
           </div>
@@ -390,6 +420,13 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
               )
             }
           </p>
+
+          {/* Condition summary text */}
+          {summaryText && (
+            <p className="text-[11px] text-primary/70 mt-0.5 truncate" title={summaryText}>
+              {summaryText}
+            </p>
+          )}
 
           {/* Preview for choice blocks */}
           {block.options && block.options.length > 0 && (
@@ -429,6 +466,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
 interface ConditionBuilderProps {
   block: LocalBlock;
   allBlocks: LocalBlock[];
+  sections?: Array<{ id: string; title: string }>;
   onChange: (logic: ConditionalLogic) => void;
 }
 
@@ -441,7 +479,7 @@ const YES_NO_OPTIONS = ['Yes', 'No'];
 const NUMERIC_OPERATORS = ['equals', 'not_equals', 'greater_than', 'less_than', 'is_empty', 'is_not_empty'] as const;
 const TEXT_OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'is_empty', 'is_not_empty'] as const;
 
-function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps) {
+function ConditionBuilder({ block, allBlocks, sections = [], onChange }: ConditionBuilderProps) {
   const { t } = useTranslation();
   const logic: ConditionalLogic = (block.conditional_logic as ConditionalLogic) || {
     action: 'show',
@@ -473,23 +511,41 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
     b => !['instruction', 'divider', 'section', 'conditional'].includes(b.block_type)
   );
 
+  // Build a set of all existing block IDs for stale-reference checks
+  const existingBlockIds = new Set(allBlocks.map(b => b.id));
+
   return (
     <div className="space-y-3">
       {/* Action + Operator row */}
       <div className="flex items-center gap-2 text-xs flex-wrap">
         <Select
           value={logic.action}
-          onValueChange={(v) => updateLogic({ action: v as 'show' | 'hide' })}
+          onValueChange={(v) => {
+            const patch: Partial<ConditionalLogic> = { action: v as ConditionalLogic['action'] };
+            // Clear target_section_id when switching away from skip_to_section
+            if (v !== 'skip_to_section') {
+              patch.target_section_id = undefined;
+            }
+            updateLogic(patch);
+          }}
         >
-          <SelectTrigger className="h-7 text-xs w-20">
+          <SelectTrigger className="h-7 text-xs w-28">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="show">{t('forms.conditionShow')}</SelectItem>
             <SelectItem value="hide">{t('forms.conditionHide')}</SelectItem>
+            {sections.length > 0 && (
+              <SelectItem value="skip_to_section">{t('forms.conditionSkipToSection')}</SelectItem>
+            )}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">{t('forms.conditionThisBlockWhen')}</span>
+        {logic.action !== 'skip_to_section' && (
+          <span className="text-muted-foreground">{t('forms.conditionThisBlockWhen')}</span>
+        )}
+        {logic.action === 'skip_to_section' && (
+          <span className="text-muted-foreground">{t('forms.conditionWhen')}</span>
+        )}
         {logic.conditions.length > 1 && (
           <Select
             value={logic.operator}
@@ -509,9 +565,32 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
         )}
       </div>
 
+      {/* Target section picker for skip_to_section */}
+      {logic.action === 'skip_to_section' && sections.length > 0 && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground shrink-0">{t('forms.conditionJumpTo')}</span>
+          <Select
+            value={logic.target_section_id || 'none'}
+            onValueChange={(v) => updateLogic({ target_section_id: v === 'none' ? undefined : v })}
+          >
+            <SelectTrigger className="h-7 text-xs flex-1">
+              <SelectValue placeholder={t('forms.conditionSelectSection')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('forms.conditionSelectSection')}</SelectItem>
+              {sections.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.title || t('forms.untitled')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* Conditions list */}
       {logic.conditions.map((cond, i) => {
         const sourceBlock = eligibleBlocks.find(b => b.id === cond.source_block_id) ?? null;
+        const isStaleRef = cond.source_block_id && !existingBlockIds.has(cond.source_block_id) && cond.source_block_id !== block.id;
+        const isNoSource = !cond.source_block_id;
         const isChoiceBlock = sourceBlock ? CHOICE_BLOCK_TYPES.includes(sourceBlock.block_type) : false;
         const isYesNo = sourceBlock?.block_type === 'yes_no';
         const isNumeric = sourceBlock?.block_type === 'number' || sourceBlock?.block_type === 'rating' || sourceBlock?.block_type === 'slider';
@@ -522,9 +601,19 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
           : [];
         const showChoicePicker = (isChoiceBlock || isYesNo) && !['is_empty', 'is_not_empty'].includes(cond.operator);
         const showValueInput = !showChoicePicker && !['is_empty', 'is_not_empty'].includes(cond.operator);
+        const needsValue = !['is_empty', 'is_not_empty'].includes(cond.operator);
+        const isMissingValue = needsValue && !cond.value && cond.source_block_id;
 
         return (
           <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
+            {/* Validation warnings */}
+            {isStaleRef && (
+              <div className="flex items-center gap-1 text-[11px] text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
+                <AlertCircle className="h-3 w-3 shrink-0" />
+                {t('forms.conditionStaleRef')}
+              </div>
+            )}
+
             {/* Source block picker */}
             <Select
               value={cond.source_block_id || 'none'}
@@ -533,7 +622,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                 updateCondition(i, { source_block_id: v === 'none' ? '' : v, value: '' });
               }}
             >
-              <SelectTrigger className="h-7 text-xs">
+              <SelectTrigger className={`h-7 text-xs ${isNoSource ? 'border-amber-400' : ''}`}>
                 <SelectValue placeholder={t('forms.conditionSelectQuestion')} />
               </SelectTrigger>
               <SelectContent>
@@ -548,6 +637,13 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                 })}
               </SelectContent>
             </Select>
+
+            {isNoSource && (
+              <div className="flex items-center gap-1 text-[11px] text-amber-600">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {t('forms.conditionNoSource')}
+              </div>
+            )}
 
             {/* Operator + Value row */}
             <div className="flex gap-1.5">
@@ -584,7 +680,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                   value={cond.value || 'none'}
                   onValueChange={(v) => updateCondition(i, { value: v === 'none' ? '' : v })}
                 >
-                  <SelectTrigger className="h-7 text-xs flex-1">
+                  <SelectTrigger className={`h-7 text-xs flex-1 ${isMissingValue ? 'border-amber-400' : ''}`}>
                     <SelectValue placeholder={t('forms.conditionSelectValue')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -602,7 +698,7 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                   value={cond.value}
                   onChange={(e) => updateCondition(i, { value: e.target.value })}
                   placeholder={t('forms.conditionValuePlaceholder')}
-                  className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background"
+                  className={`flex-1 h-7 px-2 text-xs rounded-md border bg-background ${isMissingValue ? 'border-amber-400' : 'border-input'}`}
                 />
               )}
 
@@ -617,6 +713,13 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                 </button>
               )}
             </div>
+
+            {isMissingValue && (
+              <div className="flex items-center gap-1 text-[11px] text-amber-600">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {t('forms.conditionMissingValue')}
+              </div>
+            )}
 
             {/* AND/OR label between conditions */}
             {i < logic.conditions.length - 1 && (
@@ -651,15 +754,18 @@ const SCOREABLE_BLOCK_TYPES = ['radio', 'checkboxes', 'dropdown', 'yes_no', 'rat
 interface PropertiesDrawerProps {
   block: LocalBlock;
   allBlocks: LocalBlock[];
+  sections?: Array<{ id: string; title: string }>;
   scoringEnabled?: boolean;
   onUpdate: (updates: Partial<LocalBlock>) => void;
   onDelete: () => void;
   onClose: () => void;
   /** Use wider drawer width (fullPage builder mode) */
   wide?: boolean;
+  /** When set, forces the drawer to open on this tab */
+  initialTab?: string;
 }
 
-function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete, onClose, wide = false }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -707,7 +813,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
       </div>
 
       {/* Tab navigation */}
-      <Tabs defaultValue="settings" className="flex flex-col flex-1 min-h-0">
+      <Tabs defaultValue={initialTab || 'settings'} className="flex flex-col flex-1 min-h-0">
         <TabsList className="mx-4 mt-3 mb-0 shrink-0 w-auto self-start h-8">
           <TabsTrigger value="settings" className="text-xs h-7 px-3">{t('forms.propTabSettings')}</TabsTrigger>
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
@@ -1003,6 +1109,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
                 <ConditionBuilder
                   block={block}
                   allBlocks={allBlocks}
+                  sections={sections}
                   onChange={(logic) => onUpdate({ conditional_logic: logic })}
                 />
                 <Separator />
@@ -1658,6 +1765,40 @@ export function FormBuilder({
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
     : null;
 
+  // Compute block dependency map: which blocks reference each block as a condition source
+  const blockDependencyMap = React.useMemo(
+    () => buildBlockDependencyMap(hook.blocks as Array<{ id: string; conditional_logic?: ConditionalLogic | null }>),
+    [hook.blocks]
+  );
+
+  // State for controlling which drawer tab to open (used by quick-add logic shortcut)
+  const [drawerInitialTab, setDrawerInitialTab] = useState<string | undefined>(undefined);
+
+  // Handler for quick-add logic: select block, open drawer on Logic tab, create default condition if needed
+  const handleOpenLogic = useCallback((blockId: string) => {
+    const targetBlock = hook.blocks.find(b => b.id === blockId);
+    if (targetBlock) {
+      const hasLogic = !!(targetBlock.conditional_logic && (targetBlock.conditional_logic as ConditionalLogic).conditions?.length);
+      if (!hasLogic) {
+        hook.updateBlock(blockId, {
+          conditional_logic: {
+            action: 'show',
+            operator: 'AND',
+            conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
+          } as ConditionalLogic,
+        });
+      }
+    }
+    setDrawerInitialTab('logic');
+    hook.setSelectedBlockId(blockId);
+  }, [hook]);
+
+  // Reset drawer tab when selection changes normally (clicking a card, not via quick-add)
+  const handleSelectBlock = useCallback((blockId: string) => {
+    setDrawerInitialTab(undefined);
+    hook.setSelectedBlockId(hook.selectedBlockId === blockId ? null : blockId);
+  }, [hook]);
+
   // In fullPage mode the parent is a fixed inset-0 overlay; use 100% of that container.
   // In embedded tab mode keep the previous calc-based height so it fits inside the dashboard.
   const containerStyle = fullPage
@@ -1922,14 +2063,13 @@ export function FormBuilder({
                   <SortableBlockCard
                     key={block.id}
                     block={block}
+                    allBlocks={hook.blocks}
                     isSelected={hook.selectedBlockId === block.id}
-                    onSelect={() =>
-                      hook.setSelectedBlockId(
-                        hook.selectedBlockId === block.id ? null : block.id
-                      )
-                    }
+                    referencedByCount={blockDependencyMap[block.id]?.length ?? 0}
+                    onSelect={() => handleSelectBlock(block.id)}
                     onDelete={() => hook.deleteBlock(block.id)}
                     onAdd={hook.addBlock}
+                    onOpenLogic={() => handleOpenLogic(block.id)}
                   />
                 ))}
               </SortableContext>
@@ -1959,14 +2099,13 @@ export function FormBuilder({
                       <SortableBlockCard
                         key={block.id}
                         block={block}
+                        allBlocks={hook.blocks}
                         isSelected={hook.selectedBlockId === block.id}
-                        onSelect={() =>
-                          hook.setSelectedBlockId(
-                            hook.selectedBlockId === block.id ? null : block.id
-                          )
-                        }
+                        referencedByCount={blockDependencyMap[block.id]?.length ?? 0}
+                        onSelect={() => handleSelectBlock(block.id)}
                         onDelete={() => hook.deleteBlock(block.id)}
                         onAdd={hook.addBlock}
+                        onOpenLogic={() => handleOpenLogic(block.id)}
                       />
                     ))}
                   </SortableContext>
@@ -2053,11 +2192,16 @@ export function FormBuilder({
           <PropertiesDrawer
             block={selectedBlock}
             allBlocks={hook.blocks.filter(b => b.id !== selectedBlock.id)}
+            sections={hook.sections}
             scoringEnabled={hook.form?.scoring_enabled ?? false}
             onUpdate={updates => hook.updateBlock(selectedBlock.id, updates)}
             onDelete={() => hook.deleteBlock(selectedBlock.id)}
-            onClose={() => hook.setSelectedBlockId(null)}
+            onClose={() => {
+              hook.setSelectedBlockId(null);
+              setDrawerInitialTab(undefined);
+            }}
             wide={fullPage}
+            initialTab={drawerInitialTab}
           />
         )}
       </div>
