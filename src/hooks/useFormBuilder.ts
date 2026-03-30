@@ -191,11 +191,25 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
 
-      // Reload blocks from DB to get real IDs for new blocks
-      const refreshed = await getFormWithSections(form.id, orgId);
-      if (refreshed) {
-        const refreshedBlocks = buildLocalBlocks(refreshed);
-        setBlocks(refreshedBlocks);
+      if (newBlocks.length > 0) {
+        // Only re-fetch when there were _isNew blocks that need real DB IDs.
+        // Merge carefully: keep the current in-memory state for existing blocks
+        // (user may be actively editing them), only swap in DB versions for the
+        // formerly-new blocks so they now carry their real IDs.
+        const refreshed = await getFormWithSections(form.id, orgId);
+        if (refreshed) {
+          const refreshedBlocks = buildLocalBlocks(refreshed);
+          setBlocks(prev => {
+            // Build a lookup of current in-memory blocks by ID (non-new only)
+            const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+            // For each DB block: if we have a live in-memory version, keep it;
+            // otherwise use the DB version (covers the newly-inserted blocks).
+            return refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+          });
+        }
+      } else {
+        // No new blocks — nothing to re-fetch. Just clear the _isNew/_isDirty flags.
+        setBlocks(prev => prev.map(b => ({ ...b, _isNew: false, _isDirty: false })));
       }
 
       setIsDirty(false);

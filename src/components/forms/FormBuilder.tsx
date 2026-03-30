@@ -544,7 +544,7 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
   };
 
   return (
-    <div className="fixed right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
+    <div className="fixed right-0 top-[72px] h-[calc(100vh-72px)] w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
