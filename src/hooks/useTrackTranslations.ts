@@ -9,33 +9,59 @@ interface TranslatableTrack {
   id: string;
   title: string;
   description?: string | null;
+  transcript?: string | null;
+  key_facts?: string[] | null;
   [key: string]: unknown;
 }
 
-interface TranslationMap {
-  [trackId: string]: {
-    title: string;
-    description?: string;
-  };
+interface CachedTranslation {
+  title: string;
+  description?: string;
+  transcript?: string;
+  key_facts?: string[];
+}
+
+type TranslationMap = Record<string, CachedTranslation>;
+
+async function callTranslateEndpoint(
+  tracks: TranslatableTrack[],
+  language: string
+): Promise<TranslationMap> {
+  const { data: session } = await supabase.auth.getSession();
+  const authToken = session?.session?.access_token || ANON_KEY;
+
+  const res = await fetch(`${EDGE_URL}/translate/tracks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`,
+      'apikey': ANON_KEY,
+    },
+    body: JSON.stringify({
+      tracks: tracks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description ?? '',
+        transcript: t.transcript ?? null,
+        key_facts: t.key_facts ?? null,
+      })),
+      language,
+    }),
+  });
+
+  if (!res.ok) return {};
+  const data = await res.json();
+  return (data.translations as TranslationMap) ?? {};
 }
 
 /**
- * Translates track titles and descriptions to the org's preferred language.
- * - Skips translation when language is 'en' (no-op)
- * - Fetches cached translations from Supabase first, only calls OpenAI for misses
- * - Shows English while translation is in flight, swaps in translated text when ready
- *
- * Usage:
- *   const { applyTranslations, isTranslating } = useTrackTranslations(tracks, orgLanguage);
- *   const displayTrack = applyTranslations(track);
+ * Translates track titles and descriptions for the library grid/list view.
+ * Lightweight — only sends title+description, no full content.
  */
-export function useTrackTranslations(
-  tracks: TranslatableTrack[],
-  language: string
-) {
+export function useTrackTranslations(tracks: TranslatableTrack[], language: string) {
   const [translations, setTranslations] = useState<TranslationMap>({});
   const [isTranslating, setIsTranslating] = useState(false);
-  const lastRequestKey = useRef<string>('');
+  const lastKey = useRef('');
 
   useEffect(() => {
     if (!language || language === 'en' || tracks.length === 0) {
@@ -43,67 +69,93 @@ export function useTrackTranslations(
       return;
     }
 
-    // Build a stable key so we don't re-fetch if tracks haven't changed
-    const requestKey = `${language}:${tracks.map((t) => t.id).join(',')}`;
-    if (requestKey === lastRequestKey.current) return;
-    lastRequestKey.current = requestKey;
+    const key = `${language}:${tracks.map((t) => t.id).join(',')}`;
+    if (key === lastKey.current) return;
+    lastKey.current = key;
 
     let cancelled = false;
 
-    async function fetchTranslations() {
+    (async () => {
       setIsTranslating(true);
       try {
-        const { data: session } = await supabase.auth.getSession();
-        const authToken = session?.session?.access_token || ANON_KEY;
-
-        const payload = {
-          tracks: tracks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description ?? '',
-          })),
-          language,
-        };
-
-        const res = await fetch(`${EDGE_URL}/translate/tracks`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`,
-            'apikey': ANON_KEY,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && data.translations) {
-          setTranslations(data.translations as TranslationMap);
-        }
-      } catch (err) {
-        // Silent fail — English fallback stays in place
+        // Library view: only translate title + description (fast batch)
+        const lightTracks = tracks.map((t) => ({ id: t.id, title: t.title, description: t.description }));
+        const result = await callTranslateEndpoint(lightTracks as TranslatableTrack[], language);
+        if (!cancelled) setTranslations(result);
+      } catch {
+        // Silent — English fallback
       } finally {
         if (!cancelled) setIsTranslating(false);
       }
-    }
+    })();
 
-    fetchTranslations();
     return () => { cancelled = true; };
   }, [tracks, language]);
 
-  /**
-   * Returns a track with translated title/description merged in.
-   * Falls back to original English values if no translation is available.
-   */
   function applyTranslations<T extends TranslatableTrack>(track: T): T {
-    const t = translations[track.id];
-    if (!t) return track;
+    const tr = translations[track.id];
+    if (!tr) return track;
     return {
       ...track,
-      title: t.title || track.title,
-      description: t.description ?? track.description,
+      title: tr.title || track.title,
+      description: tr.description ?? track.description,
     };
   }
 
   return { applyTranslations, isTranslating, translations };
+}
+
+/**
+ * Deep translation for a single track in the detail view.
+ * Translates title, description, transcript (article body), and key_facts.
+ * Fetches from cache first — only calls OpenAI on cache miss.
+ */
+export function useTrackDetailTranslation(track: TranslatableTrack | null, language: string) {
+  const [translated, setTranslated] = useState<TranslatableTrack | null>(track);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const lastKey = useRef('');
+
+  useEffect(() => {
+    if (!track) { setTranslated(null); return; }
+    if (!language || language === 'en') { setTranslated(track); return; }
+
+    const key = `${language}:${track.id}:${track.transcript?.length ?? 0}:${track.key_facts?.length ?? 0}`;
+    if (key === lastKey.current) return;
+    lastKey.current = key;
+
+    let cancelled = false;
+
+    (async () => {
+      setIsTranslating(true);
+      // Show English immediately while translating
+      setTranslated(track);
+      try {
+        const result = await callTranslateEndpoint([track], language);
+        const tr = result[track.id];
+        if (!cancelled && tr) {
+          setTranslated({
+            ...track,
+            title: tr.title || track.title,
+            description: tr.description ?? track.description,
+            transcript: tr.transcript ?? track.transcript,
+            key_facts: tr.key_facts ?? track.key_facts,
+          });
+        }
+      } catch {
+        // Keep English
+      } finally {
+        if (!cancelled) setIsTranslating(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [track?.id, track?.transcript, track?.key_facts, language]);
+
+  // When track prop changes (different track), reset immediately
+  useEffect(() => {
+    if (!track) { setTranslated(null); return; }
+    if (!language || language === 'en') { setTranslated(track); }
+  }, [track?.id]);
+
+  return { translated: translated ?? track, isTranslating };
 }

@@ -22038,6 +22038,39 @@ interface TrackToTranslate {
   id: string;
   title: string;
   description?: string | null;
+  transcript?: string | null;       // article body or video speech text
+  key_facts?: string[] | null;      // array of fact strings
+}
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  es: "Spanish",
+  fr: "French",
+  pt: "Portuguese",
+  de: "German",
+  zh: "Chinese (Simplified)",
+  ja: "Japanese",
+};
+
+async function translateWithOpenAI(prompt: string): Promise<string | null> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!response.ok) {
+    console.error("OpenAI translation error:", await response.text());
+    return null;
+  }
+  const result = await response.json();
+  return result.choices?.[0]?.message?.content ?? null;
 }
 
 async function handleTranslateTracks(req: Request): Promise<Response> {
@@ -22051,7 +22084,6 @@ async function handleTranslateTracks(req: Request): Promise<Response> {
     }
 
     if (language === "en") {
-      // No translation needed for English
       return jsonResponse({ translations: {} });
     }
 
@@ -22059,85 +22091,64 @@ async function handleTranslateTracks(req: Request): Promise<Response> {
       return jsonResponse({ error: "OpenAI not configured" }, 503);
     }
 
-    // Check cache first — only translate tracks not already cached
+    const targetLanguage = LANGUAGE_NAMES[language] ?? language;
     const trackIds = tracks.map((t) => t.id);
+
+    // Check cache — select all cached fields
     const { data: cached } = await supabase
       .from("track_translations")
-      .select("track_id, title, description")
+      .select("track_id, title, description, transcript, key_facts")
       .in("track_id", trackIds)
       .eq("language", language);
 
-    const cachedMap: Record<string, { title: string; description?: string }> = {};
+    const cachedMap: Record<string, {
+      title: string;
+      description?: string;
+      transcript?: string;
+      key_facts?: string[];
+    }> = {};
     for (const row of cached ?? []) {
-      cachedMap[row.track_id] = { title: row.title, description: row.description };
+      cachedMap[row.track_id] = {
+        title: row.title,
+        description: row.description,
+        transcript: row.transcript,
+        key_facts: row.key_facts,
+      };
     }
 
-    const toTranslate = tracks.filter((t) => !cachedMap[t.id]);
+    // Split: tracks needing title/description vs tracks also needing transcript/key_facts
+    const needsMetadata = tracks.filter((t) => !cachedMap[t.id]);
+    const needsContent = tracks.filter((t) => {
+      const c = cachedMap[t.id];
+      if (!c) return false; // handled by metadata batch
+      // Already has metadata — check if content fields need translation
+      const needsTranscript = t.transcript && !c.transcript;
+      const needsKeyFacts = t.key_facts?.length && !c.key_facts?.length;
+      return needsTranscript || needsKeyFacts;
+    });
 
-    if (toTranslate.length > 0) {
-      // Build a single prompt with all tracks to minimize API calls
-      const languageNames: Record<string, string> = {
-        es: "Spanish",
-        fr: "French",
-        pt: "Portuguese",
-        de: "German",
-        zh: "Chinese (Simplified)",
-        ja: "Japanese",
-      };
-      const targetLanguage = languageNames[language] ?? language;
-
-      // Batch into groups of 30 to stay within token limits
+    // ── Batch 1: Title + Description (up to 30 per API call) ──────────────────
+    if (needsMetadata.length > 0) {
       const BATCH_SIZE = 30;
-      for (let i = 0; i < toTranslate.length; i += BATCH_SIZE) {
-        const batch = toTranslate.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < needsMetadata.length; i += BATCH_SIZE) {
+        const batch = needsMetadata.slice(i, i + BATCH_SIZE);
+        const items = batch.map((t, idx) => ({ i: idx, id: t.id, title: t.title, description: t.description ?? "" }));
 
-        const items = batch.map((t, idx) => ({
-          i: idx,
-          id: t.id,
-          title: t.title,
-          description: t.description ?? "",
-        }));
+        const prompt = `Translate the following training track titles and descriptions into ${targetLanguage}. Keep it professional. Preserve brand names and proper nouns.
 
-        const prompt = `You are a professional translator for a convenience store and foodservice training platform. Translate the following track titles and descriptions into ${targetLanguage}. Keep translations natural and professional. Preserve any proper nouns, brand names, or product names as-is.
+Return ONLY valid JSON: {"items":[{"i":0,"title":"...","description":"..."},...]}
 
-Return ONLY a JSON array with this exact structure (no markdown, no commentary):
-[{"i":0,"title":"...","description":"..."},...]
+Input: ${JSON.stringify(items.map(({ i, title, description }) => ({ i, title, description })))}`;
 
-Tracks to translate:
-${JSON.stringify(items.map(({ i, title, description }) => ({ i, title, description })))}`;
+        const content = await translateWithOpenAI(prompt);
+        if (!content) continue;
 
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.2,
-            response_format: { type: "json_object" },
-          }),
-        });
-
-        if (!response.ok) {
-          console.error("OpenAI translation error:", await response.text());
-          continue;
-        }
-
-        const result = await response.json();
         let translated: { i: number; title: string; description: string }[] = [];
         try {
-          const content = result.choices?.[0]?.message?.content ?? "{}";
           const parsed = JSON.parse(content);
-          // Handle both array root and {translations: [...]} wrapper
-          translated = Array.isArray(parsed) ? parsed : (parsed.translations ?? parsed.items ?? Object.values(parsed)[0] ?? []);
-        } catch {
-          console.error("Failed to parse translation response");
-          continue;
-        }
+          translated = parsed.items ?? (Array.isArray(parsed) ? parsed : Object.values(parsed)[0] ?? []);
+        } catch { continue; }
 
-        // Upsert into cache and add to cachedMap
         const upsertRows = translated.map((row) => ({
           track_id: items[row.i]?.id,
           language,
@@ -22146,14 +22157,66 @@ ${JSON.stringify(items.map(({ i, title, description }) => ({ i, title, descripti
         })).filter((r) => r.track_id);
 
         if (upsertRows.length > 0) {
-          await supabase
-            .from("track_translations")
-            .upsert(upsertRows, { onConflict: "track_id,language" });
-
+          await supabase.from("track_translations").upsert(upsertRows, { onConflict: "track_id,language" });
           for (const row of upsertRows) {
-            cachedMap[row.track_id] = { title: row.title, description: row.description ?? undefined };
+            cachedMap[row.track_id] = { title: row.title, description: row.description };
           }
         }
+      }
+    }
+
+    // ── Batch 2: Transcript + Key Facts (one track at a time — content is large) ──
+    const contentTracks = [...needsContent, ...needsMetadata.filter((t) => t.transcript || t.key_facts?.length)];
+    for (const t of contentTracks) {
+      const updates: Record<string, any> = {};
+
+      // Translate transcript (article body / video speech text)
+      if (t.transcript && !(cachedMap[t.id]?.transcript)) {
+        const prompt = `Translate the following training content into ${targetLanguage}. This is a formatted article or transcript. Preserve all HTML tags, markdown formatting, line breaks, and structure exactly. Only translate the human-readable text.
+
+Return ONLY valid JSON: {"transcript":"<translated text here>"}
+
+Content to translate:
+${t.transcript.slice(0, 12000)}`; // cap at ~3k tokens for safety
+
+        const content = await translateWithOpenAI(prompt);
+        if (content) {
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.transcript) updates.transcript = parsed.transcript;
+          } catch { /* skip */ }
+        }
+      }
+
+      // Translate key facts array
+      if (t.key_facts?.length && !(cachedMap[t.id]?.key_facts?.length)) {
+        const prompt = `Translate the following training key facts into ${targetLanguage}. Keep each fact concise and professional.
+
+Return ONLY valid JSON: {"facts":["translated fact 1","translated fact 2",...]}
+
+Facts: ${JSON.stringify(t.key_facts)}`;
+
+        const content = await translateWithOpenAI(prompt);
+        if (content) {
+          try {
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed.facts)) updates.key_facts = parsed.facts;
+          } catch { /* skip */ }
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        // Merge with existing cached row if present
+        const existing = cachedMap[t.id];
+        const upsertRow = {
+          track_id: t.id,
+          language,
+          title: existing?.title ?? t.title,
+          description: existing?.description ?? t.description ?? "",
+          ...updates,
+        };
+        await supabase.from("track_translations").upsert(upsertRow, { onConflict: "track_id,language" });
+        cachedMap[t.id] = { ...cachedMap[t.id], ...updates } as any;
       }
     }
 

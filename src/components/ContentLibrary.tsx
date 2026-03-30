@@ -62,7 +62,7 @@ import { StoryEditor } from './content-authoring/StoryEditor';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { ContentLibrarySidebar } from './ContentLibrarySidebar';
 import { useTracks, useCurrentUser, useAITagSuggestionsCount } from '../lib/hooks/useSupabase';
-import { useTrackTranslations } from '../hooks/useTrackTranslations';
+import { useTrackTranslations, useTrackDetailTranslation } from '../hooks/useTrackTranslations';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -225,6 +225,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Dynamic translation of track titles/descriptions based on org language
   const { applyTranslations } = useTrackTranslations(tracks, i18n.language);
+
+  // Deep translation for the currently-open track detail (title, description, transcript, key_facts)
+  const { translated: translatedSelectedTrack } = useTrackDetailTranslation(selectedTrack, i18n.language);
 
   // Debug logging (disabled for performance - enable only when needed)
   // console.log('ContentLibrary - tracks:', tracks);
@@ -872,7 +875,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       <>
         {selectedTrack.type === 'article' ? (
           <ArticleDetailEdit
-            track={selectedTrack}
+            track={translatedSelectedTrack}
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
@@ -891,7 +894,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           />
         ) : selectedTrack.type === 'checkpoint' ? (
           <CheckpointEditor
-            track={selectedTrack}
+            track={translatedSelectedTrack}
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
@@ -910,7 +913,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           />
         ) : selectedTrack.type === 'story' ? (
           <StoryEditor
-            track={selectedTrack}
+            track={translatedSelectedTrack}
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
@@ -929,7 +932,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           />
         ) : (
           <TrackDetailEdit
-            track={selectedTrack}
+            track={translatedSelectedTrack}
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
@@ -938,12 +941,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
             onArchive={async (track) => {
               await handleArchiveTrack(track);
-              // Note: handleArchiveTrack may show a dialog, so we only navigate back
-              // if no dialog was shown (no relationships). The dialog handles navigation itself.
             }}
             onDuplicate={async (track) => {
               await handleDuplicateTrack(track);
-              // handleDuplicateTrack navigates to the new track automatically
             }}
             onCreateVariant={(track) => {
               setCreateVariantModal({ open: true, track });
