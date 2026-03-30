@@ -12,6 +12,7 @@
 // =============================================================================
 
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -276,6 +277,7 @@ interface KnowledgeBaseProps {
 }
 
 export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRole = 'admin' }: KnowledgeBaseProps) {
+  const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<ViewMode>('home');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);

@@ -82,6 +82,8 @@ export interface FormBuilderProps {
   onCancel?: () => void;
   /** @deprecated — kept for backwards compatibility with Forms.tsx call site */
   onNavigateToAssignments?: () => void;
+  /** When true the builder fills 100% of its fixed-overlay parent for a full-screen editing experience */
+  fullPage?: boolean;
 }
 
 // ============================================================================
@@ -1077,6 +1079,7 @@ export function FormBuilder({
   onSaveDraft,
   onPublished,
   onCancel,
+  fullPage = false,
 }: FormBuilderProps) {
   const { t } = useTranslation();
   const hook = useFormBuilder({ formId, orgId });
@@ -1182,8 +1185,14 @@ export function FormBuilder({
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
     : null;
 
+  // In fullPage mode the parent is a fixed inset-0 overlay; use 100% of that container.
+  // In embedded tab mode keep the previous calc-based height so it fits inside the dashboard.
+  const containerStyle = fullPage
+    ? { height: '100%', minHeight: 0 }
+    : { height: 'calc(100vh - 120px)', minHeight: '600px' };
+
   return (
-    <div className="flex flex-col bg-muted/30 overflow-hidden" style={{ height: 'calc(100vh - 120px)', minHeight: '600px' }}>
+    <div className="flex flex-col bg-muted/30 overflow-hidden" style={containerStyle}>
       {/* ================================================================
           TOOLBAR
       ================================================================ */}
@@ -1194,7 +1203,7 @@ export function FormBuilder({
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-muted-foreground"
+            className="gap-1.5 text-muted-foreground shrink-0"
             onClick={() => {
               hook.saveForm();
               onCancel?.();
@@ -1202,7 +1211,7 @@ export function FormBuilder({
             }}
           >
             <ChevronLeft className="h-4 w-4" />
-            {t('forms.builderBack')}
+            {fullPage ? t('forms.builderBackToLibrary') : t('forms.builderBack')}
           </Button>
 
           <Separator orientation="vertical" className="h-5" />
@@ -1353,10 +1362,12 @@ export function FormBuilder({
         {/* Canvas */}
         <div
           className={`flex-1 overflow-y-auto py-8 transition-all ${
-            selectedBlock ? 'pr-[356px]' : ''
+            selectedBlock
+              ? fullPage ? 'pr-[440px]' : 'pr-[356px]'
+              : ''
           }`}
         >
-          <div className="mx-auto w-full max-w-[680px] px-4">
+          <div className={`mx-auto w-full px-4 ${fullPage ? 'max-w-[800px]' : 'max-w-[680px]'}`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
               <div className="bg-green-500 text-white text-xs font-bold px-6 py-2 rounded-full shadow-sm">
@@ -1489,6 +1500,7 @@ export function FormBuilder({
             onUpdate={updates => hook.updateBlock(selectedBlock.id, updates)}
             onDelete={() => hook.deleteBlock(selectedBlock.id)}
             onClose={() => hook.setSelectedBlockId(null)}
+            wide={fullPage}
           />
         )}
       </div>

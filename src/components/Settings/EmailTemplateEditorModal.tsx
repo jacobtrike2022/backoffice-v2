@@ -183,19 +183,19 @@ export function EmailTemplateEditorModal({
   const handleSave = async () => {
     // Validation
     if (!formData.name.trim()) {
-      toast.error('Template name is required');
+      toast.error(t('emailSettings.templateNameRequired'));
       return;
     }
     if (!formData.slug.trim()) {
-      toast.error('Template slug is required');
+      toast.error(t('emailSettings.templateSlugRequired'));
       return;
     }
     if (!formData.subject.trim()) {
-      toast.error('Subject line is required');
+      toast.error(t('emailSettings.subjectLineRequired'));
       return;
     }
     if (!formData.body_html.trim()) {
-      toast.error('Email body is required');
+      toast.error(t('emailSettings.emailBodyRequired'));
       return;
     }
 
@@ -212,7 +212,7 @@ export function EmailTemplateEditorModal({
       });
       onClose();
     } catch (error: any) {
-      toast.error('Failed to save template', { description: error.message });
+      toast.error(t('emailSettings.failedSaveTemplate'), { description: error.message });
     } finally {
       setLoading(false);
     }
@@ -225,8 +225,7 @@ export function EmailTemplateEditorModal({
   };
 
   const getDescription = () => {
-    if (isCustomizeMode)
-      return t('emailSettings.customizeTemplateDesc');
+    if (isCustomizeMode) return t('emailSettings.customizeTemplateDesc');
     if (isEditMode) return t('emailSettings.editTemplateDesc');
     return t('emailSettings.createTemplateDesc');
   };
@@ -244,7 +243,7 @@ export function EmailTemplateEditorModal({
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">{t('emailSettings.templateName')} *</Label>
+                <Label htmlFor="name">{t('emailSettings.templateName')}</Label>
                 <Input
                   id="name"
                   value={formData.name}

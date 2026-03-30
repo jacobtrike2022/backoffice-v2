@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
@@ -122,6 +123,7 @@ const getTrendIcon = (trend: string) => {
 };
 
 export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps) {
+  const { t } = useTranslation();
   if (currentRole === 'store-manager') {
     return null; // Store managers don't see comparative analytics
   }
@@ -132,14 +134,14 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
       <Card className="chart-container hover-lift">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-lg font-bold">Performance Comparison</CardTitle>
+            <CardTitle className="text-lg font-bold">{t('analytics.performanceComparison')}</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              {currentRole === 'admin' ? 'System-wide vs District vs Unit performance' : 'District performance trends'}
+              {currentRole === 'admin' ? t('analytics.performanceComparisonDescAdmin') : t('analytics.performanceComparisonDescDistrict')}
             </p>
           </div>
           <Button variant="outline" size="sm">
             <Eye className="h-4 w-4 mr-2" />
-            View Details
+            {t('analytics.viewDetails')}
           </Button>
         </CardHeader>
         <CardContent className="pt-6">
@@ -157,12 +159,12 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                 fillOpacity={0.1}
                 stroke="#F74A05"
                 strokeWidth={2}
-                name="Company Avg"
+                name={t('analytics.companyAvg')}
               />
               <Bar 
                 dataKey="district" 
                 fill="#FF733C" 
-                name="District Avg"
+                name={t('analytics.districtAvg')}
                 radius={[2, 2, 0, 0]}
               />
               <Line 
@@ -171,7 +173,7 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                 stroke="#10b981" 
                 strokeWidth={3}
                 dot={{ fill: '#10b981', r: 4 }}
-                name="Your Performance"
+                name={t('analytics.yourPerformance')}
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -183,9 +185,9 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card className="border-border/50 shadow-sm w-full">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Top Performing Stores</CardTitle>
+              <CardTitle className="text-base">{t('analytics.topPerformingStores')}</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Leading stores in your district
+                {t('analytics.topPerformingStoresDesc')}
               </p>
             </CardHeader>
             <CardContent className="pb-4">
@@ -207,7 +209,7 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-sm">{unit.unit}</h4>
                           <p className="text-xs text-muted-foreground">
-                            {unit.employees} employees
+                            {unit.employees} {t('analytics.employeesLabel')}
                           </p>
                         </div>
                       </div>
@@ -217,7 +219,7 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                         </div>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                           {getTrendIcon(unit.trend)}
-                          <span>Trending {unit.trend}</span>
+                          <span>{t('analytics.trending')} {unit.trend}</span>
                         </div>
                       </div>
                     </div>
@@ -229,9 +231,9 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
           {/* Lowest Performing Stores (District Manager only - shows STORE performance) */}
           <Card className="border-border/50 shadow-sm w-full">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Lowest Performing Stores</CardTitle>
+              <CardTitle className="text-base">{t('analytics.lowestPerformingStores')}</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Stores needing attention
+                {t('analytics.lowestPerformingStoresDesc')}
               </p>
             </CardHeader>
             <CardContent className="pb-4">
@@ -253,7 +255,7 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-sm">{unit.unit}</h4>
                           <p className="text-xs text-muted-foreground">
-                            {unit.employees} employees
+                            {unit.employees} {t('analytics.employeesLabel')}
                           </p>
                         </div>
                       </div>
@@ -267,7 +269,7 @@ export function ComparativeAnalytics({ currentRole }: ComparativeAnalyticsProps)
                         </div>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                           {getTrendIcon(unit.trend)}
-                          <span>Trending {unit.trend}</span>
+                          <span>{t('analytics.trending')} {unit.trend}</span>
                         </div>
                       </div>
                     </div>

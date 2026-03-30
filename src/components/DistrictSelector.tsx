@@ -29,7 +29,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
 
   const handleCreateDistrict = async () => {
     if (!newDistrictName.trim() || !newDistrictCode.trim()) {
-      alert('Please fill in all fields');
+      alert(t('units.fillInAllFields'));
       return;
     }
 
@@ -51,11 +51,11 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
       
       // Show user-friendly error message
       if (errorMessage.includes('User profile not found')) {
-        alert('Your account is not fully set up. Please contact your administrator to complete your profile setup.');
+        alert(t('units.accountNotSetup'));
       } else if (errorMessage.includes('Insufficient permissions')) {
-        alert('You do not have permission to create districts. Please contact your administrator.');
+        alert(t('units.noPermissionCreateDistrict'));
       } else {
-        alert(`Failed to create district: ${errorMessage}`);
+        alert(t('units.failedCreateDistrict', { message: errorMessage }));
       }
     } finally {
       setCreating(false);
@@ -86,7 +86,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                   id="districtName"
                   value={newDistrictName}
                   onChange={(e) => setNewDistrictName(e.target.value)}
-                  placeholder="e.g., Northeast District"
+                  placeholder={t('units.districtNamePlaceholder')}
                   className="mt-2"
                 />
               </div>
@@ -96,7 +96,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                   id="districtCode"
                   value={newDistrictCode}
                   onChange={(e) => setNewDistrictCode(e.target.value.toUpperCase())}
-                  placeholder="e.g., NE"
+                  placeholder={t('units.districtCodePlaceholder')}
                   maxLength={10}
                   className="mt-2"
                 />

@@ -199,11 +199,11 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={handleSaveDraft}>
               <Save className="h-4 w-4 mr-2" />
-              Save Draft
+              {t('contentAuthoring.saveDraft')}
             </Button>
             <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
               <Send className="h-4 w-4 mr-2" />
-              Publish & Assign
+              {t('contentAuthoring.publishAndAssign')}
             </Button>
           </div>
         </div>
@@ -279,24 +279,24 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Article Information</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.articleInformation')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Category</Label>
+                  <Label className="text-xs text-muted-foreground">{t('contentAuthoring.categoryLabel')}</Label>
                   <p className="text-sm font-medium mt-1">
-                    {categories.find(c => c.id === category)?.name || 'Not set'}
+                    {categories.find(c => c.id === category)?.name || t('contentAuthoring.notSet')}
                   </p>
                 </div>
                 {subcategory && (
                   <div>
-                    <Label className="text-xs text-muted-foreground">Subcategory</Label>
+                    <Label className="text-xs text-muted-foreground">{t('contentAuthoring.subcategoryLabel')}</Label>
                     <p className="text-sm font-medium mt-1">{subcategory}</p>
                   </div>
                 )}
                 <Separator />
                 <div>
-                  <Label className="text-xs text-muted-foreground">Author</Label>
+                  <Label className="text-xs text-muted-foreground">{t('contentAuthoring.authorLabel')}</Label>
                   <div className="flex items-center space-x-2 mt-1">
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="bg-primary/10 text-primary text-xs">
@@ -308,7 +308,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
                 </div>
                 <Separator />
                 <div>
-                  <Label className="text-xs text-muted-foreground">Version</Label>
+                  <Label className="text-xs text-muted-foreground">{t('contentAuthoring.versionLabel')}</Label>
                   <p className="text-sm font-medium mt-1">v{version}</p>
                 </div>
               </CardContent>
@@ -326,17 +326,17 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" onClick={onClose}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('common.back')}
           </Button>
           <div>
-            <h1 className="text-foreground">{initialData ? 'Edit Article' : 'New Article'}</h1>
-            <p className="text-sm text-muted-foreground">Knowledge Base Article</p>
+            <h1 className="text-foreground">{initialData ? t('contentAuthoring.editArticle') : t('contentAuthoring.newArticle')}</h1>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.knowledgeBaseArticle')}</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" onClick={() => setShowPreview(true)}>
             <Eye className="h-4 w-4 mr-2" />
-            Preview
+            {t('contentAuthoring.preview')}
           </Button>
           <Button variant="outline" onClick={handleSaveDraft}>
             <Save className="h-4 w-4 mr-2" />
@@ -355,7 +355,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Article Content</CardTitle>
+              <CardTitle>{t('contentAuthoring.articleContentTitle')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Title */}
@@ -387,13 +387,13 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
               {/* Category & Subcategory */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="category">Category *</Label>
+                  <Label htmlFor="category">{t('contentAuthoring.categoryLabel')} *</Label>
                   <Select value={category} onValueChange={(value) => {
                     setCategory(value);
                     setSubcategory(''); // Reset subcategory when category changes
                   }}>
                     <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select category..." />
+                      <SelectValue placeholder={t('contentAuthoring.selectCategoryPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((cat) => (
@@ -406,14 +406,14 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
                 </div>
 
                 <div>
-                  <Label htmlFor="subcategory">Subcategory</Label>
-                  <Select 
-                    value={subcategory} 
+                  <Label htmlFor="subcategory">{t('contentAuthoring.subcategoryLabel')}</Label>
+                  <Select
+                    value={subcategory}
                     onValueChange={setSubcategory}
                     disabled={!category}
                   >
                     <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select subcategory..." />
+                      <SelectValue placeholder={t('contentAuthoring.selectSubcategoryPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {category && subcategoriesByCategory[category]?.map((sub) => (
@@ -429,7 +429,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
               {/* Type & Reading Time */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="type">Article Type *</Label>
+                  <Label htmlFor="type">{t('contentAuthoring.articleType')} *</Label>
                   <Select value={type} onValueChange={(value: any) => setType(value)}>
                     <SelectTrigger className="mt-2">
                       <SelectValue />
@@ -443,7 +443,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
                 </div>
 
                 <div>
-                  <Label htmlFor="readingTime">Reading Time (minutes)</Label>
+                  <Label htmlFor="readingTime">{t('contentAuthoring.readingTimeMinutes')}</Label>
                   <Input
                     id="readingTime"
                     type="number"

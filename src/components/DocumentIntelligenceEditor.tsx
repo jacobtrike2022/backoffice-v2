@@ -1348,10 +1348,10 @@ export function DocumentIntelligenceEditor({
       <div className="min-h-screen bg-background p-6 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h2 className="text-xl font-semibold">Document not found</h2>
+          <h2 className="text-xl font-semibold">{t('contentAuthoring.documentNotFound')}</h2>
           <Button variant="outline" className="mt-4" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Sources
+            {t('contentAuthoring.backToSources')}
           </Button>
         </div>
       </div>
@@ -1414,7 +1414,7 @@ export function DocumentIntelligenceEditor({
                 <h1
                   className="text-lg font-semibold cursor-pointer hover:text-primary transition-colors"
                   onClick={startEditingName}
-                  title="Click to rename"
+                  title={t('contentAuthoring.clickToRename')}
                 >
                   {sourceFile.file_name}
                 </h1>
@@ -1613,7 +1613,7 @@ export function DocumentIntelligenceEditor({
               <div className="flex items-center justify-center w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold">
                 {selectedChunks.size}
               </div>
-              <span className="text-sm text-zinc-300 font-medium">selected</span>
+              <span className="text-sm text-zinc-300 font-medium">{t('contentAuthoring.selectedLabel')}</span>
             </div>
 
             <div className="w-px h-6 bg-zinc-700" />
@@ -1634,7 +1634,7 @@ export function DocumentIntelligenceEditor({
               ) : (
                 <Merge className="h-4 w-4" />
               )}
-              Merge
+              {t('contentAuthoring.mergeBtn')}
             </button>
 
             {/* Create Track button - only for training/procedure/policy */}
@@ -1651,7 +1651,7 @@ export function DocumentIntelligenceEditor({
                 className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white transition-all"
               >
                 <Zap className="h-4 w-4" />
-                Create Track
+                {t('contentAuthoring.createTrackBtn')}
               </button>
             )}
 
@@ -1673,8 +1673,8 @@ export function DocumentIntelligenceEditor({
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-4 fade-in duration-200">
           <div className="flex items-center gap-3 px-4 py-2.5 bg-orange-500 text-white rounded-full shadow-lg">
             <Scissors className="h-5 w-5" />
-            <span className="font-medium">Blade Mode</span>
-            <span className="text-orange-100 text-sm">Press B or Esc to exit</span>
+            <span className="font-medium">{t('contentAuthoring.bladeMode')}</span>
+            <span className="text-orange-100 text-sm">{t('contentAuthoring.bladeModeExit')}</span>
             <button
               onClick={() => setBladeMode(false)}
               className="ml-2 p-1 rounded-full hover:bg-orange-600 transition-colors"
@@ -1697,7 +1697,7 @@ export function DocumentIntelligenceEditor({
             </div>
             <div className="text-center">
               <p className="text-lg font-medium">{processingStep}</p>
-              <p className="text-sm text-muted-foreground mt-1">This may take a moment...</p>
+              <p className="text-sm text-muted-foreground mt-1">{t('contentAuthoring.mayTakeAMoment')}</p>
             </div>
           </div>
         </div>
@@ -1760,6 +1760,7 @@ function ChunkBlock({
   splitting,
   onRenameTitle,
 }: ChunkBlockProps) {
+  const { t } = useTranslation();
   const config = CONTENT_TYPES[chunk.content_class] || CONTENT_TYPES.other;
   const Icon = config.icon;
   const linkedRole = chunk.linkedContent.find(c => c.type === 'role');
@@ -1932,24 +1933,24 @@ function ChunkBlock({
                 onKeyDown={handleTitleKeyDown}
                 onClick={(e) => e.stopPropagation()}
                 className="text-sm font-medium bg-transparent border-b border-orange-400 outline-none px-1 py-0.5 min-w-[100px] text-foreground"
-                placeholder="Enter title..."
+                placeholder={t('contentAuthoring.enterTitle')}
               />
             ) : (
               <span
                 className="text-sm font-medium text-muted-foreground hover:text-foreground cursor-text transition-colors"
                 onDoubleClick={handleTitleDoubleClick}
-                title="Double-click to rename"
+                title={t('contentAuthoring.doubleClickToRename')}
               >
-                {chunk.title || 'Untitled'}
+                {chunk.title || t('contentAuthoring.untitled')}
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{chunk.word_count} words</span>
+            <span>{t('contentAuthoring.wordCount', { count: chunk.word_count })}</span>
             {chunk.content_class_confidence && (
               <span className="opacity-50">
-                {Math.round(chunk.content_class_confidence * 100)}% conf
+                {Math.round(chunk.content_class_confidence * 100)}% {t('contentAuthoring.confLabel')}
               </span>
             )}
           </div>
@@ -2014,7 +2015,7 @@ function ChunkBlock({
           ) : chunk.content_class === 'job_description' ? (
             <button
               type="button"
-              title="Extract this job description into a role (JD → role)"
+              title={t('contentAuthoring.extractJdToRole')}
               onClick={(e) => {
                 e.stopPropagation();
                 onCreateRole();
@@ -2022,7 +2023,7 @@ function ChunkBlock({
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/35 bg-primary/5 text-foreground/90 hover:text-foreground hover:bg-primary/10 hover:border-primary/50 transition-colors text-left w-full max-w-full"
             >
               <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">Role</span>
+              <span className="truncate">{t('contentAuthoring.roleLabel')}</span>
             </button>
           ) : null}
 
@@ -2049,7 +2050,7 @@ function ChunkBlock({
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button
               type="button"
-              title="Create training content track from this chunk"
+              title={t('contentAuthoring.createTrackFromChunk')}
               onClick={(e) => {
                 e.stopPropagation();
                 onCreateContent();
@@ -2057,7 +2058,7 @@ function ChunkBlock({
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-orange-500/35 bg-orange-500/5 text-foreground/90 hover:text-foreground hover:bg-orange-500/10 hover:border-orange-500/50 transition-colors text-left w-full max-w-full"
             >
               <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">Content</span>
+              <span className="truncate">{t('contentAuthoring.contentLabel')}</span>
             </button>
           ) : null}
         </div>

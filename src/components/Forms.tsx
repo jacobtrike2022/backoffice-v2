@@ -82,6 +82,32 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
     setActiveTab('submissions');
   };
 
+  // ─── Full-page Form Builder overlay ────────────────────────────────────────
+  // When the builder is active we render it as a full-screen overlay that covers
+  // the sidebar and the rest of the dashboard chrome, giving the editor maximum space.
+
+  if (showBuilder) {
+    return (
+      <div
+        className="fixed inset-0 z-50 bg-background flex flex-col overflow-hidden"
+        style={{ isolation: 'isolate' }}
+      >
+        <FormBuilder
+          orgId={effectiveOrgId}
+          formId={builderFormId}
+          currentRole={legacyRole}
+          onSaveDraft={handleBuilderBack}
+          onPublished={handleBuilderBack}
+          onCancel={handleBuilderBack}
+          onNavigateToAssignments={() => {
+            handleBuilderBack();
+          }}
+          fullPage
+        />
+      </div>
+    );
+  }
+
   // ─── Form Detail override (legacy) ─────────────────────────────────────────
 
   if (selectedFormId && activeTab === 'library') {

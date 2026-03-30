@@ -146,10 +146,10 @@ export function ChunkToTrackGenerator({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-[#F74A05]" />
-            Create Training Track
+            {t('contentAuthoring.createTrainingTrack')}
           </DialogTitle>
           <DialogDescription>
-            Create a new content track from the selected source chunk{selectedChunks.length > 1 ? 's' : ''}.
+            {t('contentAuthoring.createTrackDesc', { count: selectedChunks.length })}
           </DialogDescription>
         </DialogHeader>
 
@@ -158,28 +158,28 @@ export function ChunkToTrackGenerator({
           {alreadyConverted > 0 && (
             <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-lg text-sm">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>This content was already converted to a track</span>
+              <span>{t('contentAuthoring.alreadyConverted')}</span>
             </div>
           )}
 
           {/* Source info */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <BookOpen className="h-4 w-4" />
-            <span>{totalWords.toLocaleString()} words from {sourceFileName}</span>
+            <span>{t('contentAuthoring.wordsFromFile', { count: totalWords.toLocaleString(), file: sourceFileName })}</span>
           </div>
 
           {/* Title input */}
           <div className="space-y-2">
-            <Label htmlFor="trackTitle">Track Title</Label>
+            <Label htmlFor="trackTitle">{t('contentAuthoring.trackTitle')}</Label>
             <Input
               id="trackTitle"
-              placeholder={isSingleChunk ? "Use AI to generate title" : "e.g., Customer Service Guidelines"}
+              placeholder={isSingleChunk ? t('contentAuthoring.leaveBlankForAI') : t('contentAuthoring.trackTitlePlaceholder')}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             {!title && useAI && (
               <p className="text-xs text-muted-foreground">
-                Leave blank for AI-generated title
+                {t('contentAuthoring.leaveBlankForAI')}
               </p>
             )}
           </div>
@@ -188,8 +188,8 @@ export function ChunkToTrackGenerator({
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <div>
-                <Label htmlFor="publish" className="text-sm">Publish immediately</Label>
-                <p className="text-xs text-muted-foreground">Otherwise saves as draft</p>
+                <Label htmlFor="publish" className="text-sm">{t('contentAuthoring.publishImmediately')}</Label>
+                <p className="text-xs text-muted-foreground">{t('contentAuthoring.savesAsDraft')}</p>
               </div>
               <Switch
                 id="publish"
@@ -200,8 +200,8 @@ export function ChunkToTrackGenerator({
 
             <div className="flex items-center justify-between">
               <div>
-                <Label htmlFor="useAI" className="text-sm">AI Enhancement</Label>
-                <p className="text-xs text-muted-foreground">Format and structure content</p>
+                <Label htmlFor="useAI" className="text-sm">{t('contentAuthoring.aiEnhancement')}</Label>
+                <p className="text-xs text-muted-foreground">{t('contentAuthoring.formatStructureContent')}</p>
               </div>
               <Switch
                 id="useAI"
@@ -221,7 +221,7 @@ export function ChunkToTrackGenerator({
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={generating}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleGenerate}
@@ -231,12 +231,12 @@ export function ChunkToTrackGenerator({
             {generating ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Creating...
+                {t('contentAuthoring.creating')}
               </>
             ) : (
               <>
                 <Zap className="h-4 w-4 mr-2" />
-                Create Track
+                {t('contentAuthoring.createTrack')}
               </>
             )}
           </Button>

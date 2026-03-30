@@ -33,7 +33,7 @@ export function StoryPreview({ slides }: StoryPreviewProps) {
   if (slides.length === 0) {
     return (
       <div className="aspect-[9/16] rounded-lg bg-accent/50 flex items-center justify-center border-2 border-dashed border-border">
-        <p className="text-sm text-muted-foreground">No slides in this story</p>
+        <p className="text-sm text-muted-foreground">{t('contentAuthoring.noSlidesInStory')}</p>
       </div>
     );
   }

@@ -2631,7 +2631,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <span>Excluded Skills ({mergedSkills.filter(skill => !skill.is_active).length})</span>
+                              <span>{t('roles.detail.excludedSkills', { n: mergedSkills.filter(skill => !skill.is_active).length })}</span>
                             </span>
                           </Button>
                           {excludedSkillsExpanded && (
@@ -2676,7 +2676,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     onClick={() => setShowAddSkill(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Skill
+                    {t('roles.detail.addCustomSkill')}
                   </Button>
                 </div>
               </TabsContent>
@@ -2686,7 +2686,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <div className="space-y-2">
                   {mergedKnowledge.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No knowledge areas defined for this profile
+                      {t('roles.detail.noKnowledge')}
                     </p>
                   ) : (
                     <>
@@ -2734,7 +2734,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <span>Excluded Knowledge ({mergedKnowledge.filter(know => !know.is_active).length})</span>
+                              <span>{t('roles.detail.excludedKnowledge', { n: mergedKnowledge.filter(know => !know.is_active).length })}</span>
                             </span>
                           </Button>
                           {excludedKnowledgeExpanded && (
@@ -2779,7 +2779,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     onClick={() => setShowAddKnowledge(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Knowledge
+                    {t('roles.detail.addCustomKnowledge')}
                   </Button>
                 </div>
               </TabsContent>
@@ -2793,12 +2793,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 {saving ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
+                    {t('roles.saving')}
                   </>
                 ) : (
                   <>
                     <Save className="w-4 h-4 mr-2" />
-                    Save
+                    {t('common.save')}
                   </>
                 )}
               </Button>
@@ -2814,11 +2814,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             <div className="flex justify-between items-center">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  Job Conditions
+                  {t('roles.detail.jobConditions')}
                   {loadingMerged && <Loader2 className="h-4 w-4 animate-spin" />}
                 </CardTitle>
                 <CardDescription>
-                  Review work environment and capabilities for this role
+                  {t('roles.detail.jobConditionsDesc')}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -2833,11 +2833,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="work_context" className="flex items-center gap-2">
                   <HardHat className="h-4 w-4" />
-                  Work Context
+                  {t('roles.detail.tabWorkContext')}
                 </TabsTrigger>
                 <TabsTrigger value="capabilities" className="flex items-center gap-2">
                   <Zap className="h-4 w-4" />
-                  Capabilities ({mergedAbilities.filter(a => a.is_active).length}/{mergedAbilities.length})
+                  {t('roles.detail.tabCapabilities', { active: mergedAbilities.filter(a => a.is_active).length, total: mergedAbilities.length })}
                 </TabsTrigger>
               </TabsList>
 
@@ -2845,7 +2845,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               <TabsContent value="work_context" className="mt-4">
                 {workContextItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
-                    No work context data available for this profile
+                    {t('roles.detail.noWorkContext')}
                   </p>
                 ) : (
                   Object.entries(
@@ -2902,7 +2902,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <div className="space-y-3">
                   {mergedAbilities.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No capabilities defined for this profile
+                      {t('roles.detail.noCapabilities')}
                     </p>
                   ) : (
                     Object.entries(
@@ -2986,7 +2986,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                         <ChevronRight className="h-4 w-4" />
                                       )}
                                       <span>
-                                        Excluded {category} ({excludedAbilities.length})
+                                        {t('roles.detail.excludedCategory', { category, n: excludedAbilities.length })}
                                       </span>
                                     </span>
                                   </Button>
@@ -3038,7 +3038,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   onClick={() => setShowAddAbility(true)}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Custom Capability
+                  {t('roles.detail.addCustomCapability')}
                 </Button>
               </TabsContent>
             </Tabs>
@@ -3051,12 +3051,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 {saving ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
+                    {t('roles.saving')}
                   </>
                 ) : (
                   <>
                     <Save className="w-4 h-4 mr-2" />
-                    Save
+                    {t('common.save')}
                   </>
                 )}
               </Button>
@@ -3216,19 +3216,18 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive Role</AlertDialogTitle>
+            <AlertDialogTitle>{t('roles.detail.archiveDialogTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to archive "{role?.name}"? This will mark it as
-              archived and hide it from active lists. This action cannot be undone.
+              {t('roles.detail.archiveDialogDesc', { name: role?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Archive
+              {t('roles.detail.archiveBtn')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
