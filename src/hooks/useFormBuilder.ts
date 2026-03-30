@@ -358,7 +358,16 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
             allow_anonymous: newForm.allow_anonymous || false,
           });
           setSections([]);
-          setBlocks([]);
+
+          // Auto-scaffold starter blocks based on form type
+          const formType = initialType ?? 'inspection';
+          const scaffoldBlocks = getScaffoldBlocks(formType, newForm.id);
+          if (scaffoldBlocks.length > 0) {
+            setBlocks(scaffoldBlocks);
+            markDirty();
+          } else {
+            setBlocks([]);
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -376,7 +385,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     return () => {
       cancelled = true;
     };
-  }, [formId, orgId, initialType]);
+  }, [formId, orgId, initialType, markDirty]);
 
   // ============================================================================
   // BEFOREUNLOAD

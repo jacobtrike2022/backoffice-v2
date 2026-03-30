@@ -76,6 +76,7 @@ const mockInvoices: Invoice[] = [
 
 interface RoleWithDescKey extends Role {
   descriptionKey: string;
+  nameKey: string;
 }
 
 const defaultRoles: RoleWithDescKey[] = [
@@ -84,6 +85,7 @@ const defaultRoles: RoleWithDescKey[] = [
     name: 'Administrator',
     description: 'Full system access with all permissions',
     descriptionKey: 'settingsPage.roleDescAdmin',
+    nameKey: 'settingsPage.roleNameAdmin',
     userCount: 3,
     permissions: ['all']
   },
@@ -92,6 +94,7 @@ const defaultRoles: RoleWithDescKey[] = [
     name: 'District Manager',
     description: 'Manage multiple stores within assigned district',
     descriptionKey: 'settingsPage.roleDescDistrict',
+    nameKey: 'settingsPage.roleNameDistrict',
     userCount: 12,
     permissions: ['view_all_stores', 'manage_district', 'view_reports', 'assign_content', 'view_people']
   },
@@ -100,6 +103,7 @@ const defaultRoles: RoleWithDescKey[] = [
     name: 'Store Manager',
     description: 'Manage individual store operations',
     descriptionKey: 'settingsPage.roleDescStore',
+    nameKey: 'settingsPage.roleNameStore',
     userCount: 48,
     permissions: ['view_own_store', 'manage_employees', 'view_store_reports', 'assign_content']
   }
@@ -1180,7 +1184,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                     <CardContent className="p-4">
                       <div className="space-y-3">
                         <div>
-                          <h3 className="font-semibold text-lg">{role.name}</h3>
+                          <h3 className="font-semibold text-lg">{t((role as RoleWithDescKey).nameKey)}</h3>
                           <p className="text-sm text-muted-foreground mt-1">{t(role.descriptionKey)}</p>
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-border">
@@ -1362,7 +1366,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       <Dialog open={showPermissionsModal} onOpenChange={setShowPermissionsModal}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t('settingsPage.permissionsFor', { name: selectedRole?.name })}</DialogTitle>
+            <DialogTitle>{t('settingsPage.permissionsFor', { name: selectedRole ? t((selectedRole as RoleWithDescKey).nameKey) : '' })}</DialogTitle>
             <DialogDescription>
               {t('settingsPage.viewAllPermissions')}
             </DialogDescription>

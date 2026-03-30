@@ -641,10 +641,12 @@ export function PublicKBViewer() {
 
   function formatDuration(minutes?: number) {
     if (!minutes) return '';
-    if (minutes < 60) return `${minutes}min`;
+    if (minutes < 60) return t('knowledgeBase.publicDurationMin', { n: minutes });
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
+    return mins > 0
+      ? t('knowledgeBase.publicDurationHourMin', { n: hours, m: mins })
+      : t('knowledgeBase.publicDurationHour', { n: hours });
   }
 
   function formatFileSize(bytes: number) {
@@ -937,7 +939,7 @@ export function PublicKBViewer() {
 
             {/* Metadata */}
             <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
-              <span className="capitalize font-medium">{track.type || 'Article'}</span>
+              <span className="capitalize font-medium">{t(`knowledgeBase.publicViewType_${track.type}`, { defaultValue: track.type })}</span>
               <span>•</span>
               <span>{(track as any).view_count || 0} {t('knowledgeBase.views')}</span>
               {track.duration_minutes && (
@@ -965,7 +967,7 @@ export function PublicKBViewer() {
                 ))}
                 {tags.length > 5 && (
                   <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
-                    +{tags.length - 5} more
+                    {t('knowledgeBase.publicTagsMore', { n: tags.length - 5 })}
                   </span>
                 )}
               </div>
