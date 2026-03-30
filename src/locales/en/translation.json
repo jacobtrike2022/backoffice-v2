@@ -1221,7 +1221,14 @@
     "drawSignatureHint": "Draw your signature above using mouse or touch",
     "noSignature": "No signature",
     "captureLocation": "Capture Location",
-    "builderBackToLibrary": "Forms Library"
+    "builderBackToLibrary": "Forms Library",
+    "builderFormType": "Form Type",
+    "propTabSettings": "Settings",
+    "propTabLogic": "Logic",
+    "propTabScoring": "Scoring",
+    "conditionAnd": "AND",
+    "conditionOr": "OR",
+    "conditionSelectValue": "Select a value..."
   },
   "organization": {
     "title": "Organization",
@@ -3120,7 +3127,10 @@
     "failedUpdateSourceType": "Failed to update source type",
     "deleteFileConfirm": "Delete \"{{name}}\"? This cannot be undone.",
     "fileDeleted": "File deleted",
-    "failedDeleteFile": "Failed to delete file"
+    "failedDeleteFile": "Failed to delete file",
+    "preparingPdf": "Preparing PDF...",
+    "pdfDownloadSuccess": "PDF downloaded successfully!",
+    "pdfDownloadFailed": "Failed to generate PDF. Please try again."
   },
   "trackDetail": {
     "backToLibrary": "Back to Library",
@@ -4125,7 +4135,10 @@
     "researchingGeographic": "Researching {{state}} regulations",
     "researchingCompany": "Analyzing {{org}} policies and standards",
     "researchingUnit": "Analyzing {{store}} local operating context",
-    "researchingDefault": "Researching variant context"
+    "researchingDefault": "Researching variant context",
+    "transcribePartialError": "{{count}} video(s) failed to transcribe. See details below.",
+    "transcribeFailed": "Failed to transcribe story videos",
+    "failedToTranscribeSlide": "Failed to transcribe"
   },
   "assignments": {
     "title": "Content Assignments",

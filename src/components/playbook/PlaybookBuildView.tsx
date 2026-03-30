@@ -771,10 +771,10 @@ function TrackEditor({
       <div>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold text-foreground">{track.title}</h2>
-          <Badge className={cn('text-sm', statusConfig.color)}>{statusConfig.label}</Badge>
+          <Badge className={cn('text-sm', statusConfig.color)}>{t(statusConfig.labelKey)}</Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          {track.chunk_count || 0} chunks assigned
+          {t('playbook.chunksAssigned', { count: track.chunk_count || 0 })}
         </p>
       </div>
 
@@ -784,14 +784,14 @@ function TrackEditor({
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-amber-700 dark:text-amber-400">Conflict Detected</h3>
+              <h3 className="text-sm font-medium text-amber-700 dark:text-amber-400">{t('playbook.conflictDetected')}</h3>
               {track.conflicts.map((conflict, i) => (
                 <div key={i} className="mt-2 text-sm text-foreground">
                   <p>
-                    Similar to: <strong>"{conflict.existing_track_title}"</strong>
+                    {t('playbook.similarTo')}<strong>"{conflict.existing_track_title}"</strong>
                   </p>
                   <p className="text-muted-foreground">
-                    {Math.round(conflict.similarity_score * 100)}% match &bull; {conflict.match_type.replace('_', ' ')}
+                    {t('playbook.matchInfo', { pct: Math.round(conflict.similarity_score * 100) })} &bull; {conflict.match_type.replace('_', ' ')}
                   </p>
                 </div>
               ))}
@@ -802,7 +802,7 @@ function TrackEditor({
                   onClick={() => setSelectedResolution('keep_new')}
                   className="text-xs"
                 >
-                  Keep New
+                  {t('playbook.keepNew')}
                 </Button>
                 <Button
                   size="sm"
@@ -810,7 +810,7 @@ function TrackEditor({
                   onClick={() => setSelectedResolution('keep_existing')}
                   className="text-xs"
                 >
-                  Keep Existing
+                  {t('playbook.keepExisting')}
                 </Button>
                 <Button
                   size="sm"
@@ -818,7 +818,7 @@ function TrackEditor({
                   onClick={() => setSelectedResolution('create_version')}
                   className="text-xs"
                 >
-                  Create Version
+                  {t('playbook.createVersion')}
                 </Button>
                 <Button
                   size="sm"
@@ -826,7 +826,7 @@ function TrackEditor({
                   onClick={() => setSelectedResolution('create_variant')}
                   className="text-xs"
                 >
-                  Create Variant
+                  {t('playbook.createVariant')}
                 </Button>
               </div>
             </div>
@@ -840,7 +840,7 @@ function TrackEditor({
           <div className="flex items-start gap-3">
             <Lightbulb className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
             <div>
-              <h3 className="text-sm font-medium text-blue-700 dark:text-blue-400">AI Reasoning</h3>
+              <h3 className="text-sm font-medium text-blue-700 dark:text-blue-400">{t('playbook.aiReasoning')}</h3>
               <p className="text-sm text-foreground mt-1">{track.rag_reasoning}</p>
             </div>
           </div>
@@ -850,7 +850,7 @@ function TrackEditor({
       {/* Chunks List */}
       <div>
         <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Chunks in this Track
+          {t('playbook.chunksInTrack')}
         </h3>
         <div className="space-y-2">
           {track.chunks?.map((ptc) => (
@@ -862,7 +862,7 @@ function TrackEditor({
           ))}
           {(!track.chunks || track.chunks.length === 0) && (
             <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg">
-              No chunks assigned. Drag chunks here from other tracks.
+              {t('playbook.noChunksAssigned')}
             </div>
           )}
         </div>
@@ -871,40 +871,40 @@ function TrackEditor({
       {/* Actions */}
       <div className="flex items-center justify-between pt-4 border-t border-border">
         <Button variant="ghost" size="sm" onClick={() => onSkip(track.id)}>
-          Skip Track
+          {t('playbook.skipTrack')}
         </Button>
         <div className="flex gap-2">
           {track.status === 'suggestion' && (
             <Button
               onClick={() => onConfirm(track.id, selectedResolution || undefined)}
               disabled={!hasChunks || (track.has_conflicts && !selectedResolution)}
-              title={!hasChunks ? 'Assign at least one chunk before confirming' : undefined}
+              title={!hasChunks ? t('playbook.confirmGroupingTitle') : undefined}
             >
               <Check className="h-4 w-4 mr-2" />
-              Confirm Grouping
+              {t('playbook.confirmGrouping')}
             </Button>
           )}
           {track.status === 'confirmed' && (
             <Button
               onClick={() => onGenerateDraft(track.id)}
               disabled={!hasChunks}
-              title={!hasChunks ? 'Assign at least one chunk before generating a draft' : undefined}
+              title={!hasChunks ? t('playbook.generateDraftTitle') : undefined}
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C]"
             >
               <Sparkles className="h-4 w-4 mr-2" />
-              Generate Draft
+              {t('playbook.generateDraft')}
             </Button>
           )}
           {track.status === 'generating' && (
             <Button disabled>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Generating...
+              {t('playbook.generating')}
             </Button>
           )}
           {(track.status === 'draft_ready' || track.status === 'approved') && (
             <Button variant="outline" onClick={onPreviewDraft}>
               <Eye className="h-4 w-4 mr-2" />
-              View Draft
+              {t('playbook.viewDraft')}
             </Button>
           )}
         </div>

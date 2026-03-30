@@ -1221,7 +1221,14 @@
     "drawSignatureHint": "Dibuje su firma arriba usando el mouse o táctil",
     "noSignature": "Sin firma",
     "captureLocation": "Capturar Ubicación",
-    "builderBackToLibrary": "Biblioteca de formularios"
+    "builderBackToLibrary": "Biblioteca de formularios",
+    "builderFormType": "Tipo de Formulario",
+    "propTabSettings": "Configuración",
+    "propTabLogic": "Lógica",
+    "propTabScoring": "Puntuación",
+    "conditionAnd": "Y",
+    "conditionOr": "O",
+    "conditionSelectValue": "Selecciona un valor..."
   },
   "organization": {
     "title": "Organización",
@@ -4435,7 +4442,10 @@
     "researchingGeographic": "Investigando regulaciones de {{state}}",
     "researchingCompany": "Analizando políticas y estándares de {{org}}",
     "researchingUnit": "Analizando el contexto operativo local de {{store}}",
-    "researchingDefault": "Investigando el contexto de la variante"
+    "researchingDefault": "Investigando el contexto de la variante",
+    "failedToTranscribeSlide": "Error al transcribir",
+    "transcribeFailed": "Error al transcribir videos de historia",
+    "transcribePartialError": "{{count}} video(s) fallaron al transcribir. Ver detalles abajo."
   },
   "articleDetail": {
     "backToLibrary": "Volver a la Biblioteca",

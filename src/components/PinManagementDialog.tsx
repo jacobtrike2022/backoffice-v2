@@ -49,7 +49,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
       setCurrentPin(pin);
     } catch (error) {
       console.error('Error fetching PIN:', error);
-      toast.error('Failed to load PIN');
+      toast.error(t('knowledgeBase.failedLoadPin'));
     } finally {
       setFetchingPin(false);
     }
@@ -62,16 +62,16 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
       if (generatedPin) {
         setCurrentPin(generatedPin);
         setShowPin(true);
-        toast.success('New PIN generated successfully', {
-          description: `PIN: ${generatedPin}`
+        toast.success(t('knowledgeBase.pinGeneratedSuccess'), {
+          description: t('knowledgeBase.pinGeneratedDesc', { pin: generatedPin })
         });
       } else {
-        toast.error('Failed to generate PIN');
+        toast.error(t('knowledgeBase.failedGeneratePin'));
       }
     } catch (error: any) {
       console.error('Error generating PIN:', error);
-      toast.error('Failed to generate PIN', {
-        description: error.message || 'Please try again'
+      toast.error(t('knowledgeBase.failedGeneratePin'), {
+        description: error.message || t('knowledgeBase.pleaseRetry')
       });
     } finally {
       setLoading(false);
@@ -81,16 +81,16 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
   const handleSetCustomPin = async () => {
     // Validate PIN format
     if (!/^\d{4}$/.test(newPin)) {
-      toast.error('Invalid PIN', {
-        description: 'PIN must be exactly 4 digits'
+      toast.error(t('knowledgeBase.invalidPin'), {
+        description: t('knowledgeBase.invalidPinDesc')
       });
       return;
     }
 
     // Check if PINs match
     if (newPin !== confirmPin) {
-      toast.error('PINs do not match', {
-        description: 'Please ensure both PIN fields match'
+      toast.error(t('knowledgeBase.pinsDoNotMatch'), {
+        description: t('knowledgeBase.pinsDoNotMatchDesc')
       });
       return;
     }
@@ -104,8 +104,8 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
       // Check uniqueness
       const isUnique = await checkPinUniqueness(newPin, organizationId, userId);
       if (!isUnique) {
-        toast.error('PIN already in use', {
-          description: 'This PIN is already used by another employee in your organization'
+        toast.error(t('knowledgeBase.pinAlreadyInUse'), {
+          description: t('knowledgeBase.pinAlreadyInUseDesc')
         });
         setLoading(false);
         return;
@@ -118,16 +118,16 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
         setShowPin(true);
         setNewPin('');
         setConfirmPin('');
-        toast.success('PIN updated successfully', {
-          description: `New PIN: ${newPin}`
+        toast.success(t('knowledgeBase.pinUpdatedSuccess'), {
+          description: t('knowledgeBase.pinUpdatedDesc', { pin: newPin })
         });
       } else {
-        toast.error('Failed to update PIN');
+        toast.error(t('knowledgeBase.failedUpdatePin'));
       }
     } catch (error: any) {
       console.error('Error setting PIN:', error);
-      toast.error('Failed to update PIN', {
-        description: error.message || 'Please try again'
+      toast.error(t('knowledgeBase.failedUpdatePin'), {
+        description: error.message || t('knowledgeBase.pleaseRetry')
       });
     } finally {
       setLoading(false);
