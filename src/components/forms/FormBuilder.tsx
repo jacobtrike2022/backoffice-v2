@@ -156,7 +156,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
   return (
     <div
       ref={pickerRef}
-      className="absolute z-50 mt-1 w-64 rounded-lg border border-border bg-popover shadow-lg p-3"
+      className="absolute z-50 mt-1 w-80 rounded-lg border border-border bg-popover shadow-lg p-3"
     >
       <div className="flex gap-1 mb-2 text-xs">
         {(['questions', 'content', 'actions'] as const).map(tab => (
@@ -186,7 +186,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
               className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted transition-colors text-left"
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{bt.label}</span>
+              <span>{bt.label}</span>
             </button>
           );
         })}
