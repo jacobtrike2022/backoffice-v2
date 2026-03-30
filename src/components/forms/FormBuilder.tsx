@@ -534,9 +534,11 @@ interface PropertiesDrawerProps {
   onUpdate: (updates: Partial<LocalBlock>) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** Use wider drawer width (fullPage builder mode) */
+  wide?: boolean;
 }
 
-function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete, onClose }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete, onClose, wide = false }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -559,7 +561,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
   };
 
   return (
-    <div className="absolute right-0 top-0 h-full w-[340px] bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200">
+    <div className={`absolute right-0 top-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[420px]' : 'w-[340px]'}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">

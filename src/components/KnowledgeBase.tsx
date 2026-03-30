@@ -415,18 +415,18 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
         <CardContent className="p-8">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-white mb-3">Knowledge Base</h1>
+              <h1 className="text-white mb-3">{t('knowledgeBase.title')}</h1>
               <p className="text-white/90 text-lg max-w-2xl">
-                Your central hub for policies, procedures, and how-to guides. Everything your team needs to succeed.
+                {t('knowledgeBase.heroSubtitle')}
               </p>
               <div className="flex items-center space-x-6 mt-6">
                 <div className="flex items-center space-x-2">
                   <FileText className="h-5 w-5 text-white/80" />
-                  <span className="text-white/90">{mockArticles.length} Articles</span>
+                  <span className="text-white/90">{mockArticles.length} {t('knowledgeBase.articlesLabel')}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <BookOpen className="h-5 w-5 text-white/80" />
-                  <span className="text-white/90">{categories.length} Categories</span>
+                  <span className="text-white/90">{categories.length} {t('knowledgeBase.categoriesLabel')}</span>
                 </div>
               </div>
             </div>
@@ -441,7 +441,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
           <div className="relative">
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
-              placeholder="Search across titles, tags, and content..."
+              placeholder={t('knowledgeBase.searchAcrossPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-12 h-14 text-lg bg-accent/50 border-2 focus:border-primary"
@@ -452,7 +452,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
 
       {/* Categories Grid */}
       <div>
-        <h2 className="text-foreground mb-4">Browse by Category</h2>
+        <h2 className="text-foreground mb-4">{t('knowledgeBase.browseByCategory')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((category) => {
             const Icon = category.icon;
@@ -471,7 +471,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                   </div>
                   <h3 className="font-semibold mb-2">{category.name}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{category.description}</p>
-                  <Badge variant="outline">{category.articleCount} articles</Badge>
+                  <Badge variant="outline">{category.articleCount} {t('knowledgeBase.articlesLabel')}</Badge>
                 </CardContent>
               </Card>
             );
@@ -485,7 +485,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Clock className="h-5 w-5 text-[#F74A05]" />
-              <span>Recently Updated</span>
+              <span>{t('knowledgeBase.recentlyUpdated')}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -525,7 +525,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Eye className="h-5 w-5 text-[#FF733C]" />
-              <span>Most Viewed</span>
+              <span>{t('knowledgeBase.mostViewed')}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -565,14 +565,14 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
       {/* All Articles List with Filters */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-foreground">All Articles</h2>
+          <h2 className="text-foreground">{t('knowledgeBase.allArticles')}</h2>
           {currentRole === 'admin' && (
             <Button 
               className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
               onClick={() => onEditArticle?.(null)}
             >
               <Edit className="h-4 w-4 mr-2" />
-              New Article
+              {t('knowledgeBase.newArticle')}
             </Button>
           )}
         </div>
@@ -596,12 +596,12 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                 </PopoverTrigger>
                 <PopoverContent className="w-80 p-0" align="start">
                   <div className="p-3 border-b">
-                    <p className="text-sm font-medium">Add Filter</p>
+                    <p className="text-sm font-medium">{t('knowledgeBase.addFilter')}</p>
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {/* Category Filters */}
                     <div className="p-3">
-                      <p className="text-xs text-muted-foreground mb-2">Category</p>
+                      <p className="text-xs text-muted-foreground mb-2">{t('knowledgeBase.categoryFilter')}</p>
                       <div className="space-y-1">
                         {categories.map((category) => {
                           const Icon = category.icon;
@@ -632,7 +632,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
 
                     {/* Type Filters */}
                     <div className="p-3">
-                      <p className="text-xs text-muted-foreground mb-2">Type</p>
+                      <p className="text-xs text-muted-foreground mb-2">{t('knowledgeBase.typeFilter')}</p>
                       <div className="space-y-1">
                         {['Required', 'Optional', 'Manager-Only'].map((type) => (
                           <button
@@ -669,7 +669,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
 
               {/* Results Count */}
               <span className="text-sm text-muted-foreground">
-                {filteredArticles.length} {filteredArticles.length === 1 ? 'article' : 'articles'}
+                {filteredArticles.length} {t('knowledgeBase.articlesLabel')}
               </span>
             </div>
 
@@ -682,7 +682,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                 className="text-muted-foreground hover:text-foreground h-8"
               >
                 <RefreshCw className="h-3 w-3 mr-1" />
-                Clear
+                {t('common.clearAll')}
               </Button>
             )}
           </div>
@@ -696,7 +696,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                   variant="secondary" 
                   className="flex items-center gap-1.5 pl-2 pr-1.5 py-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15 transition-colors text-xs"
                 >
-                  <span className="opacity-70">{filter.type === 'category' ? 'Category' : 'Type'}:</span>
+                  <span className="opacity-70">{filter.type === 'category' ? t('knowledgeBase.categoryFilter') : t('knowledgeBase.typeFilter')}:</span>
                   <span>{filter.label}</span>
                   <button
                     onClick={() => removeFilter(filter.type, filter.value)}
@@ -793,7 +793,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
             <Card>
               <CardContent className="p-12 text-center">
                 <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No articles found matching your filters.</p>
+                <p className="text-muted-foreground">{t('knowledgeBase.noArticlesMatchingFilters')}</p>
               </CardContent>
             </Card>
           )}
@@ -824,7 +824,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                   <h1 className="text-foreground mb-2">{selectedCategory.name}</h1>
                   <p className="text-muted-foreground text-lg">{selectedCategory.description}</p>
                   <div className="flex items-center space-x-4 mt-4">
-                    <Badge variant="outline">{selectedCategory.articleCount} articles</Badge>
+                    <Badge variant="outline">{selectedCategory.articleCount} {t('knowledgeBase.articlesLabel')}</Badge>
                   </div>
                 </div>
               </div>
@@ -835,14 +835,14 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
         {/* Subcategories */}
         {selectedCategory.subcategories && (
           <div>
-            <h2 className="text-foreground mb-4">Subcategories</h2>
+            <h2 className="text-foreground mb-4">{t('knowledgeBase.subcategories')}</h2>
             <div className="flex flex-wrap gap-2 mb-6">
               <Button
                 variant={selectedSubcategory === null ? "default" : "outline"}
                 onClick={() => setSelectedSubcategory(null)}
                 className={selectedSubcategory === null ? "bg-primary text-white" : ""}
               >
-                All Articles
+                {t('knowledgeBase.allArticles')}
               </Button>
               {selectedCategory.subcategories.map((sub) => (
                 <Button
@@ -969,16 +969,16 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                       {currentRole === 'admin' && (
                         <DropdownMenuItem onClick={() => onEditArticle?.(selectedArticle)}>
                           <Edit className="h-4 w-4 mr-2" />
-                          Edit Article
+                          {t('knowledgeBase.editArticle')}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem>
                         <Share2 className="h-4 w-4 mr-2" />
-                        Share Link
+                        {t('knowledgeBase.shareLink')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setShowMobilePreview(true)}>
                         <Smartphone className="h-4 w-4 mr-2" />
-                        Mobile Preview
+                        {t('knowledgeBase.mobilePreview')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1048,7 +1048,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                     <div className="bg-accent/50 rounded-lg p-6 border-2 border-dashed border-border">
                       <div className="flex items-center space-x-3 mb-3">
                         <Video className="h-5 w-5 text-primary" />
-                        <span className="font-medium">Video Tutorial</span>
+                        <span className="font-medium">{t('knowledgeBase.videoTutorial')}</span>
                       </div>
                       <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                         <Play className="h-16 w-16 text-muted-foreground" />
@@ -1058,7 +1058,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                     <div className="bg-accent/50 rounded-lg p-6 border-2 border-dashed border-border">
                       <div className="flex items-center space-x-3 mb-3">
                         <ImageIcon className="h-5 w-5 text-primary" />
-                        <span className="font-medium">Visual Reference</span>
+                        <span className="font-medium">{t('knowledgeBase.visualReference')}</span>
                       </div>
                       <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                         <ImageIcon className="h-16 w-16 text-muted-foreground" />
@@ -1066,7 +1066,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                     </div>
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">Article content would be displayed here...</p>
+                  <p className="text-muted-foreground">{t('knowledgeBase.articleContentPlaceholder')}</p>
                 )}
               </CardContent>
             </Card>
@@ -1077,11 +1077,11 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
             {/* Article Info */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Article Information</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.articleInformation')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Author</Label>
+                  <Label className="text-xs text-muted-foreground">{t('contentAuthoring.authorLabel')}</Label>
                   <div className="flex items-center space-x-2 mt-1">
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="bg-primary/10 text-primary text-xs">

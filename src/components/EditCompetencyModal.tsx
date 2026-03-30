@@ -119,7 +119,9 @@ export function EditCompetencyModal({
           {/* Custom Description */}
           <div className="space-y-2">
             <Label htmlFor="custom-description">
-              {isCustom ? labels.singular : t('compliance.customDescriptionLabel')} {t('compliance.competencyDescription', { type: '' }).replace(' ', '')}{' '}
+              {isCustom
+                ? t('compliance.competencyDescription', { type: labels.singular })
+                : t('compliance.customDescriptionStar', { type: labels.singular })}{' '}
               <span className="text-red-500">*</span>
             </Label>
             <Textarea

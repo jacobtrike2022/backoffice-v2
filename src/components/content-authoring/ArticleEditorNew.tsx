@@ -521,17 +521,17 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
 
               {/* Content */}
               <div>
-                <Label htmlFor="content">Article Content *</Label>
+                <Label htmlFor="content">{t('contentAuthoring.articleContentTitle')} *</Label>
                 <Textarea
                   id="content"
                   name="content"
-                  placeholder="Write your article content here... You can use markdown formatting."
+                  placeholder={t('contentAuthoring.articleContentPlaceholder')}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="mt-2 min-h-[500px] font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Supports markdown formatting: **bold**, *italic*, # headings, - lists
+                  {t('contentAuthoring.markdownSupport')}
                 </p>
               </div>
             </CardContent>
@@ -543,7 +543,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           {/* Tags */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Tags</CardTitle>
+              <CardTitle className="text-base">{t('common.tags')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2 mb-3">
@@ -565,7 +565,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
               </div>
               <div className="flex space-x-2">
                 <Input
-                  placeholder="Add tag..."
+                  placeholder={t('contentAuthoring.addTagPlaceholder')}
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
                   onKeyPress={(e) => {
@@ -589,11 +589,11 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           {/* Article Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Article Information</CardTitle>
+              <CardTitle className="text-base">{t('contentAuthoring.articleInformation')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="author">Author</Label>
+                <Label htmlFor="author">{t('contentAuthoring.authorLabel')}</Label>
                 <Input
                   id="author"
                   value={author}
@@ -605,7 +605,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
               <Separator />
 
               <div>
-                <Label htmlFor="version">Version</Label>
+                <Label htmlFor="version">{t('contentAuthoring.versionLabel')}</Label>
                 <Input
                   id="version"
                   value={version}
@@ -617,7 +617,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
               <Separator />
 
               <div>
-                <p className="text-xs text-muted-foreground">Last Updated</p>
+                <p className="text-xs text-muted-foreground">{t('contentAuthoring.lastUpdated')}</p>
                 <p className="text-sm font-medium mt-1">
                   {new Date().toLocaleDateString('en-US', { 
                     month: 'long', 
@@ -634,7 +634,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
             <CardHeader>
               <CardTitle className="text-base flex items-center space-x-2">
                 <History className="h-4 w-4 text-primary" />
-                <span>Version History</span>
+                <span>{t('contentAuthoring.versionHistory')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -651,7 +651,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
                     )}
                     <div className="flex-1">
                       <p className={`text-sm ${v.isCurrent ? 'font-medium' : 'font-medium text-muted-foreground'}`}>
-                        v{v.version} {v.isCurrent && '(Current)'}
+                        v{v.version} {v.isCurrent && `(${t('contentAuthoring.currentVersion')})`}
                       </p>
                       <p className="text-xs text-muted-foreground">{v.date}</p>
                     </div>
@@ -664,7 +664,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           {/* Publishing Actions */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Publishing</CardTitle>
+              <CardTitle className="text-base">{t('contentAuthoring.publishing')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <Button 
