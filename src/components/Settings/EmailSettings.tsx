@@ -32,6 +32,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { useTranslation } from 'react-i18next';
 import {
   getEmailTemplates,
   getEmailLogs,
@@ -50,6 +51,7 @@ import { supabase, getCurrentUserOrgId } from '../../lib/supabase';
 import { EmailTemplateEditorModal, type TemplateFormData } from './EmailTemplateEditorModal';
 
 export function EmailSettings() {
+  const { t } = useTranslation();
   const [activeSubTab, setActiveSubTab] = useState('templates');
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [logs, setLogs] = useState<EmailLog[]>([]);
@@ -272,13 +274,13 @@ export function EmailSettings() {
 
   function getStatusBadge(status: EmailLog['status']) {
     const config: Record<EmailLog['status'], { icon: React.ReactNode; color: string; label: string }> = {
-      pending: { icon: <Clock className="h-3 w-3" />, color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
-      sent: { icon: <Send className="h-3 w-3" />, color: 'bg-blue-100 text-blue-800', label: 'Sent' },
-      delivered: { icon: <CheckCircle2 className="h-3 w-3" />, color: 'bg-green-100 text-green-800', label: 'Delivered' },
-      opened: { icon: <Eye className="h-3 w-3" />, color: 'bg-purple-100 text-purple-800', label: 'Opened' },
-      clicked: { icon: <ExternalLink className="h-3 w-3" />, color: 'bg-indigo-100 text-indigo-800', label: 'Clicked' },
-      bounced: { icon: <AlertCircle className="h-3 w-3" />, color: 'bg-orange-100 text-orange-800', label: 'Bounced' },
-      failed: { icon: <XCircle className="h-3 w-3" />, color: 'bg-red-100 text-red-800', label: 'Failed' },
+      pending: { icon: <Clock className="h-3 w-3" />, color: 'bg-yellow-100 text-yellow-800', label: t('emailSettings.statusPending') },
+      sent: { icon: <Send className="h-3 w-3" />, color: 'bg-blue-100 text-blue-800', label: t('emailSettings.statusSent') },
+      delivered: { icon: <CheckCircle2 className="h-3 w-3" />, color: 'bg-green-100 text-green-800', label: t('emailSettings.statusDelivered') },
+      opened: { icon: <Eye className="h-3 w-3" />, color: 'bg-purple-100 text-purple-800', label: t('emailSettings.statusOpened') },
+      clicked: { icon: <ExternalLink className="h-3 w-3" />, color: 'bg-indigo-100 text-indigo-800', label: t('emailSettings.statusClicked') },
+      bounced: { icon: <AlertCircle className="h-3 w-3" />, color: 'bg-orange-100 text-orange-800', label: t('emailSettings.statusBounced') },
+      failed: { icon: <XCircle className="h-3 w-3" />, color: 'bg-red-100 text-red-800', label: t('emailSettings.statusFailed') },
     };
     const { icon, color, label } = config[status];
     return (
@@ -304,10 +306,10 @@ export function EmailSettings() {
         <CardHeader className="pb-6">
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-primary" />
-            Email Communication
+            {t('emailSettings.title')}
           </CardTitle>
           <CardDescription className="mt-1.5">
-            Manage email templates and view email delivery logs
+            {t('emailSettings.description')}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -317,11 +319,11 @@ export function EmailSettings() {
         <TabsList>
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            Templates
+            {t('emailSettings.templatesTab')}
           </TabsTrigger>
           <TabsTrigger value="logs" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Email Logs
+            {t('emailSettings.logsTab')}
           </TabsTrigger>
         </TabsList>
 
@@ -332,7 +334,7 @@ export function EmailSettings() {
               <CardContent className="py-12">
                 <div className="flex items-center justify-center">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Loading templates...</span>
+                  <span className="ml-2 text-muted-foreground">{t('emailSettings.loadingTemplates')}</span>
                 </div>
               </CardContent>
             </Card>
@@ -343,14 +345,14 @@ export function EmailSettings() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg">Custom Templates</CardTitle>
+                      <CardTitle className="text-lg">{t('emailSettings.customTemplates')}</CardTitle>
                       <CardDescription>
-                        Create custom email templates for your organization
+                        {t('emailSettings.customTemplatesDesc')}
                       </CardDescription>
                     </div>
                     <Button size="sm" onClick={handleCreateTemplate}>
                       <Plus className="h-4 w-4 mr-1" />
-                      Create Template
+                      {t('emailSettings.createTemplate')}
                     </Button>
                   </div>
                 </CardHeader>
@@ -358,9 +360,9 @@ export function EmailSettings() {
                   {templates.filter(t => t.template_type === 'organization').length === 0 ? (
                     <div className="text-center py-8">
                       <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">No custom templates yet</p>
+                      <p className="text-muted-foreground">{t('emailSettings.noCustomTemplates')}</p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Custom templates allow you to override system templates with your branding
+                        {t('emailSettings.noCustomTemplatesDesc')}
                       </p>
                     </div>
                   ) : (
@@ -407,14 +409,14 @@ export function EmailSettings() {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => handleSendTestEmail(template)}>
                                     <Send className="h-4 w-4 mr-2" />
-                                    Send Test Email
+                                    {t('emailSettings.sendTestEmail')}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     onClick={() => handleDeleteClick(template)}
                                     className="text-destructive"
                                   >
                                     <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete Template
+                                    {t('emailSettings.deleteTemplateItem')}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -431,10 +433,10 @@ export function EmailSettings() {
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Lock className="h-4 w-4 text-muted-foreground" />
-                    System Templates
+                    {t('emailSettings.systemTemplates')}
                   </CardTitle>
                   <CardDescription>
-                    Default templates provided by Trike. Click "Customize" to create your own version.
+                    {t('emailSettings.systemTemplatesDesc')}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -459,7 +461,7 @@ export function EmailSettings() {
                                 </Badge>
                                 {hasCustomized && (
                                   <Badge variant="secondary" className="text-xs">
-                                    Customized
+                                    {t('emailSettings.customized')}
                                   </Badge>
                                 )}
                               </div>
@@ -474,7 +476,7 @@ export function EmailSettings() {
                                 onClick={() => handlePreviewTemplate(template)}
                               >
                                 <Eye className="h-4 w-4 mr-1" />
-                                Preview
+                                {t('emailSettings.preview')}
                               </Button>
                               {!hasCustomized && (
                                 <Button
@@ -483,7 +485,7 @@ export function EmailSettings() {
                                   onClick={() => handleCustomizeTemplate(template)}
                                 >
                                   <Pencil className="h-4 w-4 mr-1" />
-                                  Customize
+                                  {t('emailSettings.customize')}
                                 </Button>
                               )}
                             </div>
@@ -497,15 +499,15 @@ export function EmailSettings() {
               {/* Available Variables Reference */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Template Variables</CardTitle>
+                  <CardTitle className="text-lg">{t('emailSettings.templateVariables')}</CardTitle>
                   <CardDescription>
-                    Use these variables in your templates with double curly braces: {`{{variable_name}}`}
+                    {t('emailSettings.templateVariablesDesc')}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <h4 className="font-medium mb-2">Welcome Emails</h4>
+                      <h4 className="font-medium mb-2">{t('emailSettings.welcomeEmails')}</h4>
                       <div className="space-y-1 text-sm">
                         <code className="text-primary">{`{{admin_name}}`}</code> - Admin's name<br />
                         <code className="text-primary">{`{{employee_name}}`}</code> - Employee's name<br />
@@ -516,7 +518,7 @@ export function EmailSettings() {
                       </div>
                     </div>
                     <div>
-                      <h4 className="font-medium mb-2">Password Reset</h4>
+                      <h4 className="font-medium mb-2">{t('emailSettings.passwordReset')}</h4>
                       <div className="space-y-1 text-sm">
                         <code className="text-primary">{`{{user_name}}`}</code> - User's name<br />
                         <code className="text-primary">{`{{reset_link}}`}</code> - Reset password URL<br />
@@ -536,16 +538,16 @@ export function EmailSettings() {
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <CardTitle className="text-lg">Email Delivery Logs</CardTitle>
+                  <CardTitle className="text-lg">{t('emailSettings.deliveryLogs')}</CardTitle>
                   <CardDescription>
-                    Track email delivery status and troubleshoot issues
+                    {t('emailSettings.deliveryLogsDesc')}
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search emails..."
+                      placeholder={t('emailSettings.searchEmails')}
                       value={logSearch}
                       onChange={(e) => setLogSearch(e.target.value)}
                       className="pl-9 w-[200px]"
@@ -556,12 +558,12 @@ export function EmailSettings() {
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="sent">Sent</SelectItem>
-                      <SelectItem value="delivered">Delivered</SelectItem>
-                      <SelectItem value="opened">Opened</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                      <SelectItem value="bounced">Bounced</SelectItem>
+                      <SelectItem value="all">{t('emailSettings.allStatus')}</SelectItem>
+                      <SelectItem value="sent">{t('emailSettings.statusSent')}</SelectItem>
+                      <SelectItem value="delivered">{t('emailSettings.statusDelivered')}</SelectItem>
+                      <SelectItem value="opened">{t('emailSettings.statusOpened')}</SelectItem>
+                      <SelectItem value="failed">{t('emailSettings.statusFailed')}</SelectItem>
+                      <SelectItem value="bounced">{t('emailSettings.statusBounced')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" size="sm" onClick={loadLogs}>
@@ -574,14 +576,14 @@ export function EmailSettings() {
               {logsLoading && logs.length === 0 ? (
                 <div className="flex items-center justify-center py-12">
                   <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Loading logs...</span>
+                  <span className="ml-2 text-muted-foreground">{t('emailSettings.loadingLogs')}</span>
                 </div>
               ) : filteredLogs.length === 0 ? (
                 <div className="text-center py-12">
                   <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No email logs found</p>
+                  <p className="text-muted-foreground">{t('emailSettings.noLogsFound')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Emails will appear here once they are sent
+                    {t('emailSettings.noLogsDesc')}
                   </p>
                 </div>
               ) : (
@@ -626,8 +628,11 @@ export function EmailSettings() {
                   {logsTotal > LOGS_PER_PAGE && (
                     <div className="flex items-center justify-between mt-4 pt-4 border-t">
                       <p className="text-sm text-muted-foreground">
-                        Showing {logsPage * LOGS_PER_PAGE + 1} -{' '}
-                        {Math.min((logsPage + 1) * LOGS_PER_PAGE, logsTotal)} of {logsTotal}
+                        {t('emailSettings.showing', {
+                          from: logsPage * LOGS_PER_PAGE + 1,
+                          to: Math.min((logsPage + 1) * LOGS_PER_PAGE, logsTotal),
+                          total: logsTotal
+                        })}
                       </p>
                       <div className="flex items-center gap-2">
                         <Button
@@ -636,7 +641,7 @@ export function EmailSettings() {
                           onClick={() => setLogsPage(p => p - 1)}
                           disabled={logsPage === 0}
                         >
-                          Previous
+                          {t('common.previous')}
                         </Button>
                         <Button
                           variant="outline"
@@ -644,7 +649,7 @@ export function EmailSettings() {
                           onClick={() => setLogsPage(p => p + 1)}
                           disabled={(logsPage + 1) * LOGS_PER_PAGE >= logsTotal}
                         >
-                          Next
+                          {t('common.next')}
                         </Button>
                       </div>
                     </div>
@@ -662,22 +667,22 @@ export function EmailSettings() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-5 w-5" />
-              Preview: {selectedTemplate?.name}
+              {t('emailSettings.previewTitle', { name: selectedTemplate?.name })}
             </DialogTitle>
           </DialogHeader>
 
           {/* Email Header Info - FROM/TO/SUBJECT */}
           <div className="bg-muted/50 border rounded-lg p-4 space-y-2 text-sm">
             <div className="flex">
-              <span className="font-medium w-20 text-muted-foreground">From:</span>
+              <span className="font-medium w-20 text-muted-foreground">{t('emailSettings.from')}</span>
               <span className="font-mono">Trike &lt;noreply@notifications.trike.co&gt;</span>
             </div>
             <div className="flex">
-              <span className="font-medium w-20 text-muted-foreground">To:</span>
+              <span className="font-medium w-20 text-muted-foreground">{t('emailSettings.to')}</span>
               <span className="font-mono text-muted-foreground">{'{{recipient_email}}'}</span>
             </div>
             <div className="flex">
-              <span className="font-medium w-20 text-muted-foreground">Subject:</span>
+              <span className="font-medium w-20 text-muted-foreground">{t('emailSettings.subject')}</span>
               <span>{previewSubject}</span>
             </div>
           </div>
@@ -691,7 +696,7 @@ export function EmailSettings() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPreviewModal(false)}>
-              Close
+              {t('common.close')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -713,9 +718,9 @@ export function EmailSettings() {
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Template</DialogTitle>
+            <DialogTitle>{t('emailSettings.deleteTemplate')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{templateToDelete?.name}"? This action cannot be undone.
+              {t('emailSettings.deleteConfirm', { name: templateToDelete?.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -724,14 +729,14 @@ export function EmailSettings() {
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
               onClick={handleConfirmDelete}
               disabled={deleting}
             >
-              {deleting ? 'Deleting...' : 'Delete'}
+              {deleting ? t('common.deleting') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

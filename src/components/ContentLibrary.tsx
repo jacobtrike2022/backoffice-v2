@@ -1007,7 +1007,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       >
                         <div className="flex items-center gap-3 flex-1">
                           <Badge variant="outline" className={getTypeColor(derivedTrack.type)}>
-                            {derivedTrack.type}
+                            {t(`content.${derivedTrack.type}`, { defaultValue: derivedTrack.type })}
                           </Badge>
                           <div className="flex-1">
                             <p className="text-sm font-medium text-foreground">{derivedTrack.title || 'Untitled'}</p>
@@ -1374,7 +1374,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
                     <Badge className={getTypeBadgeColor(track.type)}>
                       {getTypeIcon(track.type)}
-                      <span className="ml-1 capitalize">{track.type}</span>
+                      <span className="ml-1">{t(`content.${track.type}`, { defaultValue: track.type })}</span>
                     </Badge>
                     {track.scope?.scope_level && (
                       <Badge variant="outline" className="text-xs bg-background/80">
@@ -1683,7 +1683,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       </div>
                       <Badge className={getTypeBadgeColor(track.type)}>
                         {getTypeIcon(track.type)}
-                        <span className="ml-1 capitalize">{track.type}</span>
+                        <span className="ml-1">{t(`content.${track.type}`, { defaultValue: track.type })}</span>
                       </Badge>
                       {/* Actions Menu for List View - hidden in preview mode */}
                       {!isPreviewMode && (

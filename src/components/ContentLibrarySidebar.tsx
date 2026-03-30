@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Play, FolderOpen, ChevronDown, ChevronUp, Edit, Filter } from 'lucide-react';
 import { getRecentAlbums, type Album } from '../lib/crud/albums';
 import { getPlaylists } from '../lib/crud/playlists';
@@ -40,6 +41,7 @@ export function ContentLibrarySidebar({
   activeAlbumFilter,
   className
 }: ContentLibrarySidebarProps) {
+  const { t } = useTranslation();
   const [playlistsExpanded, setPlaylistsExpanded] = useState(true);
   const [albumsExpanded, setAlbumsExpanded] = useState(true);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -143,7 +145,7 @@ export function ContentLibrarySidebar({
           )}
           onClick={onPlaylistsHeaderClick}
         >
-          Active Playlists
+          {t('dashboard.activePlaylists')}
         </h3>
 
         {loading ? (
@@ -154,15 +156,15 @@ export function ContentLibrarySidebar({
           </div>
         ) : error ? (
           <div className="text-xs text-red-500">
-            Failed to load. <button
+            {t('content.sidebarFailedToLoad')} <button
               onClick={fetchData}
               className="underline hover:text-red-400"
             >
-              Retry
+              {t('content.retry')}
             </button>
           </div>
         ) : displayedPlaylists.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">No playlists yet</p>
+          <p className="text-xs text-muted-foreground italic">{t('content.noPlaylistsYet')}</p>
         ) : (
           <>
             <div className="space-y-1">
@@ -203,7 +205,7 @@ export function ContentLibrarySidebar({
           )}
           onClick={onAlbumsHeaderClick}
         >
-          Active Albums
+          {t('dashboard.activeAlbums')}
         </h3>
 
         {loading ? (
@@ -214,15 +216,15 @@ export function ContentLibrarySidebar({
           </div>
         ) : error ? (
           <div className="text-xs text-red-500">
-            Failed to load. <button
+            {t('content.sidebarFailedToLoad')} <button
               onClick={fetchData}
               className="underline hover:text-red-400"
             >
-              Retry
+              {t('content.retry')}
             </button>
           </div>
         ) : displayedAlbums.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">No albums yet</p>
+          <p className="text-xs text-muted-foreground italic">{t('content.noAlbumsYet')}</p>
         ) : (
           <>
             <div className="space-y-1">
