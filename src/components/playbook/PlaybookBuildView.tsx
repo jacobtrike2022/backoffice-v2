@@ -1004,13 +1004,13 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Tracks
+            {t('playbook.backToTracks')}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <div>
             <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
-              Draft Preview
+              {t('playbook.draftPreview')}
             </h1>
             <p className="text-sm text-muted-foreground">
               {track.title}
@@ -1019,7 +1019,7 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
         </div>
         <div className="flex items-center gap-3">
           <Badge className={cn('text-sm', statusConfig.color)}>
-            {statusConfig.label}
+            {t(statusConfig.labelKey)}
           </Badge>
           {track.status === 'draft_ready' && (
             <Button
@@ -1030,12 +1030,12 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
               {approving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Approving...
+                  {t('playbook.approving')}
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Approve Track
+                  {t('playbook.approveTrack')}
                 </>
               )}
             </Button>
@@ -1043,7 +1043,7 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
           {track.status === 'approved' && (
             <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-5 w-5" />
-              <span className="text-sm font-medium">Approved</span>
+              <span className="text-sm font-medium">{t('playbook.approved')}</span>
             </div>
           )}
         </div>
@@ -1069,14 +1069,13 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
               <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
                 <AlertTriangle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground">No Content Generated</h3>
+              <h3 className="text-lg font-semibold text-foreground">{t('playbook.noContentGenerated')}</h3>
               <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                The draft content hasn't been generated yet or failed to generate.
-                Go back and try generating the draft again.
+                {t('playbook.noContentGeneratedDesc')}
               </p>
               <Button variant="outline" className="mt-4" onClick={onBack}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Go Back
+                {t('playbook.goBack')}
               </Button>
             </div>
           )}
@@ -1086,13 +1085,13 @@ function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
             <div className="mt-6 pt-6 border-t border-border">
               <div className="flex items-center justify-between text-sm text-muted-foreground">
                 <div className="flex items-center gap-4">
-                  <span>{track.chunk_count || 0} source chunks</span>
+                  <span>{t('playbook.sourceChunks', { count: track.chunk_count || 0 })}</span>
                   {track.generated_at && (
-                    <span>Generated {new Date(track.generated_at).toLocaleString()}</span>
+                    <span>{t('playbook.generatedAt', { date: new Date(track.generated_at).toLocaleString() })}</span>
                   )}
                 </div>
                 {track.rag_confidence && (
-                  <span>{Math.round(track.rag_confidence * 100)}% confidence</span>
+                  <span>{t('playbook.confidencePct', { pct: Math.round(track.rag_confidence * 100) })}</span>
                 )}
               </div>
             </div>
