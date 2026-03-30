@@ -454,16 +454,46 @@ export async function getFormSubmissions(
 }
 
 /**
+ * Compute next_due_at from a due date and recurrence rule.
+ * Returns null for 'once' or if no due date is provided.
+ */
+export function computeNextDueAt(
+  dueDate: string | undefined | null,
+  recurrenceRule: string
+): string | null {
+  if (!dueDate || recurrenceRule === 'once') return null;
+  const base = new Date(dueDate);
+  if (isNaN(base.getTime())) return null;
+  switch (recurrenceRule) {
+    case 'daily':
+      base.setDate(base.getDate() + 1);
+      break;
+    case 'weekly':
+      base.setDate(base.getDate() + 7);
+      break;
+    case 'monthly':
+      base.setDate(base.getDate() + 30);
+      break;
+    default:
+      return null;
+  }
+  return base.toISOString();
+}
+
+/**
  * Assign form to users/groups
  */
 export async function assignForm(
   formId: string,
   assignmentType: 'user' | 'store' | 'district' | 'role' | 'group',
   targetId: string,
-  dueDate?: string
+  dueDate?: string,
+  recurrenceRule: string = 'once'
 ) {
   const userProfile = await getCurrentUserProfile();
   if (!userProfile) throw new Error('User not authenticated');
+
+  const nextDueAt = computeNextDueAt(dueDate, recurrenceRule);
 
   const { data, error } = await supabase
     .from('form_assignments')
@@ -473,7 +503,9 @@ export async function assignForm(
       target_id: targetId,
       assigned_by_id: userProfile.id,
       due_date: dueDate,
-      status: 'active'
+      status: 'active',
+      recurrence_rule: recurrenceRule,
+      next_due_at: nextDueAt,
     })
     .select()
     .single();

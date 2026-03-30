@@ -1,4 +1,5 @@
 import React from 'react';
+import SignatureCanvas from 'react-signature-canvas';
 import { isBlockVisible, ConditionalLogic } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,6 +68,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
+  const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
 
   /** Upload a file to Supabase Storage and store its public URL in formData */
   const uploadFile = async (blockId: string, file: File) => {
@@ -772,15 +774,62 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
             <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
             {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
             {readOnly ? (
-              <div className="h-24 border border-border rounded-md flex items-center justify-center text-sm italic text-muted-foreground">
-                {value ? 'Signature captured' : 'No signature'}
+              <div className="border border-border rounded-md bg-muted/30 p-2 flex items-center justify-center" style={{ minHeight: 120 }}>
+                {value ? (
+                  <img
+                    src={value as string}
+                    alt="Signature"
+                    className="max-h-[160px] max-w-full object-contain"
+                  />
+                ) : (
+                  <span className="text-sm italic text-muted-foreground">No signature</span>
+                )}
               </div>
             ) : (
-              <div className="relative">
-                <Textarea placeholder="Type your name to sign..."
-                  value={(value as string) || ''} onChange={(e) => handleChange(block.id, e.target.value)}
-                  className="italic font-serif min-h-[80px]" />
-                <p className="text-xs text-muted-foreground mt-1">Type your full name as your signature</p>
+              <div className="space-y-2">
+                <div
+                  className="border border-border rounded-md overflow-hidden bg-gray-50 dark:bg-gray-900"
+                  style={{ width: '100%', maxWidth: 500 }}
+                >
+                  <SignatureCanvas
+                    ref={(ref) => { sigCanvasRefs.current[block.id] = ref; }}
+                    penColor="black"
+                    canvasProps={{
+                      width: 500,
+                      height: 200,
+                      className: 'w-full',
+                      style: { width: '100%', height: 200, touchAction: 'none' },
+                    }}
+                    onEnd={() => {
+                      const canvas = sigCanvasRefs.current[block.id];
+                      if (canvas && !canvas.isEmpty()) {
+                        const dataUrl = canvas.getTrimmedCanvas().toDataURL('image/png');
+                        handleChange(block.id, dataUrl);
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const canvas = sigCanvasRefs.current[block.id];
+                      if (canvas) {
+                        canvas.clear();
+                        handleChange(block.id, '');
+                      }
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                  >
+                    Clear
+                  </button>
+                  {value && (
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                      Signature captured &#10003;
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Draw your signature above using mouse or touch</p>
               </div>
             )}
           </div>

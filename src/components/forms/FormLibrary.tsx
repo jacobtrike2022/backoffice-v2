@@ -22,6 +22,7 @@ import {
   Check,
   Download,
   QrCode,
+  Repeat,
 } from 'lucide-react';
 import {
   Select,
@@ -46,6 +47,7 @@ import {
 } from '../ui/dialog';
 import { QRCodeCanvas } from 'qrcode.react';
 import { getForms, archiveForm, duplicateForm, deleteForm } from '../../lib/crud/forms';
+import { supabase } from '../../lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -366,6 +368,9 @@ export function FormLibrary({
   const [showTemplates, setShowTemplates] = useState(false);
   const [shareForm, setShareForm] = useState<FormRecord | null>(null);
 
+  // Set of form IDs that have active recurring assignments
+  const [recurringFormIds, setRecurringFormIds] = useState<Set<string>>(new Set());
+
   const canEdit = currentRole === 'admin' || currentRole === 'trike-super-admin';
   const canArchive = currentRole === 'admin' || currentRole === 'trike-super-admin';
   const canDelete = currentRole === 'admin' || currentRole === 'trike-super-admin';
@@ -395,8 +400,28 @@ export function FormLibrary({
     }
   }
 
+  async function loadRecurringFormIds() {
+    if (!orgId) return;
+    try {
+      const { data } = await supabase
+        .from('form_assignments')
+        .select('form_id, recurrence_rule')
+        .eq('status', 'active')
+        .neq('recurrence_rule', 'once');
+      if (data && data.length > 0) {
+        setRecurringFormIds(new Set(data.map((r: any) => r.form_id as string)));
+      } else {
+        setRecurringFormIds(new Set());
+      }
+    } catch {
+      // non-critical — the column may not exist yet if migration hasn't run
+      setRecurringFormIds(new Set());
+    }
+  }
+
   useEffect(() => {
     loadForms();
+    loadRecurringFormIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, filterStatus, filterType, showTemplates]);
 
@@ -670,6 +695,12 @@ export function FormLibrary({
                           TEMPLATE
                         </Badge>
                       )}
+                      {recurringFormIds.has(form.id) && (
+                        <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-[10px] px-2 flex items-center gap-1">
+                          <Repeat className="h-3 w-3" />
+                          Recurring
+                        </Badge>
+                      )}
                     </div>
                   </div>
 
@@ -722,6 +753,12 @@ export function FormLibrary({
                         {form.is_template && (
                           <Badge variant="outline" className="text-amber-500 border-amber-500/30 bg-amber-500/10">
                             Template
+                          </Badge>
+                        )}
+                        {recurringFormIds.has(form.id) && (
+                          <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-[10px] px-2 flex items-center gap-1">
+                            <Repeat className="h-3 w-3" />
+                            Recurring
                           </Badge>
                         )}
                       </div>

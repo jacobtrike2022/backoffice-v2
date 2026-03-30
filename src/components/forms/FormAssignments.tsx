@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
-import { Plus, Calendar, ClipboardList } from 'lucide-react';
+import { Plus, Calendar, ClipboardList, Repeat } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -21,6 +21,7 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { supabase } from '../../lib/supabase';
+import { computeNextDueAt } from '../../lib/crud/forms';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ interface FormAssignment {
   due_date: string | null;
   status: string;
   created_at: string;
+  recurrence_rule: string | null;
+  next_due_at: string | null;
   form: { id: string; title: string; type: string; organization_id: string } | null;
 }
 
@@ -86,6 +89,30 @@ function assignmentTypeBadge(type: string) {
   return map[type] || 'bg-muted text-muted-foreground';
 }
 
+const RECURRENCE_OPTIONS = [
+  { value: 'once', label: 'Once (no repeat)' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
+const RECURRENCE_LABELS: Record<string, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+};
+
+function recurrenceBadge(rule: string | null) {
+  if (!rule || rule === 'once') return null;
+  const label = RECURRENCE_LABELS[rule] || rule;
+  return (
+    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-xs flex items-center gap-1">
+      <Repeat className="h-3 w-3" />
+      {label}
+    </Badge>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignmentsProps) {
@@ -110,6 +137,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   const [assignType, setAssignType] = useState('store'); // 'store' | 'district'
   const [selectedTargetId, setSelectedTargetId] = useState('none');
   const [dueDate, setDueDate] = useState('');
+  const [recurrenceRule, setRecurrenceRule] = useState('once');
 
   // ─── Fetch assignments ──────────────────────────────────────────────────────
 
@@ -130,6 +158,8 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
         due_date,
         status,
         created_at,
+        recurrence_rule,
+        next_due_at,
         form:forms!form_assignments_form_id_fkey(id, title, type, organization_id)
       `)
       .order('created_at', { ascending: false })
@@ -184,6 +214,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
     setAssignType('store');
     setSelectedTargetId('none');
     setDueDate('');
+    setRecurrenceRule('once');
     setSubmitError(null);
     loadDialogOptions();
     setDialogOpen(true);
@@ -205,12 +236,16 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
     setSubmitting(true);
     setSubmitError(null);
 
+    const nextDueAt = computeNextDueAt(dueDate || null, recurrenceRule);
+
     const { error } = await supabase.from('form_assignments').insert({
       form_id: selectedFormId,
       assignment_type: assignType,
       target_id: selectedTargetId,
       due_date: dueDate || null,
       status: 'active',
+      recurrence_rule: recurrenceRule,
+      next_due_at: nextDueAt,
     });
 
     if (error) {
@@ -321,10 +356,16 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                         >
                           {a.assignment_type}
                         </Badge>
+                        {recurrenceBadge(a.recurrence_rule)}
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3.5 w-3.5" />
                           {formatDate(a.due_date)}
                         </span>
+                        {a.recurrence_rule && a.recurrence_rule !== 'once' && a.next_due_at && (
+                          <span className="text-xs text-indigo-600 dark:text-indigo-400">
+                            Next due: {formatDate(a.next_due_at)}
+                          </span>
+                        )}
                         <span className="text-xs opacity-60">
                           Target ID: {shortTarget}
                         </span>
@@ -433,6 +474,31 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
+            </div>
+
+            {/* Recurrence */}
+            <div className="space-y-2">
+              <Label>Recurrence</Label>
+              <Select
+                value={recurrenceRule}
+                onValueChange={setRecurrenceRule}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {recurrenceRule !== 'once' && !dueDate && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Set a due date so the next occurrence can be calculated.
+                </p>
+              )}
             </div>
 
             {submitError && (

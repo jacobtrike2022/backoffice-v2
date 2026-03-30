@@ -12,6 +12,7 @@ import {
   FileText,
   ChevronDown,
   Download,
+  Loader2,
 } from 'lucide-react';
 
 const _publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -129,6 +130,150 @@ function getInitials(name?: string | null): string {
     .slice(0, 2);
 }
 
+// ─── CSV Export ──────────────────────────────────────────────────────────────
+
+/** Escape a cell value for CSV (RFC 4180) */
+function csvCell(value: unknown): string {
+  if (value == null) return '';
+  const str = String(value);
+  // If the cell contains commas, quotes, or newlines, wrap in quotes and escape inner quotes
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/** Flatten a single response value into a plain string for CSV */
+function flattenResponseValue(val: unknown): string {
+  if (val == null) return '';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) {
+    // Array of primitives (e.g. checkbox selections) → semicolon-separated
+    return val.map((v) => {
+      if (typeof v === 'object' && v !== null) {
+        // File objects with url
+        if ('url' in v) return (v as { url: string }).url;
+        return JSON.stringify(v);
+      }
+      return String(v);
+    }).join('; ');
+  }
+  if (typeof val === 'object') {
+    // Signature-like objects
+    if ('dataUrl' in (val as Record<string, unknown>) || 'data_url' in (val as Record<string, unknown>)) {
+      return '[Signature]';
+    }
+    // File-like objects
+    if ('url' in (val as Record<string, unknown>)) {
+      return (val as { url: string }).url;
+    }
+    return JSON.stringify(val);
+  }
+  return String(val);
+}
+
+async function exportSubmissionsCsv(
+  formId: string,
+  formTitle: string,
+  supabaseClient: typeof import('../../lib/supabase').supabase
+) {
+  // 1. Fetch ALL submissions for this form
+  const { data: allSubmissions, error: subErr } = await supabaseClient
+    .from('form_submissions')
+    .select(`
+      *,
+      submitted_by:users!form_submissions_submitted_by_id_fkey(name, email),
+      approved_by:users!form_submissions_approved_by_id_fkey(name, email)
+    `)
+    .eq('form_id', formId)
+    .order('submitted_at', { ascending: false });
+
+  if (subErr) throw subErr;
+  if (!allSubmissions || allSubmissions.length === 0) {
+    throw new Error('No submissions to export.');
+  }
+
+  // 2. Fetch form blocks to build dynamic columns
+  const { data: blocks, error: blocksErr } = await supabaseClient
+    .from('form_blocks')
+    .select('id, label, type, display_order')
+    .eq('form_id', formId)
+    .order('display_order', { ascending: true });
+
+  if (blocksErr) throw blocksErr;
+
+  // Filter to question blocks only (exclude headings, separators, etc.)
+  const questionBlocks = (blocks || []).filter(
+    (b: any) => b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph'
+  );
+
+  // 3. Build CSV header
+  const fixedHeaders = ['Submission ID', 'Submitted By', 'Email', 'Submitted At', 'Status'];
+  const hasScoring = allSubmissions.some((s: any) => s.score_percentage != null);
+  if (hasScoring) {
+    fixedHeaders.push('Score %', 'Pass/Fail');
+  }
+  const blockHeaders = questionBlocks.map((b: any) => b.label || `Question ${b.display_order}`);
+  const allHeaders = [...fixedHeaders, ...blockHeaders];
+
+  // 4. Build rows
+  const rows: string[][] = [];
+  for (const sub of allSubmissions as any[]) {
+    const rd = sub.response_data || sub.responses || {};
+    const submitterName = sub.submitted_by?.name || 'Anonymous';
+    const submitterEmail = sub.submitted_by?.email || '';
+
+    const fixedCells = [
+      sub.id,
+      submitterName,
+      submitterEmail,
+      sub.submitted_at ? new Date(sub.submitted_at).toLocaleString() : '',
+      sub.status || '',
+    ];
+
+    if (hasScoring) {
+      fixedCells.push(
+        sub.score_percentage != null ? String(Math.round(sub.score_percentage)) : '',
+        rd._scoring_passed === true ? 'Pass' : rd._scoring_passed === false ? 'Fail' : ''
+      );
+    }
+
+    const blockCells = questionBlocks.map((b: any) => {
+      // Try block id key first, then label key
+      const val = rd[b.id] ?? rd[b.label] ?? '';
+      return flattenResponseValue(val);
+    });
+
+    rows.push([...fixedCells, ...blockCells]);
+  }
+
+  // 5. Build CSV string
+  const csvLines = [
+    allHeaders.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ];
+  const csvString = csvLines.join('\r\n');
+
+  // 6. Download with UTF-8 BOM for Excel compatibility
+  const BOM = '\uFEFF';
+  const blob = new Blob([BOM + csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+  const filename = `${safeTitle}_submissions_${dateStr}.csv`;
+
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Status filter options (Radix UI — no empty string values) ────────────────
 
 const STATUS_FILTERS = [
@@ -188,6 +333,9 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
 
   // Approve/reject loading state
   const [actionLoading, setActionLoading] = useState(false);
+
+  // CSV export loading state
+  const [csvExporting, setCsvExporting] = useState(false);
 
   // ── Load forms ──────────────────────────────────────────────────────────────
 
@@ -338,6 +486,22 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
     }
   }
 
+  // ── CSV Export handler ───────────────────────────────────────────────────────
+
+  async function handleExportCsv() {
+    if (selectedFormId === 'none' || csvExporting) return;
+    const form = forms.find((f) => f.id === selectedFormId);
+    if (!form) return;
+    setCsvExporting(true);
+    try {
+      await exportSubmissionsCsv(selectedFormId, form.title, supabase);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    } finally {
+      setCsvExporting(false);
+    }
+  }
+
   // ── Filtered submissions ─────────────────────────────────────────────────────
 
   const filteredSubmissions = submissions.filter((s) => {
@@ -398,23 +562,39 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           )}
         </div>
 
-        {/* Status filter pills */}
+        {/* Status filter pills + Export CSV */}
         {selectedFormId !== 'none' && (
-          <div className="flex flex-wrap gap-1">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setStatusFilter(f.value)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  statusFilter === f.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/70'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-1 flex-1">
+              {STATUS_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setStatusFilter(f.value)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    statusFilter === f.value
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={csvExporting || submissions.length === 0}
+              className="shrink-0"
+            >
+              {csvExporting ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-1.5" />
+              )}
+              {csvExporting ? 'Exporting…' : 'Export CSV'}
+            </Button>
           </div>
         )}
 
