@@ -27,6 +27,12 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
   const legacyRole: LegacyRole =
     currentRole === 'trike-super-admin' ? 'admin' : (currentRole as LegacyRole);
 
+  // In demo mode App.tsx sets viewingOrgId asynchronously from the URL, so orgId prop
+  // may arrive as '' on the first render. Read demo_org_id directly from the URL as
+  // an immediate fallback so child components never see an empty orgId.
+  const urlDemoOrgId = new URLSearchParams(window.location.search).get('demo_org_id') || '';
+  const effectiveOrgId = orgId || urlDemoOrgId;
+
   const [activeTab, setActiveTab] = useState('analytics');
 
   // Builder routing state — undefined formId means "create new"
@@ -88,7 +94,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
         <FormDetail
           formId={selectedFormId}
-          orgId={orgId}
+          orgId={effectiveOrgId}
           onBack={handleBackToLibrary}
           onEdit={handleEditFromDetail}
           currentRole={legacyRole}
@@ -121,12 +127,12 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
         </TabsList>
 
         <TabsContent value="analytics" className="space-y-6">
-          <FormAnalytics orgId={orgId} currentRole={legacyRole} />
+          <FormAnalytics orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
 
         <TabsContent value="builder" className="space-y-6">
           <FormBuilder
-            orgId={orgId}
+            orgId={effectiveOrgId}
             formId={builderFormId}
             currentRole={legacyRole}
             onSaveDraft={() => setActiveTab('library')}
@@ -138,7 +144,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
         <TabsContent value="library" className="space-y-6">
           <FormLibrary
-            orgId={orgId}
+            orgId={effectiveOrgId}
             currentRole={currentRole}
             onNewForm={handleNewForm}
             onEditForm={handleEditForm}
@@ -147,11 +153,11 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
         </TabsContent>
 
         <TabsContent value="assignments" className="space-y-6">
-          <FormAssignments orgId={orgId} currentRole={legacyRole} />
+          <FormAssignments orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
 
         <TabsContent value="submissions" className="space-y-6">
-          <FormSubmissions orgId={orgId} currentRole={legacyRole} />
+          <FormSubmissions orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
       </Tabs>
       <Footer />
