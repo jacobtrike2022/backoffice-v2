@@ -49,7 +49,12 @@ import {
   Scissors,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase, supabaseAnonKey, refreshAuthSession } from '../lib/supabase';
+import {
+  supabase,
+  supabaseAnonKey,
+  refreshAuthSession,
+  getViewingOrgOverride,
+} from '../lib/supabase';
 import { APP_CONFIG } from '../lib/config';
 import { getServerUrl } from '../utils/supabase/info';
 import { cn } from './ui/utils';
@@ -159,6 +164,22 @@ interface DocumentIntelligenceEditorProps {
   onStartPlaybook?: (sourceFileId: string) => void;
   /** Callback to navigate to a track in the content library */
   onNavigateToTrack?: (trackId: string) => void;
+  /**
+   * If set, JD→role wizard navigates in-app (preserves org preview / session) instead of a full-page jump to /roles/:id.
+   */
+  onNavigateToRoleAfterJdExtract?: (roleId: string) => void;
+}
+
+/** Full-page /roles/:id URL — must carry demo_org_id when previewing another org, or rolesApi.get returns 0 rows (PGRST116). */
+function buildRoleDeepLinkUrl(roleId: string): string {
+  const origin = window.location.origin;
+  const next = new URLSearchParams(window.location.search);
+  const previewOrg = getViewingOrgOverride();
+  if (previewOrg && !next.get('demo_org_id')) {
+    next.set('demo_org_id', previewOrg);
+  }
+  const qs = next.toString();
+  return qs ? `${origin}/roles/${roleId}?${qs}` : `${origin}/roles/${roleId}`;
 }
 
 export function DocumentIntelligenceEditor({
@@ -169,6 +190,7 @@ export function DocumentIntelligenceEditor({
   highlightChunkId,
   onStartPlaybook,
   onNavigateToTrack,
+  onNavigateToRoleAfterJdExtract,
 }: DocumentIntelligenceEditorProps) {
 
   // Core state
@@ -1569,12 +1591,12 @@ export function DocumentIntelligenceEditor({
             setSelectedEntityId(null);
             loadChunks(); // Reload to show the linked role
 
-            // Navigate to the role edit page if a role was created/merged
             if (createdRoleId) {
-              // Build the role edit URL
-              const { origin, pathname } = window.location;
-              const rolesUrl = `${origin}/roles/${createdRoleId}`;
-              window.location.href = rolesUrl;
+              if (onNavigateToRoleAfterJdExtract) {
+                onNavigateToRoleAfterJdExtract(createdRoleId);
+              } else {
+                window.location.href = buildRoleDeepLinkUrl(createdRoleId);
+              }
             }
           }}
         />
@@ -1966,11 +1988,15 @@ function ChunkBlock({
         )}
       </div>
 
-      {/* Margin sidebar - connected content */}
+      {/* Margin sidebar - connected content (JD: always show + Role / linked role — not hover-only) */}
       <div
         className={cn(
           "w-48 pt-2 transition-opacity flex-shrink-0",
-          isHovered || chunk.linkedContent.length > 0 ? "opacity-100" : "opacity-0"
+          isHovered ||
+            chunk.linkedContent.length > 0 ||
+            chunk.content_class !== 'other'
+            ? "opacity-100"
+            : "opacity-0"
         )}
       >
         <div className="text-sm space-y-2">
@@ -1985,11 +2011,16 @@ function ChunkBlock({
             </button>
           ) : chunk.content_class === 'job_description' ? (
             <button
-              onClick={onCreateRole}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              type="button"
+              title="Extract this job description into a role (JD → role)"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateRole();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/35 bg-primary/5 text-foreground/90 hover:text-foreground hover:bg-primary/10 hover:border-primary/50 transition-colors text-left w-full max-w-full"
             >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Role</span>
+              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">Role</span>
             </button>
           ) : null}
 
@@ -2015,11 +2046,16 @@ function ChunkBlock({
             </div>
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button
-              onClick={onCreateContent}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              type="button"
+              title="Create training content track from this chunk"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateContent();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-orange-500/35 bg-orange-500/5 text-foreground/90 hover:text-foreground hover:bg-orange-500/10 hover:border-orange-500/50 transition-colors text-left w-full max-w-full"
             >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Content</span>
+              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">Content</span>
             </button>
           ) : null}
         </div>

@@ -59,8 +59,6 @@ interface UnitsProps {
 }
 
 export function Units({ role: currentRole, selectedStoreId: initialStoreId, onStoreSelect, onNavigate }: UnitsProps) {
-  console.log('🏪 Units component rendered! Current role:', currentRole);
-  
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);

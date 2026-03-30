@@ -500,6 +500,12 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
               highlightChunkId={highlightChunkId}
               onStartPlaybook={onStartPlaybook}
               onNavigateToTrack={onNavigateToTrack}
+              onNavigateToRoleAfterJdExtract={(roleId) => {
+                setEditingSourceFileId(null);
+                setHighlightChunkId(null);
+                setActiveTab('roles');
+                setSelectedRoleId(roleId);
+              }}
             />
           ) : (
             <div className="space-y-6">

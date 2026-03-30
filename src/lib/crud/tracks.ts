@@ -170,6 +170,42 @@ export function validateTrackContentForPublish(track: {
   return { canPublish: true };
 }
 
+/** Batch-read junction tag names via Edge Function (bypasses demo RLS on track_tags SELECT). */
+async function fetchJunctionTagNamesForTracksViaServer(trackIds: string[]): Promise<Record<string, string[]> | null> {
+  if (typeof window === 'undefined' || trackIds.length === 0) return null;
+  try {
+    const [{ data: { user } }, { data: { session } }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getSession(),
+    ]);
+    const token = user && session?.access_token ? session.access_token : publicAnonKey;
+
+    const CHUNK = 200;
+    const merged: Record<string, string[]> = {};
+    for (let i = 0; i < trackIds.length; i += CHUNK) {
+      const chunk = trackIds.slice(i, i + CHUNK);
+      const res = await fetch(`${getServerUrl()}/tags/tracks/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: publicAnonKey,
+        },
+        body: JSON.stringify({ trackIds: chunk }),
+      });
+      if (!res.ok) {
+        return null;
+      }
+      const data = await res.json().catch(() => ({}));
+      const part = (data?.byTrackId || {}) as Record<string, string[]>;
+      Object.assign(merged, part);
+    }
+    return merged;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Enrich tracks with tags from the track_tags junction table
  * This is the source of truth for tags (replaces deprecated tracks.tags column)
@@ -179,53 +215,54 @@ async function enrichTracksWithJunctionTags(tracks: any[]): Promise<any[]> {
 
   const trackIds = tracks.map(t => t.id);
 
-  // Fetch all track-tag relationships for these tracks in one query
-  const { data: trackTagRelations, error: relError } = await supabase
-    .from('track_tags')
-    .select('track_id, tag_id')
-    .in('track_id', trackIds);
+  let trackIdToTagNames: Record<string, string[]> = {};
 
-  if (relError) {
-    console.error('[enrichTracksWithJunctionTags] Error fetching track_tags:', relError);
-    return tracks; // Return tracks as-is if junction table query fails
-  }
+  const serverMap = await fetchJunctionTagNamesForTracksViaServer(trackIds);
+  if (serverMap) {
+    trackIdToTagNames = serverMap;
+  } else {
+    // Fallback: direct client reads (may be empty under strict demo RLS)
+    const { data: trackTagRelations, error: relError } = await supabase
+      .from('track_tags')
+      .select('track_id, tag_id')
+      .in('track_id', trackIds);
 
-  if (!trackTagRelations || trackTagRelations.length === 0) {
-    // No tags in junction table, return tracks with empty tags arrays
-    return tracks.map(t => ({ ...t, tags: [] }));
-  }
-
-  // Get unique tag IDs
-  const tagIds = [...new Set(trackTagRelations.map(r => r.tag_id))];
-
-  // Fetch tag details
-  const { data: tags, error: tagError } = await supabase
-    .from('tags')
-    .select('id, name')
-    .in('id', tagIds);
-
-  if (tagError) {
-    console.error('[enrichTracksWithJunctionTags] Error fetching tags:', tagError);
-    return tracks;
-  }
-
-  // Create a map of tag_id -> tag_name
-  const tagIdToName: Record<string, string> = {};
-  tags?.forEach(tag => {
-    tagIdToName[tag.id] = tag.name;
-  });
-
-  // Create a map of track_id -> tag_names[]
-  const trackIdToTagNames: Record<string, string[]> = {};
-  trackTagRelations.forEach(rel => {
-    if (!trackIdToTagNames[rel.track_id]) {
-      trackIdToTagNames[rel.track_id] = [];
+    if (relError) {
+      console.error('[enrichTracksWithJunctionTags] Error fetching track_tags:', relError);
+      return tracks;
     }
-    const tagName = tagIdToName[rel.tag_id];
-    if (tagName) {
-      trackIdToTagNames[rel.track_id].push(tagName);
+
+    if (!trackTagRelations || trackTagRelations.length === 0) {
+      return tracks.map(t => ({ ...t, tags: [] }));
     }
-  });
+
+    const tagIds = [...new Set(trackTagRelations.map(r => r.tag_id))];
+
+    const { data: tags, error: tagError } = await supabase
+      .from('tags')
+      .select('id, name')
+      .in('id', tagIds);
+
+    if (tagError) {
+      console.error('[enrichTracksWithJunctionTags] Error fetching tags:', tagError);
+      return tracks;
+    }
+
+    const tagIdToName: Record<string, string> = {};
+    tags?.forEach(tag => {
+      tagIdToName[tag.id] = tag.name;
+    });
+
+    trackTagRelations.forEach(rel => {
+      if (!trackIdToTagNames[rel.track_id]) {
+        trackIdToTagNames[rel.track_id] = [];
+      }
+      const tagName = tagIdToName[rel.tag_id];
+      if (tagName) {
+        trackIdToTagNames[rel.track_id].push(tagName);
+      }
+    });
+  }
 
   // Enrich tracks with their tags and parse/normalize transcript_data
   return tracks.map(track => {
@@ -1326,11 +1363,15 @@ export async function getTracks(filters: {
 
   // Handle tag filtering via junction table (source of truth)
   if (filters.tags && filters.tags.length > 0) {
-    // First, get tag IDs for the requested tag names
-    const { data: matchingTagRecords } = await supabase
+    // Resolve tag IDs scoped to org + global rows so KB category names match the org's tag row
+    let tagNameQuery = supabase
       .from('tags')
       .select('id')
       .in('name', filters.tags);
+    if (orgId) {
+      tagNameQuery = tagNameQuery.or(`organization_id.eq.${orgId},organization_id.is.null`);
+    }
+    const { data: matchingTagRecords } = await tagNameQuery;
 
     const tagIds = matchingTagRecords?.map(t => t.id) || [];
 

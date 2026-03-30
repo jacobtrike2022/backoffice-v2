@@ -3,7 +3,7 @@ import { DealDashboard } from './DealDashboard';
 import { DealPipelineBoard } from './DealPipelineBoard';
 import { OrganizationsList } from './OrganizationsList';
 import { ProposalsList } from './ProposalsList';
-import { PipelineAnalytics } from './PipelineAnalytics';
+import { DemoActivityAnalytics } from './DemoActivityAnalytics';
 import { ProspectJourneyPanel } from './ProspectJourneyPanel';
 import { DemoProvisioningModal } from './DemoProvisioningModal';
 import { ROICalculator } from './ROICalculator';
@@ -165,7 +165,7 @@ export function TrikeAdminPage({ onPreviewOrg, darkMode }: TrikeAdminPageProps) 
       case 'proposals':
         return <ProposalsList />;
       case 'analytics':
-        return <PipelineAnalytics />;
+        return <DemoActivityAnalytics />;
       case 'prospect-portal':
         return null;
       case 'settings':

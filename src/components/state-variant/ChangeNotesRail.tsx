@@ -19,9 +19,16 @@ import {
   ChevronDown,
   Link2,
   Calendar,
-  Shield
+  Shield,
+  CheckCircle2,
+  XCircle,
+  Scale,
+  Info,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import {
   HoverCard,
@@ -35,6 +42,10 @@ interface ChangeNotesRailProps {
   changeNotes: ChangeNote[];
   selectedNoteId: string | null;
   onNoteClick: (noteId: string) => void;
+  onAcceptNote?: (noteId: string) => void;
+  onRejectNote?: (noteId: string) => void;
+  acceptedNoteIds?: Set<string>;
+  rejectedNoteIds?: Set<string>;
 }
 
 const statusConfig: Record<ChangeNoteStatus, {
@@ -59,53 +70,73 @@ const statusConfig: Record<ChangeNoteStatus, {
   },
 };
 
-const tierConfig: Record<SourceTier, {
+const tierConfig: Record<string, {
   label: string;
   className: string;
   description: string;
 }> = {
+  tier1: {
+    label: 'Official',
+    className: 'bg-green-500/10 text-green-400 border-green-500/30',
+    description: 'Official government source',
+  },
   tier1_official: {
     label: 'Official',
     className: 'bg-green-500/10 text-green-400 border-green-500/30',
     description: 'Official government source',
+  },
+  tier2: {
+    label: 'Legal DB',
+    className: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    description: 'Legal database (Justia, etc.)',
   },
   tier2_legal_database: {
     label: 'Legal DB',
     className: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
     description: 'Legal database (Justia, etc.)',
   },
+  tier3: {
+    label: 'Secondary',
+    className: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    description: 'Secondary source - verify claims',
+  },
   tier3_secondary: {
     label: 'Secondary',
     className: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
     description: 'Secondary source - verify claims',
   },
-  unclassified: {
+  unknown: {
     label: 'Unknown',
     className: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
     description: 'Source tier not determined',
   },
 };
 
-// Helper to normalize tier values from backend (numeric 1,2,3 or string tier1_official, etc.)
+const defaultTierCfg = tierConfig.unknown;
+
+// Helper to normalize tier values from backend (numeric 1,2,3 or string tier1, tier2, etc.)
 function getTierConfig(tier: SourceTier | number | string | undefined) {
   // Handle numeric tiers from backend
-  if (tier === 1) return tierConfig.tier1_official;
-  if (tier === 2) return tierConfig.tier2_legal_database;
-  if (tier === 3) return tierConfig.tier3_secondary;
+  if (tier === 1) return tierConfig.tier1;
+  if (tier === 2) return tierConfig.tier2;
+  if (tier === 3) return tierConfig.tier3;
 
   // Handle string tiers
   if (typeof tier === 'string' && tier in tierConfig) {
-    return tierConfig[tier as SourceTier];
+    return tierConfig[tier];
   }
 
-  // Fallback to unclassified
-  return tierConfig.unclassified;
+  return defaultTierCfg;
 }
 
 export function ChangeNotesRail({
   changeNotes,
   selectedNoteId,
   onNoteClick,
+  onAcceptNote,
+  onRejectNote,
+  acceptedNoteIds = new Set(),
+  rejectedNoteIds = new Set(),
 }: ChangeNotesRailProps) {
   // State for collapsed sections
   const [blockedExpanded, setBlockedExpanded] = useState(false);
@@ -114,6 +145,10 @@ export function ChangeNotesRail({
   const needsReviewNotes = changeNotes.filter(n => n.status === 'needs_review');
   const appliedNotes = changeNotes.filter(n => n.status === 'applied');
   const blockedNotes = changeNotes.filter(n => n.status === 'blocked');
+
+  const totalReviewable = needsReviewNotes.length + appliedNotes.length;
+  const acceptedCount = acceptedNoteIds.size;
+  const rejectedCount = rejectedNoteIds.size;
 
   return (
     <div className="h-full flex flex-col">
@@ -150,6 +185,10 @@ export function ChangeNotesRail({
                     note={note}
                     isSelected={selectedNoteId === note.id}
                     onClick={() => onNoteClick(note.id)}
+                    onAccept={onAcceptNote ? () => onAcceptNote(note.id) : undefined}
+                    onReject={onRejectNote ? () => onRejectNote(note.id) : undefined}
+                    isAccepted={acceptedNoteIds.has(note.id)}
+                    isRejected={rejectedNoteIds.has(note.id)}
                   />
                 ))}
               </div>
@@ -175,6 +214,10 @@ export function ChangeNotesRail({
                     note={note}
                     isSelected={selectedNoteId === note.id}
                     onClick={() => onNoteClick(note.id)}
+                    onAccept={onAcceptNote ? () => onAcceptNote(note.id) : undefined}
+                    onReject={onRejectNote ? () => onRejectNote(note.id) : undefined}
+                    isAccepted={acceptedNoteIds.has(note.id)}
+                    isRejected={rejectedNoteIds.has(note.id)}
                   />
                 ))}
               </div>
@@ -225,21 +268,45 @@ export function ChangeNotesRail({
       <div className="px-4 py-3 border-t border-border shrink-0 bg-muted/30">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-3">
-            {needsReviewNotes.length > 0 && (
-              <span className="flex items-center gap-1 text-amber-500">
-                <AlertTriangle className="w-3 h-3" />
-                {needsReviewNotes.length} to review
-              </span>
-            )}
-            {appliedNotes.length > 0 && (
-              <span className="text-green-500">
-                {appliedNotes.length} applied
-              </span>
-            )}
-            {blockedNotes.length > 0 && (
-              <span className="text-red-500">
-                {blockedNotes.length} blocked
-              </span>
+            {(acceptedCount > 0 || rejectedCount > 0) ? (
+              <>
+                {acceptedCount > 0 && (
+                  <span className="flex items-center gap-1 text-green-500">
+                    <ThumbsUp className="w-3 h-3" />
+                    {acceptedCount} accepted
+                  </span>
+                )}
+                {rejectedCount > 0 && (
+                  <span className="flex items-center gap-1 text-red-500">
+                    <ThumbsDown className="w-3 h-3" />
+                    {rejectedCount} rejected
+                  </span>
+                )}
+                {totalReviewable - acceptedCount - rejectedCount > 0 && (
+                  <span className="text-muted-foreground">
+                    {totalReviewable - acceptedCount - rejectedCount} remaining
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                {needsReviewNotes.length > 0 && (
+                  <span className="flex items-center gap-1 text-amber-500">
+                    <AlertTriangle className="w-3 h-3" />
+                    {needsReviewNotes.length} to review
+                  </span>
+                )}
+                {appliedNotes.length > 0 && (
+                  <span className="text-green-500">
+                    {appliedNotes.length} applied
+                  </span>
+                )}
+                {blockedNotes.length > 0 && (
+                  <span className="text-red-500">
+                    {blockedNotes.length} blocked
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -253,13 +320,25 @@ function NoteCard({
   note,
   isSelected,
   onClick,
+  onAccept,
+  onReject,
+  isAccepted,
+  isRejected,
 }: {
   note: ChangeNote;
   isSelected: boolean;
   onClick: () => void;
+  onAccept?: () => void;
+  onReject?: () => void;
+  isAccepted?: boolean;
+  isRejected?: boolean;
 }) {
   const config = statusConfig[note.status];
   const StatusIcon = config.icon;
+
+  // Check for scope drift warning from the note's metadata
+  const scopeDriftWarning = (note as any).scopeDriftWarning || (note as any).relevanceStatus === 'flagged';
+  const relevanceScore = (note as any).relevanceScore;
 
   return (
     <div
@@ -270,22 +349,41 @@ function NoteCard({
       data-rail-note-id={note.id}
       className={`
         w-full text-left p-3 rounded-lg border transition-all cursor-pointer
-        ${isSelected
-          ? 'border-primary bg-primary/5 ring-1 ring-primary'
-          : 'border-border bg-card hover:border-primary/50 hover:bg-accent/50'}
+        ${isRejected
+          ? 'border-red-500/30 bg-red-500/5 opacity-60'
+          : isAccepted
+            ? 'border-green-500/30 bg-green-500/5'
+            : isSelected
+              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+              : 'border-border bg-card hover:border-primary/50 hover:bg-accent/50'}
       `}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2 mb-2">
-        <h5 className="font-medium text-sm line-clamp-2">{note.title}</h5>
+        <h5 className={`font-medium text-sm line-clamp-2 ${isRejected ? 'line-through' : ''}`}>{note.title}</h5>
         <Badge
           variant="outline"
-          className={`shrink-0 text-xs ${config.className}`}
+          className={`shrink-0 text-xs ${isAccepted ? 'bg-green-500/10 text-green-500 border-green-500/30' : isRejected ? 'bg-red-500/10 text-red-500 border-red-500/30' : config.className}`}
         >
-          <StatusIcon className="w-3 h-3 mr-1" />
-          {config.label}
+          {isAccepted ? (
+            <><ThumbsUp className="w-3 h-3 mr-1" />Accepted</>
+          ) : isRejected ? (
+            <><ThumbsDown className="w-3 h-3 mr-1" />Rejected</>
+          ) : (
+            <><StatusIcon className="w-3 h-3 mr-1" />{config.label}</>
+          )}
         </Badge>
       </div>
+
+      {/* Scope drift warning */}
+      {scopeDriftWarning && !isAccepted && !isRejected && (
+        <div className="flex items-start gap-1.5 px-2 py-1.5 mb-2 rounded bg-amber-500/10 border border-amber-500/20">
+          <AlertTriangle className="w-3 h-3 text-amber-500 mt-0.5 shrink-0" />
+          <div className="text-[11px] text-amber-600">
+            Possible scope drift{relevanceScore ? ` (${relevanceScore}/10)` : ''} — review carefully
+          </div>
+        </div>
+      )}
 
       {/* Description */}
       <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
@@ -311,18 +409,55 @@ function NoteCard({
           )}
         </div>
       )}
+
+      {/* Accept/Reject buttons */}
+      {(onAccept || onReject) && !isAccepted && !isRejected && (
+        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+          {onAccept && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-green-600 hover:bg-green-500/10 hover:text-green-600"
+              onClick={(e) => { e.stopPropagation(); onAccept(); }}
+            >
+              <ThumbsUp className="w-3 h-3 mr-1" />
+              Accept
+            </Button>
+          )}
+          {onReject && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-red-500 hover:bg-red-500/10 hover:text-red-500"
+              onClick={(e) => { e.stopPropagation(); onReject(); }}
+            >
+              <ThumbsDown className="w-3 h-3 mr-1" />
+              Reject
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-// Citation Badge with Hover Card
+// Citation Badge with Hover Card and verification indicator
 function CitationBadge({ citation }: { citation: CitationRef }) {
   const tierCfg = getTierConfig(citation.tier);
+  const urlVerified = (citation as any).url_verified;
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     window.open(citation.url, '_blank', 'noopener,noreferrer');
   };
+
+  // Determine tier icon
+  const TierIcon = (() => {
+    const t = citation.tier as string | number;
+    if (t === 1 || t === 'tier1' || t === 'tier1_official') return Shield;
+    if (t === 2 || t === 'tier2' || t === 'tier2_legal_database') return Scale;
+    return Info;
+  })();
 
   return (
     <HoverCard openDelay={200} closeDelay={100}>
@@ -336,9 +471,12 @@ function CitationBadge({ citation }: { citation: CitationRef }) {
             hover:opacity-80
           `}
         >
-          <Link2 className="w-3 h-3" />
+          {/* Verification dot */}
+          {urlVerified === true && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+          {urlVerified === false && <XCircle className="w-3 h-3 text-red-400" />}
+          {urlVerified == null && <TierIcon className="w-3 h-3" />}
           <span className="truncate max-w-[100px]">
-            {citation.hostname || new URL(citation.url).hostname}
+            {citation.hostname || (() => { try { return new URL(citation.url).hostname; } catch { return citation.url; } })()}
           </span>
         </button>
       </HoverCardTrigger>

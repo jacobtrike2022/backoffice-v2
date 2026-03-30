@@ -6,6 +6,63 @@
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { projectId, publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 
+/**
+ * PostgREST auth for junction writes. In demo mode there is often no Supabase Auth user; a stale
+ * or invalid JWT in storage can still be attached to the JS client and yields 401 on writes.
+ * When `getUser()` is null, use the anon key explicitly (same pattern as Edge Function calls).
+ */
+async function getPostgrestJunctionAuthHeaders(): Promise<Record<string, string>> {
+  const [{ data: { user } }, { data: { session } }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+  const token = user && session?.access_token ? session.access_token : publicAnonKey;
+  return {
+    Authorization: `Bearer ${token}`,
+    apikey: publicAnonKey,
+    'Content-Type': 'application/json',
+  };
+}
+
+const REST_V1_BASE = `https://${projectId}.supabase.co/rest/v1`;
+
+async function junctionTableDeleteAndInsert(
+  junctionTable: string,
+  foreignKey: string,
+  entityId: string,
+  tagIds: string[]
+): Promise<void> {
+  const headers = await getPostgrestJunctionAuthHeaders();
+  const deleteHeaders = { ...headers, Prefer: 'return=minimal' };
+
+  const delRes = await fetch(
+    `${REST_V1_BASE}/${junctionTable}?${foreignKey}=eq.${encodeURIComponent(entityId)}`,
+    { method: 'DELETE', headers: deleteHeaders }
+  );
+  if (!delRes.ok) {
+    const text = await delRes.text().catch(() => '');
+    throw new Error(`Failed to clear ${junctionTable}: ${delRes.status} ${text}`);
+  }
+
+  if (tagIds.length === 0) return;
+
+  const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
+  const records = uniqueTagIds.map((tagId) => ({
+    [foreignKey]: entityId,
+    tag_id: tagId,
+  }));
+
+  const insRes = await fetch(`${REST_V1_BASE}/${junctionTable}?on_conflict=${encodeURIComponent(`${foreignKey},tag_id`)}`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'return=minimal,resolution=ignore-duplicates' },
+    body: JSON.stringify(records),
+  });
+  if (!insRes.ok) {
+    const text = await insRes.text().catch(() => '');
+    throw new Error(`Failed to insert ${junctionTable}: ${insRes.status} ${text}`);
+  }
+}
+
 export type SystemCategory = 'content' | 'playlists' | 'forms' | 'knowledge-base' | 'people' | 'units' | 'shared';
 export type TagType = 'system-category' | 'parent' | 'subcategory' | 'child';
 
@@ -39,6 +96,119 @@ export interface TagHierarchy {
     }[];
     directChildren: Tag[];
   }[];
+}
+
+const DEFAULT_KB_CATEGORY_CHILDREN: Array<{ name: string; color: string }> = [
+  { name: 'Ops Manual', color: '#F74A05' },
+  { name: 'Safety Procs', color: '#FF733C' },
+  { name: 'HR Policy Docs', color: '#7F8C8D' },
+  { name: 'IT Help', color: '#95A5A6' },
+  { name: 'Equip Guides', color: '#FF733C' },
+  { name: 'Cust Svc Policy', color: '#F74A05' },
+  { name: 'Comp Docs', color: '#FF733C' },
+  { name: 'Prod Info', color: '#F74A05' },
+];
+
+async function ensureKnowledgeBaseTagScaffold(orgId: string): Promise<void> {
+  // Ensure we have a KB system-category row available in this org context.
+  let { data: kbSystemCategory } = await supabase
+    .from('tags')
+    .select('id')
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'system-category')
+    .or(`organization_id.eq.${orgId},organization_id.is.null`)
+    .order('organization_id', { ascending: true, nullsFirst: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!kbSystemCategory?.id) {
+    const { data: createdSystemCategory, error: createSystemError } = await supabase
+      .from('tags')
+      .insert({
+        organization_id: orgId,
+        name: 'Knowledge Base',
+        parent_id: null,
+        system_category: 'knowledge-base',
+        is_system_locked: true,
+        description: 'Knowledge base taxonomy',
+        color: null,
+        type: 'system-category',
+        display_order: 0,
+      })
+      .select('id')
+      .single();
+
+    if (createSystemError) throw createSystemError;
+    kbSystemCategory = createdSystemCategory;
+  }
+
+  // Ensure KB Category parent exists for this org.
+  let { data: kbCategoryParent } = await supabase
+    .from('tags')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'parent')
+    .ilike('name', 'KB Category')
+    .limit(1)
+    .maybeSingle();
+
+  if (!kbCategoryParent?.id) {
+    const { data: createdParent, error: createParentError } = await supabase
+      .from('tags')
+      .insert({
+        organization_id: orgId,
+        name: 'KB Category',
+        parent_id: kbSystemCategory.id,
+        system_category: 'knowledge-base',
+        is_system_locked: false,
+        description: 'Subject area',
+        color: null,
+        type: 'parent',
+        display_order: 1,
+      })
+      .select('id')
+      .single();
+
+    if (createParentError) throw createParentError;
+    kbCategoryParent = createdParent;
+  }
+
+  // Ensure default children exist under KB Category for this org.
+  const { data: existingChildren, error: existingChildrenError } = await supabase
+    .from('tags')
+    .select('name')
+    .eq('organization_id', orgId)
+    .eq('system_category', 'knowledge-base')
+    .eq('type', 'child')
+    .eq('parent_id', kbCategoryParent.id);
+
+  if (existingChildrenError) throw existingChildrenError;
+
+  const existingNames = new Set((existingChildren || []).map((t: any) => String(t.name || '').toLowerCase().trim()));
+  const missingChildren = DEFAULT_KB_CATEGORY_CHILDREN.filter(
+    (child) => !existingNames.has(child.name.toLowerCase().trim())
+  );
+
+  if (missingChildren.length > 0) {
+    const { error: insertChildrenError } = await supabase
+      .from('tags')
+      .insert(
+        missingChildren.map((child, idx) => ({
+          organization_id: orgId,
+          name: child.name,
+          parent_id: kbCategoryParent!.id,
+          system_category: 'knowledge-base',
+          is_system_locked: false,
+          description: null,
+          color: child.color,
+          type: 'child',
+          display_order: idx + 1,
+        }))
+      );
+
+    if (insertChildrenError) throw insertChildrenError;
+  }
 }
 
 /**
@@ -118,6 +288,45 @@ export async function getTagHierarchy(category?: SystemCategory): Promise<Tag[]>
   const { data, error } = await query.order('display_order', { ascending: true });
   
   if (error) throw error;
+
+  // Demo orgs can be missing KB taxonomy rows; self-heal once to keep KB/category UI consistent.
+  if (category === 'knowledge-base' && orgId) {
+    const hasKbParent = (data || []).some(
+      (t: any) => t.type === 'parent' && String(t.name || '').toLowerCase().trim() === 'kb category'
+    );
+    if (!hasKbParent) {
+      try {
+        await ensureKnowledgeBaseTagScaffold(orgId);
+        const { data: repairedData, error: repairedError } = await supabase
+          .from('tags')
+          .select('*')
+          .eq('system_category', category)
+          .or(`organization_id.eq.${orgId},organization_id.is.null`)
+          .order('display_order', { ascending: true });
+        if (repairedError) throw repairedError;
+
+        const repairedTags = repairedData || [];
+        const repairedMap = new Map(repairedTags.map(t => [t.id, { ...t, children: [] as Tag[] }]));
+        const repairedRoots: Tag[] = [];
+        repairedTags.forEach(tag => {
+          const node = repairedMap.get(tag.id)!;
+          if (tag.parent_id && repairedMap.has(tag.parent_id)) {
+            repairedMap.get(tag.parent_id)!.children!.push(node);
+          } else {
+            repairedRoots.push(node);
+          }
+        });
+        repairedMap.forEach(node => {
+          if (node.children) {
+            node.children.sort((a, b) => a.display_order - b.display_order);
+          }
+        });
+        return repairedRoots;
+      } catch (repairError) {
+        console.warn('[getTagHierarchy] KB scaffold repair failed:', repairError);
+      }
+    }
+  }
   
   // Build tree structure (supports arbitrary depth)
   const tags = data || [];
@@ -406,16 +615,17 @@ export async function deleteTag(tagId: string, bypassSystemLock: boolean = false
  * Get tags for a specific entity (track, playlist, etc.)
  */
 export async function getEntityTags(entityId: string, entityType: 'track' | 'album' | 'playlist' | 'user' | 'store'): Promise<Tag[]> {
-  // For user, store, and playlist tags, use KV store via Server to avoid RLS
-  // (playlist_tags table doesn't exist, so we use KV store for playlists)
-  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
+  // For track/user/store/playlist, read through server endpoint to avoid demo-mode RLS drift.
+  // (playlist_tags table doesn't exist, so server/KV is required there)
+  if (entityType === 'track' || entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.session?.access_token || publicAnonKey;
+      const token = session?.access_token || publicAnonKey;
       
       const response = await fetch(`${getServerUrl()}/tags/entity/${entityType}/${entityId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'apikey': publicAnonKey,
         }
       });
       
@@ -427,11 +637,14 @@ export async function getEntityTags(entityId: string, entityType: 'track' | 'alb
         return [];
       }
       
-      const { tagIds } = await response.json();
-      
-      if (!tagIds || !Array.isArray(tagIds) || tagIds.length === 0) return [];
+      const payload = await response.json().catch(() => ({} as any));
+      if (Array.isArray(payload?.tags)) {
+        return payload.tags.filter(Boolean) as Tag[];
+      }
+      const tagIds = Array.isArray(payload?.tagIds) ? payload.tagIds : [];
+      if (tagIds.length === 0) return [];
 
-      // Fetch actual tags from tags table
+      // Backward compatibility if endpoint returns tag IDs
       const { data: tags, error: tagsError } = await supabase
         .from('tags')
         .select('*')
@@ -485,22 +698,23 @@ export async function assignTags(
   entityType: 'track' | 'album' | 'playlist' | 'user' | 'store',
   tagIds: string[]
 ): Promise<void> {
-  // For user, store, and playlist tags, use KV store via Server
-  // (playlist_tags table doesn't exist, so we use KV store for playlists)
-  if (entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
+  // Route track/user/store/playlist writes through server endpoint.
+  // Track writes especially must bypass client-side RLS in demo mode.
+  if (entityType === 'track' || entityType === 'user' || entityType === 'store' || entityType === 'playlist') {
     const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.session?.access_token || publicAnonKey;
+    const token = session?.access_token || publicAnonKey;
     
     const response = await fetch(`${getServerUrl()}/tags/assign`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'apikey': publicAnonKey,
       },
       body: JSON.stringify({
         entityId,
         entityType,
-        tagIds
+        tagIds: Array.from(new Set((tagIds || []).filter(Boolean))),
       })
     });
 
@@ -527,26 +741,9 @@ export async function assignTags(
       // This should not be reached as playlist is handled above
       return;
   }
-  
-  // Remove existing tags
-  await supabase
-    .from(junctionTable)
-    .delete()
-    .eq(foreignKey, entityId);
-  
-  // Add new tags
-  if (tagIds.length > 0) {
-    const records = tagIds.map(tagId => ({
-      [foreignKey]: entityId,
-      tag_id: tagId
-    }));
-    
-    const { error } = await supabase
-      .from(junctionTable)
-      .insert(records);
-    
-    if (error) throw error;
-  }
+
+  const uniqueTagIds = Array.from(new Set(tagIds.filter(Boolean)));
+  await junctionTableDeleteAndInsert(junctionTable, foreignKey, entityId, uniqueTagIds);
 }
 
 /**
@@ -564,30 +761,73 @@ export async function assignTrackTagsByName(
   tagNames: string[],
   _syncLegacyColumn: boolean = false // Parameter kept for API compatibility but ignored
 ): Promise<{ assignedTags: Tag[], unrecognizedNames: string[] }> {
-  if (!tagNames || tagNames.length === 0) {
-    // Clear all tags from junction table
-    await supabase
-      .from('track_tags')
-      .delete()
-      .eq('track_id', trackId);
+  let targetOrgId = await getCurrentUserOrgId();
+  try {
+    const { data: trackRow } = await supabase
+      .from('tracks')
+      .select('organization_id')
+      .eq('id', trackId)
+      .maybeSingle();
+    if (trackRow?.organization_id) {
+      targetOrgId = trackRow.organization_id as string;
+    }
+  } catch {
+    // Non-blocking: keep URL/auth-derived org fallback
+  }
 
+  // Sentinel helper tag used by UI toggle; not a row in tags table and should not be junction-synced.
+  const normalizedTagNames = Array.from(new Set((tagNames || [])
+    .map((name) => String(name || '').trim())
+    .filter((name) => name.length > 0 && name !== 'system:show_in_knowledge_base')
+    .map((name) => name.toLowerCase())));
+
+  if (normalizedTagNames.length === 0) {
+    await assignTags(trackId, 'track', []);
     return { assignedTags: [], unrecognizedNames: [] };
   }
 
-  // Fetch tags by name to get their IDs
-  const { data: matchedTags, error: tagError } = await supabase
+  // Fetch candidate tags in org scope, then resolve names case-insensitively.
+  let tagsQuery = supabase
     .from('tags')
-    .select('*')
-    .in('name', tagNames);
+    .select('*');
+  if (targetOrgId) {
+    tagsQuery = tagsQuery.or(`organization_id.eq.${targetOrgId},organization_id.is.null`);
+  } else {
+    tagsQuery = tagsQuery.is('organization_id', null);
+  }
+  const { data: candidateTags, error: tagError } = await tagsQuery;
 
   if (tagError) throw tagError;
 
-  const assignedTags = matchedTags || [];
-  const matchedNames = new Set(assignedTags.map(t => t.name));
-  const unrecognizedNames = tagNames.filter(name => !matchedNames.has(name));
+  const nameToBestTag = new Map<string, Tag>();
+  for (const tag of (candidateTags || [])) {
+    const lowerName = String(tag.name || '').trim().toLowerCase();
+    if (!normalizedTagNames.includes(lowerName)) continue;
+    const existing = nameToBestTag.get(lowerName);
+    if (!existing) {
+      nameToBestTag.set(lowerName, tag);
+      continue;
+    }
+    const existingIsGlobal = !existing.organization_id;
+    const currentIsOrgSpecific = Boolean(tag.organization_id && targetOrgId && tag.organization_id === targetOrgId);
+    if (existingIsGlobal && currentIsOrgSpecific) {
+      nameToBestTag.set(lowerName, tag);
+    }
+  }
+
+  const assignedTags = normalizedTagNames
+    .map((name) => nameToBestTag.get(name))
+    .filter(Boolean) as Tag[];
+  const matchedNames = new Set(assignedTags.map((t) => String(t.name || '').trim().toLowerCase()));
+  const unrecognizedNames = normalizedTagNames.filter((name) => !matchedNames.has(name));
 
   if (unrecognizedNames.length > 0) {
     console.warn('[assignTrackTagsByName] Unrecognized tag names (not in tags table):', unrecognizedNames);
+  }
+
+  // Guard rail: if caller supplied names but none resolve, don't wipe existing tags.
+  if (assignedTags.length === 0 && normalizedTagNames.length > 0) {
+    return { assignedTags: [], unrecognizedNames };
   }
 
   // Use assignTags to update junction table (source of truth)

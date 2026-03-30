@@ -65,6 +65,7 @@ import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner';
+import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 import {
   Dialog,
   DialogContent,
@@ -110,6 +111,19 @@ const calculateReadingTime = (htmlContent: string): number => {
 export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
   const { user: currentUser } = useCurrentUser();
   const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
+  const withDemoOrgParam = useCallback((basePath: string) => {
+    const currentParams = new URLSearchParams(window.location.search);
+    const demoOrgId = currentParams.get('demo_org_id');
+    if (!demoOrgId) return basePath;
+
+    const [pathOnly, query] = basePath.split('?');
+    const nextParams = new URLSearchParams(query || '');
+    if (!nextParams.get('demo_org_id')) {
+      nextParams.set('demo_org_id', demoOrgId);
+    }
+    const nextQuery = nextParams.toString();
+    return nextQuery ? `${pathOnly}?${nextQuery}` : pathOnly;
+  }, []);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -223,7 +237,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           
           // If we redirected to a newer version, update the URL
           if (!isLatest && latestTrackId !== initialTrackId) {
-            const newUrl = `/${track.type}/${latestTrackId}`;
+            const newUrl = withDemoOrgParam(`/${track.type}/${latestTrackId}`);
             console.log('🔄 Redirected to latest version, updating URL to:', newUrl);
             window.history.pushState({ trackId: latestTrackId, trackType: track.type }, '', newUrl);
           }
@@ -233,6 +247,30 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       });
     }
   }, [initialTrackId, selectedTrack, hasLoadedInitialTrack]);
+
+  // Track content detail opens (one event per selected track id)
+  useEffect(() => {
+    if (!selectedTrack?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const demoOrgId = params.get('demo_org_id');
+
+    void trackDemoActivityEvent(
+      {
+        eventType: 'track_open',
+        path: '/app/content',
+        trackId: selectedTrack.id,
+        trackTitle: selectedTrack.title,
+        metadata: {
+          source: 'content_library',
+          trackType: selectedTrack.type || 'unknown',
+        },
+      },
+      {
+        organizationId: selectedTrack.organization_id || demoOrgId || null,
+        currentRole,
+      }
+    );
+  }, [selectedTrack?.id]);
 
   // Listen for initialTrackId being undefined to clear the selected track
   // This ensures that when navigating back to library view, the selected track is cleared
@@ -246,7 +284,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           window.location.pathname.startsWith('/article/') ||
           window.location.pathname.startsWith('/story/') ||
           window.location.pathname.startsWith('/checkpoint/')) {
-        window.history.replaceState({}, '', '/');
+        window.history.replaceState({}, '', withDemoOrgParam('/'));
       }
     }
   }, [initialTrackId]);
@@ -428,7 +466,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         // Update URL to match the track
         const trackType = fullTrack.type;
         const urlToUse = isLatest ? latestTrackId : trackId;
-        const newUrl = `/${trackType}/${urlToUse}`;
+        const newUrl = withDemoOrgParam(`/${trackType}/${urlToUse}`);
         window.history.pushState({}, '', newUrl);
         console.log('🔗 Navigated to related track:', fullTrack.title, newUrl);
       } else {
@@ -524,7 +562,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         
         // Update URL without page reload
         const trackType = freshTrack.type;
-        const newUrl = `/${trackType}/${latestTrackId}`;
+        const newUrl = withDemoOrgParam(`/${trackType}/${latestTrackId}`);
         window.history.pushState({ trackId: latestTrackId, trackType }, '', newUrl);
         
         if (!isLatest) {
@@ -580,7 +618,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // Update URL without page reload
       const trackType = versionTrack.type;
-      const newUrl = `/${trackType}/${versionTrackId}`;
+      const newUrl = withDemoOrgParam(`/${trackType}/${versionTrackId}`);
       console.log('🔗 Updating URL to:', newUrl);
       window.history.pushState({ trackId: versionTrackId, trackType }, '', newUrl);
       
@@ -597,7 +635,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     setSelectedTrack(null);
     
     // Update URL to content library without page reload
-    window.history.pushState({}, '', '/content-library');
+    window.history.pushState({}, '', withDemoOrgParam('/content-library'));
     
     // Don't call onBackToLibrary() here - that would navigate away from content library
     // We just want to clear the selected track and stay in the library view
@@ -810,7 +848,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // If we're loading a new version, update the URL
       if (newTrackId && updatedTrack) {
-        const newUrl = `/${updatedTrack.type}/${newTrackId}`;
+        const newUrl = withDemoOrgParam(`/${updatedTrack.type}/${newTrackId}`);
         console.log('ContentLibrary - updating URL to:', newUrl);
         window.history.pushState({ trackId: newTrackId, trackType: updatedTrack.type }, '', newUrl);
       }
