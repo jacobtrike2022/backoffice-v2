@@ -698,6 +698,11 @@ Deno.serve(async (req: Request) => {
       return await handleBrainBackfill(req);
     }
 
+    // Translate track metadata to target language (cached in track_translations)
+    if (method === "POST" && path === "/translate/tracks") {
+      return await handleTranslateTracks(req);
+    }
+
     // Migrate tags from tracks.tags column to track_tags junction table (admin function)
     if (method === "POST" && path === "/migrate/tags-to-junction") {
       return await handleMigrateTagsToJunction(req);
@@ -22020,5 +22025,141 @@ async function handleBillingWebhook(req: Request): Promise<Response> {
     return jsonResponse({ received: true });
   } catch (err: any) {
     return jsonResponse({ error: "Invalid webhook payload" }, 400);
+  }
+}
+
+// =========================================================================
+// TRACK TRANSLATION HANDLER
+// Translates track titles and descriptions using GPT-4o-mini.
+// Results are cached in track_translations table (upsert on conflict).
+// =========================================================================
+
+interface TrackToTranslate {
+  id: string;
+  title: string;
+  description?: string | null;
+}
+
+async function handleTranslateTracks(req: Request): Promise<Response> {
+  try {
+    const supabase = getSupabaseClient(req);
+    const body = await req.json();
+    const { tracks, language } = body as { tracks: TrackToTranslate[]; language: string };
+
+    if (!tracks || !Array.isArray(tracks) || !language) {
+      return jsonResponse({ error: "tracks (array) and language are required" }, 400);
+    }
+
+    if (language === "en") {
+      // No translation needed for English
+      return jsonResponse({ translations: {} });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OpenAI not configured" }, 503);
+    }
+
+    // Check cache first — only translate tracks not already cached
+    const trackIds = tracks.map((t) => t.id);
+    const { data: cached } = await supabase
+      .from("track_translations")
+      .select("track_id, title, description")
+      .in("track_id", trackIds)
+      .eq("language", language);
+
+    const cachedMap: Record<string, { title: string; description?: string }> = {};
+    for (const row of cached ?? []) {
+      cachedMap[row.track_id] = { title: row.title, description: row.description };
+    }
+
+    const toTranslate = tracks.filter((t) => !cachedMap[t.id]);
+
+    if (toTranslate.length > 0) {
+      // Build a single prompt with all tracks to minimize API calls
+      const languageNames: Record<string, string> = {
+        es: "Spanish",
+        fr: "French",
+        pt: "Portuguese",
+        de: "German",
+        zh: "Chinese (Simplified)",
+        ja: "Japanese",
+      };
+      const targetLanguage = languageNames[language] ?? language;
+
+      // Batch into groups of 30 to stay within token limits
+      const BATCH_SIZE = 30;
+      for (let i = 0; i < toTranslate.length; i += BATCH_SIZE) {
+        const batch = toTranslate.slice(i, i + BATCH_SIZE);
+
+        const items = batch.map((t, idx) => ({
+          i: idx,
+          id: t.id,
+          title: t.title,
+          description: t.description ?? "",
+        }));
+
+        const prompt = `You are a professional translator for a convenience store and foodservice training platform. Translate the following track titles and descriptions into ${targetLanguage}. Keep translations natural and professional. Preserve any proper nouns, brand names, or product names as-is.
+
+Return ONLY a JSON array with this exact structure (no markdown, no commentary):
+[{"i":0,"title":"...","description":"..."},...]
+
+Tracks to translate:
+${JSON.stringify(items.map(({ i, title, description }) => ({ i, title, description })))}`;
+
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+          }),
+        });
+
+        if (!response.ok) {
+          console.error("OpenAI translation error:", await response.text());
+          continue;
+        }
+
+        const result = await response.json();
+        let translated: { i: number; title: string; description: string }[] = [];
+        try {
+          const content = result.choices?.[0]?.message?.content ?? "{}";
+          const parsed = JSON.parse(content);
+          // Handle both array root and {translations: [...]} wrapper
+          translated = Array.isArray(parsed) ? parsed : (parsed.translations ?? parsed.items ?? Object.values(parsed)[0] ?? []);
+        } catch {
+          console.error("Failed to parse translation response");
+          continue;
+        }
+
+        // Upsert into cache and add to cachedMap
+        const upsertRows = translated.map((row) => ({
+          track_id: items[row.i]?.id,
+          language,
+          title: row.title,
+          description: row.description,
+        })).filter((r) => r.track_id);
+
+        if (upsertRows.length > 0) {
+          await supabase
+            .from("track_translations")
+            .upsert(upsertRows, { onConflict: "track_id,language" });
+
+          for (const row of upsertRows) {
+            cachedMap[row.track_id] = { title: row.title, description: row.description ?? undefined };
+          }
+        }
+      }
+    }
+
+    return jsonResponse({ translations: cachedMap });
+  } catch (err: any) {
+    console.error("handleTranslateTracks error:", err);
+    return jsonResponse({ error: err.message ?? "Translation failed" }, 500);
   }
 }

@@ -62,6 +62,7 @@ import { StoryEditor } from './content-authoring/StoryEditor';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
 import { ContentLibrarySidebar } from './ContentLibrarySidebar';
 import { useTracks, useCurrentUser, useAITagSuggestionsCount } from '../lib/hooks/useSupabase';
+import { useTrackTranslations } from '../hooks/useTrackTranslations';
 import * as crud from '../lib/crud';
 import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
@@ -110,7 +111,7 @@ const calculateReadingTime = (htmlContent: string): number => {
 };
 
 export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user: currentUser } = useCurrentUser();
   const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
   const withDemoOrgParam = useCallback((basePath: string) => {
@@ -221,6 +222,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     type: selectedType !== 'all' ? selectedType as any : undefined,
     search: searchQuery || undefined,
   });
+
+  // Dynamic translation of track titles/descriptions based on org language
+  const { applyTranslations } = useTrackTranslations(tracks, i18n.language);
 
   // Debug logging (disabled for performance - enable only when needed)
   // console.log('ContentLibrary - tracks:', tracks);
@@ -1351,7 +1355,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </Card>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTracks.map((track) => (
+          {filteredTracks.map((rawTrack) => { const track = applyTranslations(rawTrack); return (
             <Card
               key={track.id}
               className="cursor-pointer hover:shadow-lg transition-shadow group"
@@ -1643,11 +1647,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 </div>
               </CardContent>
             </Card>
-          ))}
+          ); })}
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredTracks.map((track) => (
+          {filteredTracks.map((rawTrack) => { const track = applyTranslations(rawTrack); return (
             <Card
               key={track.id}
               className="cursor-pointer hover:shadow-lg transition-shadow"
@@ -1927,7 +1931,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 </div>
               </CardContent>
             </Card>
-          ))}
+          ); })}
         </div>
       )}
 
