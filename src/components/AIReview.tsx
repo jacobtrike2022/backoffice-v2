@@ -90,7 +90,7 @@ export function AIReview({ onBack }: AIReviewProps) {
       if (suggestionError) throw suggestionError;
 
       setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
-      toast.success(`Tag "${suggestion.suggested_tag_name}" added to track`);
+      toast.success(t('contentAuthoring.tagAddedToTrack', { tag: suggestion.suggested_tag_name }));
     } catch (err: any) {
       console.error('Error accepting suggestion:', err);
       toast.error(t('contentAuthoring.failedAcceptSuggestion'));

@@ -974,7 +974,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await loadMergedData();
     } catch (error: any) {
       console.error('Error toggling knowledge:', error);
-      toast.error('Failed to update knowledge', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -986,10 +986,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.addCustomTask(role.id, organizationId, description, importance);
       await loadMergedData();
-      toast.success('Custom task added');
+      toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding task:', error);
-      toast.error('Failed to add task', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1002,7 +1002,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     try {
       await onetLocal.addCustomAbility(role.id, name, importance);
       await loadMergedData();
-      toast.success('Custom ability added');
+      toast.success(t('roles.detail.toastRoleCreated'));
     } catch (error: any) {
       console.error('Error adding ability:', error);
       toast.error('Failed to add ability', {
@@ -1139,7 +1139,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success('Knowledge area updated');
     } catch (error: any) {
       console.error('Error editing knowledge:', error);
-      toast.error('Failed to update knowledge', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;

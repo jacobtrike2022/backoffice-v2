@@ -13,6 +13,7 @@
 // =============================================================================
 
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -74,6 +75,7 @@ const TRACK_TYPE_ICONS: Record<string, React.ComponentType<any>> = {
 };
 
 export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, onEditTrack, currentRole }: KnowledgeBaseProps) {
+  const { t } = useTranslation();
   const { user, loading: userLoading } = useCurrentUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -125,14 +127,14 @@ export function KnowledgeBaseConverted({ onTrackClick, onNavigateToAssignment, o
       if (onTrackClick) {
         onTrackClick(trackId);
       } else {
-        toast.success('Opening content...');
+        toast.success(t('knowledgeBase.openingContent'));
       }
-      
+
       // Refetch to update view counts
       refetchTracks();
     } catch (error: any) {
       console.error('Error opening track:', error);
-      toast.error('Failed to open content');
+      toast.error(t('knowledgeBase.failedOpenContent'));
     }
   };
 
