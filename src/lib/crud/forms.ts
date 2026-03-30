@@ -252,6 +252,9 @@ export async function getForms(
 
   if (filters.status) {
     query = query.eq('status', filters.status);
+  } else {
+    // By default, exclude archived forms — they only appear when explicitly filtered
+    query = query.neq('status', 'archived');
   }
 
   if (filters.search) {
@@ -904,7 +907,7 @@ export async function getTemplateForms(): Promise<any[]> {
 export async function deleteForm(formId: string): Promise<void> {
   const { error } = await supabase
     .from('forms')
-    .update({ status: 'archived' })
+    .delete()
     .eq('id', formId);
 
   if (error) throw error;
