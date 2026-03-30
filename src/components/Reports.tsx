@@ -130,88 +130,88 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
   // Active filters for display
   const activeFilters = useMemo(() => {
     const active: Array<{ key: string; label: string; value: string }> = [];
-    
+
     if (filters.progress.min > 0 || filters.progress.max < 100) {
       active.push({
         key: 'progress',
-        label: 'Progress',
+        label: t('reports.filterProgress'),
         value: `${filters.progress.min}% - ${filters.progress.max}%`
       });
     }
-    
+
     filters.albums.forEach(album => {
-      active.push({ key: 'albums', label: 'Album', value: album });
+      active.push({ key: 'albums', label: t('reports.filterAlbums'), value: album });
     });
-    
+
     filters.location.forEach(location => {
-      active.push({ key: 'location', label: 'Location', value: location });
+      active.push({ key: 'location', label: t('reports.filterLocation'), value: location });
     });
-    
+
     filters.districts.forEach(district => {
-      active.push({ key: 'districts', label: 'District', value: district });
+      active.push({ key: 'districts', label: t('reports.filterDistricts'), value: district });
     });
-    
+
     filters.roles.forEach(role => {
-      active.push({ key: 'roles', label: 'Role', value: role });
+      active.push({ key: 'roles', label: t('reports.filterRoles'), value: role });
     });
-    
+
     filters.playlists.forEach(playlist => {
-      active.push({ key: 'playlists', label: 'Playlist', value: playlist });
+      active.push({ key: 'playlists', label: t('reports.filterPlaylists'), value: playlist });
     });
-    
+
     filters.tracks.forEach(track => {
-      active.push({ key: 'tracks', label: 'Track', value: track });
+      active.push({ key: 'tracks', label: t('reports.filterTracks'), value: track });
     });
-    
+
     filters.certifications.forEach(cert => {
-      active.push({ key: 'certifications', label: 'Certification', value: cert });
+      active.push({ key: 'certifications', label: t('reports.filterCertifications'), value: cert });
     });
-    
+
     filters.completionStatus.forEach(status => {
-      active.push({ key: 'completionStatus', label: 'Status', value: status });
+      active.push({ key: 'completionStatus', label: t('reports.filterStatus'), value: status });
     });
 
     // Only show playlistStatus filter chip if not default (which is ['active'])
     if (filters.playlistStatus.length !== 1 || filters.playlistStatus[0] !== 'active') {
       filters.playlistStatus.forEach(status => {
-        active.push({ key: 'playlistStatus', label: 'Playlist Status', value: status });
+        active.push({ key: 'playlistStatus', label: t('reports.filterPlaylistStatus'), value: status });
       });
     }
 
     if (filters.dateRange.start && filters.dateRange.end) {
       active.push({
         key: 'dateRange',
-        label: 'Date Range',
+        label: t('reports.filterDateRange'),
         value: `${format(filters.dateRange.start, 'MMM dd')} - ${format(filters.dateRange.end, 'MMM dd')}`
       });
     }
-    
+
     return active;
-  }, [filters]);
+  }, [filters, t]);
 
   // Dynamic filter properties with options from database
   const filterProperties = useMemo(() => [
     {
       id: 'progress',
-      label: 'Progress',
+      label: t('reports.filterProgress'),
       icon: Clock,
       type: 'range',
-      description: 'Filter by completion percentage'
+      description: t('reports.filterProgressDesc')
     },
     {
       id: 'albums',
-      label: 'Albums',
+      label: t('reports.filterAlbums'),
       icon: BookOpen,
       type: 'multi-select',
-      description: 'Select specific training albums',
+      description: t('reports.filterAlbumsDesc'),
       options: filterOptions?.albums.map(a => a.name) || []
     },
     {
       id: 'location',
-      label: 'Location',
+      label: t('reports.filterLocation'),
       icon: MapPin,
       type: 'multi-select',
-      description: 'Filter by districts and stores',
+      description: t('reports.filterLocationDesc'),
       options: [
         ...(filterOptions?.districts.map(d => d.name) || []),
         ...(filterOptions?.stores.map(s => s.name) || [])
@@ -219,68 +219,68 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
     },
     {
       id: 'districts',
-      label: 'Districts',
+      label: t('reports.filterDistricts'),
       icon: Building,
       type: 'multi-select',
-      description: 'Filter by geographic districts',
+      description: t('reports.filterDistrictsDesc'),
       options: filterOptions?.districts.map(d => d.name) || []
     },
     {
       id: 'roles',
-      label: 'Roles',
+      label: t('reports.filterRoles'),
       icon: Users,
       type: 'multi-select',
-      description: 'Filter by job roles',
+      description: t('reports.filterRolesDesc'),
       options: filterOptions?.roles.map(r => r.name) || []
     },
     {
       id: 'playlists',
-      label: 'Playlists',
+      label: t('reports.filterPlaylists'),
       icon: Play,
       type: 'multi-select',
-      description: 'Select specific playlists',
+      description: t('reports.filterPlaylistsDesc'),
       options: filterOptions?.playlists.map(p => p.name) || []
     },
     {
       id: 'tracks',
-      label: 'Tracks',
+      label: t('reports.filterTracks'),
       icon: Play,
       type: 'multi-select',
-      description: 'Filter by individual tracks',
-      options: filterOptions?.tracks.map(t => t.name) || []
+      description: t('reports.filterTracksDesc'),
+      options: filterOptions?.tracks.map(track => track.name) || []
     },
     {
       id: 'certifications',
-      label: 'Certifications',
+      label: t('reports.filterCertifications'),
       icon: Award,
       type: 'multi-select',
-      description: 'Filter by earned certifications',
+      description: t('reports.filterCertificationsDesc'),
       options: filterOptions?.certifications.map(c => c.name) || []
     },
     {
       id: 'completionStatus',
-      label: 'Status',
+      label: t('reports.filterStatus'),
       icon: CheckCircle,
       type: 'multi-select',
-      description: 'Filter by completion status',
+      description: t('reports.filterStatusDesc'),
       options: ['completed', 'in-progress', 'not-started', 'overdue']
     },
     {
       id: 'playlistStatus',
-      label: 'Playlist Status',
+      label: t('reports.filterPlaylistStatus'),
       icon: Archive,
       type: 'multi-select',
-      description: 'Filter by playlist active/archived status',
+      description: t('reports.filterPlaylistStatusDesc'),
       options: ['active', 'archived']
     },
     {
       id: 'dateRange',
-      label: 'Date Range',
+      label: t('reports.filterDateRange'),
       icon: CalendarIcon,
       type: 'date-range',
-      description: 'Filter by date range'
+      description: t('reports.filterDateRangeDesc')
     }
-  ], [filterOptions]);
+  ], [filterOptions, t]);
 
   // Fetch learner records on mount and when storeFilter changes
   useEffect(() => {
@@ -652,19 +652,26 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       'overdue': 'bg-red-100 text-red-800'
     };
 
+    const labels: Record<string, string> = {
+      'completed': t('reports.statusCompleted'),
+      'in-progress': t('reports.statusInProgress'),
+      'not-started': t('reports.statusNotStarted'),
+      'overdue': t('reports.statusOverdue'),
+    };
+
     return (
       <Badge className={variants[status as keyof typeof variants] || 'bg-gray-100 text-gray-800'}>
-        {status.replace('-', ' ')}
+        {labels[status] ?? status.replace('-', ' ')}
       </Badge>
     );
   };
 
   const getRiskBadge = (riskLevel: RiskLevel) => {
     const config = {
-      'low': { className: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle, label: 'Low Risk' },
-      'medium': { className: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: AlertCircle, label: 'Medium' },
-      'high': { className: 'bg-orange-100 text-orange-800 border-orange-200', icon: AlertTriangle, label: 'High' },
-      'critical': { className: 'bg-red-100 text-red-800 border-red-200', icon: Zap, label: 'Critical' }
+      'low': { className: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle, label: t('reports.riskLow') },
+      'medium': { className: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: AlertCircle, label: t('reports.riskMedium') },
+      'high': { className: 'bg-orange-100 text-orange-800 border-orange-200', icon: AlertTriangle, label: t('reports.riskHigh') },
+      'critical': { className: 'bg-red-100 text-red-800 border-red-200', icon: Zap, label: t('reports.riskCritical') }
     };
 
     const { className, icon: Icon, label } = config[riskLevel];
@@ -1537,11 +1544,11 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                             </TooltipTrigger>
                             <TooltipContent>
                               <div className="text-xs space-y-1">
-                                <div>Completed: {row.completedCount} / {row.assignmentCount}</div>
-                                <div>In Progress: {row.inProgressCount}</div>
-                                <div>Not Started: {row.notStartedCount}</div>
+                                <div>{t('reports.tooltipCompleted')}: {row.completedCount} / {row.assignmentCount}</div>
+                                <div>{t('reports.tooltipInProgress')}: {row.inProgressCount}</div>
+                                <div>{t('reports.tooltipNotStarted')}: {row.notStartedCount}</div>
                                 {row.avgDaysOverdue > 0 && (
-                                  <div>Avg days overdue: {row.avgDaysOverdue}</div>
+                                  <div>{t('reports.tooltipAvgDaysOverdue')}: {row.avgDaysOverdue}</div>
                                 )}
                               </div>
                             </TooltipContent>

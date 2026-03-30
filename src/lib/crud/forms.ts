@@ -9,7 +9,7 @@ import { logActivity } from './activity';
 export interface CreateFormInput {
   title: string;
   description?: string;
-  type: 'ojt-checklist' | 'inspection' | 'audit' | 'survey';
+  type: 'ojt-checklist' | 'inspection' | 'audit' | 'survey' | 'sign-off';
   category?: string;
   requires_approval?: boolean;
   allow_anonymous?: boolean;
@@ -73,6 +73,7 @@ export interface FormWithSections {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  submission_config?: Record<string, unknown> | null;
   form_sections: FormSection[];
   form_blocks: any[];
 }

@@ -74,11 +74,16 @@ const mockInvoices: Invoice[] = [
   { id: 'INV-2023-010', date: '2023-10-01', amount: '$12,500.00', status: 'paid', downloadUrl: '#' },
 ];
 
-const defaultRoles: Role[] = [
+interface RoleWithDescKey extends Role {
+  descriptionKey: string;
+}
+
+const defaultRoles: RoleWithDescKey[] = [
   {
     id: 'admin',
     name: 'Administrator',
     description: 'Full system access with all permissions',
+    descriptionKey: 'settingsPage.roleDescAdmin',
     userCount: 3,
     permissions: ['all']
   },
@@ -86,6 +91,7 @@ const defaultRoles: Role[] = [
     id: 'district',
     name: 'District Manager',
     description: 'Manage multiple stores within assigned district',
+    descriptionKey: 'settingsPage.roleDescDistrict',
     userCount: 12,
     permissions: ['view_all_stores', 'manage_district', 'view_reports', 'assign_content', 'view_people']
   },
@@ -93,6 +99,7 @@ const defaultRoles: Role[] = [
     id: 'store',
     name: 'Store Manager',
     description: 'Manage individual store operations',
+    descriptionKey: 'settingsPage.roleDescStore',
     userCount: 48,
     permissions: ['view_own_store', 'manage_employees', 'view_store_reports', 'assign_content']
   }
@@ -1174,7 +1181,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <div className="space-y-3">
                         <div>
                           <h3 className="font-semibold text-lg">{role.name}</h3>
-                          <p className="text-sm text-muted-foreground mt-1">{role.description}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{t(role.descriptionKey)}</p>
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-border">
                           <Badge variant="outline">{t('settingsPage.users', { count: role.userCount })}</Badge>
@@ -1362,7 +1369,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
           </DialogHeader>
 
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">{selectedRole?.description}</p>
+            <p className="text-sm text-muted-foreground">{selectedRole ? t((selectedRole as RoleWithDescKey).descriptionKey) : ''}</p>
 
             <div className="space-y-2">
               <Label>{t('settingsPage.permissions')}</Label>

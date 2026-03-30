@@ -72,7 +72,7 @@ export interface FormRecord {
 interface FormLibraryProps {
   orgId: string;
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
-  onNewForm?: () => void;
+  onNewForm?: (type?: string) => void;
   onEditForm?: (formId: string) => void;
   onViewSubmissions?: (formId: string) => void;
 }
@@ -92,27 +92,27 @@ function getStatusDot(status: string) {
   }
 }
 
-function getStatusBadge(status: string) {
+function getStatusBadge(status: string, t: (key: string) => string) {
   switch (status.toLowerCase()) {
     case 'published':
       return (
         <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 flex items-center gap-1">
           {getStatusDot(status)}
-          Published
+          {t('forms.builderStatusPublished')}
         </Badge>
       );
     case 'draft':
       return (
         <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 border-0 flex items-center gap-1">
           {getStatusDot(status)}
-          Draft
+          {t('forms.builderStatusDraft')}
         </Badge>
       );
     case 'archived':
       return (
         <Badge variant="outline" className="flex items-center gap-1">
           {getStatusDot(status)}
-          Archived
+          {t('forms.builderStatusArchived')}
         </Badge>
       );
     default:
@@ -120,25 +120,39 @@ function getStatusBadge(status: string) {
   }
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  'ojt-checklist': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  inspection: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  audit: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  survey: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300',
-};
+// ─── Form type badge helper ───────────────────────────────────────────────────
 
-const TYPE_LABELS: Record<string, string> = {
-  'ojt-checklist': 'OJT Checklist',
-  inspection: 'Inspection',
-  audit: 'Audit',
-  survey: 'Survey',
-};
-
-function getTypeBadge(type: string) {
-  const colorClass = TYPE_COLORS[type.toLowerCase()] ?? 'bg-gray-100 text-gray-700';
-  const label = TYPE_LABELS[type.toLowerCase()] ?? type;
-  return <Badge className={`${colorClass} border-0`}>{label}</Badge>;
+interface FormTypeBadgeInfo {
+  label: string;
+  className: string;
 }
+
+function getFormTypeBadge(type: string, t: (key: string) => string): FormTypeBadgeInfo {
+  switch (type.toLowerCase()) {
+    case 'inspection':
+      return { label: t('forms.formTypeInspection'), className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' };
+    case 'audit':
+      return { label: t('forms.formTypeAudit'), className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' };
+    case 'sign-off':
+      return { label: t('forms.formTypeSignOff'), className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' };
+    case 'ojt-checklist':
+      return { label: t('forms.formTypeOJT'), className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' };
+    case 'survey':
+      return { label: t('forms.formTypeSurvey'), className: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300' };
+    default:
+      return { label: type, className: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300' };
+  }
+}
+
+// ─── New-form type options ─────────────────────────────────────────────────────
+
+const NEW_FORM_TYPES = [
+  { value: 'inspection', label: 'New Inspection' },
+  { value: 'audit', label: 'New Audit' },
+  { value: 'sign-off', label: 'New Sign-off' },
+  { value: 'ojt-checklist', label: 'New OJT Checklist' },
+  { value: 'survey', label: 'New Survey' },
+] as const;
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 
@@ -525,13 +539,21 @@ export function FormLibrary({
           </p>
         </div>
         {canCreate && (
-          <Button
-            className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-            onClick={onNewForm}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            {t('forms.newForm')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
+                <Plus className="h-4 w-4 mr-2" />
+                {t('forms.newForm')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {NEW_FORM_TYPES.map((ft) => (
+                <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
+                  {ft.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
@@ -675,13 +697,21 @@ export function FormLibrary({
             </p>
           </div>
           {canCreate && filterStatus === 'all' && filterType === 'all' && !searchQuery && (
-            <Button
-              className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-              onClick={onNewForm}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              {t('forms.createYourFirstForm')}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="bg-brand-gradient text-white shadow-brand hover:opacity-90">
+                  <Plus className="h-4 w-4 mr-2" />
+                  {t('forms.createYourFirstForm')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center">
+                {NEW_FORM_TYPES.map((ft) => (
+                  <DropdownMenuItem key={ft.value} onClick={() => onNewForm?.(ft.value)}>
+                    {ft.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       )}

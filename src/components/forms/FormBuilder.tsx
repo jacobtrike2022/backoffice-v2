@@ -41,6 +41,7 @@ import {
   Type,
   CheckSquare,
   ChevronDown,
+  ChevronUp,
   Hash,
   Calendar,
   Clock,
@@ -64,8 +65,12 @@ import {
   AlertCircle,
   Trash2,
   FileText,
+  Settings2,
+  Mail,
+  AlertTriangle,
+  Pen,
 } from 'lucide-react';
-import { useFormBuilder, type LocalBlock } from '../../hooks/useFormBuilder';
+import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
 import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
 
@@ -76,6 +81,8 @@ import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
 export interface FormBuilderProps {
   formId?: string;
   orgId?: string;
+  /** Pre-selects form type when creating a new form. Has no effect when editing an existing form. */
+  initialType?: string;
   currentRole?: 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
   onSaveDraft?: () => void;
   onPublished?: () => void;
@@ -92,31 +99,31 @@ export interface FormBuilderProps {
 
 interface BlockTypeDef {
   type: string;
-  label: string;
+  labelKey: string;
   icon: React.ElementType;
   category: 'questions' | 'content' | 'actions';
 }
 
 const BLOCK_TYPES: BlockTypeDef[] = [
   // Questions
-  { type: 'text', label: 'Short Answer', icon: Type, category: 'questions' },
-  { type: 'textarea', label: 'Long Answer', icon: Type, category: 'questions' },
-  { type: 'number', label: 'Number', icon: Hash, category: 'questions' },
-  { type: 'date', label: 'Date', icon: Calendar, category: 'questions' },
-  { type: 'time', label: 'Time', icon: Clock, category: 'questions' },
-  { type: 'radio', label: 'Multiple Choice', icon: CheckSquare, category: 'questions' },
-  { type: 'checkboxes', label: 'Checkboxes', icon: CheckSquare, category: 'questions' },
-  { type: 'dropdown', label: 'Dropdown', icon: ChevronDown, category: 'questions' },
-  { type: 'yes_no', label: 'Yes / No', icon: ToggleLeft, category: 'questions' },
-  { type: 'rating', label: 'Rating', icon: Star, category: 'questions' },
-  { type: 'file', label: 'File Upload', icon: Upload, category: 'questions' },
-  { type: 'signature', label: 'Signature', icon: PenTool, category: 'questions' },
-  { type: 'slider', label: 'Slider', icon: SlidersHorizontal, category: 'questions' },
-  { type: 'location', label: 'Location', icon: MapPin, category: 'questions' },
-  { type: 'photo', label: 'Photo', icon: ImageIcon, category: 'questions' },
+  { type: 'text', labelKey: 'forms.shortAnswer', icon: Type, category: 'questions' },
+  { type: 'textarea', labelKey: 'forms.longAnswer', icon: Type, category: 'questions' },
+  { type: 'number', labelKey: 'forms.number', icon: Hash, category: 'questions' },
+  { type: 'date', labelKey: 'forms.date', icon: Calendar, category: 'questions' },
+  { type: 'time', labelKey: 'forms.time', icon: Clock, category: 'questions' },
+  { type: 'radio', labelKey: 'forms.multipleChoice', icon: CheckSquare, category: 'questions' },
+  { type: 'checkboxes', labelKey: 'forms.checkboxes', icon: CheckSquare, category: 'questions' },
+  { type: 'dropdown', labelKey: 'forms.dropdown', icon: ChevronDown, category: 'questions' },
+  { type: 'yes_no', labelKey: 'forms.yesNo', icon: ToggleLeft, category: 'questions' },
+  { type: 'rating', labelKey: 'forms.rating', icon: Star, category: 'questions' },
+  { type: 'file', labelKey: 'forms.fileUpload', icon: Upload, category: 'questions' },
+  { type: 'signature', labelKey: 'forms.signature', icon: PenTool, category: 'questions' },
+  { type: 'slider', labelKey: 'forms.slider', icon: SlidersHorizontal, category: 'questions' },
+  { type: 'location', labelKey: 'forms.location', icon: MapPin, category: 'questions' },
+  { type: 'photo', labelKey: 'forms.photo', icon: ImageIcon, category: 'questions' },
   // Content
-  { type: 'instruction', label: 'Instruction', icon: Info, category: 'content' },
-  { type: 'divider', label: 'Divider', icon: Minus, category: 'content' },
+  { type: 'instruction', labelKey: 'forms.instruction', icon: Info, category: 'content' },
+  { type: 'divider', labelKey: 'forms.divider', icon: Minus, category: 'content' },
   // NOTE: 'conditional' is intentionally NOT listed here.
   // Conditional logic is configured per-block via the Properties Drawer (Logic tab),
   // not as a standalone block type. Keeping it here caused UX confusion.
@@ -126,8 +133,8 @@ const BLOCK_TYPES: BlockTypeDef[] = [
 
 interface FormTypeConfig {
   value: string;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
   /** Block types that are especially relevant / auto-suggested for this form type */
   suggestedBlocks?: string[];
 }
@@ -135,32 +142,32 @@ interface FormTypeConfig {
 const FORM_TYPES: FormTypeConfig[] = [
   {
     value: 'inspection',
-    label: 'Inspection',
-    description: 'Regular checklists and site audits',
+    labelKey: 'forms.formTypeInspection',
+    descriptionKey: 'forms.inspectionDesc',
     suggestedBlocks: ['yes_no', 'photo', 'text'],
   },
   {
     value: 'audit',
-    label: 'Audit',
-    description: 'Scored compliance audits',
+    labelKey: 'forms.formTypeAudit',
+    descriptionKey: 'forms.auditDesc',
     suggestedBlocks: ['rating', 'yes_no', 'textarea'],
   },
   {
     value: 'sign-off',
-    label: 'Sign-off',
-    description: 'Policy acknowledgement and training sign-offs',
+    labelKey: 'forms.formTypeSignOff',
+    descriptionKey: 'forms.signOffDesc',
     suggestedBlocks: ['instruction', 'signature', 'checkboxes'],
   },
   {
     value: 'ojt-checklist',
-    label: 'OJT Checklist',
-    description: 'On-the-job training evaluation',
+    labelKey: 'forms.formTypeOJT',
+    descriptionKey: 'forms.ojtDesc',
     suggestedBlocks: ['yes_no', 'rating', 'textarea'],
   },
   {
     value: 'survey',
-    label: 'Survey',
-    description: 'Employee feedback and surveys',
+    labelKey: 'forms.formTypeSurvey',
+    descriptionKey: 'forms.surveyDesc',
     suggestedBlocks: ['radio', 'rating', 'textarea'],
   },
 ];
@@ -237,7 +244,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
               className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted transition-colors text-left"
             >
               <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span>{bt.label}</span>
+              <span>{t(bt.labelKey)}</span>
             </button>
           );
         })}
@@ -355,7 +362,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
           <div className="flex items-center gap-1.5 mb-1">
             <Icon className="h-3 w-3 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">
-              {typeDef?.label ?? block.block_type}
+              {typeDef ? t(typeDef.labelKey) : block.block_type}
             </span>
             {!!block.conditional_logic && (
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
@@ -378,7 +385,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
               )
               : (
                 <span className="text-muted-foreground italic">
-                  {typeDef ? `${typeDef.label} ${t('forms.questionSuffix')}` : t('forms.untitledQuestion')}
+                  {typeDef ? `${t(typeDef.labelKey)} ${t('forms.questionSuffix')}` : t('forms.untitledQuestion')}
                 </span>
               )
             }
@@ -531,11 +538,14 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{t('forms.conditionSelectQuestion')}</SelectItem>
-                {eligibleBlocks.map(b => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {(b.label?.slice(0, 40)) || `${b.block_type} ${t('forms.questionSuffix')}`}
-                  </SelectItem>
-                ))}
+                {eligibleBlocks.map(b => {
+                  const btDef = getBlockTypeDef(b.block_type);
+                  return (
+                    <SelectItem key={b.id} value={b.id}>
+                      {(b.label?.slice(0, 40)) || `${btDef ? t(btDef.labelKey) : b.block_type} ${t('forms.questionSuffix')}`}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
 
@@ -679,7 +689,7 @@ function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{typeDef?.label ?? block.block_type}</span>
+          <span className="text-sm font-medium">{typeDef ? t(typeDef.labelKey) : block.block_type}</span>
           {hasConditionalLogic && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 gap-0.5">
               <GitBranch className="h-2.5 w-2.5" />
@@ -1208,6 +1218,321 @@ function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
 }
 
 // ============================================================================
+// SUBMISSION ACTIONS PANEL
+// ============================================================================
+
+interface SubmissionActionsPanelProps {
+  config: SubmissionConfig;
+  scoringEnabled: boolean;
+  onChange: (config: SubmissionConfig) => void;
+}
+
+// Determine if a stored below_threshold_email value is a "role" keyword or a custom email
+function isRoleKeyword(val: string | undefined): boolean {
+  return !val || ['manager', 'district_manager', 'admin'].includes(val);
+}
+
+function SubmissionActionsPanel({ config, scoringEnabled, onChange }: SubmissionActionsPanelProps) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  // Local state for custom threshold email input (when 'specific_email' is chosen in dropdown)
+  const [thresholdCustomEmail, setThresholdCustomEmail] = useState<string>(() => {
+    const val = config.score_threshold_action?.below_threshold_email;
+    return isRoleKeyword(val) ? '' : (val ?? '');
+  });
+
+  const notifications = config.email_notifications ?? [];
+
+  function addNotification() {
+    const newEntry: EmailNotification = {
+      id: Math.random().toString(36).slice(2),
+      to_type: 'store_manager',
+      trigger: 'always',
+      include_score: false,
+      include_responses: false,
+    };
+    onChange({ ...config, email_notifications: [...notifications, newEntry] });
+  }
+
+  function updateNotification(id: string, updates: Partial<EmailNotification>) {
+    onChange({
+      ...config,
+      email_notifications: notifications.map(n => n.id === id ? { ...n, ...updates } : n),
+    });
+  }
+
+  function removeNotification(id: string) {
+    onChange({ ...config, email_notifications: notifications.filter(n => n.id !== id) });
+  }
+
+  return (
+    <div className="mt-4 border border-border rounded-lg overflow-hidden">
+      {/* Header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Settings2 className="h-4 w-4 text-muted-foreground" />
+          <span>{t('forms.submissionActionsTitle')}</span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="p-4 space-y-5 text-sm">
+          <p className="text-xs text-muted-foreground">{t('forms.submissionActionsDesc')}</p>
+
+          <Separator />
+
+          {/* Confirmation message */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">{t('forms.submissionConfirmMessage')}</Label>
+            <Textarea
+              value={config.confirmation_message ?? ''}
+              onChange={e => onChange({ ...config, confirmation_message: e.target.value })}
+              placeholder="Thank you for submitting!"
+              className="text-xs min-h-[60px]"
+            />
+          </div>
+
+          {/* Allow multiple submissions */}
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium">{t('forms.submissionAllowMultiple')}</Label>
+            <Switch
+              checked={config.allow_multiple_submissions ?? false}
+              onCheckedChange={v => onChange({ ...config, allow_multiple_submissions: v })}
+            />
+          </div>
+
+          {/* Send confirmation email to submitter */}
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium">{t('forms.submissionToSubmitter')}</Label>
+            <Switch
+              checked={config.send_email_to_submitter ?? false}
+              onCheckedChange={v => onChange({ ...config, send_email_to_submitter: v })}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Email Notifications */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                <Label className="text-xs font-medium">{t('forms.submissionEmailNotifications')}</Label>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 text-xs gap-1 px-2"
+                onClick={addNotification}
+              >
+                <Plus className="h-3 w-3" />
+                {t('forms.submissionAddNotification')}
+              </Button>
+            </div>
+
+            {notifications.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">{t('forms.notifNoNotifications')}</p>
+            )}
+
+            {notifications.map(notif => (
+              <div key={notif.id} className="border border-border rounded-md p-3 space-y-2 bg-muted/20">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <Label className="text-xs text-muted-foreground">{t('forms.submissionSendToType')}</Label>
+                    <Select
+                      value={notif.to_type}
+                      onValueChange={(v) => updateNotification(notif.id, { to_type: v as EmailNotification['to_type'] })}
+                    >
+                      <SelectTrigger className="h-7 text-xs mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="store_manager">{t('forms.notifToStoreManager')}</SelectItem>
+                        <SelectItem value="district_manager">{t('forms.notifToDistrictManager')}</SelectItem>
+                        <SelectItem value="admin">{t('forms.notifToAdmin')}</SelectItem>
+                        <SelectItem value="specific_email">{t('forms.notifToSpecificEmail')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 shrink-0 mt-4"
+                    onClick={() => removeNotification(notif.id)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {notif.to_type === 'specific_email' && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">{t('forms.notifEmailAddress')}</Label>
+                    <Input
+                      value={notif.to_email ?? ''}
+                      onChange={e => updateNotification(notif.id, { to_email: e.target.value })}
+                      placeholder="email@example.com"
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">{t('forms.submissionTrigger')}</Label>
+                    <Select
+                      value={notif.trigger}
+                      onValueChange={(v) => updateNotification(notif.id, { trigger: v as EmailNotification['trigger'] })}
+                    >
+                      <SelectTrigger className="h-7 text-xs mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="always">{t('forms.triggerAlways')}</SelectItem>
+                        <SelectItem value="on_fail">{t('forms.triggerOnFail')}</SelectItem>
+                        <SelectItem value="on_pass">{t('forms.triggerOnPass')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <div className="flex items-center gap-1.5 mt-4">
+                      <input
+                        type="checkbox"
+                        id={`score-${notif.id}`}
+                        checked={notif.include_score ?? false}
+                        onChange={e => updateNotification(notif.id, { include_score: e.target.checked })}
+                        className="h-3.5 w-3.5"
+                      />
+                      <label htmlFor={`score-${notif.id}`} className="text-xs text-muted-foreground cursor-pointer">
+                        {t('forms.submissionIncludeScore')}
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        id={`responses-${notif.id}`}
+                        checked={notif.include_responses ?? false}
+                        onChange={e => updateNotification(notif.id, { include_responses: e.target.checked })}
+                        className="h-3.5 w-3.5"
+                      />
+                      <label htmlFor={`responses-${notif.id}`} className="text-xs text-muted-foreground cursor-pointer">
+                        {t('forms.submissionIncludeResponses')}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Score threshold action — only when scoring is enabled */}
+          {scoringEnabled && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <Label className="text-xs font-medium">{t('forms.submissionScoreThreshold')}</Label>
+                <p className="text-xs text-muted-foreground">{t('forms.submissionBelowThresholdEmail')}</p>
+
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t('forms.notifNotify')}</Label>
+                  <Select
+                    value={
+                      !config.score_threshold_action?.below_threshold_email
+                        ? 'none'
+                        : isRoleKeyword(config.score_threshold_action.below_threshold_email)
+                        ? config.score_threshold_action.below_threshold_email
+                        : 'specific_email'
+                    }
+                    onValueChange={(v) => {
+                      if (v === 'specific_email') {
+                        // Don't write to config yet — wait for the email input
+                        onChange({
+                          ...config,
+                          score_threshold_action: {
+                            ...config.score_threshold_action,
+                            below_threshold_email: thresholdCustomEmail || '',
+                          },
+                        });
+                      } else {
+                        onChange({
+                          ...config,
+                          score_threshold_action: {
+                            ...config.score_threshold_action,
+                            below_threshold_email: v === 'none' ? '' : v,
+                          },
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs mt-1">
+                      <SelectValue placeholder="Select recipient…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('forms.notifNone')}</SelectItem>
+                      <SelectItem value="manager">{t('forms.notifToStoreManager')}</SelectItem>
+                      <SelectItem value="district_manager">{t('forms.notifToDistrictManager')}</SelectItem>
+                      <SelectItem value="admin">{t('forms.notifToAdmin')}</SelectItem>
+                      <SelectItem value="specific_email">{t('forms.notifToSpecificEmail')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {!isRoleKeyword(config.score_threshold_action?.below_threshold_email) && config.score_threshold_action?.below_threshold_email !== '' && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">{t('forms.notifEmailAddress')}</Label>
+                    <Input
+                      value={thresholdCustomEmail}
+                      onChange={e => {
+                        setThresholdCustomEmail(e.target.value);
+                        onChange({
+                          ...config,
+                          score_threshold_action: {
+                            ...config.score_threshold_action,
+                            below_threshold_email: e.target.value,
+                          },
+                        });
+                      }}
+                      placeholder="email@example.com"
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-xs text-muted-foreground">{t('forms.notifCustomMessage')}</Label>
+                  <Textarea
+                    value={config.score_threshold_action?.below_threshold_message ?? ''}
+                    onChange={e => onChange({
+                      ...config,
+                      score_threshold_action: {
+                        ...config.score_threshold_action,
+                        below_threshold_message: e.target.value,
+                      },
+                    })}
+                    placeholder="Score below threshold. Please review with your manager."
+                    className="text-xs min-h-[60px] mt-1"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // CONNECTOR LINE
 // ============================================================================
 
@@ -1222,6 +1547,7 @@ function ConnectorLine() {
 export function FormBuilder({
   formId,
   orgId = '',
+  initialType,
   currentRole,
   onSaveDraft,
   onPublished,
@@ -1229,7 +1555,7 @@ export function FormBuilder({
   fullPage = false,
 }: FormBuilderProps) {
   const { t } = useTranslation();
-  const hook = useFormBuilder({ formId, orgId });
+  const hook = useFormBuilder({ formId, orgId, initialType });
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [tagInput, setTagInput] = useState('');
@@ -1451,7 +1777,7 @@ export function FormBuilder({
               <SelectContent>
                 {FORM_TYPES.map(ft => (
                   <SelectItem key={ft.value} value={ft.value}>
-                    {ft.label}
+                    {t(ft.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1561,7 +1887,24 @@ export function FormBuilder({
             {hook.blocks.length === 0 && hook.sections.length === 0 && (
               <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground/60 pointer-events-none select-none">
                 <Plus className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-sm">{t('forms.builderEmptyHint')}</p>
+                {hook.form?.type === 'sign-off' && (
+                  <p className="text-sm">{t('forms.builderQuickStartSignOff')}</p>
+                )}
+                {hook.form?.type === 'inspection' && (
+                  <p className="text-sm">{t('forms.builderQuickStartInspection')}</p>
+                )}
+                {hook.form?.type === 'audit' && (
+                  <p className="text-sm">{t('forms.builderQuickStartAudit')}</p>
+                )}
+                {hook.form?.type === 'survey' && (
+                  <p className="text-sm">{t('forms.builderQuickStartSurvey')}</p>
+                )}
+                {hook.form?.type === 'ojt-checklist' && (
+                  <p className="text-sm">{t('forms.builderQuickStartOJT')}</p>
+                )}
+                {!hook.form?.type && (
+                  <p className="text-sm">{t('forms.builderEmptyHint')}</p>
+                )}
               </div>
             )}
 
@@ -1653,10 +1996,52 @@ export function FormBuilder({
 
             {/* END node */}
             <div className="flex justify-center mt-0">
-              <div className="bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
-                {t('forms.builderEnd')}
-              </div>
+              {hook.form?.type === 'sign-off' && !hook.blocks.some(b => b.block_type === 'signature') ? (
+                <div className="flex items-center gap-2 bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
+                  <Pen className="h-3 w-3" />
+                  {t('forms.builderEnd')} — {t('forms.builderSignatureRequired')}
+                </div>
+              ) : (
+                <div className="bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
+                  {t('forms.builderEnd')}
+                </div>
+              )}
             </div>
+
+            {/* Type-specific END node hints */}
+            {hook.form?.type === 'sign-off' && !hook.blocks.some(b => b.block_type === 'signature') && (
+              <div className="flex justify-center mt-2">
+                <div className="flex items-center gap-1.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 text-xs px-3 py-1.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {t('forms.builderSignOffMissingSignature')}
+                </div>
+              </div>
+            )}
+            {hook.form?.type === 'audit' && hook.form?.scoring_enabled && hook.blocks.length > 0 && (() => {
+              const scoredBlocks = hook.blocks.filter(b => (b.settings as Record<string, unknown> | undefined)?.score_weight !== undefined && (b.settings as Record<string, unknown>)?.score_weight !== 0);
+              const total = scoredBlocks.reduce((sum, b) => sum + (Number((b.settings as Record<string, unknown>)?.score_weight) || 0), 0);
+              return total > 0 ? (
+                <div className="flex justify-center mt-2">
+                  <div className="text-xs text-muted-foreground px-3 py-1 rounded-full bg-muted/60 border border-border">
+                    {t('forms.builderAuditScoreHint', { scored: scoredBlocks.length, total })}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+            {hook.form?.type === 'inspection' && hook.blocks.length === 0 && (
+              <div className="flex justify-center mt-2">
+                <p className="text-xs text-muted-foreground/50 italic">
+                  {t('forms.builderInspectionTip')}
+                </p>
+              </div>
+            )}
+
+            {/* Submission Actions Panel */}
+            <SubmissionActionsPanel
+              config={hook.form?.submission_config ?? {}}
+              scoringEnabled={hook.form?.scoring_enabled ?? false}
+              onChange={hook.setSubmissionConfig}
+            />
 
             {/* Bottom padding */}
             <div className="h-16" />

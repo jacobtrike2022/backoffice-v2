@@ -8,6 +8,7 @@ import {
   updateFormSection,
   deleteFormSection,
   bulkUpsertFormBlocks,
+  type CreateFormInput,
   type FormSection,
   type FormWithSections,
 } from '../lib/crud/forms';
@@ -16,6 +17,28 @@ import { createFormVersion } from '../lib/crud/formVersions';
 // ============================================================================
 // TYPES
 // ============================================================================
+
+export interface EmailNotification {
+  id: string;
+  to_type: 'specific_email' | 'store_manager' | 'district_manager' | 'admin';
+  to_email?: string;
+  subject?: string;
+  include_score?: boolean;
+  include_responses?: boolean;
+  trigger: 'always' | 'on_fail' | 'on_pass';
+}
+
+export interface SubmissionConfig {
+  confirmation_message?: string;
+  redirect_url?: string;
+  send_email_to_submitter?: boolean;
+  email_notifications?: EmailNotification[];
+  score_threshold_action?: {
+    below_threshold_email?: string;
+    below_threshold_message?: string;
+  };
+  allow_multiple_submissions?: boolean;
+}
 
 export interface FormMetadata {
   id: string;
@@ -30,6 +53,7 @@ export interface FormMetadata {
   is_template?: boolean;
   scoring_enabled?: boolean;
   pass_threshold?: number;
+  submission_config?: SubmissionConfig;
 }
 
 export interface FormSettings {
@@ -60,6 +84,8 @@ export interface LocalBlock {
 export interface UseFormBuilderProps {
   formId?: string;
   orgId: string;
+  /** Initial form type when creating a new form (no formId). Defaults to 'inspection'. */
+  initialType?: string;
 }
 
 export interface UseFormBuilderReturn {
@@ -73,6 +99,7 @@ export interface UseFormBuilderReturn {
   setFormTags: (tags: string[]) => void;
   setFormSettings: (settings: Partial<FormSettings>) => void;
   setFormIsTemplate: (isTemplate: boolean) => void;
+  setSubmissionConfig: (config: SubmissionConfig) => void;
 
   // Sections state
   sections: FormSection[];
@@ -104,7 +131,7 @@ export interface UseFormBuilderReturn {
 // HOOK
 // ============================================================================
 
-export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormBuilderReturn {
+export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderProps): UseFormBuilderReturn {
   const [form, setForm] = useState<FormMetadata | null>(null);
   const [sections, setSections] = useState<FormSection[]>([]);
   const [blocks, setBlocks] = useState<LocalBlock[]>([]);
@@ -158,6 +185,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
           scoring_enabled: form.scoring_enabled ?? false,
           pass_threshold: form.pass_threshold ?? 70,
         },
+        submission_config: form.submission_config ?? {},
       } as any);
 
       // Save dirty/new blocks — filter to persisted IDs only (no temp IDs)
@@ -314,7 +342,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         } else {
           // Create a new form immediately so we always have a real DB ID
           const newForm = await createForm(
-            { title: 'Untitled Form', type: 'inspection' },
+            { title: 'Untitled Form', type: (initialType ?? 'inspection') as CreateFormInput['type'] },
             orgId
           );
           if (cancelled) return;
@@ -348,7 +376,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
     return () => {
       cancelled = true;
     };
-  }, [formId, orgId]);
+  }, [formId, orgId, initialType]);
 
   // ============================================================================
   // BEFOREUNLOAD
@@ -419,6 +447,11 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
 
   const setFormIsTemplate = useCallback((isTemplate: boolean) => {
     setForm(prev => prev ? { ...prev, is_template: isTemplate } : prev);
+    markDirty();
+  }, [markDirty]);
+
+  const setSubmissionConfig = useCallback((config: SubmissionConfig) => {
+    setForm(prev => prev ? { ...prev, submission_config: config } : prev);
     markDirty();
   }, [markDirty]);
 
@@ -567,6 +600,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
     setFormTags,
     setFormSettings,
     setFormIsTemplate,
+    setSubmissionConfig,
 
     sections,
     addSection,
@@ -610,6 +644,7 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
     is_template: data.is_template ?? false,
     scoring_enabled: (settings?.scoring_enabled as boolean) ?? false,
     pass_threshold: (settings?.pass_threshold as number) ?? 70,
+    submission_config: ((data as any).submission_config as SubmissionConfig | null) ?? {},
   };
 }
 

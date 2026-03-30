@@ -39,6 +39,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
   // Builder routing state — undefined formId means "create new"
   const [builderFormId, setBuilderFormId] = useState<string | undefined>(undefined);
+  const [builderInitialType, setBuilderInitialType] = useState<string | undefined>(undefined);
   const [showBuilder, setShowBuilder] = useState(false);
 
   // Legacy form-detail routing (kept for backwards compat with FormDetail component)
@@ -46,8 +47,9 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleNewForm = () => {
+  const handleNewForm = (type?: string) => {
     setBuilderFormId(undefined);
+    setBuilderInitialType(type);
     setShowBuilder(true);
     setActiveTab('builder');
   };
@@ -61,6 +63,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
   const handleBuilderBack = () => {
     setShowBuilder(false);
     setBuilderFormId(undefined);
+    setBuilderInitialType(undefined);
     setActiveTab('library');
   };
 
@@ -95,6 +98,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
         <FormBuilder
           orgId={effectiveOrgId}
           formId={builderFormId}
+          initialType={builderInitialType}
           currentRole={legacyRole}
           onSaveDraft={handleBuilderBack}
           onPublished={handleBuilderBack}

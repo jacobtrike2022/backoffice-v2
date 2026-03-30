@@ -36,6 +36,18 @@ export interface ScoringResult {
   earned_weight: number;
 }
 
+export interface SubmissionConfig {
+  confirmation_message?: string;
+  redirect_url?: string;
+  send_email_to_submitter?: boolean;
+  allow_multiple_submissions?: boolean;
+  email_notifications?: unknown[];
+  score_threshold_action?: {
+    below_threshold_email?: string;
+    below_threshold_message?: string;
+  };
+}
+
 export interface FormRendererProps {
   blocks: FormBlockData[];
   answers?: Record<string, unknown>;
@@ -45,6 +57,8 @@ export interface FormRendererProps {
   onSubmit?: (data: Record<string, unknown>, scoring?: ScoringResult) => void | Promise<void>;
   /** Required for file/photo upload blocks — used as the storage path prefix */
   formId?: string;
+  /** Post-submission configuration (confirmation message, etc.) */
+  submissionConfig?: SubmissionConfig;
 }
 
 // Per-block upload state tracked outside React state to avoid re-render loops
@@ -64,11 +78,12 @@ function getOptions(block: FormBlockData): string[] {
   return [];
 }
 
-export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId }: FormRendererProps) {
+export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
 
@@ -239,6 +254,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
       }
 
       await onSubmit?.(formData, scoring);
+      setIsSubmitted(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -925,6 +941,20 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
         );
     }
   };
+
+  if (isSubmitted) {
+    const confirmMsg = submissionConfig?.confirmation_message || t('forms.publicSubmissionReceived');
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+        <div className="rounded-full bg-green-100 p-3">
+          <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <p className="text-base font-semibold">{confirmMsg}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
