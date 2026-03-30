@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -95,6 +96,7 @@ interface FilterState {
 }
 
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
+  const { t } = useTranslation();
   // Report type controls the "grain" of the data
   const [reportType, setReportType] = useState<ReportType>('people');
   const [searchTerm, setSearchTerm] = useState('');
@@ -289,7 +291,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
         setLearnerData(data);
       } catch (error) {
         console.error('Error fetching learner records:', error);
-        toast.error('Failed to load learner records');
+        toast.error(t('reports.failedToLoad'));
         setLearnerData([]);
       } finally {
         setLoading(false);
@@ -619,10 +621,10 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
           exportToPDF(exportData, filename, reportType);
           break;
       }
-      toast.success(`Exported ${recordCount} ${reportType} records as ${format.toUpperCase()}`);
+      toast.success(t('reports.exportSuccess', { count: recordCount, type: reportType, format: format.toUpperCase() }));
     } catch (error) {
       console.error('Export error:', error);
-      toast.error(`Failed to export as ${format.toUpperCase()}`);
+      toast.error(t('reports.exportFailed', { format: format.toUpperCase() }));
     }
   };
 
@@ -689,9 +691,9 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground">Reports</h1>
+          <h1 className="text-foreground">{t('reports.headerTitle')}</h1>
           <p className="text-muted-foreground mt-1">
-            Learner activity & progress
+            {t('reports.headerSubtitle')}
           </p>
         </div>
 
@@ -726,7 +728,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
           >
             <Users className="h-4 w-4" />
-            People
+            {t('reports.people')}
           </ToggleGroupItem>
           <ToggleGroupItem
             value="assignments"
@@ -734,7 +736,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
           >
             <FileSpreadsheet className="h-4 w-4" />
-            Assignments
+            {t('reports.assignments')}
           </ToggleGroupItem>
           <ToggleGroupItem
             value="units"
@@ -742,7 +744,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
             className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground px-3 py-1.5 rounded-md text-sm gap-1.5"
           >
             <Building className="h-4 w-4" />
-            Units
+            {t('reports.units')}
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
@@ -753,7 +755,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search employees, content, or ID..."
+            placeholder={t('reports.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10 h-10 border-0 bg-accent/50 focus:bg-background transition-colors"
@@ -772,7 +774,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                   className="h-8 border-dashed border-primary/50 text-primary hover:bg-primary/5 hover:border-primary"
                 >
                   <Plus className="h-3 w-3 mr-1" />
-                  Filter
+                  {t('common.filter')}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-80 p-0" align="start">
@@ -780,7 +782,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Filter by..."
+                      placeholder={t('reports.filterBy')}
                       value={filterSearch}
                       onChange={(e) => setFilterSearch(e.target.value)}
                       className="pl-10 h-8 border-0 bg-accent/30 text-sm"
@@ -812,9 +814,9 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
 
             {/* Results Count */}
             <span className="text-sm text-muted-foreground">
-              {reportType === 'people' && `${filteredData.length} ${filteredData.length === 1 ? 'person' : 'people'}`}
-              {reportType === 'assignments' && `${assignmentRows.length} ${assignmentRows.length === 1 ? 'assignment' : 'assignments'}`}
-              {reportType === 'units' && `${unitRows.length} ${unitRows.length === 1 ? 'unit' : 'units'}`}
+              {reportType === 'people' && `${filteredData.length} ${filteredData.length === 1 ? t('reports.person') : t('reports.personPlural')}`}
+              {reportType === 'assignments' && `${assignmentRows.length} ${assignmentRows.length === 1 ? t('reports.assignment') : t('reports.assignmentPlural')}`}
+              {reportType === 'units' && `${unitRows.length} ${unitRows.length === 1 ? t('reports.unit') : t('reports.unitPlural')}`}
             </span>
           </div>
 
@@ -822,7 +824,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
           {activeFilters.length > 0 && (
             <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-muted-foreground hover:text-foreground h-8">
               <RefreshCw className="h-3 w-3 mr-1" />
-              Clear
+              {t('reports.clear')}
             </Button>
           )}
         </div>
@@ -855,13 +857,13 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center space-x-2">
             <h3 className="font-semibold">
-              {reportType === 'people' ? 'Learner Report' :
-               reportType === 'assignments' ? 'Assignment Report' :
-               'Unit Report'}
+              {reportType === 'people' ? t('reports.learnerReport') :
+               reportType === 'assignments' ? t('reports.assignmentReport') :
+               t('reports.unitReport')}
             </h3>
             {selectedRecords.length > 0 && (
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                {selectedRecords.length} selected
+                {t('reports.selected', { count: selectedRecords.length })}
               </Badge>
             )}
           </div>
@@ -873,7 +875,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">Click rows to expand details</p>
+                <p className="text-xs">{t('reports.clickToExpand')}</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -897,7 +899,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     onClick={() => handleSort('employeeName')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Employee</span>
+                      <span>{t('reports.employee')}</span>
                       {sortField === 'employeeName' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -910,7 +912,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     onClick={() => handleSort('role')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Role</span>
+                      <span>{t('reports.role')}</span>
                       {sortField === 'role' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -923,7 +925,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     onClick={() => handleSort('district')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>District</span>
+                      <span>{t('reports.district')}</span>
                       {sortField === 'district' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -936,7 +938,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     onClick={() => handleSort('store')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Location</span>
+                      <span>{t('reports.location')}</span>
                       {sortField === 'store' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -944,13 +946,13 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Assignments</span></TableHead>
+                  <TableHead><span>{t('reports.assignmentsCol')}</span></TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => handleSort('progress')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Progress</span>
+                      <span>{t('reports.progress')}</span>
                       {sortField === 'progress' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -958,7 +960,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Status</span></TableHead>
+                  <TableHead><span>{t('reports.status')}</span></TableHead>
                   <TableHead className="pr-4"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -968,7 +970,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={10} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
-                        <p className="text-sm text-muted-foreground">Loading learner records...</p>
+                        <p className="text-sm text-muted-foreground">{t('reports.loadingLearners')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -977,8 +979,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={10} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <FileText className="h-8 w-8 text-muted-foreground opacity-50" />
-                        <p className="text-sm font-medium text-foreground">No records found</p>
-                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                        <p className="text-sm font-medium text-foreground">{t('reports.noRecordsFound')}</p>
+                        <p className="text-xs text-muted-foreground">{t('reports.tryAdjusting')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1024,7 +1026,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                               <div className="text-sm">
                                 <span className="font-medium">{record.assignments?.length || 0}</span>
                                 <span className="text-muted-foreground ml-1">
-                                  {(record.assignments?.length || 0) === 1 ? 'assignment' : 'assignments'}
+                                  {(record.assignments?.length || 0) === 1 ? t('reports.assignment') : t('reports.assignmentPlural')}
                                 </span>
                               </div>
                             </TooltipTrigger>
@@ -1037,7 +1039,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                                   </div>
                                 ))}
                                 {(record.assignments?.length || 0) > 5 && (
-                                  <div className="text-muted-foreground">+{(record.assignments?.length || 0) - 5} more...</div>
+                                  <div className="text-muted-foreground">{t('reports.more', { count: (record.assignments?.length || 0) - 5 })}</div>
                                 )}
                               </div>
                             </TooltipContent>
@@ -1060,7 +1062,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="text-xs">View details</p>
+                              <p className="text-xs">{t('reports.viewDetails')}</p>
                             </TooltipContent>
                           </Tooltip>
                         </TableCell>
@@ -1087,7 +1089,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                           {/* Location column - Assigned date */}
                           <TableCell className="py-2">
                             <div>
-                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Assigned</div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">{t('reports.assigned')}</div>
                               <div className="text-sm text-muted-foreground">
                                 {assignment.dateAssigned
                                   ? new Date(assignment.dateAssigned).toLocaleDateString()
@@ -1098,7 +1100,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                           {/* Assignments column - Due date */}
                           <TableCell className="py-2">
                             <div>
-                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">Due</div>
+                              <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">{t('reports.due')}</div>
                               <div className={`text-sm ${assignment.dueDate && new Date(assignment.dueDate) < new Date() && !assignment.completionDate ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
                                 {assignment.dueDate
                                   ? new Date(assignment.dueDate).toLocaleDateString()
@@ -1157,7 +1159,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Playlist / Track</span>
+                      <span>{t('reports.playlistTrack')}</span>
                       {sortField === 'playlist' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1177,7 +1179,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Assigned To</span>
+                      <span>{t('reports.assignedTo')}</span>
                       {sortField === 'employeeName' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1197,7 +1199,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Location</span>
+                      <span>{t('reports.location')}</span>
                       {sortField === 'store' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1217,7 +1219,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Due</span>
+                      <span>{t('reports.due')}</span>
                       {sortField === 'dueDate' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1237,7 +1239,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Progress</span>
+                      <span>{t('reports.progress')}</span>
                       {sortField === 'progress' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1257,7 +1259,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Status</span>
+                      <span>{t('reports.status')}</span>
                       {sortField === 'status' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1273,7 +1275,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
-                        <p className="text-sm text-muted-foreground">Loading assignments...</p>
+                        <p className="text-sm text-muted-foreground">{t('reports.loadingAssignments')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1282,8 +1284,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <FileSpreadsheet className="h-8 w-8 text-muted-foreground opacity-50" />
-                        <p className="text-sm font-medium text-foreground">No assignments found</p>
-                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                        <p className="text-sm font-medium text-foreground">{t('reports.noAssignmentsFound')}</p>
+                        <p className="text-xs text-muted-foreground">{t('reports.tryAdjusting')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1364,7 +1366,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Risk</span>
+                      <span>{t('reports.risk')}</span>
                       {sortField === 'riskScore' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1384,7 +1386,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Unit</span>
+                      <span>{t('reports.units')}</span>
                       {sortField === 'unitName' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1392,7 +1394,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                       )}
                     </div>
                   </TableHead>
-                  <TableHead><span>Top Issue</span></TableHead>
+                  <TableHead><span>{t('reports.topIssue')}</span></TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => {
@@ -1405,7 +1407,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Compliance</span>
+                      <span>{t('reports.complianceCol')}</span>
                       {sortField === 'compliance' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1425,7 +1427,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Overdue</span>
+                      <span>{t('reports.overdue')}</span>
                       {sortField === 'overdueCount' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1445,7 +1447,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Stalled</span>
+                      <span>{t('reports.stalled')}</span>
                       {sortField === 'stalledCount' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1465,7 +1467,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     }}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Team</span>
+                      <span>{t('reports.team')}</span>
                       {sortField === 'employeeCount' && (
                         sortDirection === 'asc' ?
                         <ChevronUp className="h-3 w-3 text-primary" /> :
@@ -1481,7 +1483,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={8} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <RefreshCw className="h-6 w-6 text-muted-foreground animate-spin" />
-                        <p className="text-sm text-muted-foreground">Loading unit data...</p>
+                        <p className="text-sm text-muted-foreground">{t('reports.loadingUnits')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1490,8 +1492,8 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                     <TableCell colSpan={8} className="text-center py-12">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <Building className="h-8 w-8 text-muted-foreground opacity-50" />
-                        <p className="text-sm font-medium text-foreground">No units found</p>
-                        <p className="text-xs text-muted-foreground">Try adjusting your filters or search terms</p>
+                        <p className="text-sm font-medium text-foreground">{t('reports.noUnitsFound')}</p>
+                        <p className="text-xs text-muted-foreground">{t('reports.tryAdjusting')}</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1583,7 +1585,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p className="text-xs">Employees with no activity in 14+ days</p>
+                            <p className="text-xs">{t('reports.stalledTooltip')}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
@@ -1591,7 +1593,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                         <div className="text-sm">
                           <span className="font-medium">{row.employeeCount}</span>
                           <span className="text-muted-foreground ml-1">
-                            ({row.assignmentCount} assignments)
+                            ({t('reports.assignmentsCount', { count: row.assignmentCount })})
                           </span>
                         </div>
                       </TableCell>

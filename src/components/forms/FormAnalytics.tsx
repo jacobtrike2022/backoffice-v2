@@ -189,6 +189,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
         <div className="rounded-md border border-destructive/20 bg-destructive/10 p-4 flex items-center justify-between">
           <p className="text-sm text-destructive">{error}</p>
           <button
+            type="button"
             onClick={loadData}
             className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
@@ -226,6 +227,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
         {([7, 30, 90] as const).map((d) => (
           <button
             key={d}
+            type="button"
             onClick={() => setDays(d)}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               days === d

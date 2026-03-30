@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -137,6 +138,7 @@ interface OverviewTabProps {
 }
 
 function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className="space-y-6">
@@ -183,31 +185,31 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
       {/* Quick Stats Row 1 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <QuickStat
-          title="Compliance Coverage"
+          title={t('compliance.complianceCoverage')}
           value={`${coverage.coverageRate}%`}
-          subtitle={`${coverage.fullyCompliant} of ${coverage.totalEmployees} employees`}
+          subtitle={t('compliance.ofEmployees', { compliant: coverage.fullyCompliant, total: coverage.totalEmployees })}
           icon={<Shield className="h-6 w-6 text-primary" />}
           iconBgClass="bg-primary/10"
         />
         <QuickStat
-          title="Pending Assignments"
+          title={t('compliance.pendingAssignments')}
           value={assignmentStats.pending}
-          subtitle={assignmentStats.overdue > 0 ? `${assignmentStats.overdue} overdue` : undefined}
+          subtitle={assignmentStats.overdue > 0 ? t('compliance.overdueCount', { count: assignmentStats.overdue }) : undefined}
           icon={<Clock className="h-6 w-6 text-yellow-600" />}
           iconBgClass="bg-yellow-100 dark:bg-yellow-900/30"
           onClick={() => onNavigate('queue')}
         />
         <QuickStat
-          title="Completed"
+          title={t('compliance.completed')}
           value={assignmentStats.completed}
-          subtitle={pipeline.averageCompletionDays ? `Avg ${pipeline.averageCompletionDays} days` : 'All time'}
+          subtitle={pipeline.averageCompletionDays ? t('compliance.avgDays', { days: pipeline.averageCompletionDays }) : t('compliance.allTime')}
           icon={<CheckCircle2 className="h-6 w-6 text-green-600" />}
           iconBgClass="bg-green-100 dark:bg-green-900/30"
         />
         <QuickStat
-          title="Active Requirements"
+          title={t('compliance.activeRequirements')}
           value={stats.activeRequirements}
-          subtitle={`${stats.lockedPlaylistCount} linked playlists`}
+          subtitle={t('compliance.linkedPlaylists', { count: stats.lockedPlaylistCount })}
           icon={<FileCheck className="h-6 w-6 text-blue-600" />}
           iconBgClass="bg-blue-100 dark:bg-blue-900/30"
           onClick={() => onNavigate('requirements')}
@@ -221,10 +223,10 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-primary" />
-              Assignment Pipeline
+              {t('compliance.assignmentPipeline')}
             </CardTitle>
             <CardDescription>
-              Current workflow status
+              {t('compliance.currentWorkflow')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -233,7 +235,7 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                  <span className="text-sm">Pending</span>
+                  <span className="text-sm">{t('compliance.pending')}</span>
                 </div>
                 <span className="font-semibold">{pipeline.pending}</span>
               </div>
@@ -247,7 +249,7 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 rounded-full bg-blue-500" />
-                  <span className="text-sm">In Progress</span>
+                  <span className="text-sm">{t('compliance.inProgress')}</span>
                 </div>
                 <span className="font-semibold">{pipeline.assigned}</span>
               </div>
@@ -261,7 +263,7 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 rounded-full bg-green-500" />
-                  <span className="text-sm">Completed</span>
+                  <span className="text-sm">{t('compliance.completed')}</span>
                 </div>
                 <span className="font-semibold">{pipeline.completed}</span>
               </div>
@@ -276,8 +278,8 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
             {pipeline.averageCompletionDays !== null && (
               <div className="pt-2 border-t">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Avg. Completion Time</span>
-                  <span className="font-medium">{pipeline.averageCompletionDays} days</span>
+                  <span className="text-muted-foreground">{t('compliance.avgCompletionTime')}</span>
+                  <span className="font-medium">{pipeline.averageCompletionDays} {t('compliance.days')}</span>
                 </div>
               </div>
             )}
@@ -289,10 +291,10 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Needs Attention
+              {t('compliance.needsAttention')}
             </CardTitle>
             <CardDescription>
-              Items requiring action
+              {t('compliance.itemsRequiringAction')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -304,8 +306,8 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
                 <div className="flex items-center gap-3">
                   <Clock className="h-5 w-5 text-yellow-600" />
                   <div>
-                    <p className="font-medium text-sm">{assignmentStats.pending} pending</p>
-                    <p className="text-xs text-muted-foreground">Need assignment</p>
+                    <p className="font-medium text-sm">{t('compliance.pendingCount', { count: assignmentStats.pending })}</p>
+                    <p className="text-xs text-muted-foreground">{t('compliance.needAssignment')}</p>
                   </div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -313,7 +315,7 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
             ) : (
               <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <p className="text-sm">All caught up!</p>
+                <p className="text-sm">{t('compliance.allCaughtUp')}</p>
               </div>
             )}
 
@@ -325,8 +327,8 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
                 <div className="flex items-center gap-3">
                   <AlertTriangle className="h-5 w-5 text-red-600" />
                   <div>
-                    <p className="font-medium text-sm">{assignmentStats.overdue} overdue</p>
-                    <p className="text-xs text-muted-foreground">Past due date</p>
+                    <p className="font-medium text-sm">{t('compliance.overdueLabel', { count: assignmentStats.overdue })}</p>
+                    <p className="text-xs text-muted-foreground">{t('compliance.pastDueDate')}</p>
                   </div>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -338,8 +340,8 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
                 <div className="flex items-center gap-3">
                   <Users className="h-5 w-5 text-orange-600" />
                   <div>
-                    <p className="font-medium text-sm">{coverage.nonCompliant} non-compliant</p>
-                    <p className="text-xs text-muted-foreground">Employees need training</p>
+                    <p className="font-medium text-sm">{t('compliance.nonCompliant', { count: coverage.nonCompliant })}</p>
+                    <p className="text-xs text-muted-foreground">{t('compliance.employeesNeedTraining')}</p>
                   </div>
                 </div>
               </div>
@@ -350,8 +352,8 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
                 <div className="flex items-center gap-3">
                   <Calendar className="h-5 w-5 text-purple-600" />
                   <div>
-                    <p className="font-medium text-sm">{stats.expirations.length} expiring soon</p>
-                    <p className="text-xs text-muted-foreground">Next 90 days</p>
+                    <p className="font-medium text-sm">{t('compliance.expiringSoon', { count: stats.expirations.length })}</p>
+                    <p className="text-xs text-muted-foreground">{t('compliance.next90Days')}</p>
                   </div>
                 </div>
               </div>
@@ -364,10 +366,10 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <Calendar className="h-5 w-5 text-purple-500" />
-              Upcoming Expirations
+              {t('compliance.upcomingExpirations')}
             </CardTitle>
             <CardDescription>
-              Certificates expiring in 90 days
+              {t('compliance.certsExpiring90')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -389,14 +391,14 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
                 ))}
                 {stats.expirations.length > 5 && (
                   <p className="text-xs text-muted-foreground text-center pt-2">
-                    +{stats.expirations.length - 5} more
+                    {t('compliance.more', { count: stats.expirations.length - 5 })}
                   </p>
                 )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
                 <CheckCircle2 className="h-8 w-8 mb-2 text-green-500" />
-                <p className="text-sm">No expirations in next 90 days</p>
+                <p className="text-sm">{t('compliance.noExpirations90')}</p>
               </div>
             )}
           </CardContent>
@@ -412,9 +414,9 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <div className="flex items-center gap-3">
             <FileCheck className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="font-medium">Requirements</p>
+              <p className="font-medium">{t('compliance.requirements')}</p>
               <p className="text-sm text-muted-foreground">
-                {stats.activeRequirements} active
+                {t('compliance.requirementsActive', { count: stats.activeRequirements })}
               </p>
             </div>
           </div>
@@ -428,9 +430,9 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <div className="flex items-center gap-3">
             <ListMusic className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="font-medium">Playlists</p>
+              <p className="font-medium">{t('compliance.playlists')}</p>
               <p className="text-sm text-muted-foreground">
-                {stats.lockedPlaylistCount} locked
+                {t('compliance.playlistsLocked', { count: stats.lockedPlaylistCount })}
               </p>
             </div>
           </div>
@@ -444,9 +446,9 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
           <div className="flex items-center gap-3">
             <Settings className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="font-medium">Settings</p>
+              <p className="font-medium">{t('compliance.settings')}</p>
               <p className="text-sm text-muted-foreground">
-                Topics & Authorities
+                {t('compliance.topicsAuthorities')}
               </p>
             </div>
           </div>
@@ -462,6 +464,7 @@ function OverviewTab({ stats, loading, onNavigate }: OverviewTabProps) {
 // ============================================================================
 
 function SettingsTab() {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<'topics' | 'authorities'>('topics');
 
   return (
@@ -472,14 +475,14 @@ function SettingsTab() {
           size="sm"
           onClick={() => setActiveSection('topics')}
         >
-          Topics
+          {t('compliance.topics')}
         </Button>
         <Button
           variant={activeSection === 'authorities' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setActiveSection('authorities')}
         >
-          Authorities
+          {t('compliance.authorities')}
         </Button>
       </div>
 
@@ -493,6 +496,7 @@ function SettingsTab() {
 // ============================================================================
 
 export function ComplianceDashboard() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState<DashboardStats>({
     assignments: null,
@@ -555,16 +559,16 @@ export function ComplianceDashboard() {
             <Shield className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Compliance Engine</h1>
+            <h1 className="text-2xl font-bold">{t('compliance.engineTitle')}</h1>
             <p className="text-sm text-muted-foreground">
-              Manage compliance requirements and training assignments
+              {t('compliance.engineSubtitle')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setShowBulkImport(true)}>
             <Upload className="h-4 w-4 mr-2" />
-            Import Certificates
+            {t('compliance.importCertificates')}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -576,7 +580,7 @@ export function ComplianceDashboard() {
               <DropdownMenuItem
                 onClick={async () => {
                   try {
-                    toast.loading('Exporting compliance report...');
+                    toast.loading(t('compliance.exportingReport'));
                     const data = await exportComplianceReport();
 
                     // Convert to CSV
@@ -602,25 +606,25 @@ export function ComplianceDashboard() {
                     URL.revokeObjectURL(url);
 
                     toast.dismiss();
-                    toast.success(`Exported ${data.length} records`);
+                    toast.success(t('compliance.exportedRecords', { count: data.length }));
                   } catch (err) {
                     toast.dismiss();
-                    toast.error('Failed to export report');
+                    toast.error(t('compliance.failedExportReport'));
                     console.error(err);
                   }
                 }}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Export Report (CSV)
+                {t('compliance.exportReportCsv')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={async () => {
                   try {
-                    toast.loading('Recalculating assignments...');
+                    toast.loading(t('compliance.recalculating'));
                     const result = await recalculateAllAssignments();
                     toast.dismiss();
-                    toast.success(`Processed ${result.processed} employees, created ${result.created} new assignments`);
+                    toast.success(t('compliance.recalculateSuccess', { processed: result.processed, created: result.created }));
 
                     // Refresh stats
                     if (activeTab === 'overview') {
@@ -646,13 +650,13 @@ export function ComplianceDashboard() {
                     }
                   } catch (err) {
                     toast.dismiss();
-                    toast.error('Failed to recalculate assignments');
+                    toast.error(t('compliance.failedRecalculate'));
                     console.error(err);
                   }
                 }}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Recalculate All Assignments
+                {t('compliance.recalculateAll')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -694,11 +698,11 @@ export function ComplianceDashboard() {
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
-            <span className="hidden sm:inline">Overview</span>
+            <span className="hidden sm:inline">{t('compliance.overview')}</span>
           </TabsTrigger>
           <TabsTrigger value="queue" className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
-            <span className="hidden sm:inline">Queue</span>
+            <span className="hidden sm:inline">{t('compliance.queue')}</span>
             {stats.assignments && stats.assignments.pending > 0 && (
               <Badge variant="secondary" className="ml-1 text-xs">
                 {stats.assignments.pending}
@@ -707,15 +711,15 @@ export function ComplianceDashboard() {
           </TabsTrigger>
           <TabsTrigger value="requirements" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
-            <span className="hidden sm:inline">Requirements</span>
+            <span className="hidden sm:inline">{t('compliance.requirements')}</span>
           </TabsTrigger>
           <TabsTrigger value="playlists" className="flex items-center gap-2">
             <ListMusic className="h-4 w-4" />
-            <span className="hidden sm:inline">Playlists</span>
+            <span className="hidden sm:inline">{t('compliance.playlists')}</span>
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
-            <span className="hidden sm:inline">Settings</span>
+            <span className="hidden sm:inline">{t('compliance.settings')}</span>
           </TabsTrigger>
         </TabsList>
 

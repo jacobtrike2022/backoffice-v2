@@ -347,7 +347,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-full min-h-[600px]">
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* ── Left pane: form selector + submission list ── */}
       <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
         {/* Form selector */}
@@ -360,6 +360,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 flex items-center justify-between gap-2">
               <p className="text-sm text-destructive flex-1">{formsError}</p>
               <button
+                type="button"
                 onClick={() => {
                   setFormsError(null);
                   setFormsLoading(true);
@@ -402,6 +403,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             {STATUS_FILTERS.map((f) => (
               <button
                 key={f.value}
+                type="button"
                 onClick={() => setStatusFilter(f.value)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   statusFilter === f.value
@@ -416,8 +418,8 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         )}
 
         {/* Submission list */}
-        <Card className="flex-1 overflow-hidden">
-          <CardContent className="p-0">
+        <Card className="flex-1 min-h-0 overflow-hidden">
+          <CardContent className="p-0 h-full overflow-y-auto">
             {selectedFormId === 'none' ? (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
                 <ChevronDown className="h-8 w-8 mb-2 opacity-30" />
@@ -442,6 +444,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                   return (
                     <li key={sub.id}>
                       <button
+                        type="button"
                         className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors ${
                           isSelected ? 'bg-muted border-l-2 border-primary' : 'border-l-2 border-transparent'
                         }`}
@@ -498,7 +501,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
       {/* ── Right pane: submission detail ── */}
       <div className="flex-1 min-w-0">
         {!selectedSubmission ? (
-          <Card className="h-full flex items-center justify-center">
+          <Card className="min-h-[400px] flex items-center justify-center">
             <CardContent className="text-center text-muted-foreground py-16">
               <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
                 <FileText className="h-7 w-7 opacity-40" />
@@ -508,7 +511,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             </CardContent>
           </Card>
         ) : (
-          <Card className="h-full overflow-auto">
+          <Card className="overflow-auto">
             <CardHeader className="pb-3">
               {/* Header row: submitter + status + export */}
               <div className="flex items-start justify-between gap-3 flex-wrap">

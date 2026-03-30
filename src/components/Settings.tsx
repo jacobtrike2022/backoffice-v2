@@ -40,6 +40,8 @@ import {
 import { EmailSettings } from './Settings/EmailSettings';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { useTranslation } from 'react-i18next';
+import { Globe } from 'lucide-react';
 
 interface Invoice {
   id: string;
@@ -124,7 +126,9 @@ interface SettingsProps {
 }
 
 export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('billing');
+  const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [showHRISModal, setShowHRISModal] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
   const [hrisSearchQuery, setHrisSearchQuery] = useState('');
@@ -200,13 +204,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
       if (error) throw error;
 
-      toast.success('Company information updated successfully');
-      
+      toast.success(t('settingsPage.companyUpdated'));
+
       // Trigger header update
       window.dispatchEvent(new Event('organization-updated'));
     } catch (error: any) {
       console.error('Error saving company info:', error);
-      toast.error('Failed to update company information', { 
+      toast.error(t('settingsPage.failedUpdateCompany'), {
         description: error.message 
       });
     }
@@ -234,6 +238,23 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
     }
   };
 
+  const handleLanguageChange = async (lang: string) => {
+    setPreferredLanguage(lang);
+    i18n.changeLanguage(lang);
+
+    if (!organizationId) return;
+    try {
+      await supabase
+        .from('organizations')
+        .update({ preferred_language: lang })
+        .eq('id', organizationId);
+      toast.success(t('settings.language.saved'));
+      window.dispatchEvent(new Event('organization-updated'));
+    } catch {
+      toast.error(t('settings.language.saveFailed'));
+    }
+  };
+
   // Fetch organization data (name and logos) on mount
   useEffect(() => {
     const fetchOrgData = async () => {
@@ -245,7 +266,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url')
+          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url, preferred_language')
           .eq('id', orgId)
           .single();
 
@@ -255,6 +276,11 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             logo_light_url: org.logo_light_url
           });
           
+          // Set language preference
+          if (org.preferred_language) {
+            setPreferredLanguage(org.preferred_language);
+          }
+
           // Update company info state with all org data
           setCompanyInfo({
             name: org.name || '',
@@ -419,10 +445,10 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
         logo_light_url: logoLightUrl
       });
 
-      toast.success('Logos saved successfully');
+      toast.success(t('settingsPage.logosSaved'));
     } catch (error: any) {
       console.error('Error saving logos:', error);
-      toast.error('Failed to save logos', { description: error.message || 'Please try again' });
+      toast.error(t('settingsPage.failedSaveLogos'), { description: error.message || 'Please try again' });
     } finally {
       setSavingLogos(false);
     }
@@ -432,20 +458,20 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-foreground">Settings</h1>
+        <h1 className="text-foreground">{t('settings.title')}</h1>
         <p className="text-muted-foreground mt-1">
-          Manage your account, billing, integrations, and permissions
+          {t('settingsPage.subtitle')}
         </p>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="billing">Billing</TabsTrigger>
-          <TabsTrigger value="company">Company</TabsTrigger>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          <TabsTrigger value="email">Email</TabsTrigger>
+          <TabsTrigger value="billing">{t('settings.billing')}</TabsTrigger>
+          <TabsTrigger value="company">{t('settings.company')}</TabsTrigger>
+          <TabsTrigger value="integrations">{t('settings.integrations')}</TabsTrigger>
+          <TabsTrigger value="permissions">{t('settings.permissions')}</TabsTrigger>
+          <TabsTrigger value="email">{t('settings.emailTab')}</TabsTrigger>
         </TabsList>
 
         {/* Billing Tab */}
@@ -455,32 +481,32 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <FileText className="h-5 w-5 text-primary" />
-                <span>Contract Information</span>
+                <span>{t('settingsPage.contractInfo')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <Label className="text-muted-foreground">Contract Type</Label>
+                  <Label className="text-muted-foreground">{t('settingsPage.contractType')}</Label>
                   <p className="font-semibold mt-1">Enterprise - Standard</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Contract Term</Label>
+                  <Label className="text-muted-foreground">{t('settingsPage.contractTerm')}</Label>
                   <p className="font-semibold mt-1">3 Years</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Start Date</Label>
+                  <Label className="text-muted-foreground">{t('settingsPage.startDate')}</Label>
                   <p className="font-semibold mt-1">January 1, 2023</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Renewal Date</Label>
+                  <Label className="text-muted-foreground">{t('settingsPage.renewalDate')}</Label>
                   <div className="flex items-center space-x-2 mt-1">
                     <p className="font-semibold">January 1, 2026</p>
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Active</Badge>
+                    <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.active')}</Badge>
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Frequency</Label>
+                  <Label className="text-muted-foreground">{t('settingsPage.frequency')}</Label>
                   <p className="font-semibold mt-1">Quarterly</p>
                 </div>
               </div>
@@ -489,14 +515,14 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               
               <div className="flex items-center justify-between bg-accent/30 p-4 rounded-lg">
                 <div>
-                  <p className="font-medium">Need to make changes to your contract?</p>
+                  <p className="font-medium">{t('settingsPage.needChanges')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Contact your dedicated account representative for assistance
+                    {t('settingsPage.contactRepDesc')}
                   </p>
                 </div>
                 <Button variant="outline" size="sm">
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Contact Rep
+                  {t('settingsPage.contactRep')}
                 </Button>
               </div>
             </CardContent>
@@ -507,13 +533,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <CreditCard className="h-5 w-5 text-primary" />
-                <span>Payment Method</span>
+                <span>{t('settingsPage.paymentMethod')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="cardNumber">Card Number</Label>
+                  <Label htmlFor="cardNumber">{t('settingsPage.cardNumber')}</Label>
                   <Input 
                     id="cardNumber"
                     value={paymentMethod.cardNumber}
@@ -522,7 +548,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="expiry">Expiry Date</Label>
+                  <Label htmlFor="expiry">{t('settingsPage.expiryDate')}</Label>
                   <Input 
                     id="expiry"
                     value={paymentMethod.expiry}
@@ -531,7 +557,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="cardHolder">Card Holder Name</Label>
+                  <Label htmlFor="cardHolder">{t('settingsPage.cardHolder')}</Label>
                   <Input 
                     id="cardHolder"
                     value={paymentMethod.cardHolder}
@@ -545,7 +571,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
                   onClick={handleUpdatePaymentMethod}
                 >
-                  Update Payment Method
+                  {t('settingsPage.updatePaymentMethod')}
                 </Button>
               </div>
             </CardContent>
@@ -557,9 +583,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <FileText className="h-5 w-5 text-primary" />
-                  <span>Invoice History</span>
+                  <span>{t('settingsPage.invoiceHistory')}</span>
                 </div>
-                <Badge variant="outline">{mockInvoices.length} invoices</Badge>
+                <Badge variant="outline">{t('settingsPage.invoices', { count: mockInvoices.length })}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -591,7 +617,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       </div>
                       <Button variant="outline" size="sm">
                         <Download className="h-4 w-4 mr-2" />
-                        Download
+                        {t('settingsPage.download')}
                       </Button>
                     </div>
                   </div>
@@ -607,13 +633,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Building2 className="h-5 w-5 text-primary" />
-                <span>Company Information</span>
+                <span>{t('settingsPage.companyInfo')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <Label htmlFor="companyName">Company Name</Label>
+                  <Label htmlFor="companyName">{t('settingsPage.companyName')}</Label>
                   <Input 
                     id="companyName"
                     value={companyInfo.name}
@@ -621,7 +647,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <Label htmlFor="address">Street Address</Label>
+                  <Label htmlFor="address">{t('settingsPage.streetAddress')}</Label>
                   <Input 
                     id="address"
                     value={companyInfo.address}
@@ -629,7 +655,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="city">City</Label>
+                  <Label htmlFor="city">{t('settingsPage.city')}</Label>
                   <Input 
                     id="city"
                     value={companyInfo.city}
@@ -638,7 +664,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="state">State</Label>
+                    <Label htmlFor="state">{t('settingsPage.state')}</Label>
                     <Input 
                       id="state"
                       value={companyInfo.state}
@@ -646,7 +672,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="zip">ZIP Code</Label>
+                    <Label htmlFor="zip">{t('settingsPage.zipCode')}</Label>
                     <Input 
                       id="zip"
                       value={companyInfo.zip}
@@ -655,7 +681,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="phone">Phone Number</Label>
+                  <Label htmlFor="phone">{t('settingsPage.phoneNumber')}</Label>
                   <Input 
                     id="phone"
                     value={companyInfo.phone}
@@ -663,7 +689,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="email">Email Address</Label>
+                  <Label htmlFor="email">{t('settingsPage.emailAddress')}</Label>
                   <Input 
                     id="email"
                     type="email"
@@ -672,7 +698,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <Label htmlFor="website">Website</Label>
+                  <Label htmlFor="website">{t('settingsPage.website')}</Label>
                   <Input 
                     id="website"
                     value={companyInfo.website}
@@ -685,8 +711,35 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
                   onClick={handleSaveCompanyInfo}
                 >
-                  Save Changes
+                  {t('common.saveChanges')}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Language & Region */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Globe className="h-5 w-5 text-primary" />
+                <span>{t('settings.language.title')}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t('settings.language.description')}
+              </p>
+              <div className="max-w-xs">
+                <Label>{t('settings.language.label')}</Label>
+                <Select value={preferredLanguage} onValueChange={handleLanguageChange}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="es">Español</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
@@ -696,20 +749,20 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Image className="h-5 w-5 text-primary" />
-                <span>Company Logos</span>
+                <span>{t('settingsPage.companyLogos')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <p className="text-sm text-muted-foreground">
-                Logos used throughout the platform including dashboard, KB viewer, and learner app
+                {t('settingsPage.logosDesc')}
               </p>
 
               {/* Dark Mode Logo Section */}
               <div className="space-y-3">
                 <div>
-                  <Label>Dark Mode Logo</Label>
+                  <Label>{t('settingsPage.darkModeLogo')}</Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Recommended: White or light-colored logo on transparent background
+                    {t('settingsPage.darkModeLogoDesc')}
                   </p>
                 </div>
                 
@@ -725,7 +778,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                     ) : (
                       <div className="text-center">
                         <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground">No logo uploaded</p>
+                        <p className="text-xs text-muted-foreground">{t('settingsPage.noLogoUploaded')}</p>
                       </div>
                     )}
                   </div>
@@ -749,7 +802,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                         }}
                       >
                         <Upload className="h-4 w-4 mr-2" />
-                        Upload Dark Logo
+                        {t('settingsPage.uploadDarkLogo')}
                       </Button>
                     </label>
                     {orgLogoState.logo_dark_url && (
@@ -771,9 +824,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               {/* Light Mode Logo Section */}
               <div className="space-y-3">
                 <div>
-                  <Label>Light Mode Logo</Label>
+                  <Label>{t('settingsPage.lightModeLogo')}</Label>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Recommended: Dark-colored logo on transparent background
+                    {t('settingsPage.lightModeLogoDesc')}
                   </p>
                 </div>
                 
@@ -789,7 +842,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                     ) : (
                       <div className="text-center">
                         <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-xs text-gray-500">No logo uploaded</p>
+                        <p className="text-xs text-gray-500">{t('settingsPage.noLogoUploaded')}</p>
                       </div>
                     )}
                   </div>
@@ -813,7 +866,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                         }}
                       >
                         <Upload className="h-4 w-4 mr-2" />
-                        Upload Light Logo
+                        {t('settingsPage.uploadLightLogo')}
                       </Button>
                     </label>
                     {orgLogoState.logo_light_url && (
@@ -838,7 +891,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   onClick={handleSaveLogos}
                   disabled={savingLogos}
                 >
-                  {savingLogos ? 'Saving...' : 'Save Changes'}
+                  {savingLogos ? t('common.saving') : t('common.saveChanges')}
                 </Button>
               </div>
             </CardContent>
@@ -849,7 +902,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Shield className="h-5 w-5 text-primary" />
-                <span>Default Password</span>
+                <span>{t('settingsPage.defaultPassword')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -860,9 +913,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   onCheckedChange={(checked) => setUseUniquePasswords(checked as boolean)}
                 />
                 <Label htmlFor="uniquePasswords" className="cursor-pointer">
-                  <p className="font-medium">Issue unique random passwords for all new users at account creation</p>
+                  <p className="font-medium">{t('settingsPage.uniquePasswordsLabel')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Each new user will receive a unique, randomly-generated password when their account is created
+                    {t('settingsPage.uniquePasswordsDesc')}
                   </p>
                 </Label>
               </div>
@@ -870,9 +923,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               {!useUniquePasswords && (
                 <div className="space-y-3 pl-7 border-l-2 border-primary/20">
                   <div>
-                    <Label htmlFor="companyPassword">Company-Wide Password</Label>
+                    <Label htmlFor="companyPassword">{t('settingsPage.companyWidePasswordLabel')}</Label>
                     <p className="text-xs text-muted-foreground mt-1 mb-2">
-                      This password will be assigned to all new users starting from this point forward
+                      {t('settingsPage.companyWidePasswordDesc')}
                     </p>
                     <div className="relative">
                       <Input 
@@ -885,7 +938,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                         }}
                         onBlur={handlePasswordBlur}
                         onFocus={() => setIsPasswordMasked(false)}
-                        placeholder="Enter company-wide password"
+                        placeholder={t('settingsPage.passwordPlaceholder')}
                         className="pr-10"
                       />
                       {companyPassword && (
@@ -912,7 +965,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                   onClick={handleSaveDefaultPassword}
                   disabled={!useUniquePasswords && !companyPassword}
                 >
-                  Save Changes
+                  {t('common.saveChanges')}
                 </Button>
               </div>
             </CardContent>
@@ -926,15 +979,15 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center space-x-2">
                   <LinkIcon className="h-5 w-5 text-primary" />
-                  <span>HRIS Integrations</span>
+                  <span>{t('settingsPage.hrisIntegrations')}</span>
                 </CardTitle>
-                <Button 
-                  disabled 
+                <Button
+                  disabled
                   variant="outline"
                   className="opacity-50 cursor-not-allowed"
                 >
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Manual Sync
+                  {t('settingsPage.manualSync')}
                 </Button>
               </div>
             </CardHeader>
@@ -943,9 +996,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                 <div className="flex items-start space-x-3">
                   <SettingsIcon className="h-5 w-5 text-primary mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-medium">Connect Your HRIS System</p>
+                    <p className="font-medium">{t('settingsPage.connectHRIS')}</p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Sync employee data automatically from your HR information system. This enables automatic employee onboarding, role updates, and seamless data management.
+                      {t('settingsPage.connectHRISDesc')}
                     </p>
                   </div>
                 </div>
@@ -953,16 +1006,16 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
               <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
                 <LinkIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="font-semibold mb-2">No HRIS Connected</h3>
+                <h3 className="font-semibold mb-2">{t('settingsPage.noHRISConnected')}</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Connect your HRIS to automatically sync employee data
+                  {t('settingsPage.noHRISDesc')}
                 </p>
-                <Button 
+                <Button
                   className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
                   onClick={() => setShowHRISModal(true)}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Connect HRIS
+                  {t('settingsPage.connectHRISButton')}
                 </Button>
               </div>
 
@@ -970,9 +1023,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                 <div className="flex items-start space-x-3">
                   <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                   <div>
-                    <p className="font-medium text-blue-900 dark:text-blue-100">Secure Integration</p>
+                    <p className="font-medium text-blue-900 dark:text-blue-100">{t('settingsPage.secureIntegration')}</p>
                     <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                      All integrations are powered by Merge.dev with enterprise-grade security and compliance standards. Your data is encrypted in transit and at rest.
+                      {t('settingsPage.secureIntegrationDesc')}
                     </p>
                   </div>
                 </div>
@@ -985,7 +1038,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Clock className="h-5 w-5 text-primary" />
-                <span>Sync History</span>
+                <span>{t('settingsPage.syncHistory')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1000,7 +1053,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Company • Dec 15, 2024 at 2:30 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors">
@@ -1013,7 +1066,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Employee • Dec 15, 2024 at 2:30 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors">
@@ -1026,7 +1079,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Employment • Dec 15, 2024 at 2:31 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors">
@@ -1039,7 +1092,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Location • Dec 15, 2024 at 2:31 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors">
@@ -1052,7 +1105,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Company • Dec 14, 2024 at 2:30 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors">
@@ -1065,7 +1118,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <p className="text-xs text-muted-foreground">Model: Employee • Dec 14, 2024 at 2:30 AM</p>
                     </div>
                   </div>
-                  <Badge className="bg-green-100 text-green-700 border-green-200">Complete</Badge>
+                  <Badge className="bg-green-100 text-green-700 border-green-200">{t('settingsPage.complete')}</Badge>
                 </div>
               </div>
             </CardContent>
@@ -1076,7 +1129,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                <span>Error Logs</span>
+                <span>{t('settingsPage.errorLogs')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1087,15 +1140,15 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                       <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-semibold text-sm text-red-900 dark:text-red-100">HRIS Connection Error</p>
+                      <p className="font-semibold text-sm text-red-900 dark:text-red-100">{t('settingsPage.hrisConnectionError')}</p>
                       <p className="text-sm text-red-800 dark:text-red-200 mt-1">
-                        HRIS connection needs to be resynced due to expired API keys
+                        {t('settingsPage.hrisConnectionErrorDesc')}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-2">Error Date: Dec 16, 2024 at 2:30 AM</p>
+                      <p className="text-xs text-muted-foreground mt-2">Dec 16, 2024 at 2:30 AM</p>
                     </div>
                   </div>
                   <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 flex-shrink-0">
-                    Pending
+                    {t('settingsPage.pending')}
                   </Badge>
                 </div>
               </div>
@@ -1110,7 +1163,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Shield className="h-5 w-5 text-primary" />
-                <span>Default Roles & Permissions</span>
+                <span>{t('settingsPage.defaultRolesPermissions')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1124,9 +1177,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                           <p className="text-sm text-muted-foreground mt-1">{role.description}</p>
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-border">
-                          <Badge variant="outline">{role.userCount} users</Badge>
-                          <Button 
-                            variant="ghost" 
+                          <Badge variant="outline">{t('settingsPage.users', { count: role.userCount })}</Badge>
+                          <Button
+                            variant="ghost"
                             size="sm"
                             onClick={() => {
                               setSelectedRole(role);
@@ -1134,7 +1187,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                             }}
                           >
                             <Eye className="h-4 w-4 mr-2" />
-                            View
+                            {t('settingsPage.view')}
                           </Button>
                         </div>
                       </div>
@@ -1151,11 +1204,11 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <Users className="h-5 w-5 text-primary" />
-                  <span>User Permissions</span>
+                  <span>{t('settingsPage.userPermissions')}</span>
                 </div>
                 <Button size="sm" variant="outline">
                   <Plus className="h-4 w-4 mr-2" />
-                  Add User
+                  {t('settingsPage.addUser')}
                 </Button>
               </CardTitle>
             </CardHeader>
@@ -1184,13 +1237,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                         </Badge>
                         {user.customPermissions && user.customPermissions.length > 0 && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            +{user.customPermissions.length} custom permission{user.customPermissions.length > 1 ? 's' : ''}
+                            +{user.customPermissions.length} {user.customPermissions.length > 1 ? t('settingsPage.customPermissions') : t('settingsPage.customPermission')}
                           </p>
                         )}
                       </div>
                       <Button variant="outline" size="sm">
                         <Edit className="h-4 w-4 mr-2" />
-                        Edit
+                        {t('common.edit')}
                       </Button>
                     </div>
                   </div>
@@ -1205,20 +1258,20 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <Shield className="h-5 w-5 text-primary" />
-                  <span>Custom Permission Groups</span>
+                  <span>{t('settingsPage.customPermissionGroups')}</span>
                 </div>
                 <Button size="sm" variant="outline">
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Group
+                  {t('settingsPage.createGroup')}
                 </Button>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-center py-8">
                 <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No custom permission groups created yet</p>
+                <p className="text-muted-foreground">{t('settingsPage.noCustomGroups')}</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Create custom groups to assign specific permissions to multiple users
+                  {t('settingsPage.noCustomGroupsDesc')}
                 </p>
               </div>
             </CardContent>
@@ -1235,18 +1288,18 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       <Dialog open={showHRISModal} onOpenChange={setShowHRISModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Select integration</DialogTitle>
+            <DialogTitle>{t('settingsPage.selectIntegration')}</DialogTitle>
             <DialogDescription>
-              Choose an HRIS system to integrate with your Trike account
+              {t('settingsPage.selectIntegrationDesc')}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search"
+                placeholder={t('common.search')}
                 value={hrisSearchQuery}
                 onChange={(e) => setHrisSearchQuery(e.target.value)}
                 className="pl-10 bg-accent/50"
@@ -1276,9 +1329,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       <Dialog open={showSandboxModal} onOpenChange={setShowSandboxModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Sandbox Environment</DialogTitle>
+            <DialogTitle>{t('settingsPage.sandboxEnvironment')}</DialogTitle>
             <DialogDescription>
-              This is a test environment for demonstration purposes
+              {t('settingsPage.sandboxDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="text-center py-6">
@@ -1286,13 +1339,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
               <Shield className="h-8 w-8 text-primary" />
             </div>
             <p className="text-muted-foreground mb-6">
-              This is a sandbox environment, please reach out to your dedicated Trike Success Manager to create a live account for your company!
+              {t('settingsPage.sandboxMessage')}
             </p>
-            <Button 
+            <Button
               className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0 w-full"
               onClick={() => setShowSandboxModal(false)}
             >
-              Got it
+              {t('settingsPage.gotIt')}
             </Button>
           </div>
         </DialogContent>
@@ -1302,17 +1355,17 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       <Dialog open={showPermissionsModal} onOpenChange={setShowPermissionsModal}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selectedRole?.name} Permissions</DialogTitle>
+            <DialogTitle>{t('settingsPage.permissionsFor', { name: selectedRole?.name })}</DialogTitle>
             <DialogDescription>
-              View all permissions assigned to this role
+              {t('settingsPage.viewAllPermissions')}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">{selectedRole?.description}</p>
-            
+
             <div className="space-y-2">
-              <Label>Permissions</Label>
+              <Label>{t('settingsPage.permissions')}</Label>
               <div className="space-y-2">
                 {selectedRole?.permissions.map((permission, index) => (
                   <div key={index} className="flex items-center justify-between p-3 bg-accent rounded-lg">
@@ -1325,8 +1378,8 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
             <div className="pt-4 border-t border-border">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Users with this role</span>
-                <Badge variant="outline">{selectedRole?.userCount} users</Badge>
+                <span className="text-sm text-muted-foreground">{t('settingsPage.usersWithRole')}</span>
+                <Badge variant="outline">{t('settingsPage.users', { count: selectedRole?.userCount })}</Badge>
               </div>
             </div>
           </div>

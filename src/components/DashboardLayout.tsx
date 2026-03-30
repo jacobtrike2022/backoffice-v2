@@ -42,6 +42,7 @@ import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { APP_CONFIG } from '../lib/config';
 import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
+import { useTranslation } from 'react-i18next';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
 
@@ -82,121 +83,121 @@ interface NavigationItem {
 
 const navigationGroups: NavigationGroup[] = [
   {
-    label: 'Overview',
+    label: 'nav.group.overview',
     items: [
       {
         id: 'dashboard',
-        label: 'Dashboard',
+        label: 'nav.dashboard',
         icon: Home,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       }
     ]
   },
   {
-    label: 'People & Organization',
+    label: 'nav.group.peopleOrg',
     items: [
       {
         id: 'people',
-        label: 'People',
+        label: 'nav.people',
         icon: Users,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'units',
-        label: 'Units',
+        label: 'nav.units',
         icon: Building,
         roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'organization',
-        label: 'Organization',
+        label: 'nav.organization',
         icon: Building2,
         roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'my-store',
-        label: 'My Store',
+        label: 'nav.myStore',
         icon: Building,
         roles: ['store-manager']
       }
     ]
   },
   {
-    label: 'Content & Training',
+    label: 'nav.group.contentTraining',
     items: [
       {
         id: 'content',
-        label: 'Content Library',
+        label: 'nav.contentLibrary',
         icon: CheckSquare,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'assignments',
-        label: 'Playlists & Albums',
+        label: 'nav.playlistsAlbums',
         icon: ListChecks,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       },
       {
         id: 'authoring',
-        label: 'Content Authoring',
+        label: 'nav.contentAuthoring',
         icon: Edit,
         roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'forms',
-        label: 'Forms',
+        label: 'nav.forms',
         icon: ClipboardList,
         roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'knowledge-base',
-        label: 'Knowledge Base',
+        label: 'nav.knowledgeBase',
         icon: BookOpen,
         roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager']
       }
     ]
   },
   {
-    label: 'Analytics & Reports',
+    label: 'nav.group.analyticsReports',
     items: [
       {
         id: 'analytics',
-        label: 'Analytics',
+        label: 'nav.analytics',
         icon: BarChart3,
         roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'reports',
-        label: 'Reports',
+        label: 'nav.reports',
         icon: FileText,
         roles: ['admin', 'trike-super-admin', 'district-manager']
       }
     ]
   },
   {
-    label: 'Compliance & Settings',
+    label: 'nav.group.complianceSettings',
     items: [
       {
         id: 'compliance',
-        label: 'Compliance',
+        label: 'nav.compliance',
         icon: UserCheck,
         roles: ['admin', 'trike-super-admin', 'district-manager']
       },
       {
         id: 'settings',
-        label: 'Settings',
+        label: 'nav.settings',
         icon: Settings,
         roles: ['admin', 'trike-super-admin']
       },
       {
         id: 'trike-admin-functions',
-        label: 'Trike Admin Functions',
+        label: 'nav.trikeAdminFunctions',
         icon: Wrench,
         roles: ['trike-super-admin']
       },
       {
         id: 'trike-admin',
-        label: 'Prospect to Client',
+        label: 'nav.prospectToClient',
         icon: Briefcase,
         roles: ['trike-super-admin']
       }
@@ -217,6 +218,7 @@ export function DashboardLayout({
   viewingOrgName,
   onExitOrgPreview,
 }: DashboardLayoutProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(currentView);
   const [organizationName, setOrganizationName] = useState<string>('');
   const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
@@ -270,20 +272,20 @@ export function DashboardLayout({
   }, [darkMode, viewingOrgId]);
 
   const roleLabels = {
-    'admin': 'Administrator',
-    'district-manager': 'District Manager',
-    'store-manager': 'Store Manager',
-    'trike-super-admin': 'Trike Super Admin'
-  } as const;
+    'admin': t('roles.admin'),
+    'district-manager': t('roles.districtManager'),
+    'store-manager': t('roles.storeManager'),
+    'trike-super-admin': t('roles.trikeSuperAdmin')
+  };
 
   const getRoleDescription = () => {
     switch (currentRole) {
       case 'admin':
-        return 'Full system access';
+        return t('roles.desc.admin');
       case 'district-manager':
-        return 'Multi-unit oversight';
+        return t('roles.desc.districtManager');
       case 'store-manager':
-        return 'Store operations';
+        return t('roles.desc.storeManager');
       default:
         return '';
     }
@@ -308,15 +310,15 @@ export function DashboardLayout({
     if (isProspectUser) {
       return [
         {
-          label: 'Overview',
+          label: 'nav.group.overview',
           items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+            { id: 'dashboard', label: 'nav.dashboard', icon: Home, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
           ],
         },
         {
-          label: 'Content',
+          label: 'nav.group.content',
           items: [
-            { id: 'content', label: 'Content Library', icon: CheckSquare, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
+            { id: 'content', label: 'nav.contentLibrary', icon: CheckSquare, roles: ['admin', 'trike-super-admin', 'district-manager', 'store-manager'] as UserRole[] },
           ],
         },
       ];
@@ -355,7 +357,7 @@ export function DashboardLayout({
                   <h2 className="font-bold text-sidebar-foreground text-lg">
                     {organizationName || 'Trike.co'}
                   </h2>
-                  <p className="text-xs text-muted-foreground">Backoffice</p>
+                  <p className="text-xs text-muted-foreground">{t('layout.backoffice')}</p>
                 </div>
               </div>
             )}
@@ -404,9 +406,9 @@ export function DashboardLayout({
               <div className="flex items-center gap-2 text-sm">
                 <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
                 <span className="text-muted-foreground">
-                  Demo expires in{' '}
+                  {t('layout.demoExpiresIn')}{' '}
                   <span className="font-semibold text-sidebar-foreground">
-                    {Math.max(0, Math.ceil((new Date(orgStatusInfo.demoExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days
+                    {Math.max(0, Math.ceil((new Date(orgStatusInfo.demoExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} {t('layout.days')}
                   </span>
                 </span>
               </div>
@@ -418,7 +420,7 @@ export function DashboardLayout({
             <div className="p-6 border-b border-sidebar-border bg-accent dark:bg-sidebar-accent">
               <div className="space-y-3">
                 <label className="text-xs font-bold text-brand-grey dark:text-sidebar-foreground uppercase tracking-wide">
-                  Current Role
+                  {t('layout.currentRole')}
                 </label>
                 <Select value={currentRole} onValueChange={onRoleChange}>
                   <SelectTrigger className="w-full bg-white dark:bg-sidebar-accent border-2 border-primary/20 hover:border-primary/40 transition-colors">
@@ -433,26 +435,26 @@ export function DashboardLayout({
                     <SelectItem value="admin">
                       <div className="flex items-center space-x-2">
                         <Shield className="h-4 w-4 text-primary" />
-                        <span>Administrator</span>
+                        <span>{t('roles.admin')}</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="district-manager">
                       <div className="flex items-center space-x-2">
                         <Building className="h-4 w-4 text-primary" />
-                        <span>District Manager</span>
+                        <span>{t('roles.districtManager')}</span>
                       </div>
                     </SelectItem>
                     <SelectItem value="store-manager">
                       <div className="flex items-center space-x-2">
                         <Users className="h-4 w-4 text-primary" />
-                        <span>Store Manager</span>
+                        <span>{t('roles.storeManager')}</span>
                       </div>
                     </SelectItem>
                     <Separator className="my-2" />
                     <SelectItem value="trike-super-admin">
                       <div className="flex items-center space-x-2">
                         <Shield className="h-4 w-4 text-orange-500" />
-                        <span className="font-semibold">Trike Super Admin</span>
+                        <span className="font-semibold">{t('roles.trikeSuperAdmin')}</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -470,7 +472,7 @@ export function DashboardLayout({
               <div key={groupIndex}>
                 {!sidebarCollapsed && (
                   <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3 px-2">
-                    {group.label}
+                    {t(group.label)}
                   </h3>
                 )}
                 <div className="space-y-1">
@@ -549,11 +551,11 @@ export function DashboardLayout({
                         <Icon className={`h-5 w-5 ${sidebarCollapsed ? '' : 'mr-3'}`} />
                         {!sidebarCollapsed && (
                           <>
-                            <span className="flex-1 text-left font-medium">{item.label}</span>
+                            <span className="flex-1 text-left font-medium">{t(item.label)}</span>
                             <div className="flex items-center space-x-2">
                               {item.isNew && (
                                 <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0">
-                                  NEW
+                                  {t('layout.new')}
                                 </Badge>
                               )}
                               {item.badge && (
@@ -608,7 +610,7 @@ export function DashboardLayout({
           <div className="bg-amber-500/90 text-white px-4 py-2 flex items-center justify-between z-50 shadow-md">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Eye className="h-4 w-4" />
-              <span>Previewing: <strong>{viewingOrgName || organizationName || 'Organization'}</strong></span>
+              <span>{t('layout.previewing')} <strong>{viewingOrgName || organizationName || t('nav.organization')}</strong></span>
             </div>
             <Button
               variant="ghost"
@@ -617,7 +619,7 @@ export function DashboardLayout({
               onClick={onExitOrgPreview}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Return to Trike
+              {t('layout.returnToTrike')}
             </Button>
           </div>
         )}
@@ -629,7 +631,7 @@ export function DashboardLayout({
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search employees, content, reports..."
+                  placeholder={t('layout.searchPlaceholder')}
                   className="pl-10 w-80 bg-input-background border-border focus:ring-2 focus:ring-primary/20"
                 />
               </div>
@@ -661,18 +663,18 @@ export function DashboardLayout({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-80">
                   <div className="p-3 border-b">
-                    <h4 className="font-semibold">Notifications</h4>
+                    <h4 className="font-semibold">{t('layout.notifications')}</h4>
                   </div>
                   <DropdownMenuItem className="p-3">
                     <div className="space-y-1">
-                      <p className="font-medium text-sm">Safety Training Overdue</p>
-                      <p className="text-xs text-muted-foreground">3 employees in Store A</p>
+                      <p className="font-medium text-sm">{t('layout.safetyTrainingOverdue')}</p>
+                      <p className="text-xs text-muted-foreground">{t('layout.employeesInStoreA')}</p>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuItem className="p-3">
                     <div className="space-y-1">
-                      <p className="font-medium text-sm">New Compliance Update</p>
-                      <p className="text-xs text-muted-foreground">Requires immediate attention</p>
+                      <p className="font-medium text-sm">{t('layout.newComplianceUpdate')}</p>
+                      <p className="text-xs text-muted-foreground">{t('layout.requiresAttention')}</p>
                     </div>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -708,13 +710,13 @@ export function DashboardLayout({
                   <DropdownMenuItem
                     className="gap-2 cursor-pointer text-destructive focus:text-destructive"
                     onClick={async () => {
-                      if (confirm('Are you sure you want to sign out?')) {
+                      if (confirm(t('layout.signOutConfirm'))) {
                         await signOut();
                       }
                     }}
                   >
                     <LogOut className="h-4 w-4" />
-                    <span>Sign Out</span>
+                    <span>{t('layout.signOut')}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
