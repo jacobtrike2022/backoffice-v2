@@ -517,15 +517,19 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
 // PROPERTIES DRAWER
 // ============================================================================
 
+// Block types that can be scored (have a definite correct answer)
+const SCOREABLE_BLOCK_TYPES = ['radio', 'checkboxes', 'dropdown', 'yes_no', 'rating', 'number'];
+
 interface PropertiesDrawerProps {
   block: LocalBlock;
   allBlocks: LocalBlock[];
+  scoringEnabled?: boolean;
   onUpdate: (updates: Partial<LocalBlock>) => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, scoringEnabled, onUpdate, onDelete, onClose }: PropertiesDrawerProps) {
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
   const hasChoices = ['radio', 'checkboxes', 'dropdown'].includes(block.block_type);
@@ -811,6 +815,108 @@ function PropertiesDrawer({ block, allBlocks, onUpdate, onDelete, onClose }: Pro
             </div>
           </div>
         )}
+
+        {/* ── Scoring (only for scoreable block types when scoring is enabled) ── */}
+        {scoringEnabled && SCOREABLE_BLOCK_TYPES.includes(block.block_type) && (() => {
+          const scoreWeight = ((block.settings?.score_weight as number) ?? 0);
+          const correctAnswer = ((block.settings?.correct_answer as string) ?? '');
+          const options = block.options ?? [];
+
+          const updateScoringSetting = (key: string, value: unknown) => {
+            onUpdate({
+              settings: { ...block.settings, [key]: value },
+            });
+          };
+
+          return (
+            <div className="border-t border-border pt-4 mt-4 space-y-3">
+              <div>
+                <p className="text-sm font-medium">Scoring</p>
+                <p className="text-xs text-muted-foreground">Configure scoring for this question</p>
+              </div>
+
+              {/* Score Weight */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Score Weight (0-100)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={scoreWeight}
+                  onChange={e => {
+                    const v = e.target.value ? Math.min(100, Math.max(0, parseInt(e.target.value))) : 0;
+                    updateScoringSetting('score_weight', v);
+                  }}
+                  placeholder="0"
+                  className="text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">Set to 0 to exclude from scoring</p>
+              </div>
+
+              {/* Correct Answer */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Correct Answer</Label>
+                {['radio', 'dropdown'].includes(block.block_type) && options.length > 0 ? (
+                  <Select
+                    value={correctAnswer || 'none'}
+                    onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select correct answer..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select correct answer...</SelectItem>
+                      {options.map((opt, i) => (
+                        <SelectItem key={i} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : block.block_type === 'checkboxes' && options.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground">Select all correct options (comma-separated)</p>
+                    <Input
+                      value={correctAnswer}
+                      onChange={e => updateScoringSetting('correct_answer', e.target.value)}
+                      placeholder="e.g. Option 1, Option 3"
+                      className="text-sm"
+                    />
+                  </div>
+                ) : block.block_type === 'yes_no' ? (
+                  <Select
+                    value={correctAnswer || 'none'}
+                    onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select correct answer..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select correct answer...</SelectItem>
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : block.block_type === 'rating' ? (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={(block.settings?.max_stars as number) ?? 5}
+                    value={correctAnswer}
+                    onChange={e => updateScoringSetting('correct_answer', e.target.value)}
+                    placeholder="e.g. 5"
+                    className="text-sm"
+                  />
+                ) : (
+                  <Input
+                    value={correctAnswer}
+                    onChange={e => updateScoringSetting('correct_answer', e.target.value)}
+                    placeholder="Enter correct answer..."
+                    className="text-sm"
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Conditional Logic ─────────────────────────────── */}
         <div className="border-t border-border pt-4 mt-4">
@@ -1147,6 +1253,40 @@ export function FormBuilder({
           )}
         </div>
 
+        {/* Scoring settings row */}
+        <div className="flex items-center gap-4 px-4 pb-2 border-b border-border mb-0">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="scoring-toggle" className="text-xs font-medium cursor-pointer text-muted-foreground">
+              Scoring
+            </Label>
+            <Switch
+              id="scoring-toggle"
+              checked={hook.form?.scoring_enabled ?? false}
+              onCheckedChange={(checked) => hook.setFormSettings({ scoring_enabled: checked })}
+            />
+          </div>
+          {hook.form?.scoring_enabled && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="pass-threshold" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                Pass Threshold
+              </Label>
+              <Input
+                id="pass-threshold"
+                type="number"
+                min={0}
+                max={100}
+                value={hook.form?.pass_threshold ?? 70}
+                onChange={e => {
+                  const v = e.target.value ? Math.min(100, Math.max(0, parseInt(e.target.value))) : 70;
+                  hook.setFormSettings({ pass_threshold: v });
+                }}
+                className="h-7 w-16 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          )}
+        </div>
+
         {/* Tags row */}
         <div className="flex items-center gap-2 flex-wrap px-4 pb-2">
           {(hook.form?.tags || []).map((tag) => (
@@ -1320,6 +1460,7 @@ export function FormBuilder({
           <PropertiesDrawer
             block={selectedBlock}
             allBlocks={hook.blocks.filter(b => b.id !== selectedBlock.id)}
+            scoringEnabled={hook.form?.scoring_enabled ?? false}
             onUpdate={updates => hook.updateBlock(selectedBlock.id, updates)}
             onDelete={() => hook.deleteBlock(selectedBlock.id)}
             onClose={() => hook.setSelectedBlockId(null)}

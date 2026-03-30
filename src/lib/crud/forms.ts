@@ -277,9 +277,15 @@ export async function getForms(
 export async function submitFormResponse(
   formId: string,
   responseData: any,
-  submittedById?: string
+  submittedById?: string,
+  scoringData?: {
+    score_percentage?: number;
+    passed?: boolean;
+    total_score?: number;
+    max_possible_score?: number;
+  }
 ) {
-  const userProfile = submittedById 
+  const userProfile = submittedById
     ? await supabase.from('users').select('id').eq('id', submittedById).single()
     : await getCurrentUserProfile();
 
@@ -290,7 +296,12 @@ export async function submitFormResponse(
       submitted_by_id: userProfile?.data?.id || userProfile?.id,
       response_data: responseData,
       status: 'pending',
-      submitted_at: new Date().toISOString()
+      submitted_at: new Date().toISOString(),
+      ...(scoringData?.score_percentage != null ? {
+        score_percentage: scoringData.score_percentage,
+        total_score: scoringData.total_score,
+        max_possible_score: scoringData.max_possible_score,
+      } : {}),
     })
     .select()
     .single();

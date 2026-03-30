@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList, Loader2 } from 'lucide-react';
 import trikeLogoDark from '../../assets/trike-logo.png';
-import { FormRenderer, FormBlockData } from './shared/FormRenderer';
+import { FormRenderer, FormBlockData, type ScoringResult } from './shared/FormRenderer';
 
 const EDGE_URL = getServerUrl();
 
@@ -25,6 +25,10 @@ interface PublicForm {
   description?: string;
   status: string;
   requires_approval?: boolean;
+  settings?: {
+    scoring_enabled?: boolean;
+    pass_threshold?: number;
+  };
 }
 
 interface OrgBranding {
@@ -128,7 +132,7 @@ export function PublicFormFill() {
     }
   }
 
-  async function handleSubmit(answers: Record<string, unknown>) {
+  async function handleSubmit(answers: Record<string, unknown>, scoring?: ScoringResult) {
     if (!formData) return;
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -150,9 +154,19 @@ export function PublicFormFill() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          answers,
+          answers: scoring ? {
+            ...answers,
+            _scoring_passed: scoring.passed,
+            _scoring_percentage: scoring.score_percentage,
+          } : answers,
           start_time: startTime,
           device_type: 'web',
+          ...(scoring ? {
+            score_percentage: scoring.score_percentage,
+            passed: scoring.passed,
+            total_score: scoring.earned_weight,
+            max_possible_score: scoring.total_weight,
+          } : {}),
         }),
       });
 
@@ -358,6 +372,9 @@ export function PublicFormFill() {
             blocks={blocks}
             onSubmit={handleSubmit}
             readOnly={false}
+            formId={formData.form.id}
+            scoringEnabled={formData.form.settings?.scoring_enabled}
+            passThreshold={formData.form.settings?.pass_threshold}
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">

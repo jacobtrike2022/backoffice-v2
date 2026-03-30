@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -23,7 +23,11 @@ import {
   History,
   ChevronDown,
   ChevronRight,
+  Link2,
+  Check,
+  QrCode,
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { getFormVersions, type FormVersion } from '../../lib/crud/formVersions';
 import {
   BarChart,
@@ -177,6 +181,39 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  const publicFillUrl = `${window.location.origin}/fill/${formId}`;
+
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(publicFillUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const input = document.createElement('input');
+      input.value = publicFillUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  }, [publicFillUrl]);
+
+  const handleDownloadQR = useCallback(() => {
+    const canvas = qrRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `form-${formId}-qrcode.png`;
+    link.href = url;
+    link.click();
+  }, [formId]);
 
   useEffect(() => {
     if (!versionHistoryOpen) return;
@@ -265,7 +302,12 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           </Button>
         </div>
         <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant={shareOpen ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShareOpen((v) => !v)}
+            className={shareOpen ? 'bg-brand-gradient text-white' : ''}
+          >
             <Share2 className="h-4 w-4 mr-2" />
             Share
           </Button>
@@ -293,6 +335,79 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
         </div>
         <p className="text-muted-foreground">{formData.description}</p>
       </div>
+
+      {/* Share Panel */}
+      {shareOpen && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <QrCode className="h-5 w-5" />
+              <span>Share Form</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              {/* QR Code */}
+              <div
+                ref={qrRef}
+                className="flex-shrink-0 bg-white p-4 rounded-lg border"
+              >
+                <QRCodeCanvas
+                  value={publicFillUrl}
+                  size={180}
+                  level="H"
+                  includeMargin={false}
+                />
+              </div>
+
+              {/* Link and Actions */}
+              <div className="flex-1 space-y-4 w-full">
+                <div>
+                  <p className="text-sm font-medium mb-1">Public Fill Link</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Anyone with this link can fill out the form without signing in.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-muted rounded-md px-3 py-2 text-sm font-mono truncate border">
+                      {publicFillUrl}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyLink}
+                      className="flex-shrink-0"
+                    >
+                      {linkCopied ? (
+                        <>
+                          <Check className="h-4 w-4 mr-1 text-green-600" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Link2 className="h-4 w-4 mr-1" />
+                          Copy Link
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center gap-3">
+                  <Button variant="outline" size="sm" onClick={handleDownloadQR}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download QR Code
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Download as PNG to print or embed in materials.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metadata Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

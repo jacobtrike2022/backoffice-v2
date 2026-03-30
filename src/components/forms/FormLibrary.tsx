@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { Separator } from '../ui/separator';
 import {
   Plus,
   Search,
@@ -16,6 +17,11 @@ import {
   Trash2,
   Calendar,
   Building2,
+  Share2,
+  Link2,
+  Check,
+  Download,
+  QrCode,
 } from 'lucide-react';
 import {
   Select,
@@ -31,6 +37,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../ui/dialog';
+import { QRCodeCanvas } from 'qrcode.react';
 import { getForms, archiveForm, duplicateForm, deleteForm } from '../../lib/crud/forms';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -159,6 +173,7 @@ interface CardActionsProps {
   onArchive: () => void;
   onDelete: () => void;
   onCloneToOrg?: () => void;
+  onShare: () => void;
 }
 
 function CardActions({
@@ -173,6 +188,7 @@ function CardActions({
   onArchive,
   onDelete,
   onCloneToOrg,
+  onShare,
 }: CardActionsProps) {
   return (
     <DropdownMenu>
@@ -188,6 +204,10 @@ function CardActions({
             Edit Form
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onShare(); }}>
+          <Share2 className="h-4 w-4 mr-2" />
+          Share / QR Code
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
           <Copy className="h-4 w-4 mr-2" />
           Duplicate
@@ -223,6 +243,108 @@ function CardActions({
   );
 }
 
+// ─── Share QR Dialog ────────────────────────────────────────────────────────
+
+interface ShareQRDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  formId: string;
+  formTitle: string;
+}
+
+function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogProps) {
+  const [linkCopied, setLinkCopied] = useState(false);
+  const qrRef = useRef<HTMLDivElement>(null);
+  const publicFillUrl = `${window.location.origin}/fill/${formId}`;
+
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(publicFillUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      const input = document.createElement('input');
+      input.value = publicFillUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  }, [publicFillUrl]);
+
+  const handleDownloadQR = useCallback(() => {
+    const canvas = qrRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `form-${formId}-qrcode.png`;
+    link.href = url;
+    link.click();
+  }, [formId]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center space-x-2">
+            <QrCode className="h-5 w-5" />
+            <span>Share Form</span>
+          </DialogTitle>
+          <DialogDescription>
+            Share "{formTitle}" via QR code or direct link.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col items-center gap-4 pt-2">
+          {/* QR Code */}
+          <div ref={qrRef} className="bg-white p-4 rounded-lg border">
+            <QRCodeCanvas
+              value={publicFillUrl}
+              size={180}
+              level="H"
+              includeMargin={false}
+            />
+          </div>
+
+          {/* Public Link */}
+          <div className="w-full space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Anyone with this link can fill out the form without signing in.
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-muted rounded-md px-3 py-2 text-sm font-mono truncate border">
+                {publicFillUrl}
+              </div>
+              <Button variant="outline" size="sm" onClick={handleCopyLink} className="flex-shrink-0">
+                {linkCopied ? (
+                  <>
+                    <Check className="h-4 w-4 mr-1 text-green-600" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="h-4 w-4 mr-1" />
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          <Button variant="outline" size="sm" onClick={handleDownloadQR} className="w-full">
+            <Download className="h-4 w-4 mr-2" />
+            Download QR Code as PNG
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function FormLibrary({
@@ -242,6 +364,7 @@ export function FormLibrary({
   const [filterType, setFilterType] = useState('all');
   const [filterTag, setFilterTag] = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
+  const [shareForm, setShareForm] = useState<FormRecord | null>(null);
 
   const canEdit = currentRole === 'admin' || currentRole === 'trike-super-admin';
   const canArchive = currentRole === 'admin' || currentRole === 'trike-super-admin';
@@ -353,6 +476,7 @@ export function FormLibrary({
     onArchive: () => handleArchive(form.id),
     onDelete: () => handleDelete(form.id),
     onCloneToOrg: () => handleCloneToOrg(form.id),
+    onShare: () => setShareForm(form),
   });
 
   return (
@@ -631,6 +755,16 @@ export function FormLibrary({
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Share QR Code Dialog */}
+      {shareForm && (
+        <ShareQRDialog
+          open={!!shareForm}
+          onOpenChange={(open) => { if (!open) setShareForm(null); }}
+          formId={shareForm.id}
+          formTitle={shareForm.title}
+        />
       )}
     </div>
   );

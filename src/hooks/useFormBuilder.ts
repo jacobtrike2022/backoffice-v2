@@ -28,11 +28,15 @@ export interface FormMetadata {
   requires_approval?: boolean;
   allow_anonymous?: boolean;
   is_template?: boolean;
+  scoring_enabled?: boolean;
+  pass_threshold?: number;
 }
 
 export interface FormSettings {
   requires_approval: boolean;
   allow_anonymous: boolean;
+  scoring_enabled?: boolean;
+  pass_threshold?: number;
 }
 
 export interface LocalBlock {
@@ -150,7 +154,11 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         requires_approval: form.requires_approval,
         allow_anonymous: form.allow_anonymous,
         is_template: form.is_template,
-      });
+        settings: {
+          scoring_enabled: form.scoring_enabled ?? false,
+          pass_threshold: form.pass_threshold ?? 70,
+        },
+      } as any);
 
       // Save dirty/new blocks — filter to persisted IDs only (no temp IDs)
       const persistedBlocks = blocks.filter(b => !b._isNew);
@@ -364,6 +372,8 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         ...prev,
         requires_approval: settings.requires_approval ?? prev.requires_approval,
         allow_anonymous: settings.allow_anonymous ?? prev.allow_anonymous,
+        scoring_enabled: settings.scoring_enabled ?? prev.scoring_enabled,
+        pass_threshold: settings.pass_threshold ?? prev.pass_threshold,
       };
     });
     markDirty();
@@ -548,6 +558,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
 // ============================================================================
 
 function formDataToMetadata(data: FormWithSections): FormMetadata {
+  const settings = (data as any).settings as Record<string, unknown> | null | undefined;
   return {
     id: data.id,
     title: data.title,
@@ -559,6 +570,8 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
     requires_approval: data.requires_approval,
     allow_anonymous: data.allow_anonymous,
     is_template: data.is_template ?? false,
+    scoring_enabled: (settings?.scoring_enabled as boolean) ?? false,
+    pass_threshold: (settings?.pass_threshold as number) ?? 70,
   };
 }
 

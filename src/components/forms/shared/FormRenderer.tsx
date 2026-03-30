@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star } from 'lucide-react';
+import { Star, Upload, X, FileText, Loader2, AlertCircle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { supabase } from '../../../lib/supabase';
 
 export interface FormBlockData {
   id: string;
@@ -26,11 +27,31 @@ export interface FormBlockData {
   conditional_logic?: ConditionalLogic | null;
 }
 
+export interface ScoringResult {
+  score_percentage: number;
+  passed: boolean;
+  total_weight: number;
+  earned_weight: number;
+}
+
 export interface FormRendererProps {
   blocks: FormBlockData[];
   answers?: Record<string, unknown>;
   readOnly?: boolean;
-  onSubmit?: (data: Record<string, unknown>) => void | Promise<void>;
+  scoringEnabled?: boolean;
+  passThreshold?: number;
+  onSubmit?: (data: Record<string, unknown>, scoring?: ScoringResult) => void | Promise<void>;
+  /** Required for file/photo upload blocks — used as the storage path prefix */
+  formId?: string;
+}
+
+// Per-block upload state tracked outside React state to avoid re-render loops
+interface UploadState {
+  uploading: boolean;
+  progress: number;
+  error: string | null;
+  fileName: string | null;
+  previewUrl: string | null;
 }
 
 function getOptions(block: FormBlockData): string[] {
@@ -41,10 +62,84 @@ function getOptions(block: FormBlockData): string[] {
   return [];
 }
 
-export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit }: FormRendererProps) {
+export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId }: FormRendererProps) {
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
+
+  /** Upload a file to Supabase Storage and store its public URL in formData */
+  const uploadFile = async (blockId: string, file: File) => {
+    if (!formId) {
+      // No formId available (e.g. builder preview) — fall back to filename-only
+      handleChange(blockId, file.name);
+      return;
+    }
+
+    // Sanitize the filename: remove special chars, keep extension
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const timestamp = Date.now();
+    const storagePath = `${formId}/${blockId}/${timestamp}_${safeName}`;
+
+    setUploadStates(prev => ({
+      ...prev,
+      [blockId]: { uploading: true, progress: 0, error: null, fileName: file.name, previewUrl: null },
+    }));
+
+    try {
+      // Simulate progress since Supabase JS v2 upload doesn't provide progress callbacks
+      const progressInterval = setInterval(() => {
+        setUploadStates(prev => {
+          const current = prev[blockId];
+          if (!current || !current.uploading) return prev;
+          const nextProgress = Math.min(current.progress + 15, 90);
+          return { ...prev, [blockId]: { ...current, progress: nextProgress } };
+        });
+      }, 200);
+
+      const { data, error } = await supabase.storage
+        .from('form-uploads')
+        .upload(storagePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      clearInterval(progressInterval);
+
+      if (error) {
+        setUploadStates(prev => ({
+          ...prev,
+          [blockId]: { uploading: false, progress: 0, error: error.message, fileName: file.name, previewUrl: null },
+        }));
+        return;
+      }
+
+      // Get the public URL for the uploaded file
+      const { data: urlData } = supabase.storage
+        .from('form-uploads')
+        .getPublicUrl(data.path);
+
+      const publicUrl = urlData.publicUrl;
+
+      // Build a preview URL for images
+      const isImage = file.type.startsWith('image/');
+      const previewUrl = isImage ? publicUrl : null;
+
+      setUploadStates(prev => ({
+        ...prev,
+        [blockId]: { uploading: false, progress: 100, error: null, fileName: file.name, previewUrl },
+      }));
+
+      // Store the public URL as the answer value
+      handleChange(blockId, publicUrl);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setUploadStates(prev => ({
+        ...prev,
+        [blockId]: { uploading: false, progress: 0, error: message, fileName: file.name, previewUrl: null },
+      }));
+    }
+  };
 
   React.useEffect(() => {
     setFormData(answers);
@@ -91,7 +186,52 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
     setValidationErrors({});
     setIsSubmitting(true);
     try {
-      await onSubmit?.(formData);
+      // Compute scoring if enabled
+      let scoring: ScoringResult | undefined;
+      if (scoringEnabled) {
+        let totalWeight = 0;
+        let earnedWeight = 0;
+
+        for (const block of blocks) {
+          const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
+          const weight = (_settings.score_weight as number) || 0;
+          const correctAnswer = (_settings.correct_answer as string) || '';
+          if (weight <= 0 || !correctAnswer) continue;
+
+          totalWeight += weight;
+          const response = formData[block.id];
+
+          // Compare response to correct answer
+          let isCorrect = false;
+          if (block.type === 'checkboxes') {
+            // For checkboxes, compare sorted comma-separated values
+            const correctSet = correctAnswer.split(',').map(s => s.trim().toLowerCase()).sort();
+            const responseArr = Array.isArray(response)
+              ? (response as string[]).map(s => String(s).trim().toLowerCase()).sort()
+              : [];
+            isCorrect = correctSet.length === responseArr.length &&
+              correctSet.every((v, i) => v === responseArr[i]);
+          } else if (block.type === 'number' || block.type === 'rating') {
+            isCorrect = String(response) === String(correctAnswer);
+          } else {
+            isCorrect = String(response || '').toLowerCase().trim() === correctAnswer.toLowerCase().trim();
+          }
+
+          if (isCorrect) {
+            earnedWeight += weight;
+          }
+        }
+
+        const scorePercentage = totalWeight > 0 ? (earnedWeight / totalWeight) * 100 : 0;
+        scoring = {
+          score_percentage: Math.round(scorePercentage * 100) / 100,
+          passed: scorePercentage >= passThreshold,
+          total_weight: totalWeight,
+          earned_weight: earnedWeight,
+        };
+      }
+
+      await onSubmit?.(formData, scoring);
     } finally {
       setIsSubmitting(false);
     }
@@ -403,7 +543,8 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
           </div>
         );
 
-      case 'file':
+      case 'file': {
+        const fileUpState = uploadStates[block.id];
         return (
           <div key={block.id} className="space-y-2">
             <Label>
@@ -416,27 +557,76 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
             {readOnly && value ? (
               <p className="text-sm text-muted-foreground">
                 {typeof value === 'string' && value.startsWith('http') ? (
-                  <a href={value} target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                    View attachment
+                  <a href={value} target="_blank" rel="noopener noreferrer" className="text-primary underline flex items-center gap-1">
+                    <FileText className="w-4 h-4" /> View attachment
                   </a>
                 ) : (
                   String(value)
                 )}
               </p>
+            ) : fileUpState?.uploading ? (
+              <div className="flex items-center gap-3 p-3 border border-border rounded-md bg-muted/30">
+                <Loader2 className="w-5 h-5 animate-spin text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{fileUpState.fileName}</p>
+                  <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-200"
+                      style={{ width: `${fileUpState.progress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : fileUpState?.error ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 border border-destructive/50 rounded-md bg-destructive/10 text-sm text-destructive">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Upload failed: {fileUpState.error}</span>
+                </div>
+                <Input
+                  type="file"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadFile(block.id, f);
+                  }}
+                  disabled={readOnly}
+                />
+              </div>
+            ) : value && typeof value === 'string' && value.startsWith('http') ? (
+              <div className="flex items-center gap-2 p-3 border border-border rounded-md bg-muted/30">
+                <FileText className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-sm truncate flex-1">{fileUpState?.fileName || 'File uploaded'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleChange(block.id, '');
+                    setUploadStates(prev => { const next = { ...prev }; delete next[block.id]; return next; });
+                  }}
+                  className="text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
-              <Input
-                type="file"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleChange(block.id, file.name);
-                  }
-                }}
-                disabled={readOnly}
-              />
+              <div className="relative">
+                <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-border rounded-md cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors">
+                  <Upload className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Click to upload a file</span>
+                  <input
+                    type="file"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadFile(block.id, f);
+                    }}
+                    disabled={readOnly}
+                  />
+                </label>
+              </div>
             )}
           </div>
         );
+      }
 
       case 'yes_no': {
         const yesLabel = (block.validation_rules?.yes_label as string) || 'Yes';
@@ -497,7 +687,8 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
         );
       }
 
-      case 'photo':
+      case 'photo': {
+        const photoUpState = uploadStates[block.id];
         return (
           <div key={block.id} className="space-y-2">
             <Label>{block.label}{block.is_required && <span className="text-red-500 ml-1">*</span>}</Label>
@@ -506,13 +697,74 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, onSubmit 
               value && typeof value === 'string' ? (
                 value.startsWith('http') ? <img src={value} alt={block.label} className="max-w-xs rounded-md" /> :
                 <p className="text-sm text-muted-foreground">{String(value)}</p>
-              ) : <p className="text-sm text-muted-foreground">—</p>
+              ) : <p className="text-sm text-muted-foreground">--</p>
+            ) : photoUpState?.uploading ? (
+              <div className="flex items-center gap-3 p-3 border border-border rounded-md bg-muted/30">
+                <Loader2 className="w-5 h-5 animate-spin text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{photoUpState.fileName}</p>
+                  <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-200"
+                      style={{ width: `${photoUpState.progress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : photoUpState?.error ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 border border-destructive/50 rounded-md bg-destructive/10 text-sm text-destructive">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Upload failed: {photoUpState.error}</span>
+                </div>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(block.id, f); }}
+                  disabled={readOnly}
+                />
+              </div>
+            ) : value && typeof value === 'string' && value.startsWith('http') ? (
+              <div className="space-y-2">
+                <div className="relative inline-block">
+                  <img
+                    src={photoUpState?.previewUrl || (value as string)}
+                    alt={block.label || 'Uploaded photo'}
+                    className="max-w-xs max-h-48 rounded-md border border-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleChange(block.id, '');
+                      setUploadStates(prev => { const next = { ...prev }; delete next[block.id]; return next; });
+                    }}
+                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:bg-destructive/80 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">{photoUpState?.fileName || 'Photo uploaded'}</p>
+              </div>
             ) : (
-              <Input type="file" accept="image/*" capture="environment"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleChange(block.id, f.name); }} />
+              <div className="relative">
+                <label className="flex flex-col items-center gap-2 p-6 border-2 border-dashed border-border rounded-md cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors">
+                  <Upload className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Click to take or upload a photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(block.id, f); }}
+                    disabled={readOnly}
+                  />
+                </label>
+              </div>
             )}
           </div>
         );
+      }
 
       case 'signature':
         return (

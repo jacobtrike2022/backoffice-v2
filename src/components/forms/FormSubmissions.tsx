@@ -46,6 +46,7 @@ interface SubmissionRecord {
   form_id: string;
   organization_id: string;
   responses: Record<string, unknown> | null;
+  response_data: Record<string, unknown> | null;
   status: string;
   submitted_at: string | null;
   submitted_by_id: string | null;
@@ -471,17 +472,50 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                           </p>
                           <div className="mt-1 flex items-center gap-2">
                             {getStatusBadge(sub.status)}
+                            {sub.score_percentage != null && (() => {
+                              const rd = sub.response_data || sub.responses || {};
+                              const passed = rd._scoring_passed as boolean | undefined;
+                              if (passed === true) {
+                                return (
+                                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 gap-1 text-[10px] px-1.5 py-0">
+                                    <CheckCircle className="h-2.5 w-2.5" />
+                                    Pass
+                                  </Badge>
+                                );
+                              }
+                              if (passed === false) {
+                                return (
+                                  <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0 gap-1 text-[10px] px-1.5 py-0">
+                                    <XCircle className="h-2.5 w-2.5" />
+                                    Fail
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           {sub.score_percentage != null && (
                             <div className="mt-1.5">
                               <div className="flex items-center gap-1.5">
                                 <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                                   <div
-                                    className="h-full bg-primary rounded-full"
+                                    className={`h-full rounded-full ${
+                                      (() => {
+                                        const rd = sub.response_data || sub.responses || {};
+                                        const passed = rd._scoring_passed as boolean | undefined;
+                                        return passed === false ? 'bg-red-500' : 'bg-primary';
+                                      })()
+                                    }`}
                                     style={{ width: `${sub.score_percentage}%` }}
                                   />
                                 </div>
-                                <span className="text-[10px] font-semibold text-primary shrink-0">
+                                <span className={`text-[10px] font-semibold shrink-0 ${
+                                  (() => {
+                                    const rd = sub.response_data || sub.responses || {};
+                                    const passed = rd._scoring_passed as boolean | undefined;
+                                    return passed === false ? 'text-red-500' : 'text-primary';
+                                  })()
+                                }`}>
                                   {Math.round(sub.score_percentage)}%
                                 </span>
                               </div>
@@ -559,28 +593,46 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
               </div>
 
               {/* Score gauge */}
-              {selectedSubmission.score_percentage != null && (
-                <div className="mt-4">
-                  <div className="flex items-end gap-2 mb-1">
-                    <span className="text-4xl font-bold text-primary">
-                      {Math.round(selectedSubmission.score_percentage)}
-                    </span>
-                    <span className="text-sm text-muted-foreground mb-1.5">/100%</span>
+              {selectedSubmission.score_percentage != null && (() => {
+                const rd = selectedSubmission.response_data || selectedSubmission.responses || {};
+                const passed = rd._scoring_passed as boolean | undefined;
+                const scoreColor = passed === false ? 'text-red-500' : 'text-primary';
+                const barColor = passed === false ? 'bg-red-500' : 'bg-brand-gradient';
+                return (
+                  <div className="mt-4">
+                    <div className="flex items-end gap-2 mb-1">
+                      <span className={`text-4xl font-bold ${scoreColor}`}>
+                        {Math.round(selectedSubmission.score_percentage)}
+                      </span>
+                      <span className="text-sm text-muted-foreground mb-1.5">/100%</span>
+                      {passed === true && (
+                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0 gap-1 mb-1.5">
+                          <CheckCircle className="h-3 w-3" />
+                          Pass
+                        </Badge>
+                      )}
+                      {passed === false && (
+                        <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0 gap-1 mb-1.5">
+                          <XCircle className="h-3 w-3" />
+                          Fail
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div
+                        className={`${barColor} h-2 rounded-full transition-all`}
+                        style={{ width: `${selectedSubmission.score_percentage}%` }}
+                      />
+                    </div>
+                    {selectedSubmission.total_score != null &&
+                      selectedSubmission.max_possible_score != null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {selectedSubmission.total_score} / {selectedSubmission.max_possible_score} pts
+                        </p>
+                      )}
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div
-                      className="bg-brand-gradient h-2 rounded-full transition-all"
-                      style={{ width: `${selectedSubmission.score_percentage}%` }}
-                    />
-                  </div>
-                  {selectedSubmission.total_score != null &&
-                    selectedSubmission.max_possible_score != null && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {selectedSubmission.total_score} / {selectedSubmission.max_possible_score} pts
-                      </p>
-                    )}
-                </div>
-              )}
+                );
+              })()}
 
               {/* Approve / Reject actions */}
               {canApproveReject && selectedSubmission.status === 'pending_review' && (

@@ -15448,7 +15448,7 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
     // Fetch the form (any status first so we can distinguish not_found vs not_published)
     const { data: form, error: formError } = await supabase
       .from('forms')
-      .select('id, title, description, type, status, allow_anonymous, requires_approval, organization_id, slug')
+      .select('id, title, description, type, status, allow_anonymous, requires_approval, organization_id, slug, settings')
       .eq('id', formId)
       .maybeSingle();
 
@@ -15546,6 +15546,11 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
 
     const submissionStatus = form.requires_approval ? 'pending_review' : 'approved';
 
+    // Scoring data (optional — only present when form has scoring enabled)
+    const scorePercentage = typeof body.score_percentage === 'number' ? body.score_percentage : null;
+    const totalScore = typeof body.total_score === 'number' ? body.total_score : null;
+    const maxPossibleScore = typeof body.max_possible_score === 'number' ? body.max_possible_score : null;
+
     const { data: submission, error: insertError } = await supabase
       .from('form_submissions')
       .insert({
@@ -15556,6 +15561,9 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
         submitted_at: new Date().toISOString(),
         completion_time_seconds: completionSeconds,
         device_type: (body.device_type as string) || null,
+        ...(scorePercentage != null ? { score_percentage: scorePercentage } : {}),
+        ...(totalScore != null ? { total_score: totalScore } : {}),
+        ...(maxPossibleScore != null ? { max_possible_score: maxPossibleScore } : {}),
       })
       .select('id, status, submitted_at')
       .single();
