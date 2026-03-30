@@ -367,10 +367,10 @@ export function PlaybookBuildView({
   const handleSkipTrack = useCallback(async (trackId: string) => {
     try {
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'skipped' } });
-      toast.success('Track skipped');
+      toast.success(t('playbook.toastTrackSkipped'));
     } catch (error) {
       console.error('Failed to skip track:', error);
-      toast.error('Failed to skip track');
+      toast.error(t('playbook.toastTrackSkipFailed'));
     }
   }, []);
 
@@ -380,12 +380,12 @@ export function PlaybookBuildView({
     try {
       setPublishing(true);
       const result = await publishPlaybook(state.playbook.id, albumTitle);
-      toast.success(`Album created with ${result.album.track_count} tracks`);
+      toast.success(t('playbook.toastAlbumCreated', { count: result.album.track_count }));
       setPublishDialogOpen(false);
       onComplete(result.album.id);
     } catch (error) {
       console.error('Failed to publish:', error);
-      toast.error('Failed to publish album');
+      toast.error(t('playbook.toastPublishFailed'));
     } finally {
       setPublishing(false);
     }
@@ -448,7 +448,7 @@ export function PlaybookBuildView({
         });
       } catch (error) {
         console.error('Failed to sync chunk move:', error);
-        toast.error('Failed to save changes');
+        toast.error(t('playbook.toastSaveFailed'));
         // Refresh from server
         const refreshed = await getPlaybookById(state.playbook.id);
         if (refreshed) dispatch({ type: 'SET_PLAYBOOK', playbook: refreshed });
@@ -480,16 +480,16 @@ export function PlaybookBuildView({
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={onBack}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              {t('playbook.back')}
             </Button>
             <Separator orientation="vertical" className="h-6" />
             <div>
               <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
                 <Zap className="h-5 w-5 text-primary" />
-                Building Playbook
+                {t('playbook.buildingPlaybook')}
               </h1>
               <p className="text-sm text-muted-foreground">
-                Analyzing source document
+                {t('playbook.analyzingSource')}
               </p>
             </div>
           </div>
@@ -510,13 +510,13 @@ export function PlaybookBuildView({
           <AlertTriangle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
         </div>
         <div className="text-center">
-          <h3 className="text-lg font-semibold text-foreground">Failed to Load Playbook</h3>
+          <h3 className="text-lg font-semibold text-foreground">{t('playbook.failedToLoad')}</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            There was an error loading the playbook data.
+            {t('playbook.failedToLoadDesc')}
           </p>
           <Button variant="outline" className="mt-4" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Go Back
+            {t('playbook.goBack')}
           </Button>
         </div>
       </div>
@@ -546,7 +546,7 @@ export function PlaybookBuildView({
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('playbook.back')}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <div>
@@ -555,7 +555,7 @@ export function PlaybookBuildView({
               {state.playbook.title}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {state.playbook.source_file?.file_name} &bull; {totalTracks} proposed tracks
+              {state.playbook.source_file?.file_name} &bull; {t('playbook.proposedTracksCount', { count: totalTracks })}
             </p>
           </div>
         </div>
@@ -563,14 +563,14 @@ export function PlaybookBuildView({
           {state.syncing && (
             <span className="text-sm text-muted-foreground flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Saving...
+              {t('playbook.saving')}
             </span>
           )}
           <Badge
             variant="outline"
             className="text-sm bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent"
           >
-            {approvedCount} / {totalTracks} approved
+            {t('playbook.approvedBadge', { approved: approvedCount, total: totalTracks })}
           </Badge>
           <Button
             onClick={() => setPublishDialogOpen(true)}
@@ -578,7 +578,7 @@ export function PlaybookBuildView({
             className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] hover:opacity-90 text-white"
           >
             <Package className="h-4 w-4 mr-2" />
-            Publish Album
+            {t('playbook.publishAlbum')}
           </Button>
         </div>
       </div>
@@ -589,7 +589,7 @@ export function PlaybookBuildView({
         <div className="w-72 border-r border-border/50 flex flex-col">
           <div className="px-4 py-3">
             <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Proposed Tracks
+              {t('playbook.proposedTracks')}
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto px-2 space-y-1">
