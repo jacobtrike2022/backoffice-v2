@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -99,9 +100,10 @@ interface PotentialDuplicate {
 }
 
 // Simplified to 2 steps - O*NET matching moved to Role Edit page
-const STEPS = [
-  { id: 1, name: 'Review & Confirm', icon: FileText },
-  { id: 2, name: 'Create Role', icon: Plus },
+// Step names are translated inside the component via t()
+const STEPS_CONFIG = [
+  { id: 1, nameKey: 'contentAuthoring.stepReviewConfirm', icon: FileText },
+  { id: 2, nameKey: 'contentAuthoring.stepCreateRole', icon: Plus },
 ];
 
 export function ExtractedEntityProcessor({
@@ -110,6 +112,9 @@ export function ExtractedEntityProcessor({
   entityId,
   onProcessComplete,
 }: ExtractedEntityProcessorProps) {
+  const { t } = useTranslation();
+  const STEPS = STEPS_CONFIG.map(s => ({ ...s, name: t(s.nameKey) }));
+
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [entityDetails, setEntityDetails] = useState<EntityDetails | null>(null);
@@ -441,7 +446,7 @@ export function ExtractedEntityProcessor({
               </div>
               <div className="absolute -inset-2 rounded-full border-2 border-orange-500/30 animate-pulse" />
             </div>
-            <p className="mt-4 text-sm text-muted-foreground">Loading job description data...</p>
+            <p className="mt-4 text-sm text-muted-foreground">{t('contentAuthoring.loadingJdData')}</p>
           </div>
         </DialogContent>
       </Dialog>
@@ -468,10 +473,10 @@ export function ExtractedEntityProcessor({
               <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center">
                 <Briefcase className="h-5 w-5 text-white" />
               </div>
-              Process Job Description
+              {t('contentAuthoring.processJobDescription')}
             </DialogTitle>
             <DialogDescription className="text-base mt-1">
-              Review and create a role from the extracted job description.
+              {t('contentAuthoring.processJdDescription')}
             </DialogDescription>
           </DialogHeader>
 
@@ -512,12 +517,12 @@ export function ExtractedEntityProcessor({
               {/* Source info */}
               <div className="bg-muted/50 rounded-xl p-5">
                 <p className="text-muted-foreground">
-                  Review the extracted data below. Edit any fields as needed, then proceed to create the role.
+                  {t('contentAuthoring.reviewExtractedData')}
                 </p>
                 {entityDetails?.source_file && (
                   <p className="mt-3 text-sm flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
-                    Source: <span className="font-medium">{entityDetails.source_file.file_name}</span>
+                    {t('contentAuthoring.sourceLabel')}: <span className="font-medium">{entityDetails.source_file.file_name}</span>
                   </p>
                 )}
               </div>
@@ -525,7 +530,7 @@ export function ExtractedEntityProcessor({
               {/* Core Fields */}
               <div className="grid gap-5">
                 <div>
-                  <Label htmlFor="role_name" className="text-base font-medium">Role Name *</Label>
+                  <Label htmlFor="role_name" className="text-base font-medium">{t('contentAuthoring.roleNameLabel')}</Label>
                   <Input
                     id="role_name"
                     value={editedData.role_name || ''}
@@ -536,29 +541,29 @@ export function ExtractedEntityProcessor({
                         checkForDuplicates(e.target.value);
                       }
                     }}
-                    placeholder="e.g., Store Manager"
+                    placeholder={t('contentAuthoring.roleNamePlaceholder')}
                     className="mt-2 h-11 text-base"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="department" className="text-base font-medium">Department</Label>
+                    <Label htmlFor="department" className="text-base font-medium">{t('contentAuthoring.departmentLabel')}</Label>
                     <Input
                       id="department"
                       value={editedData.department || ''}
                       onChange={(e) => setEditedData({ ...editedData, department: e.target.value })}
-                      placeholder="e.g., Operations"
+                      placeholder={t('contentAuthoring.departmentPlaceholder')}
                       className="mt-2 h-11"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="job_family" className="text-base font-medium">Job Family</Label>
+                    <Label htmlFor="job_family" className="text-base font-medium">{t('contentAuthoring.jobFamilyLabel')}</Label>
                     <Input
                       id="job_family"
                       value={editedData.job_family || ''}
                       onChange={(e) => setEditedData({ ...editedData, job_family: e.target.value })}
-                      placeholder="e.g., Management"
+                      placeholder={t('contentAuthoring.jobFamilyPlaceholder')}
                       className="mt-2 h-11"
                     />
                   </div>
@@ -589,7 +594,7 @@ export function ExtractedEntityProcessor({
                 {/* Skills preview */}
                 {editedData.skills && editedData.skills.length > 0 && (
                   <div>
-                    <Label className="text-sm font-medium text-muted-foreground">Extracted Skills</Label>
+                    <Label className="text-sm font-medium text-muted-foreground">{t('contentAuthoring.extractedSkills')}</Label>
                     <div className="flex flex-wrap gap-2 mt-2">
                       {editedData.skills.slice(0, 8).map((skill, idx) => (
                         <Badge key={idx} variant="secondary" className="px-2 py-0.5 text-xs">
@@ -611,13 +616,13 @@ export function ExtractedEntityProcessor({
               <div className="space-y-3">
                 <Label className="text-base font-medium flex items-center gap-2">
                   <Search className="h-4 w-4" />
-                  Duplicate Check
+                  {t('contentAuthoring.duplicateCheck')}
                 </Label>
 
                 {checkingDuplicates ? (
                   <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Checking for similar roles...
+                    {t('contentAuthoring.checkingForDuplicates')}
                   </div>
                 ) : potentialDuplicates.length === 0 ? (
                   <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
@@ -625,7 +630,7 @@ export function ExtractedEntityProcessor({
                       <div className="flex items-center gap-2">
                         <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
                         <p className="text-sm text-green-700 dark:text-green-400">
-                          No similar roles found - this will be created as a new role.
+                          {t('contentAuthoring.noSimilarRoles')}
                         </p>
                       </div>
                     </CardContent>
@@ -634,7 +639,7 @@ export function ExtractedEntityProcessor({
                   <div className="space-y-3">
                     <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4" />
-                      Found {potentialDuplicates.length} similar role{potentialDuplicates.length > 1 ? 's' : ''}
+                      {t('contentAuthoring.foundSimilarRoles', { count: potentialDuplicates.length })}
                     </p>
 
                     {potentialDuplicates.map((dup) => (
@@ -665,7 +670,7 @@ export function ExtractedEntityProcessor({
                               <div>
                                 <p className="font-medium">{dup.role_name}</p>
                                 <p className="text-sm text-muted-foreground">
-                                  {dup.user_count} employee{dup.user_count !== 1 ? 's' : ''} assigned
+                                  {t('contentAuthoring.employeesAssigned', { count: dup.user_count })}
                                 </p>
                               </div>
                             </div>
@@ -688,7 +693,7 @@ export function ExtractedEntityProcessor({
                         }}
                       >
                         <Plus className="h-3.5 w-3.5 mr-1.5" />
-                        Create New
+                        {t('contentAuthoring.createNew')}
                       </Button>
                       {selectedDuplicate && (
                         <Button
@@ -698,7 +703,7 @@ export function ExtractedEntityProcessor({
                           onClick={() => setDuplicateAction('merge')}
                         >
                           <Merge className="h-3.5 w-3.5 mr-1.5" />
-                          Merge with Selected
+                          {t('contentAuthoring.mergeWithSelected')}
                         </Button>
                       )}
                     </div>
@@ -714,12 +719,12 @@ export function ExtractedEntityProcessor({
               <div className="bg-muted/50 rounded-xl p-5">
                 <p className="text-muted-foreground">
                   {duplicateAction === 'merge'
-                    ? 'Confirm merging this job description with the existing role.'
-                    : 'Confirm creating a new role with the extracted data.'
+                    ? t('contentAuthoring.confirmMergeJd')
+                    : t('contentAuthoring.confirmCreateRole')
                   }
                 </p>
                 <p className="text-sm text-muted-foreground mt-3">
-                  After creation, you'll be taken to the role editor to complete O*NET profile matching and fine-tune competencies.
+                  {t('contentAuthoring.afterCreationNote')}
                 </p>
               </div>
 
@@ -727,24 +732,24 @@ export function ExtractedEntityProcessor({
                 <CardContent className="p-6 space-y-5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Role Name</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('contentAuthoring.roleNameLabel')}</p>
                       <p className="font-semibold text-lg mt-1">{editedData.role_name}</p>
                     </div>
                     <Badge className={duplicateAction === 'merge' ? 'bg-blue-500' : 'bg-orange-500'}>
-                      {duplicateAction === 'merge' ? 'Merging' : 'Creating New'}
+                      {duplicateAction === 'merge' ? t('contentAuthoring.merging') : t('contentAuthoring.creatingNew')}
                     </Badge>
                   </div>
 
                   <div className="grid grid-cols-2 gap-6">
                     {editedData.department && (
                       <div>
-                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Department</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('contentAuthoring.departmentLabel')}</p>
                         <p className="text-sm mt-1">{editedData.department}</p>
                       </div>
                     )}
                     {editedData.job_family && (
                       <div>
-                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Job Family</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('contentAuthoring.jobFamilyLabel')}</p>
                         <p className="text-sm mt-1">{editedData.job_family}</p>
                       </div>
                     )}
@@ -765,7 +770,7 @@ export function ExtractedEntityProcessor({
 
                   {duplicateAction === 'merge' && selectedDuplicate && (
                     <div className="border-t pt-5">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide">Merging With</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('contentAuthoring.mergingWith')}</p>
                       <p className="font-medium flex items-center gap-2 mt-1">
                         <Merge className="h-4 w-4 text-blue-500" />
                         {potentialDuplicates.find(d => d.role_id === selectedDuplicate)?.role_name}
@@ -774,10 +779,10 @@ export function ExtractedEntityProcessor({
                   )}
 
                   <div className="border-t pt-5">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Source</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">{t('contentAuthoring.sourceLabel')}</p>
                     <p className="text-sm flex items-center gap-2 mt-1">
                       <FileText className="h-4 w-4 text-muted-foreground" />
-                      {entityDetails?.source_file?.file_name || 'Unknown source'}
+                      {entityDetails?.source_file?.file_name || t('contentAuthoring.unknownSource')}
                     </p>
                   </div>
 
@@ -785,10 +790,10 @@ export function ExtractedEntityProcessor({
                   <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-5 border border-blue-200 dark:border-blue-800">
                     <p className="text-sm font-medium text-blue-800 dark:text-blue-300 flex items-center gap-2">
                       <ArrowRight className="h-4 w-4" />
-                      Next: Complete Role Setup
+                      {t('contentAuthoring.nextCompleteRoleSetup')}
                     </p>
                     <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                      You'll be taken to the role editor to select an O*NET profile and customize tasks, skills, and competencies.
+                      {t('contentAuthoring.roleEditorNote')}
                     </p>
                   </div>
                 </CardContent>
@@ -800,18 +805,18 @@ export function ExtractedEntityProcessor({
         {/* Footer - fixed at bottom */}
         <div style={{ flexShrink: 0 }} className="px-8 py-4 border-t bg-muted/30 flex items-center justify-between">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('compliance.cancel')}
           </Button>
           <div className="flex gap-3">
             {currentStep > 1 && (
               <Button variant="outline" onClick={handleBack} size="lg">
                 <ChevronLeft className="h-4 w-4 mr-1" />
-                Back
+                {t('common.back')}
               </Button>
             )}
             {currentStep < STEPS.length ? (
               <Button onClick={handleNext} size="lg" className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-6">
-                Next
+                {t('common.next')}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             ) : (
@@ -824,12 +829,12 @@ export function ExtractedEntityProcessor({
                 {creating ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {duplicateAction === 'merge' ? 'Merging...' : 'Creating...'}
+                    {duplicateAction === 'merge' ? t('contentAuthoring.mergingEllipsis') : t('contentAuthoring.creatingEllipsis')}
                   </>
                 ) : (
                   <>
                     <Check className="h-4 w-4 mr-2" />
-                    {duplicateAction === 'merge' ? 'Merge Role' : 'Create Role'}
+                    {duplicateAction === 'merge' ? t('contentAuthoring.mergeRole') : t('contentAuthoring.createRole')}
                   </>
                 )}
               </Button>

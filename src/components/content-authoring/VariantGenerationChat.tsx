@@ -417,7 +417,7 @@ export function VariantGenerationChat({
             <div className="mt-8 pt-8 border-t">
               <h4 className="font-semibold mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-orange-500" />
-                Adaptation Summary
+                {t('contentAuthoring.adaptationSummary')}
               </h4>
               <div className="space-y-4">
                 {(generatedData.adaptations || []).map((a, i) => (
@@ -426,11 +426,11 @@ export function VariantGenerationChat({
                     <p className="text-sm mt-1 text-muted-foreground">{a.reason}</p>
                     <div className="grid grid-cols-2 gap-4 mt-3">
                       <div>
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Original</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400">{t('contentAuthoring.original')}</p>
                         <p className="text-sm line-through opacity-50">{a.originalText}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] uppercase font-bold text-orange-500">Adapted</p>
+                        <p className="text-[10px] uppercase font-bold text-orange-500">{t('contentAuthoring.adapted')}</p>
                         <p className="text-sm">{a.adaptedText}</p>
                       </div>
                     </div>
@@ -452,8 +452,8 @@ export function VariantGenerationChat({
           <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-orange-500 animate-pulse" />
         </div>
         <div className="text-center">
-          <p className="text-lg font-medium">Generating Variant Content...</p>
-          <p className="text-sm text-muted-foreground">Adapting specifics while preserving source quality</p>
+          <p className="text-lg font-medium">{t('contentAuthoring.generatingVariant')}</p>
+          <p className="text-sm text-muted-foreground">{t('contentAuthoring.adaptingSpecifics')}</p>
         </div>
       </div>
     );
@@ -491,20 +491,20 @@ export function VariantGenerationChat({
             onClick={() => setShowSourcePreview(!showSourcePreview)}
           >
             {showSourcePreview ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-            Source Preview
+            {t('contentAuthoring.sourcePreview')}
           </Button>
         </div>
       </div>
 
       {showSourcePreview && (
         <div className="bg-muted p-4 border-b border-border text-sm max-h-40 overflow-auto">
-          <p className="font-semibold mb-1 text-foreground">Source Content ({sourceTrack.type}):</p>
+          <p className="font-semibold mb-1 text-foreground">{t('contentAuthoring.sourceContent', { type: sourceTrack.type })}</p>
           <p className="text-muted-foreground italic">
             {getTrackBodyForAdaptation({
               type: sourceTrack.type,
               transcript: sourceTrack.transcript,
               content_text: sourceTrack.content_text ?? sourceTrack.content,
-            }) || "No source content available for preview."}
+            }) || t('contentAuthoring.noSourceContent')}
           </p>
         </div>
       )}
@@ -567,12 +567,12 @@ export function VariantGenerationChat({
               {needsReview ? (
                 <>
                   <AlertCircle className="w-4 h-4 text-yellow-500" />
-                  Research incomplete - variant will be flagged for review
+                  {t('contentAuthoring.researchIncomplete')}
                 </>
               ) : (
                 <>
                   <Check className="w-4 h-4 text-green-500" />
-                  Research complete with verified sources
+                  {t('contentAuthoring.researchComplete')}
                 </>
               )}
             </p>
@@ -582,14 +582,14 @@ export function VariantGenerationChat({
                 onClick={handleGenerate}
               >
                 <Zap className="w-4 h-4 mr-2" />
-                {needsReview ? 'Generate (Needs Review)' : 'Generate Variant'}
+                {needsReview ? t('contentAuthoring.generateNeedsReview') : t('contentAuthoring.generateVariant')}
               </Button>
               <Button
                 variant="outline"
                 className="flex-1"
                 onClick={() => setState('CLARIFYING')}
               >
-                Add Details
+                {t('contentAuthoring.addDetails')}
               </Button>
             </div>
           </div>
@@ -599,7 +599,7 @@ export function VariantGenerationChat({
           <div className="flex flex-col gap-2">
             {state === 'CLARIFYING' && (
               <div className="flex justify-between items-center px-1">
-                <span className="text-xs text-muted-foreground">Provide details for the AI:</span>
+                <span className="text-xs text-muted-foreground">{t('contentAuthoring.provideDetailsForAI')}</span>
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -607,7 +607,7 @@ export function VariantGenerationChat({
                   onClick={() => setState('READY_TO_GENERATE')}
                 >
                   <ChevronDown className="w-3 h-3 mr-1" />
-                  Return to Generate
+                  {t('contentAuthoring.backToReady')}
                 </Button>
               </div>
             )}
@@ -615,7 +615,7 @@ export function VariantGenerationChat({
               <Textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Type your response here..."
+                placeholder={t('contentAuthoring.typeYourMessage')}
                 className="min-h-[60px] max-h-[120px] resize-none focus-visible:ring-orange-500 bg-muted border-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -645,16 +645,16 @@ export function VariantGenerationChat({
               disabled={isLoading || state === 'GENERATING'}
               onClick={handleGenerate}
             >
-              Skip to Generate
+              {t('contentAuthoring.skipToGenerate')}
             </button>
             <button 
               className="hover:text-red-500 transition-colors"
               onClick={onCancel}
             >
-              Cancel AI Flow
+              {t('contentAuthoring.cancelAiFlow')}
             </button>
           </div>
-          <p>Powered by Trike AI • Adaptive Generation</p>
+          <p>{t('contentAuthoring.poweredByTrikeAI')}</p>
         </div>
       </div>
     </div>

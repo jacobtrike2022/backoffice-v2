@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
@@ -192,6 +193,7 @@ export function DocumentIntelligenceEditor({
   onNavigateToTrack,
   onNavigateToRoleAfterJdExtract,
 }: DocumentIntelligenceEditorProps) {
+  const { t } = useTranslation();
 
   // Core state
   const [sourceFile, setSourceFile] = useState<SourceFile | null>(null);
@@ -292,12 +294,12 @@ export function DocumentIntelligenceEditor({
         setBladeMode(prev => {
           const newMode = !prev;
           if (newMode) {
-            toast.info('Blade mode ON - Click between paragraphs to split', {
+            toast.info(t('contentAuthoring.bladeModeOn'), {
               duration: 2000,
               icon: '✂️',
             });
           } else {
-            toast.info('Blade mode OFF', { duration: 1500 });
+            toast.info(t('contentAuthoring.bladeModeOff'), { duration: 1500 });
           }
           return newMode;
         });
@@ -306,7 +308,7 @@ export function DocumentIntelligenceEditor({
       // Escape exits blade mode
       if (e.key === 'Escape' && bladeMode) {
         setBladeMode(false);
-        toast.info('Blade mode OFF', { duration: 1500 });
+        toast.info(t('contentAuthoring.bladeModeOff'), { duration: 1500 });
       }
     }
 
@@ -1364,7 +1366,7 @@ export function DocumentIntelligenceEditor({
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={onBack}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Sources
+              {t('contentAuthoring.backToSources')}
             </Button>
             <Separator orientation="vertical" className="h-6" />
             <div>
@@ -1419,8 +1421,8 @@ export function DocumentIntelligenceEditor({
               )}
               <p className="text-sm text-muted-foreground">
                 {sourceFile.is_chunked
-                  ? `${chunks.length} chunks identified`
-                  : 'Not processed yet'}
+                  ? t('contentAuthoring.chunksIdentified', { count: chunks.length })
+                  : t('contentAuthoring.notProcessedYet')}
               </p>
             </div>
           </div>
@@ -1433,12 +1435,12 @@ export function DocumentIntelligenceEditor({
               {processing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {processingStep || 'Processing...'}
+                  {processingStep || t('contentAuthoring.processingEllipsis')}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Process Document
+                  {t('contentAuthoring.processDocument')}
                 </>
               )}
             </Button>
@@ -1449,7 +1451,7 @@ export function DocumentIntelligenceEditor({
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90"
             >
               <Zap className="h-4 w-4 mr-2" />
-              Build Playbook
+              {t('contentAuthoring.buildPlaybook')}
             </Button>
           )}
         </div>
@@ -1467,7 +1469,7 @@ export function DocumentIntelligenceEditor({
                 size="sm"
                 onClick={() => setFilterType('all')}
               >
-                All ({chunks.length})
+                {t('contentAuthoring.allChunks', { count: chunks.length })}
               </Button>
               {contentTypeSummary.map(({ type, count }) => {
                 const config = CONTENT_TYPES[type];
@@ -1496,9 +1498,9 @@ export function DocumentIntelligenceEditor({
         {chunks.length === 0 && sourceFile.is_chunked === false ? (
           <div className="text-center py-16">
             <Layers className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Ready to process</h2>
+            <h2 className="text-xl font-semibold mb-2">{t('contentAuthoring.readyToProcess')}</h2>
             <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-              Click "Process Document" to extract text, identify sections, and classify content types.
+              {t('contentAuthoring.readyToProcessDesc')}
             </p>
           </div>
         ) : (

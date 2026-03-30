@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -30,6 +31,7 @@ interface AIReviewProps {
 }
 
 export function AIReview({ onBack }: AIReviewProps) {
+  const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export function AIReview({ onBack }: AIReviewProps) {
       setSuggestions(data || []);
     } catch (err: any) {
       console.error('Error fetching suggestions:', err);
-      toast.error('Failed to load suggestions');
+      toast.error(t('contentAuthoring.failedLoadSuggestions'));
     } finally {
       setLoading(false);
     }
@@ -91,7 +93,7 @@ export function AIReview({ onBack }: AIReviewProps) {
       toast.success(`Tag "${suggestion.suggested_tag_name}" added to track`);
     } catch (err: any) {
       console.error('Error accepting suggestion:', err);
-      toast.error('Failed to accept suggestion');
+      toast.error(t('contentAuthoring.failedAcceptSuggestion'));
     } finally {
       setProcessingId(null);
     }
@@ -111,10 +113,10 @@ export function AIReview({ onBack }: AIReviewProps) {
       if (error) throw error;
 
       setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
-      toast.success('Suggestion rejected');
+      toast.success(t('contentAuthoring.suggestionRejected'));
     } catch (err: any) {
       console.error('Error rejecting suggestion:', err);
-      toast.error('Failed to reject suggestion');
+      toast.error(t('contentAuthoring.failedRejectSuggestion'));
     } finally {
       setProcessingId(null);
     }
@@ -124,7 +126,7 @@ export function AIReview({ onBack }: AIReviewProps) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        <p className="text-muted-foreground">Loading AI recommendations...</p>
+        <p className="text-muted-foreground">{t('contentAuthoring.loadingAiRecommendations')}</p>
       </div>
     );
   }
@@ -136,19 +138,19 @@ export function AIReview({ onBack }: AIReviewProps) {
           {onBack && (
             <Button variant="ghost" size="sm" onClick={onBack}>
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Tags
+              {t('contentAuthoring.backToTags')}
             </Button>
           )}
           <div>
-            <h1 className="text-3xl">AI Tag Review</h1>
+            <h1 className="text-3xl">{t('contentAuthoring.aiReviewTitle')}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Review and approve tags suggested by AI based on content analysis.
+              {t('contentAuthoring.aiReviewSubtitle')}
             </p>
           </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={fetchSuggestions}>
-            Refresh
+            {t('contentAuthoring.refresh')}
           </Button>
         </div>
       </div>
@@ -158,9 +160,9 @@ export function AIReview({ onBack }: AIReviewProps) {
           <CardContent className="py-12 text-center">
             <div className="flex flex-col items-center gap-2">
                   <Zap className="h-12 w-12 text-muted-foreground/50 fill-current" />
-                  <h3 className="font-semibold">All caught up!</h3>
+                  <h3 className="font-semibold">{t('contentAuthoring.allCaughtUp')}</h3>
               <p className="text-sm text-muted-foreground">
-                No pending AI tag suggestions to review at this time.
+                {t('contentAuthoring.noPendingAiSuggestions')}
               </p>
             </div>
           </CardContent>
@@ -170,11 +172,11 @@ export function AIReview({ onBack }: AIReviewProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Content</TableHead>
-                <TableHead>Suggested Tag</TableHead>
-                <TableHead>Confidence</TableHead>
-                <TableHead>Reasoning</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('contentAuthoring.colContent')}</TableHead>
+                <TableHead>{t('contentAuthoring.colSuggestedTag')}</TableHead>
+                <TableHead>{t('contentAuthoring.colConfidence')}</TableHead>
+                <TableHead>{t('contentAuthoring.colReasoning')}</TableHead>
+                <TableHead className="text-right">{t('contentAuthoring.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -2229,14 +2229,14 @@ export function StoryEditor({
           {/* Story Details */}
           <Card>
             <CardHeader>
-              <CardTitle>Story Details</CardTitle>
+              <CardTitle>{t('contentAuthoring.storyDetailsTitle')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="title">Story Title *</Label>
+                <Label htmlFor="title">{t('contentAuthoring.storyTitleLabel')}</Label>
                 <Input
                   id="title"
-                  placeholder="Enter story title..."
+                  placeholder={t('contentAuthoring.storyTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2"
@@ -2244,10 +2244,10 @@ export function StoryEditor({
               </div>
 
               <div>
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">{t('contentAuthoring.description')}</Label>
                 <Textarea
                   id="description"
-                  placeholder="Brief description of this story..."
+                  placeholder={t('contentAuthoring.storyDescriptionPlaceholder')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-2"
@@ -2263,11 +2263,11 @@ export function StoryEditor({
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center">
                   <Smartphone className="h-5 w-5 mr-2 text-primary" />
-                  Story Slides (Portrait Mode)
+                  {t('contentAuthoring.storySlidesTitle')}
                 </CardTitle>
                 <Button onClick={addSlide} size="sm" className="hero-primary">
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Slide
+                  {t('contentAuthoring.addSlide')}
                 </Button>
               </div>
             </CardHeader>
@@ -2275,10 +2275,10 @@ export function StoryEditor({
               {slides.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed border-border rounded-lg">
                   <Smartphone className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">No slides yet</p>
+                  <p className="text-muted-foreground mb-4">{t('contentAuthoring.noSlidesYet')}</p>
                   <Button onClick={addSlide} variant="outline">
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Your First Slide
+                    {t('contentAuthoring.addFirstSlide')}
                   </Button>
                 </div>
               ) : (
@@ -2305,7 +2305,7 @@ export function StoryEditor({
                               {index + 1}
                             </Badge>
                             <Input
-                              placeholder="Slide name..."
+                              placeholder={t('contentAuthoring.slideNamePlaceholder')}
                               value={slide.name}
                               onChange={(e) => updateSlideName(slide.id, e.target.value)}
                               className="flex-1"
@@ -2402,7 +2402,7 @@ export function StoryEditor({
                     <div className="pt-2">
                       <Button onClick={addSlide} size="sm" className="hero-primary w-full">
                         <Plus className="h-4 w-4 mr-2" />
-                        Add Slide
+                        {t('contentAuthoring.addSlide')}
                       </Button>
                     </div>
                   )}
@@ -2418,7 +2418,7 @@ export function StoryEditor({
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="Add any additional notes or instructions for learners..."
+                placeholder={t('contentAuthoring.additionalNotesPlaceholder')}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={4}
@@ -2432,7 +2432,7 @@ export function StoryEditor({
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5" />
-                  Key Facts
+                  {t('contentAuthoring.keyFacts')}
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   {/* AI Generate Button with Neon Orange Glow */}
@@ -2440,7 +2440,7 @@ export function StoryEditor({
                     onClick={handleGenerateKeyFacts}
                     disabled={isGeneratingKeyFacts || slides.filter(s => s.type === 'video').length === 0}
                     className="group relative p-2 rounded-lg transition-all duration-300 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                    title="Generate Key Facts with AI from video transcripts"
+                    title={t('contentAuthoring.generateKeyFactsTitle')}
                   >
                     {/* Neon glow background - understated but noticeable */}
                     <div className="absolute inset-0 bg-gradient-to-r from-[#F74A05] to-[#FF6B35] rounded-lg opacity-20 blur-md group-hover:opacity-40 group-hover:blur-lg transition-all duration-300" />
@@ -2477,7 +2477,7 @@ export function StoryEditor({
               {isGeneratingKeyFacts && (
                 <p className="text-xs text-muted-foreground mt-2 flex items-center gap-2">
                   <span className="inline-block h-1 w-1 rounded-full bg-[#F74A05] animate-pulse" />
-                  AI is analyzing your story videos and extracting key facts...
+                  {t('contentAuthoring.aiAnalyzingStory')}
                 </p>
               )}
             </CardHeader>
@@ -2517,7 +2517,7 @@ export function StoryEditor({
                             return (
                               <div key={index} className="flex items-start space-x-2">
                                 <Input
-                                  placeholder={`Key fact...`}
+                                  placeholder={t('contentAuthoring.keyFactPlaceholder')}
                                   value={displayValue || ''}
                                   onChange={(e) => {
                                     const updated = [...objectives];
@@ -2560,7 +2560,7 @@ export function StoryEditor({
                             return (
                               <div key={index} className="flex items-start space-x-2">
                                 <Input
-                                  placeholder={`Key fact...`}
+                                  placeholder={t('contentAuthoring.keyFactPlaceholder')}
                                   value={displayValue}
                                   onChange={(e) => {
                                     const updated = [...objectives];
@@ -2645,7 +2645,7 @@ export function StoryEditor({
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-4 w-4 text-orange-500" />
-                  Super Admin Settings
+                  {t('contentAuthoring.superAdminSettings')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -2737,7 +2737,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <BookOpen className="h-4 w-4" />
-                Knowledge Base
+                {t('contentAuthoring.knowledgeBase')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2745,7 +2745,7 @@ export function StoryEditor({
                 <div className="space-y-0.5">
                   <Label htmlFor="show-in-kb-edit" className="text-sm">{t('contentAuthoring.showInKb')}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Available in Knowledge Base
+                    {t('contentAuthoring.availableInKb')}
                   </p>
                 </div>
                 <Switch
@@ -2754,7 +2754,7 @@ export function StoryEditor({
                   onCheckedChange={handleKBToggle}
                 />
               </div>
-              
+
               {showInKnowledgeBase && (
                 <div className="pt-2">
                   <Button
@@ -2770,9 +2770,9 @@ export function StoryEditor({
                     }}
                   >
                     <TagIcon className="h-4 w-4 mr-2" />
-                    Manage KB Tags
+                    {t('contentAuthoring.manageKbTags')}
                   </Button>
-                  
+
                   {/* Selected KB Tags Display */}
                   <div>
                     <p className="text-xs font-medium mb-2 text-muted-foreground">{t('contentAuthoring.selectedCategories')}</p>
@@ -2789,9 +2789,9 @@ export function StoryEditor({
                       )}
                     </div>
                   </div>
-                  
+
                   <p className="text-xs text-muted-foreground mt-2">
-                    Select "KB Category" tags to organize this content in the Knowledge Base.
+                    {t('contentAuthoring.kbCategoryHint')}
                   </p>
                 </div>
               )}
@@ -2900,7 +2900,7 @@ export function StoryEditor({
                   className="w-full mt-2"
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Tags
+                  {t('contentAuthoring.addTags')}
                 </Button>
               </div>
             </CardContent>
@@ -3021,7 +3021,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="text-base flex items-center">
                 <ImageIcon className="h-4 w-4 mr-2" />
-                Thumbnail
+                {t('contentAuthoring.thumbnail')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -3030,7 +3030,7 @@ export function StoryEditor({
                   <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
                     <img 
                       src={thumbnailUrl} 
-                      alt="Story thumbnail" 
+                      alt={t('contentAuthoring.storyThumbnailAlt')} 
                       className="w-full h-full object-cover" 
                     />
                   </div>
@@ -3039,7 +3039,7 @@ export function StoryEditor({
                       <Button variant="outline" size="sm" className="w-full" asChild>
                         <span>
                           <Upload className="h-4 w-4 mr-2" />
-                          Replace
+                          {t('contentAuthoring.replace')}
                         </span>
                       </Button>
                       <input
@@ -3284,7 +3284,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Loader2 className="h-5 w-5 mr-2 animate-spin text-primary" />
-                Processing Video
+                {t('contentAuthoring.processingVideo')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -3294,28 +3294,28 @@ export function StoryEditor({
                   <span className="font-medium">{Math.round(compressionProgress)}%</span>
                 </div>
                 <div className="w-full bg-accent rounded-full h-2.5 overflow-hidden">
-                  <div 
+                  <div
                     className="bg-primary h-full transition-all duration-300 ease-out"
                     style={{ width: `${compressionProgress}%` }}
                   ></div>
                 </div>
               </div>
-              
+
               <div className="pt-2 border-t border-border space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">File:</span>
+                  <span className="text-muted-foreground">{t('contentAuthoring.fileLabel')}</span>
                   <span className="font-medium truncate ml-2 max-w-[200px]" title={compressingFileName}>
                     {compressingFileName}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Original Size:</span>
+                  <span className="text-muted-foreground">{t('contentAuthoring.originalSize')}</span>
                   <span className="font-medium">{compressingFileSizeMB.toFixed(1)} MB</span>
                 </div>
               </div>
-              
+
               <p className="text-xs text-muted-foreground text-center pt-2">
-                Please wait while we compress your video. This may take a minute or two for larger files.
+                {t('contentAuthoring.compressionWaitNote')}
               </p>
             </CardContent>
           </Card>

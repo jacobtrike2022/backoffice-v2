@@ -202,6 +202,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
               )}
             </Button>
           )}
+
         </div>
       </CardHeader>
       <CardContent className="p-6">

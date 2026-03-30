@@ -50,8 +50,8 @@ export function ContentCreationWrapper({
       setTrack(newTrack);
     } catch (error: any) {
       console.error('Error creating draft track:', error);
-      setError(error.message || t('contentAuthoring.failedCreateDraft'));
-      toast.error(error.message || t('contentAuthoring.failedCreateDraft'));
+      setError(error.message || t('contentAuthoring.failedCreateContent'));
+      toast.error(error.message || t('contentAuthoring.failedCreateContent'));
     } finally {
       setIsCreating(false);
     }
@@ -77,7 +77,7 @@ export function ContentCreationWrapper({
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground">{t('contentAuthoring.creatingNewContent', { type: contentType })}</p>
+          <p className="text-muted-foreground">{t('contentAuthoring.creatingContent', { type: contentType })}</p>
         </div>
       </div>
     );
@@ -88,11 +88,11 @@ export function ContentCreationWrapper({
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <p className="text-destructive">{error}</p>
-          <button 
+          <button
             onClick={onBack}
             className="text-primary hover:underline"
           >
-            Go back
+            {t('contentAuthoring.goBack')}
           </button>
         </div>
       </div>
@@ -102,7 +102,7 @@ export function ContentCreationWrapper({
   if (!track) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">No track data available</p>
+        <p className="text-muted-foreground">{t('contentAuthoring.noTrackData')}</p>
       </div>
     );
   }

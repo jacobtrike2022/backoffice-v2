@@ -95,7 +95,7 @@ export function TagSelectorDialog({
 
   const handleAISuggest = async () => {
     if (!contentContext) {
-      toast.error('No content available to analyze');
+      toast.error(t('content.noContentToAnalyze'));
       return;
     }
 
@@ -107,7 +107,7 @@ export function TagSelectorDialog({
       (contentContext.keyFacts && contentContext.keyFacts.length > 0);
 
     if (!hasContent) {
-      toast.error('Add a title, description, or transcript first');
+      toast.error(t('content.addContentFirst'));
       return;
     }
 
@@ -207,7 +207,7 @@ export function TagSelectorDialog({
 
     } catch (error: any) {
       console.error('AI tag suggestion failed:', error);
-      toast.error(error.message || 'Failed to get AI suggestions');
+      toast.error(error.message || t('content.failedGetAISuggestions'));
       setShowAIPanel(false);
     } finally {
       setIsLoadingAI(false);
@@ -294,7 +294,7 @@ export function TagSelectorDialog({
       setParentGroups(matchingSystem ? matchingSystem.parents : []);
     } catch (error: any) {
       console.error('Error loading tags:', error);
-      toast.error('Failed to load tags');
+      toast.error(t('content.failedLoadTags'));
     } finally {
       setIsLoading(false);
     }
@@ -375,7 +375,7 @@ export function TagSelectorDialog({
       toast.success('Tag deleted');
       loadTags();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to delete tag');
+      toast.error(error.message || t('content.failedDeleteTag'));
     }
   };
 

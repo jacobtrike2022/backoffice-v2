@@ -188,27 +188,27 @@ export function VersionDecisionModal({
                       <CheckCircle2 className="h-4 w-4 text-green-600" />
                       <div className="text-2xl font-bold text-green-600">{stats.completedCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Completed</div>
+                    <div className="text-xs text-muted-foreground">{t('contentAuthoring.completedLearners')}</div>
                   </div>
                   <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200">
                     <div className="flex items-center justify-center space-x-1 mb-1">
                       <Clock className="h-4 w-4 text-yellow-600" />
                       <div className="text-2xl font-bold text-yellow-600">{inProgressCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">In Progress</div>
+                    <div className="text-xs text-muted-foreground">{t('contentAuthoring.inProgressLearners')}</div>
                   </div>
                   <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200">
                     <div className="flex items-center justify-center space-x-1 mb-1">
                       <XCircle className="h-4 w-4 text-blue-600" />
                       <div className="text-2xl font-bold text-blue-600">{notStartedCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Not Started</div>
+                    <div className="text-xs text-muted-foreground">{t('contentAuthoring.notStartedStatus')}</div>
                   </div>
                 </div>
                 
                 {playlists.length > 0 && (
                   <div className="pt-3 border-t text-sm">
-                    <span className="text-muted-foreground">Used in {playlists.length} {playlists.length === 1 ? 'playlist' : 'playlists'}: </span>
+                    <span className="text-muted-foreground">{t('contentAuthoring.usedInPlaylists', { count: playlists.length, unit: playlists.length === 1 ? t('contentAuthoring.playlistUnit') : t('contentAuthoring.playlistsUnit') })}: </span>
                     {playlists.map((playlist: any, index: number) => (
                       <span key={playlist.id}>
                         <Badge variant="secondary" className="text-xs mx-1">
@@ -231,10 +231,10 @@ export function VersionDecisionModal({
                   <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <h4 className="font-semibold text-sm mb-1 text-orange-900 dark:text-orange-200">
-                      This track is used as source material
+                      {t('contentAuthoring.trackIsSourceMaterial')}
                     </h4>
                     <p className="text-sm text-orange-800 dark:text-orange-300 mb-2">
-                      {derivedTracks.length} {derivedTracks.length === 1 ? 'track was' : 'tracks were'} created from this track:
+                      {t('contentAuthoring.tracksCreatedFromThis', { count: derivedTracks.length, unit: derivedTracks.length === 1 ? t('contentAuthoring.trackUnit') : t('contentAuthoring.tracksUnit') })}
                     </p>
                     <ul className="text-sm space-y-1 ml-4">
                       {derivedTracks.map(rel => (
@@ -244,7 +244,7 @@ export function VersionDecisionModal({
                       ))}
                     </ul>
                     <p className="text-xs text-orange-700 dark:text-orange-400 mt-2">
-                      Versioning will not update these derived tracks. They will continue to reference V{currentVersion}.
+                      {t('contentAuthoring.versioningWontUpdate', { version: currentVersion })}
                     </p>
                   </div>
                 </div>
@@ -255,12 +255,12 @@ export function VersionDecisionModal({
           {/* Section 1: Completed Learners */}
           <div className="space-y-3">
             <div>
-              <h3 className="font-semibold text-base mb-1">Completed learners</h3>
+              <h3 className="font-semibold text-base mb-1">{t('contentAuthoring.completedLearners')}</h3>
               <p className="text-sm text-muted-foreground">
-                How should we treat people who already finished this track?
+                {t('contentAuthoring.howTreatCompleted')}
               </p>
               {stats.completedCount === 0 && (
-                <p className="text-xs text-muted-foreground mt-1 italic">No one has completed this yet.</p>
+                <p className="text-xs text-muted-foreground mt-1 italic">{t('contentAuthoring.noOneCompletedYet')}</p>
               )}
             </div>
             
@@ -271,10 +271,10 @@ export function VersionDecisionModal({
                     <RadioGroupItem value="keep" id="keep" className="mt-0.5" />
                     <div className="flex-1">
                       <Label htmlFor="keep" className="cursor-pointer font-medium">
-                        Keep their completion on Version {currentVersion} <span className="text-muted-foreground">(recommended)</span>
+                        {t('contentAuthoring.keepCompletionRecommended', { version: currentVersion })}
                       </Label>
                       <p className="text-sm text-muted-foreground mt-1">
-                        They stay complete. They won't see Version {nextVersion} unless you assign it later.
+                        {t('contentAuthoring.keepCompletionDesc', { nextVersion })}
                       </p>
                     </div>
                   </div>
@@ -287,16 +287,16 @@ export function VersionDecisionModal({
                     <RadioGroupItem value="require-retake" id="require-retake" className="mt-0.5" />
                     <div className="flex-1">
                       <Label htmlFor="require-retake" className="cursor-pointer font-medium">
-                        Require them to complete Version {nextVersion}
+                        {t('contentAuthoring.requireRetake', { version: nextVersion })}
                       </Label>
                       <p className="text-sm text-muted-foreground mt-1">
-                        They'll get a new required assignment for Version {nextVersion}. Their Version {currentVersion} completion is kept for audit.
+                        {t('contentAuthoring.requireRetakeDesc', { version: nextVersion, currentVersion })}
                       </p>
                       {completedStrategy === 'require-retake' && stats.completedCount > 0 && (
                         <div className="mt-3 p-2.5 bg-orange-50 dark:bg-orange-900/20 rounded border border-orange-200 dark:border-orange-800">
                           <div className="flex items-start space-x-2 text-sm text-orange-800 dark:text-orange-200">
                             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                            <span>This will create new assignments for {stats.completedCount} {stats.completedCount === 1 ? 'learner' : 'learners'}.</span>
+                            <span>{t('contentAuthoring.willCreateAssignments', { count: stats.completedCount, unit: stats.completedCount === 1 ? t('contentAuthoring.learnerUnit') : t('contentAuthoring.learnersUnit') })}</span>
                           </div>
                         </div>
                       )}
@@ -311,10 +311,10 @@ export function VersionDecisionModal({
           <div className="space-y-3">
             <div>
               <h3 className="font-semibold text-base mb-1">
-                In-progress learners {inProgressCount > 0 && `(${inProgressCount})`}
+                {t('contentAuthoring.inProgressLearners')}{inProgressCount > 0 && ` (${inProgressCount})`}
               </h3>
               <p className="text-sm text-muted-foreground">
-                What should happen to learners who already started this track?
+                {t('contentAuthoring.whatHappensInProgress')}
               </p>
             </div>
             
@@ -325,13 +325,13 @@ export function VersionDecisionModal({
                     <RadioGroupItem value="move-to-v2" id="move-to-v2" className="mt-0.5" />
                     <div className="flex-1">
                       <Label htmlFor="move-to-v2" className="cursor-pointer font-medium">
-                        Move them to Version {nextVersion} <span className="text-muted-foreground">(recommended)</span>
+                        {t('contentAuthoring.moveToV2Recommended', { version: nextVersion })}
                       </Label>
                       <p className="text-sm text-muted-foreground mt-1">
                         {inProgressCount > 0 ? (
-                          <>{inProgressCount} in-progress {inProgressCount === 1 ? 'learner' : 'learners'} will continue on Version {nextVersion}. Progress may be recalculated.</>
+                          t('contentAuthoring.moveToV2Desc', { count: inProgressCount, unit: inProgressCount === 1 ? t('contentAuthoring.learnerUnit') : t('contentAuthoring.learnersUnit'), version: nextVersion })
                         ) : (
-                          <>In-progress learners will continue on Version {nextVersion}. Progress may be recalculated.</>
+                          t('contentAuthoring.moveToV2DescNoCount', { version: nextVersion })
                         )}
                       </p>
                     </div>
@@ -345,13 +345,13 @@ export function VersionDecisionModal({
                     <RadioGroupItem value="finish-v1" id="finish-v1" className="mt-0.5" />
                     <div className="flex-1">
                       <Label htmlFor="finish-v1" className="cursor-pointer font-medium">
-                        Let them finish Version {currentVersion}
+                        {t('contentAuthoring.finishV1', { version: currentVersion })}
                       </Label>
                       <p className="text-sm text-muted-foreground mt-1">
                         {inProgressCount > 0 ? (
-                          <>{inProgressCount} in-progress {inProgressCount === 1 ? 'learner' : 'learners'} stay on Version {currentVersion}. New learners will see Version {nextVersion}.</>
+                          t('contentAuthoring.finishV1Desc', { count: inProgressCount, unit: inProgressCount === 1 ? t('contentAuthoring.learnerUnit') : t('contentAuthoring.learnersUnit'), version: currentVersion, nextVersion })
                         ) : (
-                          <>In-progress learners stay on Version {currentVersion}. New learners will see Version {nextVersion}.</>
+                          t('contentAuthoring.finishV1DescNoCount', { version: currentVersion, nextVersion })
                         )}
                       </p>
                     </div>
@@ -366,20 +366,20 @@ export function VersionDecisionModal({
             <CardContent className="pt-4 pb-4">
               <h4 className="text-sm font-semibold mb-3 flex items-center">
                 <Zap className="h-4 w-4 mr-1.5 text-blue-600 fill-current" />
-                What we'll handle for you
+                {t('contentAuthoring.willHandleForYou')}
               </h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start">
                   <span className="text-blue-600 mr-2 font-bold">•</span>
-                  <span>Learners who haven't started yet will automatically see Version {nextVersion}.</span>
+                  <span>{t('contentAuthoring.notStartedAutoV2', { version: nextVersion })}</span>
                 </li>
                 <li className="flex items-start">
                   <span className="text-blue-600 mr-2 font-bold">•</span>
-                  <span>New playlists / assignments will always use Version {nextVersion}.</span>
+                  <span>{t('contentAuthoring.newPlaylistsAlwaysLatest', { version: nextVersion })}</span>
                 </li>
                 <li className="flex items-start">
                   <span className="text-blue-600 mr-2 font-bold">•</span>
-                  <span>Version {currentVersion} stays read-only for reporting and audit history.</span>
+                  <span>{t('contentAuthoring.versionReadOnly', { version: currentVersion })}</span>
                 </li>
               </ul>
             </CardContent>
@@ -390,14 +390,14 @@ export function VersionDecisionModal({
           {/* Version Notes */}
           <div className="space-y-2">
             <Label htmlFor="version-notes" className="text-base font-semibold">
-              Version notes <span className="text-destructive">*</span>
+              {t('contentAuthoring.versionNotesRequired')}
             </Label>
             <p className="text-sm text-muted-foreground">
-              Briefly describe what changed in this version (for audit trail and future reference).
+              {t('contentAuthoring.versionNotesDesc')}
             </p>
             <Textarea
               id="version-notes"
-              placeholder='e.g., "Updated 2026 handbook – added new safety protocols and revised dress code section."'
+              placeholder={t('contentAuthoring.versionNotesPlaceholder')}
               value={versionNotes}
               onChange={(e) => setVersionNotes(e.target.value)}
               rows={3}
@@ -407,13 +407,13 @@ export function VersionDecisionModal({
 
           {/* Summary Line */}
           <div className="p-3 bg-accent/50 rounded-lg border text-sm">
-            <div className="font-medium mb-1">Summary:</div>
+            <div className="font-medium mb-1">{t('contentAuthoring.summaryLabel')}</div>
             <ul className="space-y-0.5 text-muted-foreground">
               <li>
-                • Completed learners: {completedStrategy === 'keep' ? `keep completion on V${currentVersion}` : `require V${nextVersion}`}
+                • {t('contentAuthoring.completedLearnersStrategy', { strategy: completedStrategy === 'keep' ? `keep completion on V${currentVersion}` : `require V${nextVersion}` })}
               </li>
               <li>
-                • In-progress learners: {inProgressStrategy === 'move-to-v2' ? `move to V${nextVersion}` : `finish V${currentVersion}`}
+                • {t('contentAuthoring.inProgressLearnersStrategy', { strategy: inProgressStrategy === 'move-to-v2' ? `move to V${nextVersion}` : `finish V${currentVersion}` })}
               </li>
             </ul>
           </div>
@@ -421,27 +421,27 @@ export function VersionDecisionModal({
           {/* Actions */}
           <div className="flex items-center justify-end space-x-3 pt-4">
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               onClick={() => {
                 console.log('🔘 Publish button clicked!');
                 console.log('🔘 isSaving:', isSaving);
                 console.log('🔘 versionNotes:', versionNotes);
                 handleSave();
-              }} 
+              }}
               disabled={!versionNotes.trim() || isSaving}
               className="hero-primary"
             >
               {isSaving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Publishing...
+                  {t('contentAuthoring.publishing')}
                 </>
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Publish Version {nextVersion}
+                  {t('contentAuthoring.publishVersionBtn', { version: nextVersion })}
                 </>
               )}
             </Button>

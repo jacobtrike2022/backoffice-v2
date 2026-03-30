@@ -127,7 +127,7 @@ export function TagRecommendationPanel({
             {t('content.aiTagSuggestions')}
           </h4>
           <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-400 border-orange-500/30">
-            {recommendations.length} found
+            {t('content.recommendationsFound', { count: recommendations.length })}
           </Badge>
         </div>
         <Button variant="ghost" size="sm" onClick={onDismiss} className="h-8 w-8 p-0">

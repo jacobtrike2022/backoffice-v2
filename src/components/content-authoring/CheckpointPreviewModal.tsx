@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogOverlay, DialogPortal } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
@@ -44,6 +45,7 @@ export function CheckpointPreviewModal({
   timeLimit,
   title
 }: CheckpointPreviewModalProps) {
+  const { t } = useTranslation();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<{ [questionId: string]: string }>({});
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -186,7 +188,7 @@ export function CheckpointPreviewModal({
           {/* Glass blur overlay */}
           <DialogOverlay className="backdrop-blur-md bg-black/30" />
           <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden" aria-describedby={undefined}>
-            <DialogTitle className="sr-only">Checkpoint Results</DialogTitle>
+            <DialogTitle className="sr-only">{t('contentAuthoring.checkpointResultsSrOnly')}</DialogTitle>
             <div className="relative min-h-[500px] flex flex-col">
               {/* Close button */}
               <button
@@ -211,13 +213,13 @@ export function CheckpointPreviewModal({
                 </div>
 
                 <h2 className="text-3xl font-bold mb-2">
-                  {passed ? 'Checkpoint Passed!' : 'Checkpoint Not Passed'}
+                  {passed ? t('contentAuthoring.checkpointPassed') : t('contentAuthoring.checkpointNotPassed')}
                 </h2>
-                
+
                 <p className="text-muted-foreground mb-8">
-                  {passed 
-                    ? 'Great work! You met the passing criteria.' 
-                    : 'Keep practicing to improve your score.'}
+                  {passed
+                    ? t('contentAuthoring.greatWork')
+                    : t('contentAuthoring.keepPracticing')}
                 </p>
 
                 <div className="bg-accent/30 rounded-lg p-6 mb-8 w-full max-w-md">
@@ -228,7 +230,7 @@ export function CheckpointPreviewModal({
                     {Math.round(scorePercentage)}%
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Passing score: {passingScore}%
+                    {t('contentAuthoring.passingScore', { passingScore })}
                   </div>
                 </div>
 
@@ -239,13 +241,13 @@ export function CheckpointPreviewModal({
                     className="gap-2"
                   >
                     <RotateCcw className="h-4 w-4" />
-                    Retake Preview
+                    {t('contentAuthoring.retakePreview')}
                   </Button>
                   <Button
                     onClick={onClose}
                     className="hero-primary"
                   >
-                    Close Preview
+                    {t('contentAuthoring.closePreview')}
                   </Button>
                 </div>
               </div>
@@ -263,7 +265,7 @@ export function CheckpointPreviewModal({
         {/* Glass blur overlay */}
         <DialogOverlay className="backdrop-blur-md bg-black/30" />
         <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden" aria-describedby={undefined}>
-          <DialogTitle className="sr-only">Checkpoint Preview - Question {currentQuestionIndex + 1} of {totalQuestions}</DialogTitle>
+          <DialogTitle className="sr-only">{t('contentAuthoring.checkpointPreviewSrOnly', { current: currentQuestionIndex + 1, total: totalQuestions })}</DialogTitle>
           <div className="relative min-h-[600px] flex flex-col">
             {/* Header with Progress Bar */}
             <div className="border-b bg-background sticky top-0 z-10">
@@ -272,7 +274,7 @@ export function CheckpointPreviewModal({
                 <div className="flex items-center gap-2 mb-3">
                   <h2 className="font-semibold text-foreground">{title}</h2>
                   <span className="px-2 py-0.5 rounded-md text-xs bg-gradient-to-r from-gray-400 to-gray-500 text-white">
-                    Preview
+                    {t('contentAuthoring.preview')}
                   </span>
                 </div>
                 
@@ -305,7 +307,7 @@ export function CheckpointPreviewModal({
                 <div className="px-6 pb-4">
                   <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-200">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                    <span>Time limit reached. You can continue, but this quiz would normally be submitted.</span>
+                    <span>{t('contentAuthoring.timeLimitReached')}</span>
                   </div>
                 </div>
               )}
@@ -398,14 +400,14 @@ export function CheckpointPreviewModal({
                       disabled={!selectedAnswer}
                       className="hero-primary min-w-[120px]"
                     >
-                      Submit Answer
+                      {t('contentAuthoring.submitAnswer')}
                     </Button>
                   ) : (
                     <Button
                       onClick={handleNext}
                       className="hero-primary min-w-[120px]"
                     >
-                      {currentQuestionIndex === totalQuestions - 1 ? 'View Results' : 'Next Question'}
+                      {currentQuestionIndex === totalQuestions - 1 ? t('contentAuthoring.viewResults') : t('contentAuthoring.nextQuestion')}
                     </Button>
                   )}
                 </div>

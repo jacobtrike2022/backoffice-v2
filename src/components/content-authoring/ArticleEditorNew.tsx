@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -57,6 +58,7 @@ const subcategoriesByCategory: Record<string, string[]> = {
 };
 
 export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialData }: ArticleEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(initialData?.title || '');
   const [description, setDescription] = useState(initialData?.description || '');
   const [category, setCategory] = useState(initialData?.category || '');
@@ -106,20 +108,20 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
       linkedAssignments: initialData?.linkedAssignments || 0
     };
     onSave(articleData, false);
-    toast.success('Article saved as draft');
+    toast.success(t('contentAuthoring.articleSavedDraft'));
   };
 
   const handlePublish = () => {
     if (!title.trim()) {
-      toast.error('Please add a title before publishing');
+      toast.error(t('contentAuthoring.articleNeedsTitle'));
       return;
     }
     if (!content.trim()) {
-      toast.error('Please add content before publishing');
+      toast.error(t('contentAuthoring.articleNeedsContent'));
       return;
     }
     if (!category) {
-      toast.error('Please select a category');
+      toast.error(t('contentAuthoring.articleNeedsCategory'));
       return;
     }
 
@@ -140,12 +142,12 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
       linkedAssignments: initialData?.linkedAssignments || 0
     };
     onSave(articleData, true);
-    toast.success('Article published successfully');
+    toast.success(t('contentAuthoring.articlePublished'));
   };
 
   const handlePublishAndAssign = () => {
     if (!title.trim() || !content.trim() || !category) {
-      toast.error('Please complete the required fields');
+      toast.error(t('contentAuthoring.completeRequiredFields'));
       return;
     }
 
@@ -167,7 +169,7 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
       contentType: 'article'
     };
     onPublishAndAssign(articleData);
-    toast.success('Article published! Redirecting to assignment...');
+    toast.success(t('contentAuthoring.articlePublishedRedirecting'));
   };
 
   const insertFormatting = (before: string, after: string = '') => {
@@ -190,9 +192,9 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={() => setShowPreview(false)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Editor
+              {t('contentAuthoring.backToEditor')}
             </Button>
-            <h1 className="text-foreground">Article Preview</h1>
+            <h1 className="text-foreground">{t('contentAuthoring.articlePreviewTitle')}</h1>
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={handleSaveDraft}>

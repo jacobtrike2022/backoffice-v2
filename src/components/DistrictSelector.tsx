@@ -81,7 +81,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
           {showCreateForm ? (
             <div className="space-y-4">
               <div>
-                <Label htmlFor="districtName">District Name</Label>
+                <Label htmlFor="districtName">{t('units.districtName')}</Label>
                 <Input
                   id="districtName"
                   value={newDistrictName}
@@ -91,7 +91,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                 />
               </div>
               <div>
-                <Label htmlFor="districtCode">District Code</Label>
+                <Label htmlFor="districtCode">{t('units.districtCode')}</Label>
                 <Input
                   id="districtCode"
                   value={newDistrictCode}
@@ -111,14 +111,14 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                   }}
                   className="flex-1"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   onClick={handleCreateDistrict}
                   disabled={creating}
                   className="flex-1"
                 >
-                  {creating ? 'Creating...' : 'Create District'}
+                  {creating ? t('units.creating') : t('units.createDistrict')}
                 </Button>
               </div>
             </div>
@@ -133,8 +133,8 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                   <Plus className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Create New District</p>
-                  <p className="text-sm text-muted-foreground">Add a new district to your organization</p>
+                  <p className="font-medium text-foreground">{t('units.createNewDistrict')}</p>
+                  <p className="text-sm text-muted-foreground">{t('units.addNewDistrictDesc')}</p>
                 </div>
               </button>
 
@@ -142,7 +142,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
               {districts.length > 0 && (
                 <>
                   <div className="pt-2">
-                    <p className="text-sm font-medium text-foreground mb-2">Existing Districts</p>
+                    <p className="text-sm font-medium text-foreground mb-2">{t('units.existingDistricts')}</p>
                   </div>
                   {districts.map((district) => (
                     <button
@@ -156,7 +156,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
                     >
                       <div className="flex-1">
                         <p className="font-medium text-foreground">{district.name}</p>
-                        <p className="text-sm text-muted-foreground">Code: {district.code}</p>
+                        <p className="text-sm text-muted-foreground">{t('units.districtCodeLabel', { code: district.code })}</p>
                       </div>
                       {selectedId === district.id && (
                         <Check className="w-5 h-5 text-primary" />
@@ -168,7 +168,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
 
               {districts.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No districts yet. Create one above to get started.
+                  {t('units.noDistrictsYet')}
                 </p>
               )}
             </div>

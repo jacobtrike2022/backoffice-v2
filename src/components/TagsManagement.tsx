@@ -140,7 +140,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
       }
     } catch (error: any) {
       console.error('Error loading tags:', error);
-      toast.error('Failed to load tags');
+      toast.error(t('content.failedLoadTags'));
     } finally {
       setLoading(false);
     }
@@ -157,10 +157,10 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
     try {
       // Pass bypass flag for Super Admin deleting system-locked tags
       await deleteTag(tag.id, canEditSystemTags && isSystemTag);
-      toast.success('Tag deleted');
+      toast.success(t('content.tagDeleted'));
       loadTags();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to delete tag');
+      toast.error(error.message || t('content.failedDeleteTag'));
     }
   };
 

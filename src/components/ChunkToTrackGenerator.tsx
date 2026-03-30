@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -46,6 +47,7 @@ export function ChunkToTrackGenerator({
   sourceFileName,
   onTracksGenerated,
 }: ChunkToTrackGeneratorProps) {
+  const { t } = useTranslation();
   // For single chunk, use its title. For multiple, allow custom title
   const defaultTitle = selectedChunks.length === 1
     ? selectedChunks[0].title
@@ -124,7 +126,7 @@ export function ChunkToTrackGenerator({
     } catch (error: any) {
       console.error('Generation error:', error);
       setError(error.message);
-      toast.error('Failed to create track', { description: error.message });
+      toast.error(t('contentAuthoring.failedCreateTrack'), { description: error.message });
     } finally {
       setGenerating(false);
     }

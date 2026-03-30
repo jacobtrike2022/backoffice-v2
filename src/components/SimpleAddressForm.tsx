@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import {
@@ -77,46 +78,47 @@ const US_STATES = [
 ];
 
 export function SimpleAddressForm({ address, onChange }: SimpleAddressFormProps) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-4">
       {/* Address Line 1 */}
       <div>
-        <Label htmlFor="addressLine1">Address Line 1 (Street)</Label>
+        <Label htmlFor="addressLine1">{t('common.addressLine1')}</Label>
         <Input
           id="addressLine1"
           value={address.addressLine1}
           onChange={(e) => onChange('addressLine1', e.target.value)}
-          placeholder="123 Main Street"
+          placeholder={t('common.addressLine1Placeholder')}
         />
       </div>
 
       {/* Address Line 2 */}
       <div>
-        <Label htmlFor="addressLine2">Address Line 2 (Suite, Apt, etc.)</Label>
+        <Label htmlFor="addressLine2">{t('common.addressLine2')}</Label>
         <Input
           id="addressLine2"
           value={address.addressLine2}
           onChange={(e) => onChange('addressLine2', e.target.value)}
-          placeholder="Suite 100 (optional)"
+          placeholder={t('common.addressLine2Placeholder')}
         />
       </div>
 
       {/* City, State, ZIP */}
       <div className="grid grid-cols-6 gap-4">
         <div className="col-span-3">
-          <Label htmlFor="city">City</Label>
+          <Label htmlFor="city">{t('common.city')}</Label>
           <Input
             id="city"
             value={address.city}
             onChange={(e) => onChange('city', e.target.value)}
-            placeholder="City"
+            placeholder={t('common.city')}
           />
         </div>
         <div className="col-span-2">
-          <Label htmlFor="state">State</Label>
+          <Label htmlFor="state">{t('common.state')}</Label>
           <Select value={address.state} onValueChange={(value) => onChange('state', value)}>
             <SelectTrigger id="state">
-              <SelectValue placeholder="Select state" />
+              <SelectValue placeholder={t('common.selectState')} />
             </SelectTrigger>
             <SelectContent>
               {US_STATES.map((state) => (
@@ -128,7 +130,7 @@ export function SimpleAddressForm({ address, onChange }: SimpleAddressFormProps)
           </Select>
         </div>
         <div className="col-span-1">
-          <Label htmlFor="zip">ZIP</Label>
+          <Label htmlFor="zip">{t('common.zip')}</Label>
           <Input
             id="zip"
             value={address.zip}
@@ -141,12 +143,12 @@ export function SimpleAddressForm({ address, onChange }: SimpleAddressFormProps)
 
       {/* County */}
       <div>
-        <Label htmlFor="county">County</Label>
+        <Label htmlFor="county">{t('common.county')}</Label>
         <Input
           id="county"
           value={address.county}
           onChange={(e) => onChange('county', e.target.value)}
-          placeholder="County name (optional)"
+          placeholder={t('common.countyPlaceholder')}
         />
       </div>
     </div>

@@ -399,10 +399,10 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         <CardContent className="p-6 space-y-6">
           {/* Basic Information */}
           <div className="space-y-4">
-            <h3 className="text-foreground">Basic Information</h3>
+            <h3 className="text-foreground">{t('units.basicInformation')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="unitName">Unit Name</Label>
+                <Label htmlFor="unitName">{t('units.unitName')}</Label>
                 <Input
                   id="unitName"
                   value={unitName}
@@ -411,7 +411,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="unitNumber">Unit Number</Label>
+                <Label htmlFor="unitNumber">{t('units.unitNumber')}</Label>
                 <Input
                   id="unitNumber"
                   value={unitNumber}
@@ -424,7 +424,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
           {/* Location */}
           <div className="space-y-4">
-            <h3 className="text-foreground">Location</h3>
+            <h3 className="text-foreground">{t('units.location')}</h3>
             <SimpleAddressForm
               address={{
                 addressLine1,
@@ -440,10 +440,10 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
           {/* Contact Information */}
           <div className="space-y-4">
-            <h3 className="text-foreground">Contact Information</h3>
+            <h3 className="text-foreground">{t('units.contactInformation')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="phone">Store Phone Number</Label>
+                <Label htmlFor="phone">{t('units.storePhoneNumber')}</Label>
                 <Input
                   id="phone"
                   type="tel"
@@ -453,7 +453,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="email">Store Email</Label>
+                <Label htmlFor="email">{t('units.storeEmail')}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -467,7 +467,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
           {/* Store Photo */}
           <div className="space-y-4">
-            <h3 className="text-foreground">Store Photo (Optional)</h3>
+            <h3 className="text-foreground">{t('units.storePhotoOptional')}</h3>
             {photoPreview ? (
               <div className="relative inline-block">
                 <img
@@ -485,7 +485,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
             ) : (
               <label className="flex flex-col items-center justify-center w-64 h-48 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary/50 transition-colors">
                 <Upload className="w-8 h-8 text-muted-foreground mb-2" />
-                <span className="text-sm text-muted-foreground">Click to upload photo</span>
+                <span className="text-sm text-muted-foreground">{t('units.clickToUploadPhoto')}</span>
                 <span className="text-xs text-muted-foreground mt-1">PNG, JPG up to 5MB</span>
                 <input
                   type="file"
@@ -499,9 +499,9 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
           {/* District Assignment */}
           <div className="space-y-4">
-            <h3 className="text-foreground">District Assignment</h3>
+            <h3 className="text-foreground">{t('units.districtAssignment')}</h3>
             <div>
-              <Label>District (Optional)</Label>
+              <Label>{t('units.districtOptional')}</Label>
               <Button
                 variant="outline"
                 onClick={() => setShowDistrictSelector(true)}
@@ -510,7 +510,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                 {selectedDistrict ? (
                   <span>{selectedDistrict.name} ({selectedDistrict.code})</span>
                 ) : (
-                  <span className="text-muted-foreground">Select or create a district</span>
+                  <span className="text-muted-foreground">{t('units.selectOrCreateDistrict')}</span>
                 )}
               </Button>
             </div>
@@ -519,14 +519,14 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           {/* Tags */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-foreground">Unit Tags</h3>
+              <h3 className="text-foreground">{t('units.unitTags')}</h3>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowTagSelector(true)}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add Tags
+                {t('units.addTags')}
               </Button>
             </div>
             {selectedTags.length > 0 ? (
@@ -550,18 +550,18 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No tags assigned yet</p>
+              <p className="text-sm text-muted-foreground">{t('units.noTagsAssigned')}</p>
             )}
           </div>
 
           {/* Manager Assignment */}
           <div className="space-y-4">
-            <h3 className="text-foreground">Manager Assignment</h3>
+            <h3 className="text-foreground">{t('units.managerAssignment')}</h3>
             <div>
-              <Label htmlFor="manager">Store Manager (Optional)</Label>
+              <Label htmlFor="manager">{t('units.storeManagerOptional')}</Label>
               <Select value={selectedManagerId} onValueChange={setSelectedManagerId}>
                 <SelectTrigger id="manager" className="w-full max-w-md">
-                  <SelectValue placeholder="Select a manager" />
+                  <SelectValue placeholder={t('units.selectManager')} />
                 </SelectTrigger>
                 <SelectContent>
                   {managers.length > 0 ? (
@@ -572,7 +572,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                     ))
                   ) : (
                     <SelectItem value="none" disabled>
-                      No managers found
+                      {t('units.noManagersFound')}
                     </SelectItem>
                   )}
                 </SelectContent>

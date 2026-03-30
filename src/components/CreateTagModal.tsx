@@ -227,12 +227,12 @@ export function CreateTagModal({
     e.preventDefault();
 
     if (!tagName.trim()) {
-      toast.error('Please enter a tag name');
+      toast.error(t('content.pleaseEnterTagName'));
       return;
     }
 
     if (tagType === 'parent' && !selectedCategoryId) {
-      toast.error('Please select a system category');
+      toast.error(t('content.pleaseSelectSystemCategory'));
       return;
     }
 
@@ -257,7 +257,7 @@ export function CreateTagModal({
           description: description.trim() || undefined,
           color: color,
         }, bypassSystemLock);
-        toast.success('Tag updated successfully');
+        toast.success(t('content.tagUpdatedSuccessfully'));
       } else {
         // CREATE NEW TAG
         const tagData: any = {
@@ -282,8 +282,7 @@ export function CreateTagModal({
         }
 
         await createTag(tagData);
-        const label = tagType === 'parent' ? 'Parent' : tagType === 'subcategory' ? 'Subcategory' : 'Child';
-        toast.success(`${label} tag created successfully`);
+        toast.success(t('content.tagCreatedSuccessfully'));
 
         // Pass the created tag name for auto-selection
         onSuccess(tagName.trim());
@@ -295,7 +294,7 @@ export function CreateTagModal({
       onClose();
     } catch (error: any) {
       console.error('Error saving tag:', error);
-      toast.error(error.message || 'Failed to save tag');
+      toast.error(error.message || t('content.failedSaveTag'));
     } finally {
       setIsSubmitting(false);
     }
@@ -504,7 +503,7 @@ export function CreateTagModal({
                     <option value="">Choose a parent or subcategory...</option>
                     {getChildContainersForCategory(selectedCategoryId).map(parent => (
                       <option key={parent.id} value={parent.id}>
-                        {parent.name} {parent.type === 'subcategory' ? '(Subcategory)' : ''}
+                        {parent.name} {parent.type === 'subcategory' ? `(${t('content.tagTypeSubcategory')})` : ''}
                       </option>
                     ))}
                   </select>
@@ -702,7 +701,7 @@ export function CreateTagModal({
                     borderColor: color,
                   }}
                 >
-                  {tagName || 'Tag Name'}
+                  {tagName || t('content.tagNamePlaceholder')}
                 </Badge>
               </div>
             </div>

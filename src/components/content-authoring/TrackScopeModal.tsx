@@ -111,7 +111,7 @@ export function TrackScopeModal({
         }
       })
       .catch((e) => {
-        toast.error(e?.message || 'Failed to load scope');
+        toast.error(e?.message || t('contentAuthoring.failedLoadScope'));
       })
       .finally(() => setLoading(false));
   }, [isOpen, trackId, allowAllOrgs]);
@@ -149,11 +149,11 @@ export function TrackScopeModal({
         unit_id: scopeLevel === 'UNIT' && unitId ? unitId : null,
         syncToTags: true,
       });
-      toast.success('Scope updated');
+      toast.success(t('contentAuthoring.scopeUpdated'));
       onSaved();
       onClose();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to save scope');
+      toast.error(e?.message || t('contentAuthoring.failedSaveScope'));
     } finally {
       setSaving(false);
     }

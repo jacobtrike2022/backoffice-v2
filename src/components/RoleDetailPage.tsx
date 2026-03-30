@@ -1499,30 +1499,30 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="edit-job_code">Job Code</Label>
+                    <Label htmlFor="edit-job_code">{t('roles.detail.jobCode')}</Label>
                     <Input
                       id="edit-job_code"
                       value={formData.job_code}
                       onChange={(e) =>
                         setFormData({ ...formData, job_code: e.target.value })
                       }
-                      placeholder="e.g., MGR-001, CSR-100"
+                      placeholder={t('roles.detail.jobCodePlaceholder')}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Internal identifier (e.g., MGR-001, CSR-100)
+                      {t('roles.detail.jobCodeHint')}
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-description">Description</Label>
+                  <Label htmlFor="edit-description">{t('roles.description')}</Label>
                   <Textarea
                     id="edit-description"
                     value={formData.description}
                     onChange={(e) =>
                       setFormData({ ...formData, description: e.target.value })
                     }
-                    placeholder="Brief description of this role"
+                    placeholder={t('roles.descriptionPlaceholder')}
                     rows={3}
                   />
                 </div>
@@ -1530,12 +1530,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
               {/* Classification */}
               <div className="space-y-4">
-                <h3 className="font-semibold text-sm">Classification</h3>
+                <h3 className="font-semibold text-sm">{t('roles.classification')}</h3>
                 <Separator />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-department">Department</Label>
+                    <Label htmlFor="edit-department">{t('roles.department')}</Label>
                     <Select
                       value={formData.department || undefined}
                       onValueChange={(value) =>
@@ -1543,20 +1543,20 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       }
                     >
                       <SelectTrigger id="edit-department">
-                        <SelectValue placeholder="Select department" />
+                        <SelectValue placeholder={t('roles.departmentPlaceholder')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Operations">Operations</SelectItem>
-                        <SelectItem value="Kitchen">Kitchen</SelectItem>
-                        <SelectItem value="Management">Management</SelectItem>
-                        <SelectItem value="Sales">Sales</SelectItem>
-                        <SelectItem value="Corporate">Corporate</SelectItem>
+                        <SelectItem value="Operations">{t('roles.deptOperations')}</SelectItem>
+                        <SelectItem value="Kitchen">{t('roles.deptKitchen')}</SelectItem>
+                        <SelectItem value="Management">{t('roles.deptManagement')}</SelectItem>
+                        <SelectItem value="Sales">{t('roles.deptSales')}</SelectItem>
+                        <SelectItem value="Corporate">{t('roles.deptCorporate')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="edit-job_family">Job Family</Label>
+                    <Label htmlFor="edit-job_family">{t('roles.jobFamily')}</Label>
                     <Select
                       value={formData.job_family || undefined}
                       onValueChange={(value) =>
@@ -1564,20 +1564,20 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       }
                     >
                       <SelectTrigger id="edit-job_family">
-                        <SelectValue placeholder="Select job family" />
+                        <SelectValue placeholder={t('roles.jobFamilyPlaceholder')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Food Service">Food Service</SelectItem>
-                        <SelectItem value="Retail">Retail</SelectItem>
-                        <SelectItem value="Management">Management</SelectItem>
-                        <SelectItem value="Leadership">Leadership</SelectItem>
+                        <SelectItem value="Food Service">{t('roles.jobFamilyFoodService')}</SelectItem>
+                        <SelectItem value="Retail">{t('roles.jobFamilyRetail')}</SelectItem>
+                        <SelectItem value="Management">{t('roles.deptManagement')}</SelectItem>
+                        <SelectItem value="Leadership">{t('roles.jobFamilyLeadership')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-reports_to">Reports To</Label>
+                  <Label htmlFor="edit-reports_to">{t('roles.detail.reportsTo')}</Label>
                   <Select
                     value={formData.reports_to_role_id ?? 'none'}
                     onValueChange={(value) =>
@@ -1585,10 +1585,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     }
                   >
                     <SelectTrigger id="edit-reports_to">
-                      <SelectValue placeholder="Select supervisor role..." />
+                      <SelectValue placeholder={t('roles.detail.reportsToPlaeholder')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{t('common.none')}</SelectItem>
                       {availableRoles
                         .filter((r) => r.id !== roleId)
                         .map((r) => (
@@ -1603,7 +1603,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 {/* Direct Reports */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Direct Reports</Label>
+                    <Label>{t('roles.detail.directReports')}</Label>
                     {isEditingCoreData && (
                       <Select
                         onValueChange={async (value) => {
@@ -1623,7 +1623,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                         }}
                       >
                         <SelectTrigger className="w-[200px]">
-                          <SelectValue placeholder="+ Add direct report..." />
+                          <SelectValue placeholder={t('roles.detail.directReportsPlaceholder')} />
                         </SelectTrigger>
                         <SelectContent>
                           {availableRoles
@@ -1675,7 +1675,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">No direct reports</p>
+                    <p className="text-sm text-muted-foreground">{t('roles.detail.noDirectReports')}</p>
                   )}
                 </div>
 
@@ -1689,7 +1689,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       }
                     />
                     <Label htmlFor="edit-is_manager" className="cursor-pointer">
-                      Manager Role
+                      {t('roles.managerRole')}
                     </Label>
                   </div>
 
@@ -1705,13 +1705,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       }
                     />
                     <Label htmlFor="edit-is_frontline" className="cursor-pointer">
-                      Frontline
+                      {t('roles.frontline')}
                     </Label>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-permission_level">Permission Level</Label>
+                  <Label htmlFor="edit-permission_level">{t('roles.permissionLevel')}</Label>
                   <Select
                     value={formData.permission_level.toString()}
                     onValueChange={handlePermissionLevelChange}
@@ -1720,17 +1720,17 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1">1 - Basic Employee</SelectItem>
-                      <SelectItem value="2">2 - Team Lead</SelectItem>
-                      <SelectItem value="3">3 - Manager</SelectItem>
-                      <SelectItem value="4">4 - District/Regional Manager</SelectItem>
-                      <SelectItem value="5">5 - Corporate/Executive</SelectItem>
+                      <SelectItem value="1">{t('roles.permLevel1')}</SelectItem>
+                      <SelectItem value="2">{t('roles.permLevel2')}</SelectItem>
+                      <SelectItem value="3">{t('roles.permLevel3')}</SelectItem>
+                      <SelectItem value="4">{t('roles.permLevel4')}</SelectItem>
+                      <SelectItem value="5">{t('roles.permLevel5')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-flsa_status">FLSA Status</Label>
+                  <Label htmlFor="edit-flsa_status">{t('roles.detail.flsaStatus')}</Label>
                   <Select
                     value={formData.flsa_status ?? 'not_set'}
                     onValueChange={(value) =>
@@ -1744,9 +1744,9 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       <SelectValue placeholder="Select FLSA status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="not_set">Not Set</SelectItem>
-                      <SelectItem value="non_exempt">Hourly</SelectItem>
-                      <SelectItem value="exempt">Salary</SelectItem>
+                      <SelectItem value="not_set">{t('roles.detail.flsaNotSet')}</SelectItem>
+                      <SelectItem value="non_exempt">{t('roles.detail.flsaHourly')}</SelectItem>
+                      <SelectItem value="exempt">{t('roles.detail.flsaSalary')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1760,13 +1760,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       showAdvanced ? 'transform rotate-180' : ''
                     }`}
                   />
-                  Advanced
+                  {t('roles.advanced')}
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-4 mt-4">
                   <Separator />
 
                   <div className="space-y-2">
-                    <Label htmlFor="edit-job_description">Job Description</Label>
+                    <Label htmlFor="edit-job_description">{t('roles.jobDescription')}</Label>
                     <Textarea
                       id="edit-job_description"
                       value={formData.job_description}
@@ -1776,14 +1776,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                           job_description: e.target.value,
                         })
                       }
-                      placeholder="Full job description for RAG indexing and reference"
+                      placeholder={t('roles.jobDescriptionPlaceholder')}
                       rows={10}
                     />
                   </div>
 
                   {formData.job_description && (
                     <div className="space-y-2">
-                      <Label>Job Description Source</Label>
+                      <Label>{t('roles.jobDescriptionSource')}</Label>
                       <RadioGroup
                         value={formData.job_description_source || 'manual'}
                         onValueChange={(value) =>
@@ -1800,19 +1800,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                         <div className="flex items-center gap-2">
                           <RadioGroupItem value="manual" id="edit-source-manual" />
                           <Label htmlFor="edit-source-manual" className="cursor-pointer">
-                            Manual
+                            {t('roles.jdSourceManual')}
                           </Label>
                         </div>
                         <div className="flex items-center gap-2">
                           <RadioGroupItem value="hris" id="edit-source-hris" />
                           <Label htmlFor="edit-source-hris" className="cursor-pointer">
-                            HRIS
+                            {t('roles.jdSourceHRIS')}
                           </Label>
                         </div>
                         <div className="flex items-center gap-2">
                           <RadioGroupItem value="uploaded" id="edit-source-uploaded" />
                           <Label htmlFor="edit-source-uploaded" className="cursor-pointer">
-                            Uploaded
+                            {t('roles.jdSourceUploaded')}
                           </Label>
                         </div>
                       </RadioGroup>
@@ -1824,16 +1824,16 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               {/* Status (only for existing roles) */}
               {roleId !== 'new' && (
                 <div className="space-y-2">
-                  <Label htmlFor="edit-status">Status</Label>
+                  <Label htmlFor="edit-status">{t('roles.statusLabel')}</Label>
                   <Select value={formData.status} onValueChange={(value: any) => setFormData({ ...formData, status: value })}>
                     <SelectTrigger id="edit-status">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                      <SelectItem value="pending_review">Pending Review</SelectItem>
-                      <SelectItem value="archived">Archived</SelectItem>
+                      <SelectItem value="active">{t('roles.statusActive')}</SelectItem>
+                      <SelectItem value="inactive">{t('roles.statusInactive')}</SelectItem>
+                      <SelectItem value="pending_review">{t('roles.statusPendingReview')}</SelectItem>
+                      <SelectItem value="archived">{t('roles.statusArchived')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1869,14 +1869,14 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     }
                   }}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   type="submit"
                   disabled={saving}
                   className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
                 >
-                  {saving ? (roleId === 'new' ? 'Creating...' : 'Saving...') : (roleId === 'new' ? 'Create Role' : 'Save Changes')}
+                  {saving ? (roleId === 'new' ? t('roles.detail.creating') : t('roles.saving')) : (roleId === 'new' ? t('roles.createRole') : t('roles.saveChanges'))}
                 </Button>
               </div>
             </form>
@@ -1885,23 +1885,23 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       ) : (
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Role Details</CardTitle>
+            <CardTitle>{t('roles.detail.roleDetailsCard')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Role Name</Label>
+                    <Label className="text-muted-foreground">{t('roles.detail.roleNameLabel')}</Label>
                     <div className="text-sm font-medium">{role?.name || '—'}</div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Job Code</Label>
+                    <Label className="text-muted-foreground">{t('roles.detail.jobCode')}</Label>
                     <div className="text-sm font-medium">{role?.job_code || '—'}</div>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">Description</Label>
+                  <Label className="text-muted-foreground">{t('roles.detail.roleDescLabel')}</Label>
                   <div className="text-sm text-muted-foreground">{role?.description || '—'}</div>
                 </div>
               </div>
@@ -1910,16 +1910,16 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <Separator />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Department</Label>
+                    <Label className="text-muted-foreground">{t('roles.detail.roleDeptLabel')}</Label>
                     <div className="text-sm font-medium">{role?.department || '—'}</div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Job Family</Label>
+                    <Label className="text-muted-foreground">{t('roles.detail.roleJobFamilyLabel')}</Label>
                     <div className="text-sm font-medium">{role?.job_family || '—'}</div>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">Reports To</Label>
+                  <Label className="text-muted-foreground">{t('roles.detail.roleReportsToLabel')}</Label>
                 {role?.reports_to_role_id ? (
                   <Button
                     variant="outline"
@@ -1939,22 +1939,22 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Manager Role</Label>
-                    <div className="text-sm font-medium">{role?.is_manager ? 'Yes' : 'No'}</div>
+                    <Label className="text-muted-foreground">{t('roles.detail.roleManagerLabel')}</Label>
+                    <div className="text-sm font-medium">{role?.is_manager ? t('roles.detail.yes') : t('roles.detail.no')}</div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground">Frontline</Label>
-                    <div className="text-sm font-medium">{role?.is_frontline ? 'Yes' : 'No'}</div>
+                    <Label className="text-muted-foreground">{t('roles.detail.roleFrontlineLabel')}</Label>
+                    <div className="text-sm font-medium">{role?.is_frontline ? t('roles.detail.yes') : t('roles.detail.no')}</div>
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">Permission Level</Label>
+                  <Label className="text-muted-foreground">{t('roles.detail.rolePermLevelLabel')}</Label>
                   <div className="text-sm font-medium">
                     {role?.permission_level ? `${role.permission_level} - ${getPermissionLevelLabel(role.permission_level)}` : '—'}
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">FLSA Status</Label>
+                  <Label className="text-muted-foreground">{t('roles.detail.roleFlsaLabel')}</Label>
                   <div className="text-sm font-medium">
                     {getFlsaStatusLabel(role?.flsa_status)}
                   </div>
@@ -1966,17 +1966,17 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <Collapsible>
                   <CollapsibleTrigger className="flex items-center gap-2 text-sm font-semibold hover:text-foreground">
                     <ChevronDown className="w-4 h-4" />
-                    Advanced
+                    {t('roles.advanced')}
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-4 mt-4">
                     <Separator />
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground">Job Description</Label>
+                      <Label className="text-muted-foreground">{t('roles.detail.roleJdLabel')}</Label>
                       <div className="text-sm text-muted-foreground whitespace-pre-wrap">{role.job_description}</div>
                     </div>
                     {role.job_description_source && (
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground">Job Description Source</Label>
+                        <Label className="text-muted-foreground">{t('roles.detail.roleJdSourceLabel')}</Label>
                         <div className="text-sm font-medium capitalize">{role.job_description_source}</div>
                       </div>
                     )}
@@ -1996,11 +1996,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold">Smart Role Profiles</h2>
+            <h2 className="text-xl font-semibold">{t('roles.detail.smartRoleProfiles')}</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {role?.onet_code && !isChangingProfile
-                ? 'Current role profile match'
-                : 'Automatically matched using role name and job description text'}
+                ? t('roles.detail.currentProfileMatch')
+                : t('roles.detail.autoMatchedDesc')}
             </p>
           </div>
           {role?.onet_code && !isChangingProfile ? (
@@ -2016,12 +2016,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               }}
             >
               <Search className="w-4 h-4 mr-2" />
-              Change Profile
+              {t('roles.detail.changeProfile')}
             </Button>
           ) : (
             <div className="flex items-center gap-2">
               <Input
-                placeholder="Search profiles..."
+                placeholder={t('roles.detail.searchProfilesPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={(e) => {
@@ -2107,7 +2107,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               <Card>
                 <CardContent className="p-8 text-center">
                   <p className="text-muted-foreground">
-                    No matching profiles found. Try a different search term.
+                    {t('roles.detail.noMatchingProfiles')}
                   </p>
                 </CardContent>
               </Card>
@@ -2143,11 +2143,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <CardTitle className="text-lg">{previewProfile.title}</CardTitle>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge variant="outline" className="text-xs">
-                    Code: {previewProfile.onet_code || 'N/A'}
+                    {t('roles.detail.profileCode')}{previewProfile.onet_code || 'N/A'}
                   </Badge>
                   {previewProfile.job_zone && (
                     <Badge variant="outline" className="text-xs">
-                      Job Zone {previewProfile.job_zone}
+                      {t('roles.detail.profileJobZone')}{previewProfile.job_zone}
                     </Badge>
                   )}
                 </div>
@@ -2160,7 +2160,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     setPreviewProfile(null);
                   }}
                 >
-                  Close
+                  {t('common.close')}
                 </Button>
                 <Button
                   className={cn(
@@ -2185,8 +2185,8 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                   }}
                 >
                   {role?.onet_code === previewProfile.onet_code
-                    ? 'Profile Applied'
-                    : 'Apply Profile'}
+                    ? t('roles.detail.profileApplied')
+                    : t('roles.detail.profileApply')}
                 </Button>
               </div>
             </div>
@@ -2200,7 +2200,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             {/* Alternative Titles */}
             {previewProfile.also_called && previewProfile.also_called.length > 0 && (
               <div>
-                <h3 className="font-semibold text-sm mb-2">Also known as</h3>
+                <h3 className="font-semibold text-sm mb-2">{t('roles.detail.profileAlsoKnownAs')}</h3>
                 <div className="flex flex-wrap gap-2">
                   {previewProfile.also_called.map((title, idx) => (
                     <Badge key={idx} variant="secondary" className="text-xs">
@@ -2217,7 +2217,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             {previewProfile.tasks && previewProfile.tasks.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Key Tasks ({previewProfile.tasks.length})
+                  {t('roles.detail.profileKeyTasks', { n: previewProfile.tasks.length })}
                 </h3>
                 <ul className="space-y-2">
                   {previewProfile.tasks.map((task) => (
@@ -2239,7 +2239,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             {previewProfile.skills && previewProfile.skills.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Required Skills ({previewProfile.skills.length})
+                  {t('roles.detail.profileRequiredSkills', { n: previewProfile.skills.length })}
                 </h3>
                 <div className="space-y-2">
                   {previewProfile.skills.map((skill) => (
@@ -2275,7 +2275,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             {previewProfile.knowledge && previewProfile.knowledge.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Required Knowledge ({previewProfile.knowledge.length})
+                  {t('roles.detail.profileRequiredKnowledge', { n: previewProfile.knowledge.length })}
                 </h3>
                 <div className="space-y-2">
                   {previewProfile.knowledge.map((know) => (
@@ -2315,11 +2315,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             <div className="flex justify-between items-center">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  Role Competencies
+                  {t('roles.detail.roleCompetencies')}
                   {loadingMerged && <Loader2 className="h-4 w-4 animate-spin" />}
                 </CardTitle>
                 <CardDescription>
-                  Customize which tasks, skills, and knowledge apply to this role
+                  {t('roles.detail.competenciesDesc')}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -2334,19 +2334,19 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="tasks" className="flex items-center gap-2">
                   <ClipboardList className="h-4 w-4" />
-                  Tasks ({mergedTasks.filter(t => t.is_active).length}/{mergedTasks.length})
+                  {t('roles.detail.tabTasks', { active: mergedTasks.filter(task => task.is_active).length, total: mergedTasks.length })}
                 </TabsTrigger>
                 <TabsTrigger value="work_styles" className="flex items-center gap-2">
                   <Zap className="h-4 w-4 fill-current" />
-                  Work Styles ({mergedWorkStyles.filter(ws => ws.is_active).length}/{mergedWorkStyles.length})
+                  {t('roles.detail.tabWorkStyles', { active: mergedWorkStyles.filter(ws => ws.is_active).length, total: mergedWorkStyles.length })}
                 </TabsTrigger>
                 <TabsTrigger value="skills" className="flex items-center gap-2">
                   <Wrench className="h-4 w-4" />
-                  Skills ({mergedSkills.filter(s => s.is_active).length}/{mergedSkills.length})
+                  {t('roles.detail.tabSkills', { active: mergedSkills.filter(s => s.is_active).length, total: mergedSkills.length })}
                 </TabsTrigger>
                 <TabsTrigger value="knowledge" className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4" />
-                  Knowledge ({mergedKnowledge.filter(k => k.is_active).length}/{mergedKnowledge.length})
+                  {t('roles.detail.tabKnowledge', { active: mergedKnowledge.filter(k => k.is_active).length, total: mergedKnowledge.length })}
                 </TabsTrigger>
               </TabsList>
 
@@ -2355,7 +2355,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <div className="space-y-2">
                   {mergedTasks.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No tasks defined for this profile
+                      {t('roles.detail.noTasks')}
                     </p>
                   ) : (
                     <>
@@ -2419,7 +2419,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <span>Excluded Tasks ({mergedTasks.filter(task => !task.is_active).length})</span>
+                              <span>{t('roles.detail.excludedTasks', { n: mergedTasks.filter(task => !task.is_active).length })}</span>
                             </span>
                           </Button>
                           {excludedTasksExpanded && (
@@ -2469,7 +2469,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     onClick={() => setShowAddTask(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Task
+                    {t('roles.detail.addCustomTask')}
                   </Button>
                 </div>
               </TabsContent>
@@ -2479,7 +2479,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <div className="space-y-2">
                   {mergedWorkStyles.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No work styles defined for this profile
+                      {t('roles.detail.noWorkStyles')}
                     </p>
                   ) : (
                     <>
@@ -2527,7 +2527,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                              <span>Excluded Work Styles ({mergedWorkStyles.filter(ws => !ws.is_active).length})</span>
+                              <span>{t('roles.detail.excludedWorkStyles', { n: mergedWorkStyles.filter(ws => !ws.is_active).length })}</span>
                             </span>
                           </Button>
                           {excludedWorkStylesExpanded && (
@@ -2573,7 +2573,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     onClick={() => setShowAddWorkStyle(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Work Style
+                    {t('roles.detail.addCustomWorkStyle')}
                   </Button>
                 </div>
               </TabsContent>
@@ -2583,7 +2583,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                 <div className="space-y-2">
                   {mergedSkills.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">
-                      No skills defined for this profile
+                      {t('roles.detail.noSkills')}
                     </p>
                   ) : (
                     <>

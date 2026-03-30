@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -18,6 +19,7 @@ interface StoryPreviewProps {
 }
 
 export function StoryPreview({ slides }: StoryPreviewProps) {
+  const { t } = useTranslation();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
 
   const nextSlide = () => {
