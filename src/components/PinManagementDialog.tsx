@@ -172,7 +172,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
                 <div className="flex-1 h-10 bg-muted animate-pulse rounded-md" />
               ) : currentPin === null ? (
                 <div className="flex-1 h-10 px-3 py-2 border rounded-md text-muted-foreground flex items-center">
-                  No PIN set
+                  {t('knowledgeBase.noPinSet')}
                 </div>
               ) : (
                 <>
@@ -199,18 +199,18 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
             </div>
             {currentPin === null && (
               <p className="text-xs text-muted-foreground">
-                No PIN has been set for this employee yet
+                {t('knowledgeBase.noPinSetDesc')}
               </p>
             )}
           </div>
 
           {/* Set Custom PIN Section */}
           <div className="space-y-3 border-t pt-4">
-            <Label className="text-sm font-medium">Set Custom PIN</Label>
+            <Label className="text-sm font-medium">{t('knowledgeBase.setCustomPin')}</Label>
             <div className="space-y-2">
               <div>
                 <Label htmlFor="new-pin" className="text-xs text-muted-foreground">
-                  New PIN (4 digits)
+                  {t('knowledgeBase.newPin')}
                 </Label>
                 <Input
                   id="new-pin"
@@ -228,7 +228,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
               </div>
               <div>
                 <Label htmlFor="confirm-pin" className="text-xs text-muted-foreground">
-                  Confirm PIN
+                  {t('knowledgeBase.confirmPin')}
                 </Label>
                 <Input
                   id="confirm-pin"
@@ -252,12 +252,12 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
                 {loading ? (
                   <>
                     <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
+                    {t('common.saving')}
                   </>
                 ) : (
                   <>
                     <Key className="h-4 w-4 mr-2" />
-                    Save Custom PIN
+                    {t('knowledgeBase.saveCustomPin')}
                   </>
                 )}
               </Button>
@@ -267,7 +267,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('common.close')}
           </Button>
         </DialogFooter>
       </DialogContent>

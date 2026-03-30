@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -73,6 +74,7 @@ export function CreateTagModal({
   initialDescription,
   canEditSystemTags = false,
 }: CreateTagModalProps) {
+  const { t } = useTranslation();
   const isEditing = !!tagToEdit;
   
   const [tagType, setTagType] = useState<TagType>(
@@ -327,10 +329,10 @@ export function CreateTagModal({
               </div>
               <div>
                 <h2 className="text-xl font-semibold">
-                  {isEditing ? 'Edit Tag' : 'Create New Tag'}
+                  {isEditing ? t('content.editTag') : t('content.createNewTag')}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  {isEditing ? 'Update tag details and properties' : 'Add a custom tag to organize your content'}
+                  {isEditing ? t('content.updateTagDetails') : t('content.addCustomTagDesc')}
                 </p>
               </div>
             </div>
@@ -349,7 +351,7 @@ export function CreateTagModal({
             {/* Tag Type Selection - HIDDEN IF EDITING */}
             {!isEditing && (
               <div className="space-y-2">
-                <Label>Tag Type</Label>
+                <Label>{t('content.tagType')}</Label>
                 <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
@@ -362,10 +364,10 @@ export function CreateTagModal({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <Folder className="h-5 w-5 text-orange-500" />
-                      <span className="font-medium">Parent</span>
+                      <span className="font-medium">{t('content.tagTypeParent')}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Groups subcategories or child tags
+                      {t('content.tagTypeParentDesc')}
                     </p>
                   </button>
 
@@ -380,10 +382,10 @@ export function CreateTagModal({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <FolderOpen className="h-5 w-5 text-orange-500" />
-                      <span className="font-medium">Subcategory</span>
+                      <span className="font-medium">{t('content.tagTypeSubcategory')}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Nested under a parent and holds child tags
+                      {t('content.tagTypeSubcategoryDesc')}
                     </p>
                   </button>
 
@@ -398,10 +400,10 @@ export function CreateTagModal({
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <TagIcon className="h-5 w-5 text-orange-500" />
-                      <span className="font-medium">Child</span>
+                      <span className="font-medium">{t('content.tagTypeChild')}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Assignable tag under a parent or subcategory
+                      {t('content.tagTypeChildDesc')}
                     </p>
                   </button>
                 </div>
@@ -412,7 +414,7 @@ export function CreateTagModal({
             {(tagType === 'parent' || tagType === 'subcategory' || tagType === 'child') && (
               <div className="space-y-2">
                 <Label htmlFor="category">
-                  Select System Category <span className="text-destructive">*</span>
+                  {t('content.selectSystemCategory')} <span className="text-destructive">*</span>
                 </Label>
                 <select
                   id="category"
@@ -434,9 +436,9 @@ export function CreateTagModal({
                     ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  {isEditing 
-                    ? 'System category cannot be changed after creation' 
-                    : 'System categories define the top-level tag system'}
+                  {isEditing
+                    ? t('content.systemCategoryCannotChange')
+                    : t('content.systemCategoryDesc')}
                 </p>
               </div>
             )}
@@ -445,7 +447,7 @@ export function CreateTagModal({
             {tagType === 'subcategory' && (
               <div className="space-y-2">
                 <Label htmlFor="subcategory-parent">
-                  Select Parent <span className="text-destructive">*</span>
+                  {t('content.selectParent')} <span className="text-destructive">*</span>
                 </Label>
 
                 {selectedCategoryId ? (
@@ -465,20 +467,20 @@ export function CreateTagModal({
                     ))}
                   </select>
                 ) : (
-                  <div className="text-xs text-muted-foreground">Select a system category first</div>
+                  <div className="text-xs text-muted-foreground">{t('content.selectSystemCategoryFirst')}</div>
                 )}
 
                 {selectedCategoryId && getParentTagsForCategory(selectedCategoryId).length === 0 && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
                     <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
                     <div className="text-sm text-amber-800 dark:text-amber-200">
-                      No parent tags in this category yet. Create a parent tag first.
+                      {t('content.noParentTagsYet')}
                     </div>
                   </div>
                 )}
 
                 <p className="text-xs text-muted-foreground">
-                  Subcategories sit under a parent and contain child tags.
+                  {t('content.subcategoriesDesc')}
                 </p>
               </div>
             )}
@@ -487,7 +489,7 @@ export function CreateTagModal({
             {tagType === 'child' && (
               <div className="space-y-2">
                 <Label htmlFor="parent">
-                  Select Parent or Subcategory <span className="text-destructive">*</span>
+                  {t('content.selectParentOrSubcategory')} <span className="text-destructive">*</span>
                 </Label>
                 
                 {selectedCategoryId ? (
@@ -507,20 +509,20 @@ export function CreateTagModal({
                     ))}
                   </select>
                 ) : (
-                  <div className="text-xs text-muted-foreground">Select a system category first</div>
+                  <div className="text-xs text-muted-foreground">{t('content.selectSystemCategoryFirst')}</div>
                 )}
 
                 {selectedCategoryId && getChildContainersForCategory(selectedCategoryId).length === 0 && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
                     <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
                     <div className="text-sm text-amber-800 dark:text-amber-200">
-                      No parents or subcategories in this category yet. Create a parent first.
+                      {t('content.noParentsOrSubcategoriesYet')}
                     </div>
                   </div>
                 )}
 
                 <p className="text-xs text-muted-foreground">
-                  Child tags can live directly under a parent or within a subcategory.
+                  {t('content.childTagsDesc')}
                 </p>
               </div>
             )}
@@ -528,7 +530,7 @@ export function CreateTagModal({
             {/* Tag Name */}
             <div className="space-y-2">
               <Label htmlFor="tagName">
-                Tag Name <span className="text-destructive">*</span>
+                {t('content.tagName')} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="tagName"
@@ -545,7 +547,7 @@ export function CreateTagModal({
 
             {/* Description */}
             <div className="space-y-2">
-              <Label htmlFor="description">Description (Optional)</Label>
+              <Label htmlFor="description">{t('content.descriptionOptional')}</Label>
               <Textarea
                 id="description"
                 value={description}
@@ -561,11 +563,11 @@ export function CreateTagModal({
 
             {/* Color Picker */}
             <div className="space-y-3">
-              <Label>Tag Color</Label>
+              <Label>{t('content.tagColor')}</Label>
 
               {/* Predefined Colors */}
               <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Preset colors</span>
+                <span className="text-xs text-muted-foreground">{t('content.presetColors')}</span>
                 <div className="flex flex-wrap gap-2">
                   {predefinedColors.map((c) => (
                     <button
@@ -593,7 +595,7 @@ export function CreateTagModal({
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
                     <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Recent custom colors</span>
+                    <span className="text-xs text-muted-foreground">{t('content.recentCustomColors')}</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {recentColors.map((c) => (
@@ -620,7 +622,7 @@ export function CreateTagModal({
 
               {/* Custom Color Input */}
               <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Custom color (hex)</span>
+                <span className="text-xs text-muted-foreground">{t('content.customColorHex')}</span>
                 <div className="flex items-center gap-3">
                   <Input
                     type="color"
@@ -682,7 +684,7 @@ export function CreateTagModal({
 
             {/* Preview */}
             <div className="p-4 rounded-lg border border-border bg-muted/50">
-              <Label className="mb-3 block">Preview</Label>
+              <Label className="mb-3 block">{t('content.preview')}</Label>
               <div className="flex items-center gap-2">
                 {tagType === 'parent' ? (
                   <FolderOpen className="h-4 w-4" style={{ color }} />
@@ -714,7 +716,7 @@ export function CreateTagModal({
               onClick={handleCancel}
               disabled={isSubmitting}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="submit"
@@ -722,7 +724,7 @@ export function CreateTagModal({
               disabled={isSubmitting || !tagName.trim()}
               className="hero-primary shadow-brand"
             >
-              {isSubmitting ? 'Saving...' : isEditing ? 'Update Tag' : 'Create Tag'}
+              {isSubmitting ? t('common.saving') : isEditing ? t('content.updateTag') : t('content.createTag')}
             </Button>
           </div>
         </div>

@@ -460,8 +460,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     if (sourceInfo.thumbnailUrl && !thumbnailUrl) {
       console.log('📸 Copying thumbnail from source track:', sourceInfo.thumbnailUrl);
       setThumbnailUrl(sourceInfo.thumbnailUrl);
-      toast.success('Thumbnail copied from source content', {
-        description: 'The checkpoint will use the same thumbnail as the source.',
+      toast.success(t('contentAuthoring.thumbnailCopiedFromSource'), {
+        description: t('contentAuthoring.thumbnailCopiedDesc'),
         duration: 3000
       });
     }
@@ -549,8 +549,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
     }, 100);
 
-    toast.success(`✨ Added ${generatedQuestions.length} AI-generated questions!`, {
-      description: 'Questions will auto-save in 3 seconds...'
+    toast.success(t('contentAuthoring.aiQuestionsAdded', { count: generatedQuestions.length }), {
+      description: t('contentAuthoring.aiQuestionsAutoSave')
     });
   };
 
@@ -957,19 +957,19 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       if (!q.question.trim()) {
-        toast.error(`Question ${i + 1} is empty`);
+        toast.error(t('contentAuthoring.questionEmptyError', { number: i + 1 }));
         return false;
       }
 
       const hasCorrectAnswer = q.answers.some(a => a.isCorrect);
       if (!hasCorrectAnswer) {
-        toast.error(`Question ${i + 1} must have a correct answer selected`);
+        toast.error(t('contentAuthoring.questionNeedsCorrectAnswer', { number: i + 1 }));
         return false;
       }
 
       const emptyAnswers = q.answers.filter(a => !a.text.trim());
       if (emptyAnswers.length > 0) {
-        toast.error(`Question ${i + 1} has empty answer options`);
+        toast.error(t('contentAuthoring.questionHasEmptyAnswers', { number: i + 1 }));
         return false;
       }
     }
@@ -1041,7 +1041,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading checkpoint...</p>
+          <p className="text-muted-foreground">{t('contentAuthoring.loadingCheckpoint')}</p>
         </div>
       </div>
     );
@@ -1055,13 +1055,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={() => setShowPreview(false)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Editor
+              {t('contentAuthoring.backToEditor')}
             </Button>
-            <h1 className="text-foreground">Checkpoint Preview</h1>
+            <h1 className="text-foreground">{t('contentAuthoring.checkpointPreview')}</h1>
           </div>
           <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
             <Save className="h-4 w-4 mr-2" />
-            {isSaving ? 'Saving...' : 'Save Draft'}
+            {isSaving ? t('common.saving') : t('contentAuthoring.saveDraft')}
           </Button>
         </div>
 
@@ -1070,18 +1070,18 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-2xl">{title || 'Untitled Checkpoint'}</CardTitle>
+                <CardTitle className="text-2xl">{title || t('contentAuthoring.untitledCheckpoint')}</CardTitle>
                 {description && (
                   <p className="text-muted-foreground mt-2">{description}</p>
                 )}
               </div>
               <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">
-                {questions.length} Questions
+                {t('contentAuthoring.questionsCount', { count: questions.length })}
               </Badge>
             </div>
             <div className="flex items-center space-x-4 mt-4 text-sm text-muted-foreground">
-              <span>Passing Score: {passingScore}%</span>
-              {timeLimit && <span>• Time Limit: {timeLimit} minutes</span>}
+              <span>{t('contentAuthoring.passingScoreLabel', { score: passingScore })}</span>
+              {timeLimit && <span>• {t('contentAuthoring.timeLimitLabel', { limit: timeLimit })}</span>}
             </div>
           </CardHeader>
           <CardContent className="p-8">
@@ -1126,7 +1126,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       {question.explanation && (
                         <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded">
                           <p className="text-sm text-blue-900 dark:text-blue-100">
-                            <span className="font-semibold">Explanation: </span>
+                            <span className="font-semibold">{t('contentAuthoring.explanationLabel')}: </span>
                             {question.explanation}
                           </p>
                         </div>
@@ -1152,7 +1152,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              {t('common.back')}
             </Button>
             <div>
               <div className="flex items-center space-x-2">
@@ -1165,12 +1165,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400'
                   }`}
                 >
-                  {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                  {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                 </Badge>
                 {isSystemContent && (
                   <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
                     <Lock className="h-3 w-3 mr-1" />
-                    Trike Library
+                    {t('contentAuthoring.trikeLibrary')}
                   </Badge>
                 )}
               </div>
@@ -1184,7 +1184,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <Eye className="h-4 w-4 mr-2" />
-              Preview
+              {t('contentAuthoring.preview')}
             </Button>
             
             {/* Edit Button */}
@@ -1192,10 +1192,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               <>
                 <Button onClick={() => setIsEditMode(true)} className="hero-primary">
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit Track
+                  {t('contentAuthoring.editTrack')}
                   {isSystemContent && isSuperAdmin && (
                     <Badge className="ml-2 bg-orange-100 text-orange-800">
-                      Super Admin
+                      {t('contentAuthoring.superAdmin')}
                     </Badge>
                   )}
                 </Button>
@@ -1223,7 +1223,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                         }}
                       >
                         <Download className="h-4 w-4 mr-2" />
-                        Download PDF
+                        {t('contentAuthoring.downloadPdf')}
                       </Button>
                       {(onDuplicate || onCreateVariant || onArchive) && (
                         <Separator className="my-1" />
@@ -1238,7 +1238,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           }}
                         >
                           <Copy className="h-4 w-4 mr-2" />
-                          Duplicate
+                          {t('common.duplicate')}
                         </Button>
                       )}
                       {onCreateVariant && (
@@ -1251,7 +1251,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           }}
                         >
                           <GitBranch className="h-4 w-4 mr-2" />
-                          Create Variant
+                          {t('contentAuthoring.createVariant')}
                         </Button>
                       )}
                       {(onDuplicate || onCreateVariant) && onArchive && (
@@ -1267,7 +1267,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           }}
                         >
                           <Archive className="h-4 w-4 mr-2" />
-                          Archive
+                          {t('common.archive')}
                         </Button>
                       )}
                     </div>
@@ -1292,10 +1292,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                     </div>
                     <div className="flex-1">
                       <p className="font-semibold text-blue-900 dark:text-blue-100">
-                        Viewing Version {existingTrack.version_number}
+                        {t('contentAuthoring.viewingVersion', { version: existingTrack.version_number })}
                       </p>
                       <p className="text-sm text-blue-700 dark:text-blue-300">
-                        This is an older version. Changes made here won't be saved.
+                        {t('contentAuthoring.olderVersionNote')}
                       </p>
                     </div>
                     <Button
@@ -1305,7 +1305,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
                     >
                       <ChevronLeft className="h-4 w-4 mr-1" />
-                      Back
+                      {t('common.back')}
                     </Button>
                   </div>
                 </CardContent>
@@ -1322,12 +1322,12 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                     )}
                   </div>
                   <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">
-                    {questions.length} Questions
+                    {t('contentAuthoring.questionsCount', { count: questions.length })}
                   </Badge>
                 </div>
                 <div className="flex items-center space-x-4 mt-4 text-sm text-muted-foreground">
-                  <span>Passing Score: {passingScore}%</span>
-                  {timeLimit && <span>• Time Limit: {timeLimit} minutes</span>}
+                  <span>{t('contentAuthoring.passingScoreLabel', { score: passingScore })}</span>
+                  {timeLimit && <span>• {t('contentAuthoring.timeLimitLabel', { limit: timeLimit })}</span>}
                 </div>
               </CardHeader>
               <CardContent className="p-8">
@@ -1372,7 +1372,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           {question.explanation && (
                             <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded">
                               <p className="text-sm text-blue-900 dark:text-blue-100">
-                                <span className="font-semibold">Explanation: </span>
+                                <span className="font-semibold">{t('contentAuthoring.explanationLabel')}: </span>
                                 {question.explanation}
                               </p>
                             </div>
@@ -1395,15 +1395,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Shield className="h-4 w-4 text-orange-500" />
-                    Super Admin Settings
+                    {t('contentAuthoring.superAdminSettings')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                      <Label htmlFor="system-content" className="text-sm font-medium">{t('contentAuthoring.systemTemplate')}</Label>
                       <p className="text-xs text-muted-foreground">
-                        Mark as Trike Library content
+                        {t('contentAuthoring.markAsTrikeLibrary')}
                       </p>
                     </div>
                     <Switch
@@ -1415,7 +1415,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                         } else if (currentTrackId) {
                           crud.updateTrack({ id: currentTrackId, is_system_content: checked })
                             .then(() => {
-                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              toast.success(checked ? t('contentAuthoring.markedAsSystemContent') : t('contentAuthoring.removedFromTrikeLibrary'));
                               if (onUpdate) onUpdate();
                             });
                         }
@@ -1430,11 +1430,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Publishing Status</CardTitle>
+                  <CardTitle className="text-base">{t('contentAuthoring.publishingStatus')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Status</span>
+                    <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                     <Badge 
                       variant="outline"
                       className={`cursor-pointer transition-colors ${
@@ -1446,7 +1446,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                         const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
                         try {
                           await crud.updateTrack({ id: currentTrackId, status: newStatus });
-                          toast.success(`Checkpoint ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          toast.success(newStatus === 'published' ? t('contentAuthoring.checkpointPublished') : t('contentAuthoring.checkpointMovedToDrafts'));
                           // Update local state and call onUpdate if available
                           setExistingTrack({ ...existingTrack, status: newStatus });
                           if (onUpdate) {
@@ -1454,15 +1454,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           }
                         } catch (error: any) {
                           console.error('Error updating status:', error);
-                          toast.error('Failed to update status');
+                          toast.error(t('contentAuthoring.failedUpdateStatus'));
                         }
                       }}
                     >
-                      {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                      {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Click the status badge to {existingTrack.status === 'published' ? 'move to drafts' : 'publish'}
+                    {existingTrack.status === 'published' ? t('contentAuthoring.clickToDraft') : t('contentAuthoring.clickToPublish')}
                   </p>
                 </CardContent>
               </Card>
@@ -1471,16 +1471,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             {/* Checkpoint Stats */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Checkpoint Stats</CardTitle>
+                <CardTitle className="text-lg">{t('contentAuthoring.checkpointStats')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div>
-                  <p className="text-muted-foreground">Total Questions</p>
+                  <p className="text-muted-foreground">{t('contentAuthoring.totalQuestions')}</p>
                   <p className="text-2xl font-bold text-foreground">{questions.length}</p>
                 </div>
                 <Separator />
                 <div>
-                  <p className="text-muted-foreground">Est. Duration</p>
+                  <p className="text-muted-foreground">{t('contentAuthoring.estDuration')}</p>
                   <p className="font-medium text-foreground">
                     {timeLimit && timeLimit.trim() !== ''
                       ? `${timeLimit} ${parseInt(timeLimit) === 1 ? 'min' : 'mins'}`
@@ -1490,15 +1490,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 </div>
                 <Separator />
                 <div>
-                  <p className="text-muted-foreground">Passing Score</p>
+                  <p className="text-muted-foreground">{t('contentAuthoring.passingScore')}</p>
                   <p className="font-medium text-foreground">{passingScore}%</p>
                 </div>
                 {timeLimit && (
                   <>
                     <Separator />
                     <div>
-                      <p className="text-muted-foreground">Time Limit</p>
-                      <p className="font-medium text-foreground">{timeLimit} minutes</p>
+                      <p className="text-muted-foreground">{t('contentAuthoring.timeLimit')}</p>
+                      <p className="font-medium text-foreground">{t('contentAuthoring.timeLimitMinutes', { limit: timeLimit })}</p>
                     </div>
                   </>
                 )}
@@ -1522,7 +1522,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       </Badge>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">No tags added</p>
+                    <p className="text-sm text-muted-foreground">{t('contentAuthoring.noTagsAdded')}</p>
                   )}
                 </div>
                 <Button
@@ -1644,10 +1644,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('common.back')}
           </Button>
           <h1 className="text-foreground">
-            {currentTrackId ? title || 'Edit Checkpoint' : 'Create New Checkpoint'}
+            {currentTrackId ? title || t('contentAuthoring.editCheckpoint') : t('contentAuthoring.createNewCheckpoint')}
           </h1>
         </div>
         <div className="flex items-center space-x-2">
@@ -1658,18 +1658,18 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             title="AI-Assisted Question Generator"
           >
             <Zap className="h-4 w-4 mr-2" />
-            AI Generate
+            {t('contentAuthoring.aiGenerate')}
           </Button>
           
           {currentTrackId && (
             <>
               <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
                 <X className="h-4 w-4 mr-2" />
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSaveDraft} disabled={isSaving} className="hero-primary">
                 <Save className="h-4 w-4 mr-2" />
-                {isSaving ? 'Saving...' : 'Save Changes'}
+                {isSaving ? t('common.saving') : t('common.saveChanges')}
               </Button>
             </>
           )}
@@ -1677,7 +1677,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             <>
               <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
                 <Save className="h-4 w-4 mr-2" />
-                {isSaving ? 'Saving...' : 'Save Draft'}
+                {isSaving ? t('common.saving') : t('contentAuthoring.saveDraft')}
               </Button>
             </>
           )}
@@ -1690,15 +1690,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Checkpoint Details</CardTitle>
+              <CardTitle>{t('contentAuthoring.checkpointDetails')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Title */}
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">{t('contentAuthoring.titleLabel')}</Label>
                 <Input
                   id="title"
-                  placeholder="Enter checkpoint title..."
+                  placeholder={t('contentAuthoring.checkpointTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2"
@@ -1707,10 +1707,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
               {/* Description */}
               <div>
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">{t('common.description')}</Label>
                 <Textarea
                   id="description"
-                  placeholder="Enter checkpoint description or instructions..."
+                  placeholder={t('contentAuthoring.checkpointDescPlaceholder')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-2"
@@ -1721,7 +1721,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               <div className="grid grid-cols-2 gap-4">
                 {/* Passing Score */}
                 <div>
-                  <Label htmlFor="passingScore">Passing Score (%)</Label>
+                  <Label htmlFor="passingScore">{t('contentAuthoring.passingScorePercent')}</Label>
                   <Input
                     id="passingScore"
                     type="number"
@@ -1736,11 +1736,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
                 {/* Time Limit */}
                 <div>
-                  <Label htmlFor="timeLimit">Time Limit (minutes)</Label>
+                  <Label htmlFor="timeLimit">{t('contentAuthoring.timeLimitMinutesLabel')}</Label>
                   <Input
                     id="timeLimit"
                     type="number"
-                    placeholder="Optional"
+                    placeholder={t('common.optional')}
                     value={timeLimit}
                     onChange={(e) => setTimeLimit(e.target.value)}
                     className="mt-2"
@@ -1758,7 +1758,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <GripVertical className="h-5 w-5 text-muted-foreground cursor-move" />
-                      <CardTitle className="text-lg">Question {qIndex + 1}</CardTitle>
+                      <CardTitle className="text-lg">{t('contentAuthoring.questionNumber', { number: qIndex + 1 })}</CardTitle>
                     </div>
                     <Button
                       variant="ghost"
@@ -1773,9 +1773,9 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 <CardContent className="pt-6 space-y-4">
                   {/* Question Text */}
                   <div>
-                    <Label>Question Text *</Label>
+                    <Label>{t('contentAuthoring.questionTextLabel')}</Label>
                     <Input
-                      placeholder="Enter your question..."
+                      placeholder={t('contentAuthoring.questionPlaceholder')}
                       value={question.question}
                       onChange={(e) => updateQuestion(question.id, 'question', e.target.value)}
                       className="mt-2"
@@ -1784,7 +1784,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
                   {/* Answers */}
                   <div>
-                    <Label className="mb-3 block">Answer Options *</Label>
+                    <Label className="mb-3 block">{t('contentAuthoring.answerOptionsLabel')}</Label>
                     <RadioGroup 
                       value={question.answers.find(a => a.isCorrect)?.id || ''}
                       onValueChange={(value) => setCorrectAnswer(question.id, value)}
@@ -1814,7 +1814,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       </div>
                     </RadioGroup>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Select the radio button to mark the correct answer
+                      {t('contentAuthoring.selectRadioHint')}
                     </p>
                     <Button
                       variant="outline"
@@ -1823,15 +1823,15 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       className="mt-3"
                     >
                       <Plus className="h-4 w-4 mr-2" />
-                      Add Answer Option
+                      {t('contentAuthoring.addAnswerOption')}
                     </Button>
                   </div>
 
                   {/* Explanation */}
                   <div>
-                    <Label>Explanation (Optional)</Label>
+                    <Label>{t('contentAuthoring.explanationOptionalLabel')}</Label>
                     <Textarea
-                      placeholder="Explain why this is the correct answer..."
+                      placeholder={t('contentAuthoring.explanationPlaceholder')}
                       value={question.explanation || ''}
                       onChange={(e) => updateQuestion(question.id, 'explanation', e.target.value)}
                       className="mt-2"
@@ -1849,7 +1849,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
               className="w-full border-2 border-dashed border-primary/50 hover:bg-primary/5 hover:border-primary"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Question
+              {t('contentAuthoring.addQuestion')}
             </Button>
           </div>
         </div>
@@ -1860,11 +1860,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Publishing Status</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.publishingStatus')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
+                  <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                   <Badge 
                     variant="outline"
                     className={`cursor-pointer transition-colors ${
@@ -1876,7 +1876,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
                       try {
                         await crud.updateTrack({ id: currentTrackId, status: newStatus });
-                        toast.success(`Checkpoint ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                        toast.success(newStatus === 'published' ? t('contentAuthoring.checkpointPublished') : t('contentAuthoring.checkpointMovedToDrafts'));
                         // Update local state and call onUpdate if available
                         setExistingTrack({ ...existingTrack, status: newStatus });
                         if (onUpdate) {
@@ -1884,11 +1884,11 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                         }
                       } catch (error: any) {
                         console.error('Error updating status:', error);
-                        toast.error('Failed to update status');
+                        toast.error(t('contentAuthoring.failedUpdateStatus'));
                       }
                     }}
                   >
-                    {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                    {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -1901,16 +1901,16 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           {/* Checkpoint Stats */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Checkpoint Stats</CardTitle>
+              <CardTitle className="text-lg">{t('contentAuthoring.checkpointStats')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
-                <p className="text-muted-foreground">Total Questions</p>
+                <p className="text-muted-foreground">{t('contentAuthoring.totalQuestions')}</p>
                 <p className="text-2xl font-bold text-foreground">{questions.length}</p>
               </div>
               <Separator />
               <div>
-                <p className="text-muted-foreground">Passing Score</p>
+                <p className="text-muted-foreground">{t('contentAuthoring.passingScore')}</p>
                 <p className="font-medium text-foreground">{passingScore}%</p>
               </div>
               {timeLimit && (
@@ -1944,7 +1944,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                   </Badge>
                 ))}
                 {tags.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No tags added</p>
+                  <p className="text-sm text-muted-foreground">{t('contentAuthoring.noTagsAdded')}</p>
                 )}
               </div>
               <Button
@@ -1954,7 +1954,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 className="w-full"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Tags
+                {t('contentAuthoring.addTags')}
               </Button>
             </CardContent>
           </Card>
@@ -1964,7 +1964,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
             <CardHeader>
               <CardTitle className="text-base flex items-center">
                 <ImageIcon className="h-4 w-4 mr-2" />
-                Thumbnail
+                {t('contentAuthoring.thumbnail')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1982,7 +1982,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                       <Button variant="outline" size="sm" className="w-full" asChild>
                         <span>
                           <Upload className="h-4 w-4 mr-2" />
-                          Replace
+                          {t('contentAuthoring.replace')}
                         </span>
                       </Button>
                       <input
@@ -2023,8 +2023,8 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                   <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
                     <div className="text-center">
                       <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
-                      <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                      <p className="text-sm text-muted-foreground mb-1">{t('contentAuthoring.uploadThumbnail')}</p>
+                      <p className="text-xs text-muted-foreground">{t('contentAuthoring.thumbnailAspectHint')}</p>
                     </div>
                   </div>
                   <input
@@ -2052,7 +2052,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 </label>
               )}
               <p className="text-xs text-muted-foreground">
-                {currentTrackId ? 'Used in playlists and library views' : 'Save checkpoint first to upload thumbnail'}
+                {currentTrackId ? t('contentAuthoring.thumbnailUsedIn') : t('contentAuthoring.saveFirstToUploadThumbnail')}
               </p>
             </CardContent>
           </Card>
@@ -2060,13 +2060,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
           {/* Quick Tips */}
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardHeader>
-              <CardTitle className="text-sm text-blue-900 dark:text-blue-100">Quick Tips</CardTitle>
+              <CardTitle className="text-sm text-blue-900 dark:text-blue-100">{t('contentAuthoring.quickTips')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-xs text-blue-800 dark:text-blue-200">
-              <p>• Each question must have at least 2 answer options</p>
-              <p>• Mark the correct answer using the radio button</p>
-              <p>• Add explanations to help learners understand</p>
-              <p>• Preview before publishing</p>
+              <p>• {t('contentAuthoring.tipMinAnswers')}</p>
+              <p>• {t('contentAuthoring.tipMarkCorrect')}</p>
+              <p>• {t('contentAuthoring.tipAddExplanations')}</p>
+              <p>• {t('contentAuthoring.tipPreviewBeforePublish')}</p>
             </CardContent>
           </Card>
           

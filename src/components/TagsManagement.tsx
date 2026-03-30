@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -37,6 +38,7 @@ interface TagsManagementProps {
 }
 
 export function TagsManagement({ currentRole, activeSystem: externalActiveSystem, onSystemChange, onSystemsLoaded, onNavigateToTagSuggestions }: TagsManagementProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [rawCategories, setRawCategories] = useState<Tag[]>([]);
   const [hierarchy, setHierarchy] = useState<TagHierarchy[]>([]);
@@ -201,7 +203,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
             onClick={() => setShowCreateModal(true)}
           >
             <Plus className="w-4 h-4 mr-2" />
-            Create Tag
+            {t('content.createTag')}
           </Button>
           <Button
             variant="outline"
@@ -217,7 +219,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
             }
           >
             <Zap className="w-4 h-4 mr-2" />
-            Tag Suggestions
+            {t('content.tagSuggestions')}
             {pendingSuggestionsCount > 0 && (
               <span className="ml-2 bg-white/20 text-white text-xs px-1.5 py-0.5 rounded-full">
                 {pendingSuggestionsCount}
@@ -230,7 +232,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <Input
-            placeholder="Search tags..."
+            placeholder={t('content.searchTags')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -246,11 +248,10 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
             <Globe className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
             <div>
               <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                Cross-System Tags
+                {t('content.crossSystemTags')}
               </h4>
               <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                These tags can be used across Content, Units, People, and Forms. 
-                For example, tag a store with "Texas" and content with "Texas" to auto-assign state-specific training.
+                {t('content.crossSystemTagsDesc')}
               </p>
             </div>
           </div>
@@ -319,7 +320,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {subcategories.length} subcategor{subcategories.length === 1 ? 'y' : 'ies'}, {totalChildrenCount} tag{totalChildrenCount !== 1 ? 's' : ''}
+                  {t('content.subcategoriesCount', { count: subcategories.length })}, {t('content.tagsCount', { count: totalChildrenCount })}
                 </p>
               </CardHeader>
 
@@ -375,7 +376,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                               <ChevronDown className="h-4 w-4 text-muted-foreground" />
                             )}
                             <span>{subcategory.name}</span>
-                            <span className="text-xs text-muted-foreground">({childCount} tag{childCount !== 1 ? 's' : ''})</span>
+                            <span className="text-xs text-muted-foreground">({t('content.tagsCount', { count: childCount })})</span>
                           </button>
 
                           <div className="flex items-center gap-2">
@@ -386,7 +387,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                               onClick={() => handleOpenModal(activeSystem, subcategory.id, 'child')}
                             >
                               <Plus className="h-4 w-4 mr-1" />
-                              Add Tag
+                              {t('content.addTag')}
                             </Button>
                             {(!subcategory.is_system_locked || canEditSystemTags) && (
                               <>
@@ -414,7 +415,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                         {!isCollapsed && (
                           <div className="px-3 pb-3">
                             {childCount === 0 ? (
-                              <p className="text-xs text-muted-foreground py-2">No tags yet</p>
+                              <p className="text-xs text-muted-foreground py-2">{t('content.noTagsYet')}</p>
                             ) : (
                               <div className="flex flex-wrap gap-2">
                                 {children?.map((tag) => (
@@ -460,7 +461,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                     onClick={() => handleOpenModal(activeSystem, parentTag.id, 'child')}
                   >
                     <Plus className="h-4 w-4 mr-1.5" />
-                    Add Tag
+                    {t('content.addTag')}
                   </Button>
                   <Button
                     variant="outline"
@@ -469,7 +470,7 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
                     onClick={() => handleOpenModal(activeSystem, parentTag.id, 'subcategory')}
                   >
                     <FolderPlus className="h-4 w-4 mr-1.5" />
-                    Add Subcategory
+                    {t('content.addSubcategory')}
                   </Button>
                 </div>
               </CardContent>
@@ -482,8 +483,8 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
           onClick={() => handleOpenModal(activeSystem)}
         >
           <Plus className="h-8 w-8 text-muted-foreground mb-2" />
-          <p className="text-sm font-medium">Add Category</p>
-          <p className="text-xs text-muted-foreground">Create a new tag category</p>
+          <p className="text-sm font-medium">{t('content.addCategory')}</p>
+          <p className="text-xs text-muted-foreground">{t('content.createNewTagCategory')}</p>
         </Card>
       </div>
 

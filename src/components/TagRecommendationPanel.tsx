@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Check, Zap, Plus, Lightbulb, X, Info, ThumbsUp, ThumbsDown } from 'lucide-react';
@@ -48,6 +49,7 @@ export function TagRecommendationPanel({
   onFeedback,
   isLoading = false,
 }: TagRecommendationPanelProps) {
+  const { t } = useTranslation();
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 'positive' | 'negative'>>({});
 
   const handleFeedback = (tagName: string, feedback: 'positive' | 'negative') => {
@@ -68,9 +70,9 @@ export function TagRecommendationPanel({
   };
 
   const getConfidenceLabel = (confidence: number) => {
-    if (confidence >= 85) return 'High';
-    if (confidence >= 70) return 'Medium';
-    return 'Low';
+    if (confidence >= 85) return t('content.confidenceHigh');
+    if (confidence >= 70) return t('content.confidenceMedium');
+    return t('content.confidenceLow');
   };
 
   // Group recommendations by parent category
@@ -92,7 +94,7 @@ export function TagRecommendationPanel({
             </div>
           </div>
           <span className="text-sm font-medium text-muted-foreground">
-            Analyzing content and finding relevant tags...
+            {t('content.analyzingContent')}
           </span>
         </div>
       </div>
@@ -105,7 +107,7 @@ export function TagRecommendationPanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Info className="h-4 w-4" />
-            <span className="text-sm">No strong tag matches found. Try adding more content or select tags manually.</span>
+            <span className="text-sm">{t('content.noStrongTagMatches')}</span>
           </div>
           <Button variant="ghost" size="sm" onClick={onDismiss}>
             <X className="h-4 w-4" />
@@ -122,7 +124,7 @@ export function TagRecommendationPanel({
         <div className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-orange-500 fill-current" />
           <h4 className="font-semibold text-foreground">
-            AI Tag Suggestions
+            {t('content.aiTagSuggestions')}
           </h4>
           <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-400 border-orange-500/30">
             {recommendations.length} found
@@ -195,7 +197,7 @@ export function TagRecommendationPanel({
                                 rec.confidence >= 85 ? 'text-green-400' :
                                 rec.confidence >= 70 ? 'text-yellow-400' : 'text-gray-400'
                               }`}>
-                                {getConfidenceLabel(rec.confidence)} confidence
+                                {getConfidenceLabel(rec.confidence)} {t('content.confidence')}
                               </span>
                             </div>
                             <p className="text-sm">{rec.reasoning}</p>
@@ -213,7 +215,7 @@ export function TagRecommendationPanel({
                             onClick={() => handleFeedback(rec.tag_name, 'positive')}
                             disabled={!!hasFeedback}
                             className={`p-1 rounded hover:bg-muted transition-colors ${hasFeedback === 'positive' ? 'text-green-500' : 'text-muted-foreground'}`}
-                            title="Helpful"
+                            title={t('content.feedbackHelpful')}
                           >
                             <ThumbsUp className="h-3 w-3" />
                           </button>
@@ -221,7 +223,7 @@ export function TagRecommendationPanel({
                             onClick={() => handleFeedback(rec.tag_name, 'negative')}
                             disabled={!!hasFeedback}
                             className={`p-1 rounded hover:bg-muted transition-colors ${hasFeedback === 'negative' ? 'text-red-500' : 'text-muted-foreground'}`}
-                            title="Not relevant"
+                            title={t('content.feedbackNotRelevant')}
                           >
                             <ThumbsDown className="h-3 w-3" />
                           </button>
@@ -240,15 +242,15 @@ export function TagRecommendationPanel({
       <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
         <div className="flex items-center gap-1">
           <span className="h-2 w-2 bg-green-500 rounded-full" />
-          <span>Auto-suggested (85%+)</span>
+          <span>{t('content.legendAutoSuggested')}</span>
         </div>
         <div className="flex items-center gap-1">
           <span className="h-2 w-2 bg-yellow-500 rounded-full" />
-          <span>Likely match (70-84%)</span>
+          <span>{t('content.legendLikelyMatch')}</span>
         </div>
         <div className="flex items-center gap-1">
           <span className="h-2 w-2 bg-gray-400 rounded-full" />
-          <span>Possible (50-69%)</span>
+          <span>{t('content.legendPossible')}</span>
         </div>
       </div>
 
@@ -258,7 +260,7 @@ export function TagRecommendationPanel({
           <div className="flex items-center gap-2">
             <Lightbulb className="h-4 w-4 text-purple-500" />
             <span className="text-sm font-medium text-purple-400">
-              Suggested New Tags
+              {t('content.suggestedNewTags')}
             </span>
           </div>
           <div className="space-y-2">
@@ -287,7 +289,7 @@ export function TagRecommendationPanel({
                   onClick={() => onCreateNewTag(suggestion)}
                 >
                   <Plus className="h-3 w-3 mr-1" />
-                  Create
+                  {t('content.createTag')}
                 </Button>
               </div>
             ))}

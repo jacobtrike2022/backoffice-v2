@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -50,6 +51,7 @@ export function TagSelectorDialog({
   showAISuggest = false,
   contentContext
 }: TagSelectorDialogProps) {
+  const { t } = useTranslation();
   const [parentGroups, setParentGroups] = useState<TagHierarchy[number]['parents']>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -406,9 +408,9 @@ export function TagSelectorDialog({
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[50vw] max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Select Tags</DialogTitle>
+            <DialogTitle>{t('content.selectTags')}</DialogTitle>
             <DialogDescription>
-              Choose tags from the {systemCategory} system to organize your content.
+              {t('content.selectTagsDesc', { system: systemCategory })}
             </DialogDescription>
           </DialogHeader>
 
@@ -429,18 +431,18 @@ export function TagSelectorDialog({
                       ) : (
                         <Zap className="h-4 w-4 mr-2 fill-current" />
                       )}
-                      AI Suggest
+                      {t('content.aiSuggest')}
                 </Button>
               )}
               
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setShowCreateModal(true)}
                 className="text-primary hover:text-primary/80"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Create New Tag
+                {t('content.createNewTag')}
               </Button>
             </div>
 
@@ -470,14 +472,14 @@ export function TagSelectorDialog({
             {!isLoading && displayCategories.length === 0 && (
               <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl bg-muted/30">
                 <TagIcon className="h-12 w-12 text-muted-foreground mb-3 opacity-50" />
-                <p className="text-muted-foreground font-medium">No tags found for this system</p>
-                <p className="text-xs text-muted-foreground mt-1">Get started by creating a new tag</p>
-                <Button 
-                  variant="link" 
+                <p className="text-muted-foreground font-medium">{t('content.noTagsFoundForSystem')}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('content.getStartedCreatingTag')}</p>
+                <Button
+                  variant="link"
                   onClick={() => setShowCreateModal(true)}
                   className="mt-2"
                 >
-                  Create First Tag
+                  {t('content.createFirstTag')}
                 </Button>
               </div>
             )}
@@ -577,13 +579,13 @@ export function TagSelectorDialog({
                           </div>
                           <span>{subcategory.tag.name}</span>
                           <span className="text-xs text-muted-foreground">
-                            ({children.length} tag{children.length !== 1 ? 's' : ''})
+                            ({t('content.tagsCount', { count: children.length })})
                           </span>
                         </button>
 
                         <div className="flex flex-wrap gap-2 pl-6">
                           {children.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">No tags yet</span>
+                            <span className="text-xs text-muted-foreground">{t('content.noTagsYet')}</span>
                           ) : (
                             children.map(tag => {
                               const isSelected = localSelectedTags.includes(tag.name);
@@ -643,14 +645,14 @@ export function TagSelectorDialog({
           {/* Footer with Selected Summary */}
           <div className="pt-4 border-t mt-auto flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              {localSelectedTags.length} tag{localSelectedTags.length !== 1 ? 's' : ''} selected
+              {t('content.tagsSelected', { count: localSelectedTags.length })}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={onClose}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSave} className="hero-primary">
-                Apply Tags
+                {t('content.applyTags')}
               </Button>
             </div>
           </div>

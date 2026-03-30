@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import SignatureCanvas from 'react-signature-canvas';
 import { isBlockVisible, ConditionalLogic } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
@@ -64,6 +65,7 @@ function getOptions(block: FormBlockData): string[] {
 }
 
 export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId }: FormRendererProps) {
+  const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -174,7 +176,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
         val === '' ||
         (Array.isArray(val) && val.length === 0);
       if (isEmpty) {
-        errors[block.id] = 'This field is required';
+        errors[block.id] = t('forms.fieldRequired');
       }
     }
     if (Object.keys(errors).length > 0) {
@@ -465,10 +467,10 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               disabled={readOnly}
             >
               <SelectTrigger>
-                <SelectValue placeholder={block.placeholder || 'Select...'} />
+                <SelectValue placeholder={block.placeholder || t('forms.selectOption')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Select...</SelectItem>
+                <SelectItem value="none">{t('forms.selectOption')}</SelectItem>
                 {(options.length ? options : ['Option 1', 'Option 2', 'Option 3']).map((opt, i) => (
                   <SelectItem key={i} value={opt}>
                     {opt}
@@ -563,7 +565,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               <p className="text-sm text-muted-foreground">
                 {typeof value === 'string' && value.startsWith('http') ? (
                   <a href={value} target="_blank" rel="noopener noreferrer" className="text-primary underline flex items-center gap-1">
-                    <FileText className="w-4 h-4" /> View attachment
+                    <FileText className="w-4 h-4" /> {t('forms.viewAttachment')}
                   </a>
                 ) : (
                   String(value)
@@ -586,7 +588,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               <div className="space-y-2">
                 <div className="flex items-center gap-2 p-3 border border-destructive/50 rounded-md bg-destructive/10 text-sm text-destructive">
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Upload failed: {fileUpState.error}</span>
+                  <span className="truncate">{t('forms.uploadFailed', { error: fileUpState.error })}</span>
                 </div>
                 <Input
                   type="file"
@@ -616,7 +618,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               <div className="relative">
                 <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-border rounded-md cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors">
                   <Upload className="w-6 h-6 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Click to upload a file</span>
+                  <span className="text-sm text-muted-foreground">{t('forms.clickToUploadFile')}</span>
                   <input
                     type="file"
                     className="sr-only"
@@ -720,7 +722,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               <div className="space-y-2">
                 <div className="flex items-center gap-2 p-3 border border-destructive/50 rounded-md bg-destructive/10 text-sm text-destructive">
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Upload failed: {photoUpState.error}</span>
+                  <span className="truncate">{t('forms.uploadFailed', { error: photoUpState.error })}</span>
                 </div>
                 <Input
                   type="file"
@@ -755,7 +757,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
               <div className="relative">
                 <label className="flex flex-col items-center gap-2 p-6 border-2 border-dashed border-border rounded-md cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors">
                   <Upload className="w-6 h-6 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Click to take or upload a photo</span>
+                  <span className="text-sm text-muted-foreground">{t('forms.clickToTakePhoto')}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -785,7 +787,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
                     className="max-h-[160px] max-w-full object-contain"
                   />
                 ) : (
-                  <span className="text-sm italic text-muted-foreground">No signature</span>
+                  <span className="text-sm italic text-muted-foreground">{t('forms.noSignature')}</span>
                 )}
               </div>
             ) : (
@@ -824,15 +826,15 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
                     }}
                     className="text-xs px-3 py-1.5 rounded-md border border-border bg-background hover:bg-muted transition-colors"
                   >
-                    Clear
+                    {t('forms.clearSignature')}
                   </button>
                   {value && (
                     <span className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
-                      Signature captured &#10003;
+                      {t('forms.signatureCaptured')} &#10003;
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">Draw your signature above using mouse or touch</p>
+                <p className="text-xs text-muted-foreground">{t('forms.drawSignatureHint')}</p>
               </div>
             )}
           </div>
@@ -857,7 +859,7 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
                     }
                   }}
                   className="px-4 py-2 rounded-md border border-border text-sm hover:bg-muted/50 transition-colors">
-                  📍 Capture Location
+                  📍 {t('forms.captureLocation')}
                 </button>
                 {value && <span className="text-xs text-muted-foreground">{String(value)}</span>}
               </div>

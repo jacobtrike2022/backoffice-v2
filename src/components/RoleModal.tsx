@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -43,6 +44,7 @@ export function RoleModal({
   onSave,
   editingRole,
 }: RoleModalProps) {
+  const { t } = useTranslation();
   const isEditMode = !!editingRole;
   const [loading, setLoading] = useState(false);
   const [userCount, setUserCount] = useState(0);
@@ -313,12 +315,12 @@ export function RoleModal({
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditMode ? `Edit Role: ${editingRole?.name}` : 'Create New Role'}
+            {isEditMode ? t('roles.editRoleTitle', { name: editingRole?.name }) : t('roles.createNewRole')}
           </DialogTitle>
           <DialogDescription>
             {isEditMode
-              ? 'Update role details and permissions'
-              : 'Add a new role to your organization'}
+              ? t('roles.updateRoleDetails')
+              : t('roles.addNewRoleDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -326,7 +328,7 @@ export function RoleModal({
           <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
             <AlertCircle className="w-4 h-4 text-yellow-600" />
             <span className="text-sm text-yellow-800">
-              {userCount} user{userCount !== 1 ? 's' : ''} assigned to this role
+              {t('roles.usersAssignedToRole', { count: userCount })}
             </span>
           </div>
         )}
@@ -334,13 +336,13 @@ export function RoleModal({
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Information */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm">Basic Information</h3>
+            <h3 className="font-semibold text-sm">{t('roles.basicInformation')}</h3>
             <Separator />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">
-                  Role Name <span className="text-red-500">*</span>
+                  {t('roles.roleName')} <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="name"
@@ -354,7 +356,7 @@ export function RoleModal({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="display_name">Display Name (optional)</Label>
+                <Label htmlFor="display_name">{t('roles.displayNameOptional')}</Label>
                 <Input
                   id="display_name"
                   value={formData.display_name}
@@ -367,7 +369,7 @@ export function RoleModal({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t('roles.description')}</Label>
               <Textarea
                 id="description"
                 value={formData.description}
@@ -382,12 +384,12 @@ export function RoleModal({
 
           {/* Classification */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm">Classification</h3>
+            <h3 className="font-semibold text-sm">{t('roles.classification')}</h3>
             <Separator />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
+                <Label htmlFor="department">{t('roles.department')}</Label>
                 <Select
                   value={formData.department || undefined}
                   onValueChange={(value) =>
@@ -408,7 +410,7 @@ export function RoleModal({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="job_family">Job Family</Label>
+                <Label htmlFor="job_family">{t('roles.jobFamily')}</Label>
                 <Select
                   value={formData.job_family || undefined}
                   onValueChange={(value) =>
@@ -438,7 +440,7 @@ export function RoleModal({
                   }
                 />
                 <Label htmlFor="is_manager" className="cursor-pointer">
-                  Manager Role
+                  {t('roles.managerRole')}
                 </Label>
               </div>
 
@@ -454,13 +456,13 @@ export function RoleModal({
                   }
                 />
                 <Label htmlFor="is_frontline" className="cursor-pointer">
-                  Frontline
+                  {t('roles.frontline')}
                 </Label>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="permission_level">Permission Level</Label>
+              <Label htmlFor="permission_level">{t('roles.permissionLevel')}</Label>
               <Select
                 value={formData.permission_level.toString()}
                 onValueChange={handlePermissionLevelChange}
@@ -469,13 +471,11 @@ export function RoleModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1 - Basic Employee</SelectItem>
-                  <SelectItem value="2">2 - Team Lead</SelectItem>
-                  <SelectItem value="3">3 - Manager</SelectItem>
-                  <SelectItem value="4">
-                    4 - District/Regional Manager
-                  </SelectItem>
-                  <SelectItem value="5">5 - Corporate/Executive</SelectItem>
+                  <SelectItem value="1">{t('roles.permLevel1')}</SelectItem>
+                  <SelectItem value="2">{t('roles.permLevel2')}</SelectItem>
+                  <SelectItem value="3">{t('roles.permLevel3')}</SelectItem>
+                  <SelectItem value="4">{t('roles.permLevel4')}</SelectItem>
+                  <SelectItem value="5">{t('roles.permLevel5')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -489,7 +489,7 @@ export function RoleModal({
                   showAdvanced ? 'transform rotate-180' : ''
                 }`}
               />
-              Advanced
+              {t('roles.advanced')}
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 mt-4">
               <Separator />
@@ -497,7 +497,7 @@ export function RoleModal({
               {/* JD Upload Section */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Upload Job Description (optional)</Label>
+                  <Label>{t('roles.uploadJobDescriptionOptional')}</Label>
                   <input
                     type="file"
                     ref={jdFileInputRef}
@@ -515,12 +515,12 @@ export function RoleModal({
                     {uploadingJd ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Extracting...
+                        {t('roles.extracting')}
                       </>
                     ) : (
                       <>
                         <Upload className="h-4 w-4 mr-2" />
-                        Upload Job Description
+                        {t('roles.uploadJobDescription')}
                       </>
                     )}
                   </Button>
@@ -531,7 +531,7 @@ export function RoleModal({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="job_description">Job Description</Label>
+                <Label htmlFor="job_description">{t('roles.jobDescription')}</Label>
                 <Textarea
                   id="job_description"
                   value={formData.job_description}
@@ -548,7 +548,7 @@ export function RoleModal({
 
               {formData.job_description && (
                 <div className="space-y-2">
-                  <Label>Job Description Source</Label>
+                  <Label>{t('roles.jobDescriptionSource')}</Label>
                   <RadioGroup
                     value={formData.job_description_source || 'manual'}
                     onValueChange={(value) =>
@@ -599,10 +599,10 @@ export function RoleModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                  <SelectItem value="pending_review">Pending Review</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
+                  <SelectItem value="active">{t('roles.statusActive')}</SelectItem>
+                  <SelectItem value="inactive">{t('roles.statusInactive')}</SelectItem>
+                  <SelectItem value="pending_review">{t('roles.statusPendingReview')}</SelectItem>
+                  <SelectItem value="archived">{t('roles.statusArchived')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -617,13 +617,13 @@ export function RoleModal({
                   onClick={handleDelete}
                   className="mr-auto"
                 >
-                  Delete Role
+                  {t('roles.deleteRole')}
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 type="submit"
@@ -631,10 +631,10 @@ export function RoleModal({
                 className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
               >
                 {loading
-                  ? 'Saving...'
+                  ? t('common.saving')
                   : isEditMode
-                  ? 'Save Changes'
-                  : 'Create Role'}
+                  ? t('roles.saveChanges')
+                  : t('roles.createRole')}
               </Button>
             </div>
           </DialogFooter>

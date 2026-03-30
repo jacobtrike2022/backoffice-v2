@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -45,6 +46,7 @@ interface NewUnitProps {
 }
 
 export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
+  const { t } = useTranslation();
   // Basic Info
   const [unitName, setUnitName] = useState('');
   const [unitNumber, setUnitNumber] = useState('');
@@ -200,17 +202,17 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
 
   const handleSave = async () => {
     if (!effectiveOrgId) {
-      toast.error('Organization context required');
+      toast.error(t('units.orgContextRequired'));
       return;
     }
 
     if (!unitName.trim()) {
-      toast.error('Unit name is required');
+      toast.error(t('units.unitNameRequired'));
       return;
     }
 
     if (!unitNumber.trim()) {
-      toast.error('Unit number is required');
+      toast.error(t('units.unitNumberRequired'));
       return;
     }
 
@@ -276,7 +278,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
             console.log('✅ Photo URL saved to store');
           } catch (photoError) {
             console.error('Error uploading photo:', photoError);
-            toast.error('Unit updated but photo upload failed');
+            toast.error(t('units.updatedButPhotoFailed'));
           }
         }
 
@@ -294,7 +296,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           }
         }
 
-        toast.success('Unit updated successfully');
+        toast.success(t('units.unitUpdated'));
       } else {
         // CREATE MODE - Create new store
         const createData = {
@@ -328,7 +330,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
             console.log('✅ Photo URL saved to store');
           } catch (photoError) {
             console.error('Error uploading photo:', photoError);
-            toast.error('Unit created but photo upload failed');
+            toast.error(t('units.createdButPhotoFailed'));
           }
         }
 
@@ -347,14 +349,14 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           }
         }
 
-        toast.success('Unit created successfully');
+        toast.success(t('units.unitCreated'));
       }
 
       console.log('✅ ALL DATA SAVED SUCCESSFULLY');
       onSuccess();
     } catch (error) {
       console.error('❌ Save error:', error);
-      toast.error(editStore ? 'Failed to update unit' : 'Failed to create unit');
+      toast.error(editStore ? t('units.failedUpdateUnit') : t('units.failedCreateUnit'));
     } finally {
       setSaving(false);
     }
@@ -369,25 +371,25 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
             <ArrowLeft className="w-4 h-4" />
-            Back
+            {t('common.back')}
           </Button>
           <div>
-            <h1 className="text-foreground">{editStore ? 'Edit Unit' : 'New Unit'}</h1>
+            <h1 className="text-foreground">{editStore ? t('units.editUnit') : t('units.newUnit')}</h1>
             <p className="text-muted-foreground mt-1">
-              {editStore ? 'Update store location details' : 'Create a new store location'}
+              {editStore ? t('units.updateStoreLocation') : t('units.createNewStoreLocation')}
             </p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
           <Button variant="outline" onClick={onBack}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button 
             onClick={handleSave} 
             disabled={saving}
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
-            {saving ? 'Saving...' : (editStore ? 'Update Unit' : 'Save Unit')}
+{saving ? t('common.saving') : (editStore ? t('units.updateUnit') : t('units.saveUnit'))}
           </Button>
         </div>
       </div>

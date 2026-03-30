@@ -6,6 +6,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -104,6 +105,7 @@ interface VersionHistoryDialogProps {
 }
 
 function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDialogProps) {
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<AlbumVersion[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -129,10 +131,10 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="h-5 w-5" />
-            Version History
+            {t('compliance.playlist.versionHistory')}
           </DialogTitle>
           <DialogDescription>
-            Version history for "{playlist?.title}"
+            {t('compliance.playlist.versionHistoryFor', { title: playlist?.title })}
           </DialogDescription>
         </DialogHeader>
 
@@ -143,7 +145,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
         ) : versions.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No version history available</p>
+            <p>{t('compliance.playlist.noVersionHistory')}</p>
           </div>
         ) : (
           <ScrollArea className="h-96">
@@ -165,7 +167,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
                             <span className="font-medium">Version {version.version}</span>
                             {index === 0 && (
                               <Badge className="bg-primary/10 text-primary border-0">
-                                Current
+                                {t('compliance.playlist.current')}
                               </Badge>
                             )}
                           </div>
@@ -187,7 +189,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
                     <div className="mt-3 pl-13 flex items-center gap-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <ListMusic className="h-3 w-3" />
-                        {version.track_ids ? version.track_ids.length : 0} tracks
+  {t('compliance.trackCount', { count: version.track_ids ? version.track_ids.length : 0 })}
                       </span>
                     </div>
                   </CardContent>
@@ -199,7 +201,7 @@ function VersionHistoryDialog({ playlist, open, onOpenChange }: VersionHistoryDi
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t('common.close')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -218,6 +220,7 @@ interface LockPlaylistDialogProps {
 }
 
 function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogProps) {
+  const { t } = useTranslation();
   const [playlists, setPlaylists] = useState<Album[]>([]);
   const [requirements, setRequirements] = useState<ComplianceRequirement[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState('');
@@ -273,11 +276,10 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Lock className="h-5 w-5" />
-            Lock Playlist for Compliance
+            {t('compliance.playlist.lockTitle')}
           </DialogTitle>
           <DialogDescription>
-            Link a playlist to a compliance requirement. Once locked, the playlist
-            will be version-controlled and changes will be tracked.
+            {t('compliance.playlist.lockDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -290,15 +292,15 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
         ) : (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Select Playlist</Label>
+              <Label>{t('compliance.playlist.selectPlaylist')}</Label>
               <Select value={selectedPlaylist} onValueChange={setSelectedPlaylist}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a playlist..." />
+                  <SelectValue placeholder={t('compliance.playlist.choosePlaylist')} />
                 </SelectTrigger>
                 <SelectContent>
                   {playlists.length === 0 ? (
                     <div className="p-2 text-sm text-muted-foreground text-center">
-                      No unlocked playlists available
+                      {t('compliance.playlist.noUnlockedPlaylists')}
                     </div>
                   ) : (
                     playlists.map((playlist) => (
@@ -318,15 +320,15 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
             </div>
 
             <div className="space-y-2">
-              <Label>Link to Requirement</Label>
+              <Label>{t('compliance.playlist.linkToRequirement')}</Label>
               <Select value={selectedRequirement} onValueChange={setSelectedRequirement}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a compliance requirement..." />
+                  <SelectValue placeholder={t('compliance.playlist.chooseRequirement')} />
                 </SelectTrigger>
                 <SelectContent>
                   {requirements.length === 0 ? (
                     <div className="p-2 text-sm text-muted-foreground text-center">
-                      No requirements available
+                      {t('compliance.playlist.noRequirements')}
                     </div>
                   ) : (
                     requirements.map((req) => (
@@ -346,9 +348,9 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
             </div>
 
             <div className="space-y-2">
-              <Label>Version Notes (optional)</Label>
+              <Label>{t('compliance.playlist.versionNotes')}</Label>
               <Textarea
-                placeholder="e.g., Initial compliance playlist for Food Handler certification"
+                placeholder={t('compliance.playlist.versionNotesPlaceholder')}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
@@ -358,11 +360,9 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
             {selectedPlaylistData && selectedRequirementData && (
               <Card className="bg-muted/50">
                 <CardContent className="p-4">
-                  <p className="text-sm font-medium mb-2">Summary</p>
+                  <p className="text-sm font-medium mb-2">{t('compliance.playlist.summary')}</p>
                   <p className="text-sm text-muted-foreground">
-                    <strong>{selectedPlaylistData.title}</strong> will be locked to{' '}
-                    <strong>{selectedRequirementData.requirement_name}</strong> ({selectedRequirementData.state_code}).
-                    All future changes will create new versions.
+{t('compliance.lockSummaryDesc', { playlist: selectedPlaylistData.title, requirement: selectedRequirementData.requirement_name, state: selectedRequirementData.state_code })}
                   </p>
                 </CardContent>
               </Card>
@@ -372,7 +372,7 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleLock}
@@ -382,12 +382,12 @@ function LockPlaylistDialog({ open, onOpenChange, onLock }: LockPlaylistDialogPr
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Locking...
+                {t('compliance.playlist.locking')}
               </>
             ) : (
               <>
                 <Lock className="h-4 w-4 mr-2" />
-                Lock Playlist
+                {t('compliance.playlist.lockPlaylist')}
               </>
             )}
           </Button>
@@ -409,6 +409,7 @@ interface UnlockDialogProps {
 }
 
 function UnlockDialog({ playlist, open, onOpenChange, onUnlock }: UnlockDialogProps) {
+  const { t } = useTranslation();
   const [submitting, setSubmitting] = useState(false);
 
   const handleUnlock = async () => {
@@ -430,23 +431,20 @@ function UnlockDialog({ playlist, open, onOpenChange, onUnlock }: UnlockDialogPr
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
-            Unlock Playlist?
+            {t('compliance.playlist.unlockTitle')}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            This will remove the compliance lock from "{playlist?.title}".
-            The playlist will no longer be linked to{' '}
-            <strong>{playlist?.requirement?.requirement_name}</strong> and
-            version tracking will stop. Existing assignments will not be affected.
+            {t('compliance.playlist.unlockDesc', { title: playlist?.title, requirement: playlist?.requirement?.requirement_name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleUnlock}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             disabled={submitting}
           >
-            {submitting ? 'Unlocking...' : 'Unlock Playlist'}
+            {submitting ? t('compliance.playlist.unlocking') : t('compliance.playlist.unlockPlaylist')}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -459,6 +457,7 @@ function UnlockDialog({ playlist, open, onOpenChange, onUnlock }: UnlockDialogPr
 // ============================================================================
 
 export function PlaylistLockingPanel() {
+  const { t } = useTranslation();
   // Data state
   const [lockedPlaylists, setLockedPlaylists] = useState<SystemLockedAlbum[]>([]);
   const [loading, setLoading] = useState(true);
@@ -505,14 +504,14 @@ export function PlaylistLockingPanel() {
   const handleLock = async (albumId: string, requirementId: string, notes: string) => {
     try {
       await lockPlaylist(albumId, requirementId, notes);
-      toast.success('Playlist locked successfully', {
-        description: 'The playlist is now linked to the compliance requirement.'
+      toast.success(t('compliance.playlistLocked'), {
+        description: t('compliance.playlistLockedDesc')
       });
       await loadData(true);
     } catch (error) {
       console.error('Failed to lock playlist:', error);
-      toast.error('Failed to lock playlist', {
-        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(t('compliance.failedLockPlaylist'), {
+        description: error instanceof Error ? error.message : t('common.unexpectedError')
       });
       throw error;
     }
@@ -521,14 +520,14 @@ export function PlaylistLockingPanel() {
   const handleUnlock = async (albumId: string) => {
     try {
       await unlockPlaylist(albumId);
-      toast.success('Playlist unlocked', {
-        description: 'The playlist has been unlinked from compliance tracking.'
+      toast.success(t('compliance.playlistUnlocked'), {
+        description: t('compliance.playlistUnlockedDesc')
       });
       await loadData(true);
     } catch (error) {
       console.error('Failed to unlock playlist:', error);
-      toast.error('Failed to unlock playlist', {
-        description: error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(t('compliance.failedUnlockPlaylist'), {
+        description: error instanceof Error ? error.message : t('common.unexpectedError')
       });
       throw error;
     }
@@ -554,10 +553,10 @@ export function PlaylistLockingPanel() {
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            Compliance Playlists
+            {t('compliance.playlist.panelTitle')}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage system-locked playlists for compliance requirements
+            {t('compliance.playlist.panelSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -568,14 +567,14 @@ export function PlaylistLockingPanel() {
             disabled={refreshing}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            {t('compliance.playlist.refresh')}
           </Button>
           <Button
             onClick={() => setLockDialogOpen(true)}
             className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
           >
             <Lock className="h-4 w-4 mr-2" />
-            Lock Playlist
+            {t('compliance.playlist.lockPlaylist')}
           </Button>
         </div>
       </div>
@@ -584,7 +583,7 @@ export function PlaylistLockingPanel() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by playlist name or requirement..."
+          placeholder={t('compliance.playlist.searchPlaceholder')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-9"
@@ -600,7 +599,7 @@ export function PlaylistLockingPanel() {
             </div>
             <div>
               <p className="text-2xl font-bold">{lockedPlaylists.length}</p>
-              <p className="text-sm text-muted-foreground">Locked Playlists</p>
+              <p className="text-sm text-muted-foreground">{t('compliance.playlist.lockedPlaylists')}</p>
             </div>
           </CardContent>
         </Card>
@@ -613,7 +612,7 @@ export function PlaylistLockingPanel() {
               <p className="text-2xl font-bold">
                 {lockedPlaylists.reduce((sum, p) => sum + (p.track_count || 0), 0)}
               </p>
-              <p className="text-sm text-muted-foreground">Total Tracks</p>
+              <p className="text-sm text-muted-foreground">{t('compliance.playlist.totalTracks')}</p>
             </div>
           </CardContent>
         </Card>
@@ -626,7 +625,7 @@ export function PlaylistLockingPanel() {
               <p className="text-2xl font-bold">
                 {formatDuration(lockedPlaylists.reduce((sum, p) => sum + (p.total_duration_minutes || 0), 0))}
               </p>
-              <p className="text-sm text-muted-foreground">Total Duration</p>
+              <p className="text-sm text-muted-foreground">{t('compliance.playlist.totalDuration')}</p>
             </div>
           </CardContent>
         </Card>
@@ -638,20 +637,20 @@ export function PlaylistLockingPanel() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Playlist</TableHead>
-                <TableHead>Linked Requirement</TableHead>
-                <TableHead>Version</TableHead>
-                <TableHead>Locked</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('compliance.thPlaylist')}</TableHead>
+                <TableHead>{t('compliance.thLinkedRequirement')}</TableHead>
+                <TableHead>{t('compliance.thVersion')}</TableHead>
+                <TableHead>{t('compliance.thLocked')}</TableHead>
+                <TableHead className="text-right">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredPlaylists.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                    {searchQuery
-                      ? 'No playlists match your search'
-                      : 'No locked playlists yet. Lock a playlist to link it to a compliance requirement.'}
+  {searchQuery
+                      ? t('compliance.noPlaylistsMatchSearch')
+                      : t('compliance.noLockedPlaylistsYet')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -711,11 +710,11 @@ export function PlaylistLockingPanel() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => setVersionHistoryPlaylist(playlist)}>
                             <History className="h-4 w-4 mr-2" />
-                            Version History
+                            {t('compliance.versionHistory')}
                           </DropdownMenuItem>
                           <DropdownMenuItem>
                             <Eye className="h-4 w-4 mr-2" />
-                            View Playlist
+                            {t('compliance.viewPlaylist')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -723,7 +722,7 @@ export function PlaylistLockingPanel() {
                             className="text-destructive"
                           >
                             <Unlock className="h-4 w-4 mr-2" />
-                            Unlock Playlist
+{t('compliance.unlockPlaylistBtn')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -741,14 +740,13 @@ export function PlaylistLockingPanel() {
         <Card className="border-dashed">
           <CardContent className="py-12 text-center">
             <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <h3 className="text-lg font-medium mb-2">No Compliance Playlists Yet</h3>
+            <h3 className="text-lg font-medium mb-2">{t('compliance.noCompliancePlaylistsTitle')}</h3>
             <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-              Lock playlists to compliance requirements to enable version control
-              and automatic assignment tracking.
+              {t('compliance.noCompliancePlaylistsDesc')}
             </p>
             <Button onClick={() => setLockDialogOpen(true)}>
               <Lock className="h-4 w-4 mr-2" />
-              Lock Your First Playlist
+              {t('compliance.lockFirstPlaylist')}
             </Button>
           </CardContent>
         </Card>

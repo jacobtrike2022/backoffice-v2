@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -111,6 +112,7 @@ export function StoryEditor({
   onDuplicate,
   onCreateVariant
 }: StoryEditorProps) {
+  const { t } = useTranslation();
   const [isEditMode, setIsEditMode] = useState(isNewContent);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -470,7 +472,7 @@ export function StoryEditor({
       loadStoryData(loadedTrack);
     } catch (error: any) {
       console.error('Error loading story:', error);
-      toast.error('Failed to load story');
+      toast.error(t('contentAuthoring.failedLoadStory'));
     } finally {
       setIsLoading(false);
     }
@@ -751,7 +753,7 @@ export function StoryEditor({
 
   const removeSlide = (slideId: string) => {
     if (slides.length === 1) {
-      toast.error('Story must have at least one slide');
+      toast.error(t('contentAuthoring.storyNeedsSlide'));
       return;
     }
     const newSlides = slides.filter(s => s.id !== slideId)
@@ -842,7 +844,7 @@ export function StoryEditor({
           tags: Array.from(currentTags)
         });
 
-        toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
+        toast.success(checked ? t('contentAuthoring.trackAddedToKb') : t('contentAuthoring.trackRemovedFromKb'));
 
         // Update local state to reflect the change
         setShowInKnowledgeBase(checked);
@@ -903,7 +905,7 @@ export function StoryEditor({
   // Handle save and navigate
   const handleSaveAndNavigate = async () => {
     if (isSystemContent) {
-      toast.error('Cannot edit Trike Library content');
+      toast.error(t('contentAuthoring.cannotEditTrikeLibrary'));
       setShowUnsavedDialog(false);
       return;
     }
@@ -948,10 +950,10 @@ export function StoryEditor({
 
       if (currentTrackId) {
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        toast.success('Changes saved!');
+        toast.success(t('contentAuthoring.changesSaved'));
       } else {
         await crud.createTrack({ ...trackData, status: 'draft' as const });
-        toast.success('Story created as draft!');
+        toast.success(t('contentAuthoring.storyCreatedAsDraft'));
       }
 
       // Close dialog and navigate
@@ -968,7 +970,7 @@ export function StoryEditor({
       }
     } catch (error: any) {
       console.error('Error saving story:', error);
-      toast.error('Failed to save story');
+      toast.error(t('contentAuthoring.failedSaveStory'));
       setShowUnsavedDialog(false);
       setIsSaving(false);
     }
@@ -1037,7 +1039,7 @@ export function StoryEditor({
 
   const handleSave = async () => {
     if (isSystemContent) {
-      toast.error('Cannot edit Trike Library content');
+      toast.error(t('contentAuthoring.cannotEditTrikeLibrary'));
       return;
     }
 
@@ -1239,13 +1241,13 @@ export function StoryEditor({
         }
       } else {
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
-        toast.success('Story created as draft!');
+        toast.success(t('contentAuthoring.storyCreatedAsDraft'));
         const backFn = onBack || onClose;
         if (backFn) backFn();
       }
     } catch (error: any) {
       console.error('Error saving story:', error);
-      toast.error('Failed to save story');
+      toast.error(t('contentAuthoring.failedSaveStory'));
     } finally {
       setIsSaving(false);
     }
@@ -1267,16 +1269,16 @@ export function StoryEditor({
 
   const validateStory = () => {
     if (!title.trim()) {
-      toast.error('Please add a title');
+      toast.error(t('contentAuthoring.titleRequiredError'));
       return false;
     }
     if (slides.length === 0) {
-      toast.error('Please add at least one slide');
+      toast.error(t('contentAuthoring.storyNeedsSlide'));
       return false;
     }
     const emptySlides = slides.filter(s => !s.url);
     if (emptySlides.length > 0) {
-      toast.error('All slides must have content uploaded');
+      toast.error(t('contentAuthoring.allSlidesNeedContent'));
       return false;
     }
     return true;
@@ -1294,7 +1296,7 @@ export function StoryEditor({
 
   const removeObjective = async (index: number) => {
     if (objectives.length === 1) {
-      toast.error('Story must have at least one learning objective');
+      toast.error(t('contentAuthoring.storyNeedsObjective'));
       return;
     }
     
@@ -1305,10 +1307,10 @@ export function StoryEditor({
       try {
         console.log(`🗑️ Deleting fact ${factToRemove._dbId} from database...`);
         await factsCrud.deleteFactFromTrack(factToRemove._dbId, currentTrackId);
-        toast.success('Key fact removed');
+        toast.success(t('contentAuthoring.keyFactRemoved'));
       } catch (error: any) {
         console.error('Failed to delete fact:', error);
-        toast.error('Failed to remove fact from database');
+        toast.error(t('contentAuthoring.failedRemoveFact'));
         return; // Don't remove from UI if database delete failed
       }
     }
@@ -1590,7 +1592,7 @@ export function StoryEditor({
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading story...</p>
+          <p className="text-muted-foreground">{t('contentAuthoring.loadingStory')}</p>
         </div>
       </div>
     );
@@ -1901,7 +1903,7 @@ export function StoryEditor({
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="system-content-view" className="text-sm font-medium">System Template</Label>
+                      <Label htmlFor="system-content-view" className="text-sm font-medium">{t('contentAuthoring.systemTemplate')}</Label>
                       <p className="text-xs text-muted-foreground">
                         Mark as Trike Library content
                       </p>
@@ -1915,7 +1917,7 @@ export function StoryEditor({
                         } else if (currentTrackId) {
                           crud.updateTrack({ id: currentTrackId, is_system_content: checked })
                             .then(() => {
-                              toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                              toast.success(checked ? t('contentAuthoring.markedAsSystemContent') : t('contentAuthoring.removedFromTrikeLibrary'));
                               if (onUpdate) onUpdate();
                             });
                         }
@@ -1930,11 +1932,11 @@ export function StoryEditor({
             {(!isSystemContent || isSuperAdmin) && currentTrackId && existingTrack && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Publishing Status</CardTitle>
+                  <CardTitle className="text-base">{t('contentAuthoring.publishingStatus')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Status</span>
+                    <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                     <Badge 
                       variant="outline"
                       className={`cursor-pointer transition-colors ${
@@ -1953,7 +1955,7 @@ export function StoryEditor({
                           }
                         } catch (error: any) {
                           console.error('Error updating status:', error);
-                          toast.error('Failed to update status');
+                          toast.error(t('contentAuthoring.failedUpdateStatus'));
                         }
                       }}
                     >
@@ -1979,7 +1981,7 @@ export function StoryEditor({
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="show-in-kb-view" className="text-sm">Show in KB</Label>
+                    <Label htmlFor="show-in-kb-view" className="text-sm">{t('contentAuthoring.showInKb')}</Label>
                     <p className="text-xs text-muted-foreground">
                       Available in Knowledge Base
                     </p>
@@ -2010,7 +2012,7 @@ export function StoryEditor({
                     </Button>
 
                     <div>
-                      <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                      <p className="text-xs font-medium mb-2 text-muted-foreground">{t('contentAuthoring.selectedCategories')}</p>
                       <div className="flex flex-wrap gap-2">
                         {tags
                           .filter((t: string) => kbTagNames.has(t))
@@ -2020,7 +2022,7 @@ export function StoryEditor({
                             </Badge>
                         ))}
                         {tags.filter((t: string) => kbTagNames.has(t)).length === 0 && (
-                          <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                          <span className="text-xs text-muted-foreground italic">{t('contentAuthoring.noCategoriesSelected')}</span>
                         )}
                       </div>
                     </div>
@@ -2043,7 +2045,7 @@ export function StoryEditor({
                 <div className="flex items-start space-x-3">
                   <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-muted-foreground text-xs">Created</p>
+                    <p className="text-muted-foreground text-xs">{t('contentAuthoring.created')}</p>
                     <p className="font-medium">{new Date(existingTrack.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
@@ -2145,13 +2147,13 @@ export function StoryEditor({
               tags: newTags
             });
             setTags(newTags);
-            toast.success('KB categories updated');
+            toast.success(t('contentAuthoring.kbCategoriesUpdated'));
             if (onUpdate) {
               onUpdate();
             }
           } catch (error: any) {
             console.error('Error updating tags:', error);
-            toast.error('Failed to update KB categories', {
+            toast.error(t('contentAuthoring.failedUpdateKbCategories'), {
               description: error.message || 'Please try again'
             });
           }
@@ -2648,7 +2650,7 @@ export function StoryEditor({
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="system-content-edit" className="text-sm font-medium">System Template</Label>
+                    <Label htmlFor="system-content-edit" className="text-sm font-medium">{t('contentAuthoring.systemTemplate')}</Label>
                     <p className="text-xs text-muted-foreground">
                       Mark as Trike Library content
                     </p>
@@ -2661,7 +2663,7 @@ export function StoryEditor({
                       if (!isEditMode && currentTrackId) {
                         crud.updateTrack({ id: currentTrackId, is_system_content: checked })
                           .then(() => {
-                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            toast.success(checked ? t('contentAuthoring.markedAsSystemContent') : t('contentAuthoring.removedFromTrikeLibrary'));
                             if (onUpdate) onUpdate();
                           });
                       }
@@ -2676,13 +2678,13 @@ export function StoryEditor({
           {(!isSystemContent || isSuperAdmin) && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Publishing Status</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.publishingStatus')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {currentTrackId && existingTrack ? (
                   <>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Status</span>
+                      <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                       <Badge 
                         variant="outline"
                         className={`cursor-pointer transition-colors ${
@@ -2701,7 +2703,7 @@ export function StoryEditor({
                             }
                           } catch (error: any) {
                             console.error('Error updating status:', error);
-                            toast.error('Failed to update status');
+                            toast.error(t('contentAuthoring.failedUpdateStatus'));
                           }
                         }}
                       >
@@ -2715,7 +2717,7 @@ export function StoryEditor({
                 ) : (
                   <>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Status</span>
+                      <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                       <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400">
                         Draft
                       </Badge>
@@ -2740,7 +2742,7 @@ export function StoryEditor({
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label htmlFor="show-in-kb-edit" className="text-sm">Show in KB</Label>
+                  <Label htmlFor="show-in-kb-edit" className="text-sm">{t('contentAuthoring.showInKb')}</Label>
                   <p className="text-xs text-muted-foreground">
                     Available in Knowledge Base
                   </p>
@@ -2772,7 +2774,7 @@ export function StoryEditor({
                   
                   {/* Selected KB Tags Display */}
                   <div>
-                    <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                    <p className="text-xs font-medium mb-2 text-muted-foreground">{t('contentAuthoring.selectedCategories')}</p>
                     <div className="flex flex-wrap gap-2">
                       {tags
                         .filter((t: string) => kbTagNames.has(t))
@@ -2782,7 +2784,7 @@ export function StoryEditor({
                           </Badge>
                       ))}
                       {tags.filter((t: string) => kbTagNames.has(t)).length === 0 && (
-                        <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                        <span className="text-xs text-muted-foreground italic">{t('contentAuthoring.noCategoriesSelected')}</span>
                       )}
                     </div>
                   </div>
@@ -2830,7 +2832,7 @@ export function StoryEditor({
                   <div className="flex items-start space-x-3">
                     <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
                     <div>
-                      <p className="text-muted-foreground text-xs">Created</p>
+                      <p className="text-muted-foreground text-xs">{t('contentAuthoring.created')}</p>
                       <p className="font-medium">{new Date(existingTrack.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -3050,10 +3052,10 @@ export function StoryEditor({
                               setIsUploading(true);
                               const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
                               setThumbnailUrl(url);
-                              toast.success('Thumbnail updated!');
+                              toast.success(t('contentAuthoring.thumbnailUpdated'));
                             } catch (error: any) {
                               console.error('Error uploading thumbnail:', error);
-                              toast.error('Failed to upload thumbnail');
+                              toast.error(t('contentAuthoring.failedUploadThumbnail'));
                             } finally {
                               setIsUploading(false);
                             }
@@ -3095,7 +3097,7 @@ export function StoryEditor({
                           toast.success('Thumbnail uploaded!');
                         } catch (error: any) {
                           console.error('Error uploading thumbnail:', error);
-                          toast.error('Failed to upload thumbnail');
+                          toast.error(t('contentAuthoring.failedUploadThumbnail'));
                         } finally {
                           setIsUploading(false);
                         }
@@ -3182,13 +3184,13 @@ export function StoryEditor({
                 tags: newTags
               });
               setTags(newTags); // Update local state
-              toast.success('KB categories updated');
+              toast.success(t('contentAuthoring.kbCategoriesUpdated'));
               if (onUpdate) {
                 onUpdate(); // Refresh track data
               }
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update KB categories', {
+              toast.error(t('contentAuthoring.failedUpdateKbCategories'), {
                 description: error.message || 'Please try again'
               });
             }

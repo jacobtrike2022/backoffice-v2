@@ -1311,7 +1311,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           onValueChange={(v) => updateTriggerCondition(index, 'field', v)}
                         >
                           <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Select field" />
+                            <SelectValue placeholder={t('playlists.wizard.fieldLabel')} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="role">{t('playlists.wizard.fieldRole')}</SelectItem>
@@ -1327,7 +1327,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           onValueChange={(v) => updateTriggerCondition(index, 'operator', v)}
                         >
                           <SelectTrigger className="w-[150px]">
-                            <SelectValue placeholder="Operator" />
+                            <SelectValue placeholder={t('playlists.wizard.operatorLabel')} />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="equals">{t('playlists.wizard.opEquals')}</SelectItem>
@@ -1770,7 +1770,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                   <div className="relative mt-4">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search albums and tracks..."
+                      placeholder={t('playlists.wizard.searchAlbumsTracks')}
                       value={contentSearchTerm}
                       onChange={(e) => setContentSearchTerm(e.target.value)}
                       className="pl-9"
@@ -1783,7 +1783,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <div className="space-y-2">
                       <div className="flex items-center mb-3">
                         <AlbumIcon className="h-5 w-5 mr-2 text-primary" />
-                        <h3 className="font-semibold">Available Albums</h3>
+                        <h3 className="font-semibold">{t('playlists.wizard.availableAlbums')}</h3>
                       </div>
                       <div className="space-y-2 max-h-[400px] overflow-y-auto">
                         {getFilteredAlbums().map((album) => (
@@ -1799,9 +1799,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <div className="flex-1">
                               <p className="font-medium text-sm">{album.title}</p>
                               <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
-                                <span>{album.track_count || 0} tracks</span>
+                                <span>{t('playlists.wizard.trackCount', { count: album.track_count || 0 })}</span>
                                 <span>•</span>
-                                <span>{album.total_duration_minutes || album.duration_minutes || 0} min</span>
+                                <span>{t('playlists.wizard.minDuration', { count: album.total_duration_minutes || album.duration_minutes || 0 })}</span>
                                 {album.version_number && album.version_number > 1 && (
                                   <>
                                     <span>•</span>
@@ -1819,7 +1819,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <div className="space-y-2">
                       <div className="flex items-center mb-3">
                         <Play className="h-5 w-5 mr-2 text-primary" />
-                        <h3 className="font-semibold">Standalone Tracks</h3>
+                        <h3 className="font-semibold">{t('playlists.wizard.standaloneTracks')}</h3>
                       </div>
                       <div className="space-y-2 max-h-[400px] overflow-y-auto">
                         {getFilteredTracks().map((track) => (
@@ -1837,7 +1837,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                               <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-1">
                                 <Badge variant="secondary" className="text-xs bg-brand-gradient text-white">{track.type}</Badge>
                                 <span>•</span>
-                                <span>{track.duration_minutes || 0} min</span>
+                                <span>{t('playlists.wizard.minDuration', { count: track.duration_minutes || 0 })}</span>
                                 <span>•</span>
                                 <span>{new Date(track.updated_at || track.created_at).toLocaleDateString()}</span>
                                 {track.version_number && track.version_number > 1 && (
@@ -1863,7 +1863,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <CardHeader>
                   <CardTitle className="flex items-center text-primary">
                     <CheckCircle2 className="h-5 w-5 mr-2" />
-                    Selected Content Summary
+                    {t('playlists.wizard.selectedContentSummary')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -1872,17 +1872,17 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       <p className="text-2xl font-bold text-primary">
                         {stages.reduce((acc, s) => acc + s.albums.length, 0)}
                       </p>
-                      <p className="text-sm text-muted-foreground">Albums</p>
+                      <p className="text-sm text-muted-foreground">{t('playlists.wizard.summaryAlbums')}</p>
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-primary">
                         {stages.reduce((acc, s) => acc + s.tracks.length, 0)}
                       </p>
-                      <p className="text-sm text-muted-foreground">Standalone Tracks</p>
+                      <p className="text-sm text-muted-foreground">{t('playlists.wizard.summaryStandaloneTracks')}</p>
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-primary">{getTotalContent()}</p>
-                      <p className="text-sm text-muted-foreground">Total Tracks</p>
+                      <p className="text-sm text-muted-foreground">{t('playlists.wizard.summaryTotalTracks')}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -1895,9 +1895,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Stage Delivery Configuration</h2>
+              <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.stageDeliveryConfig')}</h2>
               <p className="text-muted-foreground">
-                Configure unlock conditions and timing for each stage
+                {t('playlists.wizard.stageDeliveryConfigDesc')}
               </p>
             </div>
 
@@ -1909,14 +1909,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                   <CardHeader>
                     <CardTitle className="flex items-center text-sm">
                       <Zap className="h-4 w-4 mr-2 text-primary" />
-                      Trigger: {assignmentType === 'auto' ? 'Auto-Assign' : 'Manual Assignment'}
+                      {t('playlists.wizard.triggerLabel')}: {assignmentType === 'auto' ? t('playlists.wizard.autoAssignLabel') : t('playlists.wizard.manualAssignmentLabel')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm">{getTriggerSummary()}</p>
                     {assignmentType === 'auto' && !startImmediately && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Training starts {startDelayDays} days after trigger
+                        {t('playlists.wizard.trainingStartsAfterDays', { count: startDelayDays })}
                       </p>
                     )}
                   </CardContent>
@@ -1936,16 +1936,16 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           <Lock className="h-5 w-5 mr-2 text-primary" />
                           {stage.name}
                           <Badge variant="secondary" className="ml-3">
-                            {getTotalContentInStage(stage)} tracks
+                            {t('playlists.wizard.trackCount', { count: getTotalContentInStage(stage) })}
                           </Badge>
                         </CardTitle>
                         <CardDescription>
-                          {stage.albums.length} albums, {stage.tracks.length} standalone tracks
+                          {t('playlists.wizard.stageAlbumsAndTracks', { albums: stage.albums.length, tracks: stage.tracks.length })}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor={`unlock-type-${index}`}>Primary Unlock Condition</Label>
+                          <Label htmlFor={`unlock-type-${index}`}>{t('playlists.wizard.primaryUnlockCondition')}</Label>
                           <Select
                             value={stage.unlockType}
                             onValueChange={(v) => updateStage(index, { unlockType: v })}
@@ -1955,17 +1955,17 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             </SelectTrigger>
                             <SelectContent>
                               {index === 0 && (
-                                <SelectItem value="immediate">Available immediately upon assignment</SelectItem>
+                                <SelectItem value="immediate">{t('playlists.wizard.unlockImmediate')}</SelectItem>
                               )}
                               {index > 0 && (
-                                <SelectItem value="stage-complete">When previous stage is 100% complete</SelectItem>
+                                <SelectItem value="stage-complete">{t('playlists.wizard.unlockStageComplete')}</SelectItem>
                               )}
-                              <SelectItem value="days-after-trigger">Wait X days after trigger</SelectItem>
+                              <SelectItem value="days-after-trigger">{t('playlists.wizard.unlockDaysAfterTrigger')}</SelectItem>
                               {index > 0 && (
-                                <SelectItem value="days-after-stage">Wait X days after previous stage completes</SelectItem>
+                                <SelectItem value="days-after-stage">{t('playlists.wizard.unlockDaysAfterStage')}</SelectItem>
                               )}
-                              <SelectItem value="assignment-complete">When assignment is completed</SelectItem>
-                              <SelectItem value="calendar-date">On specific calendar date</SelectItem>
+                              <SelectItem value="assignment-complete">{t('playlists.wizard.unlockAssignmentComplete')}</SelectItem>
+                              <SelectItem value="calendar-date">{t('playlists.wizard.unlockCalendarDate')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1973,7 +1973,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         {/* Conditional fields based on unlock type */}
                         {stage.unlockType === 'days-after-trigger' && (
                           <div className="flex items-center space-x-4 ml-6">
-                            <Label htmlFor={`days-start-${index}`}>Days:</Label>
+                            <Label htmlFor={`days-start-${index}`}>{t('playlists.wizard.daysLabel')}</Label>
                             <Input
                               id={`days-start-${index}`}
                               type="number"
@@ -1982,20 +1982,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                               onChange={(e) => updateStage(index, { unlockDays: parseInt(e.target.value) || 0 })}
                               className="w-24"
                             />
-                            <span className="text-sm text-muted-foreground">after trigger</span>
+                            <span className="text-sm text-muted-foreground">{t('playlists.wizard.afterTrigger')}</span>
                           </div>
                         )}
 
                         {stage.unlockType === 'days-after-stage' && index > 0 && (
                           <div className="space-y-3 ml-6">
                             <div className="flex items-center space-x-4">
-                              <Label htmlFor={`after-stage-${index}`}>After Stage:</Label>
+                              <Label htmlFor={`after-stage-${index}`}>{t('playlists.wizard.afterStageLabel')}</Label>
                               <Select
                                 value={stage.unlockAfterStage}
                                 onValueChange={(v) => updateStage(index, { unlockAfterStage: v })}
                               >
                                 <SelectTrigger id={`after-stage-${index}`} className="w-[200px]">
-                                  <SelectValue placeholder="Select stage" />
+                                  <SelectValue placeholder={t('playlists.wizard.selectStagePlaceholder')} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {stages.slice(0, index).map(s => (
@@ -2005,7 +2005,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                               </Select>
                             </div>
                             <div className="flex items-center space-x-4">
-                              <Label htmlFor={`days-after-${index}`}>Wait:</Label>
+                              <Label htmlFor={`days-after-${index}`}>{t('playlists.wizard.waitLabel')}</Label>
                               <Input
                                 id={`days-after-${index}`}
                                 type="number"
@@ -2014,20 +2014,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                                 onChange={(e) => updateStage(index, { unlockDays: parseInt(e.target.value) || 0 })}
                                 className="w-24"
                               />
-                              <span className="text-sm text-muted-foreground">days after completion</span>
+                              <span className="text-sm text-muted-foreground">{t('playlists.wizard.daysAfterCompletion')}</span>
                             </div>
                           </div>
                         )}
 
                         {stage.unlockType === 'stage-complete' && index > 0 && (
                           <div className="flex items-center space-x-4 ml-6">
-                            <Label htmlFor={`stage-req-${index}`}>Required Stage:</Label>
+                            <Label htmlFor={`stage-req-${index}`}>{t('playlists.wizard.requiredStageLabel')}</Label>
                             <Select
                               value={stage.unlockAfterStage}
                               onValueChange={(v) => updateStage(index, { unlockAfterStage: v })}
                             >
                               <SelectTrigger id={`stage-req-${index}`} className="w-[200px]">
-                                <SelectValue placeholder="Select stage" />
+                                <SelectValue placeholder={t('playlists.wizard.selectStagePlaceholder')} />
                               </SelectTrigger>
                               <SelectContent>
                                 {stages.slice(0, index).map(s => (
@@ -2041,13 +2041,13 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         {stage.unlockType === 'assignment-complete' && (
                           <div className="space-y-3 ml-6">
                             <div className="space-y-2">
-                              <Label htmlFor={`assignment-${index}`}>Select Assignment</Label>
+                              <Label htmlFor={`assignment-${index}`}>{t('playlists.wizard.selectAssignmentLabel')}</Label>
                               <Select
                                 value={stage.unlockAssignment}
                                 onValueChange={(v) => updateStage(index, { unlockAssignment: v })}
                               >
                                 <SelectTrigger id={`assignment-${index}`}>
-                                  <SelectValue placeholder="Select assignment" />
+                                  <SelectValue placeholder={t('playlists.wizard.selectAssignmentPlaceholder')} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {AVAILABLE_ASSIGNMENTS.map(assignment => (
@@ -2059,22 +2059,22 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                               </Select>
                             </div>
                             <div className="space-y-2">
-                              <Label htmlFor={`completer-${index}`}>Must be completed by</Label>
+                              <Label htmlFor={`completer-${index}`}>{t('playlists.wizard.mustBeCompletedBy')}</Label>
                               <RadioGroup
                                 value={stage.unlockAssignmentCompleter}
                                 onValueChange={(v) => updateStage(index, { unlockAssignmentCompleter: v })}
                               >
                                 <div className="flex items-center space-x-2">
                                   <RadioGroupItem value="learner" id={`learner-${index}`} />
-                                  <Label htmlFor={`learner-${index}`}>Learner</Label>
+                                  <Label htmlFor={`learner-${index}`}>{t('playlists.wizard.completerLearner')}</Label>
                                 </div>
                                 <div className="flex items-center space-x-2">
                                   <RadioGroupItem value="manager" id={`manager-${index}`} />
-                                  <Label htmlFor={`manager-${index}`}>Learner's Manager</Label>
+                                  <Label htmlFor={`manager-${index}`}>{t('playlists.wizard.completerManager')}</Label>
                                 </div>
                                 <div className="flex items-center space-x-2">
                                   <RadioGroupItem value="role" id={`role-${index}`} />
-                                  <Label htmlFor={`role-${index}`}>Specific Role</Label>
+                                  <Label htmlFor={`role-${index}`}>{t('playlists.wizard.completerRole')}</Label>
                                 </div>
                               </RadioGroup>
                             </div>
@@ -2083,7 +2083,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
                         {stage.unlockType === 'calendar-date' && (
                           <div className="flex items-center space-x-4 ml-6">
-                            <Label htmlFor={`date-${index}`}>Date:</Label>
+                            <Label htmlFor={`date-${index}`}>{t('playlists.wizard.dateLabel')}</Label>
                             <Input
                               id={`date-${index}`}
                               type="date"
@@ -2096,42 +2096,42 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
                         {/* Override Options */}
                         <div className="space-y-3">
-                          <Label>Override Options</Label>
+                          <Label>{t('playlists.wizard.overrideOptions')}</Label>
                           <div className="space-y-2">
                             <div className="flex items-center space-x-2">
                               <Checkbox
                                 id={`manager-override-${index}`}
                                 checked={stage.allowManagerOverride}
-                                onCheckedChange={(checked) => 
+                                onCheckedChange={(checked) =>
                                   updateStage(index, { allowManagerOverride: checked === true })
                                 }
                               />
                               <Label htmlFor={`manager-override-${index}`} className="cursor-pointer text-sm">
-                                Allow managers to manually unlock this stage early
+                                {t('playlists.wizard.allowManagerUnlock')}
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
                               <Checkbox
                                 id={`admin-override-${index}`}
                                 checked={stage.allowAdminOverride}
-                                onCheckedChange={(checked) => 
+                                onCheckedChange={(checked) =>
                                   updateStage(index, { allowAdminOverride: checked === true })
                                 }
                               />
                               <Label htmlFor={`admin-override-${index}`} className="cursor-pointer text-sm">
-                                Allow admins to override unlock conditions for specific learners
+                                {t('playlists.wizard.allowAdminOverride')}
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">
                               <Checkbox
                                 id={`notify-unlock-${index}`}
                                 checked={stage.notifyOnUnlock}
-                                onCheckedChange={(checked) => 
+                                onCheckedChange={(checked) =>
                                   updateStage(index, { notifyOnUnlock: checked === true })
                                 }
                               />
                               <Label htmlFor={`notify-unlock-${index}`} className="cursor-pointer text-sm">
-                                Send notification to manager when unlock conditions are met
+                                {t('playlists.wizard.notifyOnUnlock')}
                               </Label>
                             </div>
                           </div>
@@ -2151,8 +2151,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <div className="flex items-start space-x-3">
                   <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                   <div className="text-sm text-blue-900 dark:text-blue-100">
-                    <p className="font-medium mb-1">Assignment-Based Unlocking</p>
-                    <p>You can use completed Forms and OJT assignments as unlock conditions. This allows managers to verify competency before learners progress to the next stage, creating approval gates without building separate workflows.</p>
+                    <p className="font-medium mb-1">{t('playlists.wizard.assignmentBasedUnlockingTitle')}</p>
+                    <p>{t('playlists.wizard.assignmentBasedUnlockingDesc')}</p>
                   </div>
                 </div>
               </CardContent>
@@ -2164,20 +2164,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Completion Actions</h2>
+              <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.completionActions')}</h2>
               <p className="text-muted-foreground">
-                Define what happens when learners complete this playlist
+                {t('playlists.wizard.completionActionsDesc')}
               </p>
             </div>
 
             <Card>
               <CardHeader>
-                <CardTitle>Completion Requirements</CardTitle>
-                <CardDescription>Set the criteria for playlist completion</CardDescription>
+                <CardTitle>{t('playlists.wizard.completionRequirements')}</CardTitle>
+                <CardDescription>{t('playlists.wizard.completionRequirementsDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="threshold">Completion Threshold</Label>
+                  <Label htmlFor="threshold">{t('playlists.wizard.completionThreshold')}</Label>
                   <div className="flex items-center space-x-4">
                     <Input
                       id="threshold"
@@ -2188,7 +2188,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       onChange={(e) => setCompletionThreshold(parseInt(e.target.value) || 100)}
                       className="w-24"
                     />
-                    <span className="text-sm">% of tracks must be completed</span>
+                    <span className="text-sm">{t('playlists.wizard.percentTracksCompleted')}</span>
                   </div>
                   <Progress value={completionThreshold} className="h-2" />
                 </div>
@@ -2196,9 +2196,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <Separator />
 
                 <div className="space-y-3">
-                  <Label>Minimum Score Requirements</Label>
+                  <Label>{t('playlists.wizard.minScoreRequirements')}</Label>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Checkpoint quizzes</span>
+                    <span className="text-sm">{t('playlists.wizard.checkpointQuizzes')}</span>
                     <div className="flex items-center space-x-2">
                       <Input
                         type="number"
@@ -2212,7 +2212,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Final assessment</span>
+                    <span className="text-sm">{t('playlists.wizard.finalAssessment')}</span>
                     <div className="flex items-center space-x-2">
                       <Input
                         type="number"
@@ -2230,7 +2230,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <Separator />
 
                 <div className="space-y-2">
-                  <Label htmlFor="deadline">Completion Deadline</Label>
+                  <Label htmlFor="deadline">{t('playlists.wizard.completionDeadline')}</Label>
                   <div className="flex items-center space-x-4">
                     <Input
                       id="deadline"
@@ -2240,7 +2240,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       onChange={(e) => setCompletionDeadlineDays(parseInt(e.target.value) || 30)}
                       className="w-24"
                     />
-                    <span className="text-sm">days after assignment</span>
+                    <span className="text-sm">{t('playlists.wizard.daysAfterAssignment')}</span>
                   </div>
                 </div>
               </CardContent>
@@ -2248,8 +2248,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
             <Card>
               <CardHeader>
-                <CardTitle>Upon Completion Actions</CardTitle>
-                <CardDescription>What happens when a learner completes this playlist?</CardDescription>
+                <CardTitle>{t('playlists.wizard.uponCompletionActions')}</CardTitle>
+                <CardDescription>{t('playlists.wizard.uponCompletionActionsDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {completionActions.map((action, index) => (
@@ -2273,10 +2273,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     {action.type === 'credential' && (
                       <div className="space-y-3">
                         <div className="space-y-2">
-                          <Label htmlFor={`cred-name-${index}`}>Credential Name</Label>
+                          <Label htmlFor={`cred-name-${index}`}>{t('playlists.wizard.credentialName')}</Label>
                           <Input
                             id={`cred-name-${index}`}
-                            placeholder="e.g., Food Handler Certificate"
+                            placeholder={t('playlists.wizard.credentialNamePlaceholder')}
                             value={action.credentialName}
                             onChange={(e) => {
                               const updated = [...completionActions];
@@ -2286,7 +2286,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor={`cred-exp-${index}`}>Expiration Period (months)</Label>
+                          <Label htmlFor={`cred-exp-${index}`}>{t('playlists.wizard.expirationPeriod')}</Label>
                           <Input
                             id={`cred-exp-${index}`}
                             type="number"
@@ -2306,7 +2306,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     {action.type === 'next-playlist' && (
                       <div className="space-y-3">
                         <div className="space-y-2">
-                          <Label htmlFor={`next-playlist-${index}`}>Next Playlist</Label>
+                          <Label htmlFor={`next-playlist-${index}`}>{t('playlists.wizard.nextPlaylist')}</Label>
                           <Select
                             value={action.playlistId}
                             onValueChange={(v) => {
@@ -2316,7 +2316,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             }}
                           >
                             <SelectTrigger id={`next-playlist-${index}`}>
-                              <SelectValue placeholder="Select playlist" />
+                              <SelectValue placeholder={t('playlists.wizard.selectPlaylistPlaceholder')} />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="p1">Advanced Food Safety Procedures</SelectItem>
@@ -2326,7 +2326,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           </Select>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor={`delay-${index}`}>Delay Before Assignment (days)</Label>
+                          <Label htmlFor={`delay-${index}`}>{t('playlists.wizard.delayBeforeAssignment')}</Label>
                           <Input
                             id={`delay-${index}`}
                             type="number"
@@ -2346,7 +2346,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     {action.type === 'notification' && (
                       <div className="space-y-3">
                         <div className="space-y-2">
-                          <Label htmlFor={`notif-recipient-${index}`}>Recipient</Label>
+                          <Label htmlFor={`notif-recipient-${index}`}>{t('playlists.wizard.recipient')}</Label>
                           <Select
                             value={action.recipient}
                             onValueChange={(v) => {
@@ -2359,18 +2359,18 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="manager">Direct Manager</SelectItem>
-                              <SelectItem value="hr">HR Department</SelectItem>
-                              <SelectItem value="learner">Learner</SelectItem>
-                              <SelectItem value="custom">Custom Email</SelectItem>
+                              <SelectItem value="manager">{t('playlists.wizard.recipientDirectManager')}</SelectItem>
+                              <SelectItem value="hr">{t('playlists.wizard.recipientHR')}</SelectItem>
+                              <SelectItem value="learner">{t('playlists.wizard.recipientLearner')}</SelectItem>
+                              <SelectItem value="custom">{t('playlists.wizard.recipientCustomEmail')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor={`notif-msg-${index}`}>Message Template</Label>
+                          <Label htmlFor={`notif-msg-${index}`}>{t('playlists.wizard.messageTemplate')}</Label>
                           <Textarea
                             id={`notif-msg-${index}`}
-                            placeholder="Enter notification message..."
+                            placeholder={t('playlists.wizard.messageTemplatePlaceholder')}
                             rows={3}
                             value={action.message}
                             onChange={(e) => {
@@ -2392,7 +2392,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     className="w-full"
                   >
                     <Award className="h-4 w-4 mr-2" />
-                    Add Credential
+                    {t('playlists.wizard.addCredential')}
                   </Button>
                   <Button
                     variant="outline"
@@ -2400,7 +2400,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     className="w-full"
                   >
                     <ListChecks className="h-4 w-4 mr-2" />
-                    Auto-Assign Next
+                    {t('playlists.wizard.autoAssignNext')}
                   </Button>
                   <Button
                     variant="outline"
@@ -2408,7 +2408,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     className="w-full"
                   >
                     <CheckCircle2 className="h-4 w-4 mr-2" />
-                    Send Notification
+                    {t('playlists.wizard.sendNotification')}
                   </Button>
                 </div>
               </CardContent>
@@ -2416,16 +2416,16 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
             <Card>
               <CardHeader>
-                <CardTitle>Compliance</CardTitle>
-                <CardDescription>Update compliance status when playlist is completed</CardDescription>
+                <CardTitle>{t('playlists.wizard.complianceTitle')}</CardTitle>
+                <CardDescription>{t('playlists.wizard.complianceTitleDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                   <div className="flex items-center space-x-3">
                     <SettingsIcon className="h-5 w-5 text-primary" />
                     <div>
-                      <p className="font-medium text-sm">Update Compliance Dashboard</p>
-                      <p className="text-xs text-muted-foreground">Mark requirements as complete</p>
+                      <p className="font-medium text-sm">{t('playlists.wizard.updateComplianceDashboard')}</p>
+                      <p className="text-xs text-muted-foreground">{t('playlists.wizard.markRequirementsComplete')}</p>
                     </div>
                   </div>
                   <Switch defaultChecked />
@@ -2439,9 +2439,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Review & Publish</h2>
+              <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.reviewPublish')}</h2>
               <p className="text-muted-foreground">
-                Review your playlist configuration before publishing
+                {t('playlists.wizard.reviewPublishDesc')}
               </p>
             </div>
 
@@ -2451,21 +2451,21 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <CardHeader>
                   <CardTitle className="flex items-center text-base">
                     <ListChecks className="h-4 w-4 mr-2 text-primary" />
-                    Playlist Details
+                    {t('playlists.wizard.reviewPlaylistDetails')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div>
-                    <p className="text-muted-foreground">Name:</p>
-                    <p className="font-medium">{playlistName || 'Not set'}</p>
+                    <p className="text-muted-foreground">{t('playlists.wizard.reviewNameLabel')}</p>
+                    <p className="font-medium">{playlistName || t('playlists.wizard.notSet')}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Description:</p>
-                    <p className="text-xs line-clamp-2">{playlistDescription || 'Not set'}</p>
+                    <p className="text-muted-foreground">{t('playlists.wizard.reviewDescLabel')}</p>
+                    <p className="text-xs line-clamp-2">{playlistDescription || t('playlists.wizard.notSet')}</p>
                   </div>
                   {playlistTags.length > 0 && (
                     <div>
-                      <p className="text-muted-foreground mb-1">Tags:</p>
+                      <p className="text-muted-foreground mb-1">{t('playlists.wizard.reviewTagsLabel')}</p>
                       <div className="flex flex-wrap gap-1">
                         {playlistTags.map(tag => (
                           <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
@@ -2480,22 +2480,22 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <CardHeader>
                   <CardTitle className="flex items-center text-base">
                     <Library className="h-4 w-4 mr-2 text-primary" />
-                    Content Summary
+                    {t('playlists.wizard.reviewContentSummary')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Stages:</span>
+                    <span className="text-muted-foreground">{t('playlists.wizard.reviewStages')}</span>
                     <span className="font-medium">{stages.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Albums:</span>
+                    <span className="text-muted-foreground">{t('playlists.wizard.reviewTotalAlbums')}</span>
                     <span className="font-medium">
                       {stages.reduce((acc, s) => acc + s.albums.length, 0)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Tracks:</span>
+                    <span className="text-muted-foreground">{t('playlists.wizard.reviewTotalTracks')}</span>
                     <span className="font-medium">{getTotalContent()}</span>
                   </div>
                 </CardContent>
@@ -2505,8 +2505,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             {/* Timeline Recap */}
             <Card>
               <CardHeader>
-                <CardTitle>Playlist Flow Timeline</CardTitle>
-                <CardDescription>From trigger to completion</CardDescription>
+                <CardTitle>{t('playlists.wizard.playlistFlowTimeline')}</CardTitle>
+                <CardDescription>{t('playlists.wizard.playlistFlowTimelineDesc')}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="relative">
@@ -2520,11 +2520,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <Zap className="h-6 w-6 text-white" />
                       </div>
                       <div className="flex-1 pt-2">
-                        <p className="font-semibold">Trigger</p>
+                        <p className="font-semibold">{t('playlists.wizard.triggerLabel')}</p>
                         <p className="text-sm text-muted-foreground">{getTriggerSummary()}</p>
                         {assignmentType === 'auto' && !startImmediately && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Starts {startDelayDays} days after trigger
+                            {t('playlists.wizard.startsAfterDays', { count: startDelayDays })}
                           </p>
                         )}
                       </div>
@@ -2532,17 +2532,17 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
                     {/* Stages */}
                     {stages.map((stage, index) => {
-                      const unlockDesc = stage.unlockType === 'immediate' 
-                        ? 'Available immediately'
+                      const unlockDesc = stage.unlockType === 'immediate'
+                        ? t('playlists.wizard.reviewUnlockImmediate')
                         : stage.unlockType === 'days-after-trigger'
-                        ? `Unlocks ${stage.unlockDays} days after trigger`
+                        ? t('playlists.wizard.reviewUnlockDaysAfterTrigger', { count: stage.unlockDays })
                         : stage.unlockType === 'days-after-stage'
-                        ? `Unlocks ${stage.unlockDays} days after previous stage`
+                        ? t('playlists.wizard.reviewUnlockDaysAfterStage', { count: stage.unlockDays })
                         : stage.unlockType === 'stage-complete'
-                        ? 'Unlocks when previous stage is 100% complete'
+                        ? t('playlists.wizard.reviewUnlockStageComplete')
                         : stage.unlockType === 'assignment-complete'
-                        ? 'Unlocks when assignment is completed'
-                        : 'Unlocks on specific date';
+                        ? t('playlists.wizard.reviewUnlockAssignmentComplete')
+                        : t('playlists.wizard.reviewUnlockSpecificDate');
                       
                       return (
                         <div key={stage.id} className="flex items-start space-x-4 relative">
@@ -2553,7 +2553,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <p className="font-semibold">{stage.name}</p>
                             <p className="text-sm text-muted-foreground">{unlockDesc}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {stage.albums.length} albums, {stage.tracks.length} tracks • {getTotalContentInStage(stage)} total tracks
+                              {t('playlists.wizard.stageAlbumsAndTracks', { albums: stage.albums.length, tracks: stage.tracks.length })} • {t('playlists.wizard.totalTracksCount', { count: getTotalContentInStage(stage) })}
                             </p>
                           </div>
                         </div>
@@ -2566,9 +2566,9 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <Award className="h-6 w-6 text-white" />
                       </div>
                       <div className="flex-1 pt-2">
-                        <p className="font-semibold">Completion</p>
+                        <p className="font-semibold">{t('playlists.wizard.completionLabel')}</p>
                         <p className="text-sm text-muted-foreground">
-                          {completionThreshold}% threshold • {completionDeadlineDays} day deadline
+                          {t('playlists.wizard.completionSummary', { threshold: completionThreshold, deadline: completionDeadlineDays })}
                         </p>
                         {completionActions.length > 0 && (
                           <div className="mt-2 space-y-1">
@@ -2592,8 +2592,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 <div className="flex items-start space-x-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
                   <div className="text-sm text-green-900 dark:text-green-100">
-                    <p className="font-medium mb-1">Ready to {mode === 'edit' ? 'Update' : 'Publish'}</p>
-                    <p>Your playlist is configured and ready to be {mode === 'edit' ? 'updated' : 'published'}. Click "{mode === 'edit' ? 'Update' : 'Publish'} Playlist" to make it active.</p>
+                    <p className="font-medium mb-1">{mode === 'edit' ? t('playlists.wizard.readyToUpdate') : t('playlists.wizard.readyToPublish')}</p>
+                    <p>{mode === 'edit' ? t('playlists.wizard.readyToUpdateDesc') : t('playlists.wizard.readyToPublishDesc')}</p>
                   </div>
                 </div>
               </CardContent>
@@ -2615,10 +2615,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             <div className="flex items-center space-x-4">
               <Button variant="ghost" onClick={onClose}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Playlists
+                {t('playlists.wizard.backToPlaylists')}
               </Button>
               <Separator orientation="vertical" className="h-6" />
-              <h1>{mode === 'create' ? 'Create New Playlist' : 'Edit Playlist'}</h1>
+              <h1>{mode === 'create' ? t('playlists.wizard.createNewPlaylist') : t('playlists.wizard.editPlaylist')}</h1>
             </div>
           </div>
         </div>
@@ -2683,35 +2683,35 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              Step {currentStep + 1} of {WIZARD_STEPS.length}
+              {t('playlists.wizard.stepOf', { current: currentStep + 1, total: WIZARD_STEPS.length })}
             </div>
             <div className="flex items-center space-x-3">
               {currentStep > 0 && (
                 <Button variant="outline" onClick={handleBack}>
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back
+                  {t('playlists.wizard.backButton')}
                 </Button>
               )}
-              
+
               {currentStep < WIZARD_STEPS.length - 1 ? (
-                <Button 
-                  className="bg-brand-gradient" 
+                <Button
+                  className="bg-brand-gradient"
                   onClick={handleNext}
                   disabled={!canProceed}
                 >
-                  Next
+                  {t('playlists.wizard.nextButton')}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               ) : (
-                <Button 
+                <Button
                   className="bg-brand-gradient"
                   onClick={handlePublishPlaylist}
                   disabled={!canProceed || isSubmitting}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  {isSubmitting 
-                    ? (mode === 'edit' ? 'Updating...' : 'Publishing...') 
-                    : (mode === 'edit' ? 'Update Playlist' : 'Publish Playlist')
+                  {isSubmitting
+                    ? (mode === 'edit' ? t('playlists.wizard.updating') : t('playlists.wizard.publishing'))
+                    : (mode === 'edit' ? t('playlists.wizard.updatePlaylist') : t('playlists.wizard.publishPlaylist'))
                   }
                 </Button>
               )}

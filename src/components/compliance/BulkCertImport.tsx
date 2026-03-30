@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
@@ -128,6 +129,7 @@ function parseCSV(text: string): { headers: string[]; rows: Record<string, strin
 // ============================================================================
 
 export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps) {
+  const { t } = useTranslation();
   // File state
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -172,7 +174,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
     setError(null);
 
     if (!selectedFile.name.endsWith('.csv')) {
-      setError('Please select a CSV file');
+      setError(t('compliance.pleaseSelectCsv'));
       return;
     }
 
@@ -181,12 +183,12 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
       const { headers: parsedHeaders, rows: parsedRows } = parseCSV(text);
 
       if (parsedHeaders.length === 0) {
-        setError('CSV file appears to be empty or invalid');
+        setError(t('compliance.csvEmptyOrInvalid'));
         return;
       }
 
       if (parsedRows.length === 0) {
-        setError('CSV file has no data rows');
+        setError(t('compliance.csvNoDataRows'));
         return;
       }
 
@@ -215,7 +217,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
       setMapping(autoMapping);
       setStep('mapping');
     } catch (err) {
-      setError('Failed to parse CSV file');
+      setError(t('compliance.failedParseCsv'));
       console.error('CSV parse error:', err);
     }
   }, []);
@@ -275,7 +277,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         onSuccess();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(err instanceof Error ? err.message : t('compliance.importFailed'));
       setStep('preview');
     }
   }, [getMappedRows, file, onSuccess]);
@@ -297,7 +299,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
           onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
         />
         <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-        <p className="font-medium">Drop a CSV file here or click to browse</p>
+        <p className="font-medium">{t('compliance.dropCsvHere')}</p>
         <p className="text-sm text-muted-foreground mt-1">
           Expected columns: employee_email, certificate_type, issue_date, expiry_date (optional), certificate_number (optional)
         </p>
@@ -326,9 +328,9 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
       <div className="grid grid-cols-2 gap-4">
         {/* Required fields */}
         <div>
-          <label className="text-sm font-medium text-red-500">Employee Email *</label>
+<label className="text-sm font-medium text-red-500">{t('compliance.employeeEmailField')}</label>
           <Select value={mapping.employee_email || ''} onValueChange={(v) => setMapping(m => ({ ...m, employee_email: v }))}>
-            <SelectTrigger><SelectValue placeholder="Select column" /></SelectTrigger>
+<SelectTrigger><SelectValue placeholder={t('compliance.selectColumn')} /></SelectTrigger>
             <SelectContent>
               {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
             </SelectContent>
@@ -336,9 +338,9 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         </div>
 
         <div>
-          <label className="text-sm font-medium text-red-500">Certificate Type *</label>
+<label className="text-sm font-medium text-red-500">{t('compliance.certificateTypeField')}</label>
           <Select value={mapping.certificate_type || ''} onValueChange={(v) => setMapping(m => ({ ...m, certificate_type: v }))}>
-            <SelectTrigger><SelectValue placeholder="Select column" /></SelectTrigger>
+<SelectTrigger><SelectValue placeholder={t('compliance.selectColumn')} /></SelectTrigger>
             <SelectContent>
               {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
             </SelectContent>
@@ -346,9 +348,9 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         </div>
 
         <div>
-          <label className="text-sm font-medium text-red-500">Issue Date *</label>
+<label className="text-sm font-medium text-red-500">{t('compliance.issueDateField')}</label>
           <Select value={mapping.issue_date || ''} onValueChange={(v) => setMapping(m => ({ ...m, issue_date: v }))}>
-            <SelectTrigger><SelectValue placeholder="Select column" /></SelectTrigger>
+<SelectTrigger><SelectValue placeholder={t('compliance.selectColumn')} /></SelectTrigger>
             <SelectContent>
               {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
             </SelectContent>
@@ -357,9 +359,9 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
 
         {/* Optional fields */}
         <div>
-          <label className="text-sm font-medium">Expiry Date</label>
+<label className="text-sm font-medium">{t('compliance.expiryDateField')}</label>
           <Select value={mapping.expiry_date || ''} onValueChange={(v) => setMapping(m => ({ ...m, expiry_date: v || null }))}>
-            <SelectTrigger><SelectValue placeholder="Select column (optional)" /></SelectTrigger>
+<SelectTrigger><SelectValue placeholder={t('compliance.selectColumnOptional')} /></SelectTrigger>
             <SelectContent>
               <SelectItem value="">None</SelectItem>
               {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
@@ -368,11 +370,11 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         </div>
 
         <div>
-          <label className="text-sm font-medium">Certificate Number</label>
+<label className="text-sm font-medium">{t('compliance.certificateNumberField')}</label>
           <Select value={mapping.certificate_number || ''} onValueChange={(v) => setMapping(m => ({ ...m, certificate_number: v || null }))}>
-            <SelectTrigger><SelectValue placeholder="Select column (optional)" /></SelectTrigger>
+<SelectTrigger><SelectValue placeholder={t('compliance.selectColumnOptional')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">None</SelectItem>
+              <SelectItem value="">{t('common.none')}</SelectItem>
               {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -383,7 +385,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Please map all required fields (marked with *)
+{t('compliance.mapRequiredFields')}
           </AlertDescription>
         </Alert>
       )}
@@ -443,8 +445,8 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
     <div className="space-y-4 py-8">
       <div className="text-center">
         <Loader2 className="h-12 w-12 mx-auto animate-spin text-primary mb-4" />
-        <p className="font-medium">Importing certifications...</p>
-        <p className="text-sm text-muted-foreground">Please wait while we process your file</p>
+<p className="font-medium">{t('compliance.importingCerts')}</p>
+        <p className="text-sm text-muted-foreground">{t('compliance.importingWait')}</p>
       </div>
       <Progress value={progress} className="w-full" />
       <p className="text-center text-sm text-muted-foreground">{progress}% complete</p>
@@ -466,7 +468,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{results.successful}</p>
-                  <p className="text-sm text-muted-foreground">Imported</p>
+                  <p className="text-sm text-muted-foreground">{t('compliance.imported')}</p>
                 </div>
               </div>
             </CardContent>
@@ -480,7 +482,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{results.failed}</p>
-                  <p className="text-sm text-muted-foreground">Failed</p>
+                  <p className="text-sm text-muted-foreground">{t('compliance.failed')}</p>
                 </div>
               </div>
             </CardContent>
@@ -494,7 +496,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{results.suppressedAssignments}</p>
-                  <p className="text-sm text-muted-foreground">Assignments Suppressed</p>
+                  <p className="text-sm text-muted-foreground">{t('compliance.assignmentsSuppressed')}</p>
                 </div>
               </div>
             </CardContent>
@@ -503,7 +505,7 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
 
         {results.errors.length > 0 && (
           <div className="space-y-2">
-            <p className="text-sm font-medium text-red-500">Errors:</p>
+<p className="text-sm font-medium text-red-500">{t('compliance.errorsLabel')}</p>
             <div className="max-h-40 overflow-auto border rounded-lg p-2 text-sm">
               {results.errors.slice(0, 10).map((err, idx) => (
                 <div key={idx} className="text-red-600 py-1">
@@ -535,28 +537,28 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
     switch (step) {
       case 'upload':
         return (
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
         );
       case 'mapping':
         return (
           <>
             <Button variant="outline" onClick={() => { resetState(); }}>
               <RefreshCw className="h-4 w-4 mr-2" />
-              Start Over
+              {t('compliance.startOver')}
             </Button>
             <Button disabled={!isMappingValid} onClick={() => setStep('preview')}>
               <Eye className="h-4 w-4 mr-2" />
-              Preview
+              {t('compliance.preview')}
             </Button>
           </>
         );
       case 'preview':
         return (
           <>
-            <Button variant="outline" onClick={() => setStep('mapping')}>Back to Mapping</Button>
+            <Button variant="outline" onClick={() => setStep('mapping')}>{t('compliance.backToMapping')}</Button>
             <Button onClick={handleImport} disabled={getMappedRows().length === 0}>
               <Play className="h-4 w-4 mr-2" />
-              Import {getMappedRows().length} Rows
+{t('compliance.importNRows', { count: getMappedRows().length })}
             </Button>
           </>
         );
@@ -565,8 +567,8 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
       case 'results':
         return (
           <>
-            <Button variant="outline" onClick={resetState}>Import More</Button>
-            <Button onClick={onClose}>Done</Button>
+            <Button variant="outline" onClick={resetState}>{t('compliance.importMore')}</Button>
+            <Button onClick={onClose}>{t('common.done')}</Button>
           </>
         );
     }
@@ -578,14 +580,14 @@ export function BulkCertImport({ open, onClose, onSuccess }: BulkCertImportProps
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
-            Bulk Certificate Import
+{t('compliance.bulkCertImportTitle')}
           </DialogTitle>
           <DialogDescription>
-            {step === 'upload' && 'Upload a CSV file containing employee certifications'}
-            {step === 'mapping' && 'Map your CSV columns to certification fields'}
-            {step === 'preview' && 'Review the data before importing'}
-            {step === 'importing' && 'Importing certifications...'}
-            {step === 'results' && 'Import complete'}
+            {step === 'upload' && t('compliance.bulkUploadDesc')}
+            {step === 'mapping' && t('compliance.bulkMappingDesc')}
+            {step === 'preview' && t('compliance.bulkPreviewDesc')}
+            {step === 'importing' && t('compliance.bulkImportingDesc')}
+            {step === 'results' && t('compliance.bulkResultsDesc')}
           </DialogDescription>
         </DialogHeader>
 

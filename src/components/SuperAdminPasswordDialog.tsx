@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ export function SuperAdminPasswordDialog({
   onClose,
   onAuthenticate
 }: SuperAdminPasswordDialogProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -39,32 +41,32 @@ export function SuperAdminPasswordDialog({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-primary" />
-            <DialogTitle>Trike Super Admin Access</DialogTitle>
+            <DialogTitle>{t('common.superAdminAccessTitle')}</DialogTitle>
           </div>
           <DialogDescription>
-            This area is restricted to Trike administrators only. Please enter the super admin password to continue.
+            {t('common.superAdminAccessDesc')}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('common.password')}</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter super admin password"
+                placeholder={t('common.enterSuperAdminPassword')}
                 autoFocus
               />
             </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit">
-              Authenticate
+              {t('common.authenticate')}
             </Button>
           </DialogFooter>
         </form>

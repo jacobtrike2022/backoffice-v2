@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Checkbox } from '../ui/checkbox';
@@ -147,6 +148,7 @@ interface MultiSelectRolesProps {
 }
 
 function MultiSelectRoles({ roles, selectedIds, onChange, loading }: MultiSelectRolesProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -181,10 +183,10 @@ function MultiSelectRoles({ roles, selectedIds, onChange, loading }: MultiSelect
             {loading ? (
               <span className="flex items-center">
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Loading roles...
+                {t('compliance.loadingRoles')}
               </span>
             ) : selectedIds.length === 0 ? (
-              <span className="text-muted-foreground">Select roles...</span>
+<span className="text-muted-foreground">{t('compliance.selectRoles')}</span>
             ) : (
               <div className="flex flex-wrap gap-1 py-1">
                 {selectedIds.slice(0, 3).map(id => {
@@ -197,7 +199,7 @@ function MultiSelectRoles({ roles, selectedIds, onChange, loading }: MultiSelect
                 })}
                 {selectedIds.length > 3 && (
                   <Badge variant="secondary" className="text-xs">
-                    +{selectedIds.length - 3} more
+                    +{selectedIds.length - 3} {t('compliance.more')}
                   </Badge>
                 )}
               </div>
@@ -208,28 +210,28 @@ function MultiSelectRoles({ roles, selectedIds, onChange, loading }: MultiSelect
         <PopoverContent className="w-80 p-0" align="start">
           <Command>
             <CommandInput
-              placeholder="Search roles..."
+placeholder={t('compliance.searchRoles')}
               value={searchQuery}
               onValueChange={setSearchQuery}
             />
             <div className="flex gap-1 p-2 border-b">
               <Button variant="ghost" size="sm" onClick={selectAll} className="text-xs h-7">
-                All
+                {t('common.all')}
               </Button>
               <Button variant="ghost" size="sm" onClick={selectNone} className="text-xs h-7">
-                None
+                {t('common.none')}
               </Button>
               <Button variant="ghost" size="sm" onClick={selectManagers} className="text-xs h-7">
                 <Briefcase className="h-3 w-3 mr-1" />
-                Managers
+                {t('compliance.managers')}
               </Button>
               <Button variant="ghost" size="sm" onClick={selectFrontline} className="text-xs h-7">
                 <UserCheck className="h-3 w-3 mr-1" />
-                Frontline
+                {t('compliance.frontline')}
               </Button>
             </div>
             <CommandList>
-              <CommandEmpty>No roles found.</CommandEmpty>
+<CommandEmpty>{t('compliance.noRolesFound')}</CommandEmpty>
               <CommandGroup>
                 <ScrollArea className="h-64">
                   {filteredRoles.map((role) => (
@@ -299,6 +301,7 @@ interface MultiSelectStatesProps {
 }
 
 function MultiSelectStates({ selectedCodes, onChange, orgStates }: MultiSelectStatesProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -334,9 +337,9 @@ function MultiSelectStates({ selectedCodes, onChange, orgStates }: MultiSelectSt
             className="w-full justify-between h-auto min-h-10"
           >
             {selectedCodes.length === 0 ? (
-              <span className="text-muted-foreground">Select states...</span>
+<span className="text-muted-foreground">{t('compliance.selectStates')}</span>
             ) : selectedCodes.length === US_STATES.length ? (
-              <span>All States</span>
+<span>{t('compliance.allStates')}</span>
             ) : (
               <div className="flex flex-wrap gap-1 py-1">
                 {selectedCodes.slice(0, 5).map(code => (
@@ -346,7 +349,7 @@ function MultiSelectStates({ selectedCodes, onChange, orgStates }: MultiSelectSt
                 ))}
                 {selectedCodes.length > 5 && (
                   <Badge variant="secondary" className="text-xs">
-                    +{selectedCodes.length - 5} more
+                    +{selectedCodes.length - 5} {t('compliance.more')}
                   </Badge>
                 )}
               </div>
@@ -357,26 +360,26 @@ function MultiSelectStates({ selectedCodes, onChange, orgStates }: MultiSelectSt
         <PopoverContent className="w-72 p-0" align="start">
           <Command>
             <CommandInput
-              placeholder="Search states..."
+placeholder={t('compliance.searchStates')}
               value={searchQuery}
               onValueChange={setSearchQuery}
             />
             <div className="flex gap-1 p-2 border-b">
               <Button variant="ghost" size="sm" onClick={selectAll} className="text-xs h-7">
-                All
+                {t('common.all')}
               </Button>
               <Button variant="ghost" size="sm" onClick={selectNone} className="text-xs h-7">
-                None
+                {t('common.none')}
               </Button>
               {orgStates && orgStates.length > 0 && (
                 <Button variant="ghost" size="sm" onClick={selectOrgStates} className="text-xs h-7">
                   <Building2 className="h-3 w-3 mr-1" />
-                  Our Locations ({orgStates.length})
+                  {t('compliance.ourLocations', { count: orgStates.length })}
                 </Button>
               )}
             </div>
             <CommandList>
-              <CommandEmpty>No states found.</CommandEmpty>
+<CommandEmpty>{t('compliance.noStatesFound')}</CommandEmpty>
               <CommandGroup>
                 <ScrollArea className="h-64">
                   {filteredStates.map((state) => (
@@ -443,6 +446,7 @@ export function RequirementRulesModal({
   onOpenChange,
   onSave
 }: RequirementRulesModalProps) {
+  const { t } = useTranslation();
   // Data state
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [orgStates, setOrgStates] = useState<string[]>([]);
@@ -481,7 +485,7 @@ export function RequirementRulesModal({
         setHasChanges(false);
       } catch (err) {
         console.error('Failed to load data:', err);
-        setError('Failed to load roles and states');
+        setError(t('compliance.failedLoadRolesStates'));
       } finally {
         setLoading(false);
       }
@@ -519,7 +523,7 @@ export function RequirementRulesModal({
       onOpenChange(false);
     } catch (err) {
       console.error('Failed to save:', err);
-      setError('Failed to save role assignments');
+      setError(t('compliance.failedSaveRoles'));
     } finally {
       setSaving(false);
     }
@@ -552,10 +556,10 @@ export function RequirementRulesModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileCheck className="h-5 w-5" />
-            Configure Requirement Rules
+{t('compliance.configureReqRulesTitle')}
           </DialogTitle>
           <DialogDescription>
-            Define which roles in which states need this compliance requirement
+            {t('compliance.configureReqRulesDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -598,7 +602,7 @@ export function RequirementRulesModal({
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-base font-medium">People with these roles...</Label>
+<Label className="text-base font-medium">{t('compliance.peopleWithRoles')}</Label>
               </div>
               <MultiSelectRoles
                 roles={roles}
@@ -617,7 +621,7 @@ export function RequirementRulesModal({
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
-                <Label className="text-base font-medium">In these states...</Label>
+<Label className="text-base font-medium">{t('compliance.inTheseStates')}</Label>
               </div>
 
               {requirement?.state_code ? (
@@ -631,7 +635,7 @@ export function RequirementRulesModal({
                 </div>
               ) : (
                 <div className="p-3 bg-muted/50 rounded-lg">
-                  <span className="text-sm text-muted-foreground">All states (no state restriction)</span>
+<span className="text-sm text-muted-foreground">{t('compliance.allStatesNoRestriction')}</span>
                 </div>
               )}
 
@@ -647,7 +651,7 @@ export function RequirementRulesModal({
 
             {/* Summary */}
             <div className="space-y-2">
-              <Label className="text-base font-medium">Summary</Label>
+<Label className="text-base font-medium">{t('compliance.summaryLabel')}</Label>
               <Card>
                 <CardContent className="p-4 space-y-2">
                   <div className="flex items-center gap-2">
@@ -684,7 +688,7 @@ export function RequirementRulesModal({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleSave}
@@ -694,12 +698,12 @@ export function RequirementRulesModal({
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
+                {t('common.saving')}
               </>
             ) : (
               <>
                 <Save className="h-4 w-4 mr-2" />
-                Save Rules
+                {t('compliance.saveRules')}
               </>
             )}
           </Button>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -37,6 +38,7 @@ interface EditPeopleDialogProps {
 }
 
 export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopleDialogProps) {
+  const { t } = useTranslation();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -74,17 +76,17 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
     if (!user) return;
 
     if (!firstName.trim()) {
-      toast.error('First name is required');
+      toast.error(t('people.firstNameRequired'));
       return;
     }
 
     if (!lastName.trim()) {
-      toast.error('Last name is required');
+      toast.error(t('people.lastNameRequired'));
       return;
     }
 
     if (!email.trim() || !email.includes('@')) {
-      toast.error('Valid email is required');
+      toast.error(t('people.validEmailRequired'));
       return;
     }
 
@@ -104,12 +106,12 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
       };
 
       await updateUser(user.id, updateData);
-      toast.success('Employee updated successfully');
+      toast.success(t('people.employeeUpdated'));
       onSuccess();
       onClose();
     } catch (error: any) {
       console.error('Error updating employee:', error);
-      toast.error(error.message || 'Failed to update employee');
+      toast.error(error.message || t('people.failedUpdateEmployee'));
     } finally {
       setSaving(false);
     }
@@ -125,16 +127,16 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Employee</DialogTitle>
+          <DialogTitle>{t('people.editEmployee')}</DialogTitle>
           <DialogDescription>
-            Update employee information and details
+            {t('people.editEmployeeDesc')}
           </DialogDescription>
         </DialogHeader>
 
         {!user ? (
           <div className="space-y-6 py-4">
             <div className="space-y-4">
-              <h3 className="font-semibold text-foreground">Basic Information</h3>
+              <h3 className="font-semibold text-foreground">{t('people.basicInformation')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-20" />
@@ -151,7 +153,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
               </div>
             </div>
             <div className="space-y-4">
-              <h3 className="font-semibold text-foreground">Employment Information</h3>
+              <h3 className="font-semibold text-foreground">{t('people.employmentInformation')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-24" />
@@ -168,10 +170,10 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
           <div className="space-y-6 py-4">
           {/* Basic Information */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-foreground">Basic Information</h3>
+            <h3 className="font-semibold text-foreground">{t('people.basicInformation')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="firstName">First Name *</Label>
+                <Label htmlFor="firstName">{t('people.firstNameLabel')}</Label>
                 <Input
                   id="firstName"
                   value={firstName}
@@ -180,7 +182,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
                 />
               </div>
               <div>
-                <Label htmlFor="lastName">Last Name *</Label>
+                <Label htmlFor="lastName">{t('people.lastNameLabel')}</Label>
                 <Input
                   id="lastName"
                   value={lastName}
@@ -190,7 +192,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
               </div>
             </div>
             <div>
-              <Label htmlFor="email">Email Address *</Label>
+              <Label htmlFor="email">{t('people.emailAddressLabel')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -200,7 +202,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
               />
             </div>
             <div>
-              <Label htmlFor="phone">Phone Number</Label>
+              <Label htmlFor="phone">{t('people.phoneNumberLabel')}</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -213,10 +215,10 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
 
           {/* Employment Information */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-foreground">Employment Information</h3>
+            <h3 className="font-semibold text-foreground">{t('people.employmentInformation')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="employeeId">Employee ID</Label>
+                <Label htmlFor="employeeId">{t('people.employeeIdLabel')}</Label>
                 <Input
                   id="employeeId"
                   value={employeeId}
@@ -225,22 +227,22 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
                 />
               </div>
               <div>
-                <Label htmlFor="status">Status *</Label>
+                <Label htmlFor="status">{t('people.statusLabel')}</Label>
                 <Select value={status} onValueChange={(value: 'active' | 'inactive' | 'on-leave') => setStatus(value)}>
                   <SelectTrigger id="status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="on-leave">On Leave</SelectItem>
+                    <SelectItem value="active">{t('common.active')}</SelectItem>
+                    <SelectItem value="inactive">{t('common.inactive')}</SelectItem>
+                    <SelectItem value="on-leave">{t('common.onLeave')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="hireDate">Hire Date</Label>
+                <Label htmlFor="hireDate">{t('people.hireDateLabel')}</Label>
                 <Input
                   id="hireDate"
                   type="date"
@@ -249,7 +251,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
                 />
               </div>
               <div>
-                <Label htmlFor="terminationDate">Termination Date</Label>
+                <Label htmlFor="terminationDate">{t('people.terminationDateLabel')}</Label>
                 <Input
                   id="terminationDate"
                   type="date"
@@ -263,19 +265,19 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
 
           {/* Role and Store Assignment */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-foreground">Role and Store Assignment</h3>
+            <h3 className="font-semibold text-foreground">{t('people.roleAndStoreAssignment')}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="role">Role</Label>
+                <Label htmlFor="role">{t('people.roleLabel')}</Label>
                 <Select
                   value={roleId || 'none'}
                   onValueChange={(v) => setRoleId(v === 'none' ? '' : v)}
                 >
                   <SelectTrigger id="role">
-                    <SelectValue placeholder="Select role" />
+                    <SelectValue placeholder={t('people.selectRolePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None / Not assigned</SelectItem>
+                    <SelectItem value="none">{t('people.noneNotAssigned')}</SelectItem>
                     {roles.map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
@@ -285,16 +287,16 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
                 </Select>
               </div>
               <div>
-                <Label htmlFor="store">Home Store</Label>
+                <Label htmlFor="store">{t('people.homeStoreLabel')}</Label>
                 <Select
                   value={storeId || 'none'}
                   onValueChange={(v) => setStoreId(v === 'none' ? '' : v)}
                 >
                   <SelectTrigger id="store">
-                    <SelectValue placeholder="Select store" />
+                    <SelectValue placeholder={t('people.selectStorePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None / Unassigned</SelectItem>
+                    <SelectItem value="none">{t('people.noneUnassigned')}</SelectItem>
                     {stores.map((store) => (
                       <SelectItem key={store.id} value={store.id}>
                         {store.name}
@@ -310,14 +312,14 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={saving || !user}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleSave}
             disabled={saving || !user}
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
-            {saving ? 'Saving...' : 'Save Changes'}
+{saving ? t('common.saving') : t('common.saveChanges')}
           </Button>
         </DialogFooter>
       </DialogContent>

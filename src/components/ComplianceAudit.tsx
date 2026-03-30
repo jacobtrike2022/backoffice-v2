@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -51,6 +52,7 @@ interface ComplianceAuditProps {
 }
 
 export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps) {
+  const { t } = useTranslation();
   const [learners, setLearners] = useState<AuditLearner[]>([]);
   const [tracks, setTracks] = useState<AuditTrack[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,23 +167,23 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-foreground mb-2">Compliance Audit Report</h1>
+            <h1 className="text-foreground mb-2">{t('compliance.audit.reportTitle')}</h1>
             <p className="text-muted-foreground">
-              Detailed learning documentation for legal and compliance purposes
+              {t('compliance.audit.reportSubtitle')}
             </p>
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={handleReset}>
               <ChevronRight className="h-4 w-4 mr-2 rotate-180" />
-              Back to Selection
+              {t('compliance.audit.backToSelection')}
             </Button>
             <Button variant="outline">
               <Share2 className="h-4 w-4 mr-2" />
-              Share Link
+              {t('compliance.audit.shareLink')}
             </Button>
             <Button className="bg-brand-gradient">
               <Download className="h-4 w-4 mr-2" />
-              Export PDF
+              {t('compliance.audit.exportPdf')}
             </Button>
           </div>
         </div>
@@ -198,13 +200,13 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                   <h2 className="text-2xl font-bold mb-1">{selectedLearner.name}</h2>
                   <p className="text-sm text-muted-foreground mb-3">{selectedLearner.role}</p>
                   <div className="flex items-center space-x-2">
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Active Employee</Badge>
+                    <Badge className="bg-green-100 text-green-700 border-green-200">{t('compliance.audit.activeEmployee')}</Badge>
                     <Badge variant="outline">ID: {selectedLearner.employeeId}</Badge>
                   </div>
                 </div>
               </div>
               <div className="text-right text-sm">
-                <p className="text-muted-foreground">Report Generated</p>
+                <p className="text-muted-foreground">{t('compliance.audit.reportGenerated')}</p>
                 <p className="font-semibold">{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
                 <p className="text-xs text-muted-foreground mt-1">at {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
               </div>
@@ -217,31 +219,31 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <Calendar className="h-4 w-4" />
-                  <p className="text-xs">Hire Date</p>
+                  <p className="text-xs">{t('compliance.audit.hireDate')}</p>
                 </div>
                 <p className="font-semibold">{new Date(selectedLearner.hireDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                 <p className="text-xs text-muted-foreground">
-                  {Math.floor((new Date().getTime() - new Date(selectedLearner.hireDate).getTime()) / (1000 * 60 * 60 * 24))} days tenure
+                  {Math.floor((new Date().getTime() - new Date(selectedLearner.hireDate).getTime()) / (1000 * 60 * 60 * 24))} {t('compliance.audit.daysTenure')}
                 </p>
               </div>
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <Briefcase className="h-4 w-4" />
-                  <p className="text-xs">Department</p>
+                  <p className="text-xs">{t('compliance.audit.department')}</p>
                 </div>
                 <p className="font-semibold">{selectedLearner.department}</p>
               </div>
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <MapPin className="h-4 w-4" />
-                  <p className="text-xs">Location</p>
+                  <p className="text-xs">{t('compliance.audit.location')}</p>
                 </div>
                 <p className="font-semibold">{selectedLearner.location}</p>
               </div>
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <Users className="h-4 w-4" />
-                  <p className="text-xs">Direct Manager</p>
+                  <p className="text-xs">{t('compliance.audit.directManager')}</p>
                 </div>
                 <p className="font-semibold">{selectedLearner.manager}</p>
               </div>
@@ -253,14 +255,14 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <Mail className="h-4 w-4" />
-                  <p className="text-xs">Email</p>
+                  <p className="text-xs">{t('common.email')}</p>
                 </div>
                 <p className="font-semibold">{selectedLearner.email}</p>
               </div>
               <div>
                 <div className="flex items-center space-x-2 text-muted-foreground mb-1">
                   <Building2 className="h-4 w-4" />
-                  <p className="text-xs">Company</p>
+                  <p className="text-xs">{t('compliance.audit.company')}</p>
                 </div>
                 <p className="font-semibold">Trike Retail Corp.</p>
               </div>
@@ -273,7 +275,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
           <CardHeader>
             <CardTitle className="flex items-center">
               <ShieldCheck className="h-5 w-5 mr-2 text-primary" />
-              Training Completion Summary
+              {t('compliance.audit.trainingCompletionSummary')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -288,19 +290,19 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               return (
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
-                    <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('compliance.audit.tracksCompleted')}</p>
                     <p className="text-2xl font-bold text-green-700 dark:text-green-400">{completedCount} / {totalTracks}</p>
                     <Progress value={completionRate} className="h-2 mt-2" />
                   </div>
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                    <p className="text-sm text-muted-foreground mb-1">Total Learning Time</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('compliance.audit.totalLearningTime')}</p>
                     <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{totalTime} min</p>
-                    <p className="text-xs text-muted-foreground mt-1">Across selected content</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('compliance.audit.acrossSelectedContent')}</p>
                   </div>
                   <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-900/30">
-                    <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('compliance.audit.averageScore')}</p>
                     <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">{avgScore > 0 ? `${avgScore}%` : 'N/A'}</p>
-                    <p className="text-xs text-muted-foreground mt-1">On assessments</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('compliance.audit.onAssessments')}</p>
                   </div>
                 </div>
               );
@@ -349,19 +351,19 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                   {/* Completion Details */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-3 bg-accent/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground mb-1">Status</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t('common.status')}</p>
                       <p className="font-semibold capitalize">{track.status.replace('_', ' ')}</p>
                     </div>
                     <div className="p-3 bg-accent/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground mb-1">Time Spent</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t('compliance.audit.timeSpent')}</p>
                       <p className="font-semibold">{track.timeSpentMinutes > 0 ? `${track.timeSpentMinutes} min` : 'N/A'}</p>
                     </div>
                     <div className="p-3 bg-accent/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground mb-1">Score</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t('compliance.audit.score')}</p>
                       <p className="font-semibold">{track.score !== null ? `${track.score}%` : 'N/A'}</p>
                     </div>
                     <div className="p-3 bg-accent/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground mb-1">Attempts</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t('compliance.audit.attempts')}</p>
                       <p className="font-semibold">{track.attempts || 0}</p>
                     </div>
                   </div>
@@ -380,7 +382,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                           <div className="pb-3">
                             <div className="flex items-center space-x-2 mb-1">
                               <div className="h-2 w-2 rounded-full bg-green-500" />
-                              <p className="text-sm font-medium">Track Completed</p>
+                              <p className="text-sm font-medium">{t('compliance.audit.trackCompleted')}</p>
                               <span className="text-xs text-muted-foreground">
                                 {new Date(track.completedAt).toLocaleDateString('en-US', {
                                   month: 'short', day: 'numeric', year: 'numeric'
@@ -398,7 +400,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                             <div className="pb-3">
                               <div className="flex items-center space-x-2 mb-1">
                                 <div className="h-2 w-2 rounded-full bg-blue-500" />
-                                <p className="text-sm font-medium">Assessment Submitted</p>
+                                <p className="text-sm font-medium">{t('compliance.audit.assessmentSubmitted')}</p>
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 Score: {track.score}% • {track.passed ? 'Passed' : 'Did not pass'}
@@ -415,7 +417,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                         <div>
                           <h3 className="font-semibold mb-3 flex items-center">
                             <Award className="h-4 w-4 mr-2 text-primary" />
-                            Assessment Results
+                            {t('compliance.audit.assessmentResults')}
                           </h3>
                           <div className={`flex items-center justify-between p-3 rounded-lg border ${
                             track.passed
@@ -446,23 +448,23 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                       <div>
                         <h3 className="font-semibold mb-3 flex items-center">
                           <FileSignature className="h-4 w-4 mr-2 text-primary" />
-                          Electronic Acknowledgement
+                          {t('compliance.audit.electronicAcknowledgement')}
                         </h3>
                         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-900/30">
                           <div className="flex items-start space-x-3">
                             <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                             <div className="flex-1">
-                              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Learner Acknowledgement Signed</p>
+                              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">{t('compliance.audit.learnerAcknowledgementSigned')}</p>
                               <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
                                 "I acknowledge that I have completed the {track.trackTitle} training and understand the content covered."
                               </p>
                               <div className="flex items-center justify-between text-xs">
                                 <div>
-                                  <p className="text-muted-foreground">Digital Signature:</p>
+                                  <p className="text-muted-foreground">{t('compliance.audit.digitalSignature')}</p>
                                   <p className="font-semibold">{selectedLearner.name}</p>
                                 </div>
                                 <div className="text-right">
-                                  <p className="text-muted-foreground">Date & Time:</p>
+                                  <p className="text-muted-foreground">{t('compliance.audit.dateAndTime')}</p>
                                   <p className="font-semibold">
                                     {new Date(track.completedAt).toLocaleDateString('en-US', {
                                       month: 'short', day: 'numeric', year: 'numeric'
@@ -519,9 +521,9 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-foreground mb-2">Generate Compliance Audit</h1>
+        <h1 className="text-foreground mb-2">{t('compliance.audit.generateTitle')}</h1>
         <p className="text-muted-foreground">
-          Create detailed learning documentation for legal, compliance, or HR purposes
+          {t('compliance.audit.generateSubtitle')}
         </p>
       </div>
 
@@ -531,14 +533,14 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
           <CardHeader>
             <CardTitle className="flex items-center">
               <User className="h-5 w-5 mr-2 text-primary" />
-              Step 1: Select Learner
+              {t('compliance.audit.step1SelectLearner')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, or employee ID..."
+                placeholder={t('compliance.audit.searchLearnerPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -574,11 +576,11 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
                   <Separator className="my-2" />
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <p className="text-muted-foreground">Employee ID</p>
+                      <p className="text-muted-foreground">{t('compliance.audit.employeeId')}</p>
                       <p className="font-medium">{learner.employeeId}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Location</p>
+                      <p className="text-muted-foreground">{t('compliance.audit.location')}</p>
                       <p className="font-medium">{learner.location}</p>
                     </div>
                   </div>
@@ -602,18 +604,18 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
           <CardHeader>
             <CardTitle className="flex items-center">
               <FileText className="h-5 w-5 mr-2 text-primary" />
-              Step 2: Select Training Content
+              {t('compliance.audit.step2SelectContent')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Select one or more tracks to include in the compliance report
+              {t('compliance.audit.selectTracksHint')}
             </p>
 
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search tracks by title, album, or category..."
+                placeholder={t('compliance.audit.searchTracksPlaceholder')}
                 value={trackSearchQuery}
                 onChange={(e) => setTrackSearchQuery(e.target.value)}
                 className="pl-10"
@@ -624,7 +626,7 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               {filteredTracks.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No tracks found</p>
+                  <p>{t('compliance.audit.noTracksFound')}</p>
                 </div>
               ) : filteredTracks.map((track) => (
                 <div
@@ -674,11 +676,11 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold mb-1">Ready to Generate Report</p>
+              <p className="font-semibold mb-1">{t('compliance.audit.readyToGenerate')}</p>
               <p className="text-sm text-muted-foreground">
                 {selectedLearner && selectedTracks.length > 0
                   ? `Generate compliance audit for ${selectedLearner.name} covering ${selectedTracks.length} training ${selectedTracks.length === 1 ? 'track' : 'tracks'}`
-                  : 'Please select a learner and at least one track to continue'}
+                  : t('compliance.audit.selectLearnerAndTrack')}
               </p>
             </div>
             <Button
@@ -689,12 +691,12 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
               {loadingReport ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Generating...
+                  {t('compliance.audit.generating')}
                 </>
               ) : (
                 <>
                   <FileText className="h-4 w-4 mr-2" />
-                  Generate Report
+                  {t('compliance.audit.generateReport')}
                 </>
               )}
             </Button>
@@ -708,9 +710,9 @@ export function ComplianceAudit({ currentRole = 'admin' }: ComplianceAuditProps)
           <div className="flex items-start space-x-3">
             <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">About Compliance Audits</p>
+              <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">{t('compliance.audit.aboutTitle')}</p>
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                Compliance audit reports provide granular documentation of learner activity, content objectives, transcripts, assessments, and electronic acknowledgements. These reports are designed for legal proceedings, government compliance requirements, or HR documentation for performance management and termination procedures.
+                {t('compliance.audit.aboutDesc')}
               </p>
             </div>
           </div>

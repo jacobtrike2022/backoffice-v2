@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TrackDetailEdit } from './TrackDetailEdit';
 import { ArticleDetailEdit } from './ArticleDetailEdit';
 import * as crud from '../lib/crud';
@@ -49,8 +50,8 @@ export function ContentCreationWrapper({
       setTrack(newTrack);
     } catch (error: any) {
       console.error('Error creating draft track:', error);
-      setError(error.message || 'Failed to create draft content');
-      toast.error(error.message || 'Failed to create draft content');
+      setError(error.message || t('contentAuthoring.failedCreateDraft'));
+      toast.error(error.message || t('contentAuthoring.failedCreateDraft'));
     } finally {
       setIsCreating(false);
     }
@@ -76,7 +77,7 @@ export function ContentCreationWrapper({
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground">Creating new {contentType}...</p>
+          <p className="text-muted-foreground">{t('contentAuthoring.creatingNewContent', { type: contentType })}</p>
         </div>
       </div>
     );

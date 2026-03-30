@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -54,6 +55,7 @@ interface TrackWithRelationships {
 }
 
 export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGenerateCheckpointModalProps) {
+  const { t } = useTranslation();
   const [tracks, setTracks] = useState<TrackWithRelationships[]>([]);
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -262,8 +264,8 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">AI-Assisted Checkpoint Generator</h2>
-              <p className="text-sm text-muted-foreground">Generate questions from content with key facts</p>
+              <h2 className="text-lg font-semibold text-foreground">{t('contentAuthoring.aiCheckpointTitle')}</h2>
+              <p className="text-sm text-muted-foreground">{t('contentAuthoring.aiCheckpointSubtitle')}</p>
             </div>
           </div>
           <button
@@ -280,7 +282,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
           {/* Track Selector */}
           <div>
             <Label htmlFor="track-select" className="text-sm font-medium mb-2 block">
-              Select Source Content
+              {t('contentAuthoring.selectSourceContent')}
             </Label>
             {isLoadingTracks ? (
               <div className="flex items-center justify-center py-8">
@@ -288,8 +290,8 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
               </div>
             ) : tracks.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
-                <p>No content available with key facts.</p>
-                <p className="text-xs mt-1">Video/Story content must have transcripts.</p>
+                <p>{t('contentAuthoring.noContentWithFacts')}</p>
+                <p className="text-xs mt-1">{t('contentAuthoring.videoStoryNeedsTranscript')}</p>
               </div>
             ) : (
               <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
@@ -398,7 +400,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground">
-                    Selected ({selectedTracks.length} {selectedTracks.length === 1 ? 'track' : 'tracks'}):
+                    {t('contentAuthoring.selectedCount', { count: selectedTracks.length, unit: selectedTracks.length === 1 ? t('contentAuthoring.trackUnit') : t('contentAuthoring.tracksUnit') })}
                   </p>
                   <div className="mt-2 space-y-1.5 max-h-24 overflow-y-auto">
                     {selectedTracks.map(track => (
@@ -418,7 +420,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                   </div>
                   <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
                     <span className="text-xs text-muted-foreground">
-                      Total: {totalWordCount.toLocaleString()} words
+                      {t('contentAuthoring.totalWords', { count: totalWordCount.toLocaleString() })}
                     </span>
                   </div>
                 </div>
@@ -430,7 +432,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
           {selectedTracks.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-foreground">Number of questions:</span>
+                <span className="text-sm text-foreground">{t('contentAuthoring.numberOfQuestions')}</span>
                 <button
                   type="button"
                   onClick={() => setUseDefaultQuestions(!useDefaultQuestions)}
