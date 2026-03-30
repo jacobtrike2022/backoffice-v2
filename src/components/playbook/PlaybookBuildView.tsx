@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useReducer } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
@@ -217,6 +218,7 @@ export function PlaybookBuildView({
   onBack,
   onComplete,
 }: PlaybookBuildViewProps) {
+  const { t } = useTranslation();
   const [state, dispatch] = useReducer(playbookReducer, initialState);
   const [analyzing, setAnalyzing] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
@@ -267,7 +269,7 @@ export function PlaybookBuildView({
           if (playbook) {
             dispatch({ type: 'SET_PLAYBOOK', playbook });
             setAlbumTitle(playbook.title);
-            toast.success('Resumed existing playbook');
+            toast.success(t('playbook.toastResumed'));
             return;
           }
         }
@@ -296,7 +298,7 @@ export function PlaybookBuildView({
         }
       } catch (error) {
         console.error('Failed to initialize playbook:', error);
-        toast.error('Failed to analyze source file');
+        toast.error(t('playbook.toastAnalysisFailed'));
       } finally {
         setAnalyzing(false);
         dispatch({ type: 'SET_LOADING', loading: false });
@@ -316,10 +318,10 @@ export function PlaybookBuildView({
     try {
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'confirmed' } });
       await confirmTrack(trackId, resolution as any);
-      toast.success('Track confirmed');
+      toast.success(t('playbook.toastTrackConfirmed'));
     } catch (error) {
       console.error('Failed to confirm track:', error);
-      toast.error('Failed to confirm track');
+      toast.error(t('playbook.toastTrackConfirmFailed'));
     }
   }, []);
 
@@ -327,7 +329,7 @@ export function PlaybookBuildView({
     try {
       const track = state.playbook?.tracks?.find((t) => t.id === trackId);
       if (!hasAssignedChunks(track)) {
-        toast.error('No chunks assigned to this track');
+        toast.error(t('playbook.toastNoChunks'));
         return;
       }
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'generating' } });
@@ -342,11 +344,11 @@ export function PlaybookBuildView({
         },
       });
       dispatch({ type: 'OPEN_DRAFT_PREVIEW', trackId });
-      toast.success('Draft generated');
+      toast.success(t('playbook.toastDraftGenerated'));
     } catch (error) {
       console.error('Failed to generate draft:', error);
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'confirmed' } });
-      toast.error('Failed to generate draft');
+      toast.error(t('playbook.toastDraftFailed'));
     }
   }, [state.playbook]);
 
@@ -355,10 +357,10 @@ export function PlaybookBuildView({
       await approveTrack(trackId, editedContent);
       dispatch({ type: 'UPDATE_TRACK', trackId, updates: { status: 'approved' } });
       dispatch({ type: 'CLOSE_DRAFT_PREVIEW' });
-      toast.success('Track approved');
+      toast.success(t('playbook.toastTrackApproved'));
     } catch (error) {
       console.error('Failed to approve track:', error);
-      toast.error('Failed to approve track');
+      toast.error(t('playbook.toastTrackApproveFailed'));
     }
   }, []);
 
