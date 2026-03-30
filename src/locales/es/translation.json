@@ -3128,7 +3128,10 @@
     "deleteFileConfirm": "¿Eliminar \"{{name}}\"? Esta acción no se puede deshacer.",
     "fileDeleted": "Archivo eliminado",
     "failedDeleteFile": "No se pudo eliminar el archivo",
-    "badgeLevel": "Nivel {{level}}"
+    "badgeLevel": "Nivel {{level}}",
+    "preparingPdf": "Preparando PDF...",
+    "pdfDownloadSuccess": "¡PDF descargado exitosamente!",
+    "pdfDownloadFailed": "No se pudo generar el PDF. Por favor intente de nuevo."
   },
   "trackDetail": {
     "backToLibrary": "Volver a la Biblioteca",
