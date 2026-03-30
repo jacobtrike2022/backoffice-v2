@@ -3904,7 +3904,19 @@
     "failedLoadSuggestions": "Failed to load suggestions",
     "suggestionRejected": "Suggestion rejected",
     "failedRejectSuggestion": "Failed to reject suggestion",
-    "failedAcceptSuggestion": "Failed to accept suggestion"
+    "failedAcceptSuggestion": "Failed to accept suggestion",
+    "articleSavedDraft": "Article saved as draft",
+    "articleNeedsTitle": "Please add a title before publishing",
+    "articleNeedsContent": "Please add content before publishing",
+    "articleNeedsCategory": "Please select a category",
+    "articlePublished": "Article published successfully",
+    "selectCategoryPlaceholder": "Select category...",
+    "selectSubcategoryPlaceholder": "Select subcategory...",
+    "articleType": "Article Type",
+    "readingTimeMinutes": "Reading Time (minutes)",
+    "markdownSupport": "Supports markdown formatting: **bold**, *italic*, # headings, - lists",
+    "lastUpdated": "Last Updated",
+    "currentVersion": "Current"
   },
   "assignments": {
     "title": "Content Assignments",

@@ -4114,7 +4114,19 @@
     "failedLoadSuggestions": "Error al cargar sugerencias",
     "suggestionRejected": "Sugerencia rechazada",
     "failedRejectSuggestion": "Error al rechazar la sugerencia",
-    "failedAcceptSuggestion": "Error al aceptar la sugerencia"
+    "failedAcceptSuggestion": "Error al aceptar la sugerencia",
+    "articleSavedDraft": "Artículo guardado como borrador",
+    "articleNeedsTitle": "Agrega un título antes de publicar",
+    "articleNeedsContent": "Agrega contenido antes de publicar",
+    "articleNeedsCategory": "Selecciona una categoría",
+    "articlePublished": "Artículo publicado exitosamente",
+    "selectCategoryPlaceholder": "Selecciona categoría...",
+    "selectSubcategoryPlaceholder": "Selecciona subcategoría...",
+    "articleType": "Tipo de artículo",
+    "readingTimeMinutes": "Tiempo de lectura (minutos)",
+    "markdownSupport": "Acepta formato markdown: **negrita**, *cursiva*, # encabezados, - listas",
+    "lastUpdated": "Última actualización",
+    "currentVersion": "Actual"
   },
   "articleDetail": {
     "backToLibrary": "Volver a la Biblioteca",

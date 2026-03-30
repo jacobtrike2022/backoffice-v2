@@ -1095,7 +1095,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                 <Separator />
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Last Updated</Label>
+                  <Label className="text-xs text-muted-foreground">{t('knowledgeBase.lastUpdated')}</Label>
                   <p className="text-sm font-medium mt-1">
                     {new Date(selectedArticle.lastUpdated).toLocaleDateString('en-US', { 
                       month: 'long', 
@@ -1106,26 +1106,26 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                 </div>
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Version</Label>
+                  <Label className="text-xs text-muted-foreground">{t('contentAuthoring.versionLabel')}</Label>
                   <p className="text-sm font-medium mt-1">v{selectedArticle.version}</p>
                 </div>
 
                 <Separator />
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Linked Assignments</Label>
+                  <Label className="text-xs text-muted-foreground">{t('knowledgeBase.linkedAssignments')}</Label>
                   <div className="flex items-center justify-between mt-1">
-                    <span className="text-sm font-medium">{selectedArticle.linkedAssignments} playlists</span>
+                    <span className="text-sm font-medium">{selectedArticle.linkedAssignments} {t('knowledgeBase.playlistsLabel')}</span>
                     <Button variant="ghost" size="sm" className="h-auto p-0 text-primary">
                       <ExternalLink className="h-3 w-3 mr-1" />
-                      View
+                      {t('common.viewAll')}
                     </Button>
                   </div>
                 </div>
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Total Views</Label>
-                  <p className="text-sm font-medium mt-1">{selectedArticle.viewCount} views</p>
+                  <Label className="text-xs text-muted-foreground">{t('knowledgeBase.totalViews')}</Label>
+                  <p className="text-sm font-medium mt-1">{selectedArticle.viewCount} {t('knowledgeBase.viewsLabel')}</p>
                 </div>
               </CardContent>
             </Card>
@@ -1135,7 +1135,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
               <CardHeader>
                 <CardTitle className="text-base flex items-center space-x-2">
                   <History className="h-4 w-4 text-primary" />
-                  <span>Version History</span>
+                  <span>{t('knowledgeBase.versionHistory')}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -1165,7 +1165,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                   </div>
                 </div>
                 <Button variant="outline" size="sm" className="w-full">
-                  View All Versions
+                  {t('knowledgeBase.viewAllVersions')}
                 </Button>
               </CardContent>
             </Card>
@@ -1173,7 +1173,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
             {/* Quick Actions */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Quick Actions</CardTitle>
+                <CardTitle className="text-base">{t('knowledgeBase.quickActions')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {currentRole === 'admin' && (
@@ -1184,7 +1184,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                     onClick={() => onEditArticle?.(selectedArticle)}
                   >
                     <Edit className="h-4 w-4 mr-2" />
-                    Edit Article
+                    {t('knowledgeBase.editArticle')}
                   </Button>
                 )}
                 <Button variant="outline" size="sm" className="w-full justify-start">

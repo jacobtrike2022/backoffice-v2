@@ -639,7 +639,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       setCapabilityExpanded((prev) => ({ ...capabilityMap, ...prev }));
     } catch (error: any) {
       console.error('Error loading merged data:', error);
-      toast.error('Failed to load role competencies', {
+      toast.error(t('roles.detail.toastLoadRolesFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     } finally {

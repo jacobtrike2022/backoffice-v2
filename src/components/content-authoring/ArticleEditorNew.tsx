@@ -360,10 +360,10 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
             <CardContent className="space-y-4">
               {/* Title */}
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">{t('common.title')} *</Label>
                 <Input
                   id="title"
-                  placeholder="Enter article title..."
+                  placeholder={t('contentAuthoring.enterArticleTitle')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2"
@@ -372,10 +372,10 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
 
               {/* Description */}
               <div>
-                <Label htmlFor="description">Description *</Label>
+                <Label htmlFor="description">{t('common.description')} *</Label>
                 <Input
                   id="description"
-                  placeholder="Brief description of the article..."
+                  placeholder={t('contentAuthoring.articleDescriptionPlaceholder')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-2"
@@ -673,14 +673,14 @@ export function ArticleEditorNew({ onClose, onSave, onPublishAndAssign, initialD
                 className="w-full"
                 onClick={handlePublish}
               >
-                Publish Now
+                {t('contentAuthoring.publishNow')}
               </Button>
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 className="w-full bg-brand-gradient text-white shadow-brand"
                 onClick={handlePublishAndAssign}
               >
-                Publish & Assign to Users
+                {t('contentAuthoring.publishAndAssignToUsers')}
               </Button>
             </CardContent>
           </Card>
