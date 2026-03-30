@@ -703,6 +703,16 @@ Deno.serve(async (req: Request) => {
       return await handleTranslateTracks(req);
     }
 
+    // Translate tag names (cached in tag_translations)
+    if (method === "POST" && path === "/translate/tags") {
+      return await handleTranslateTags(req);
+    }
+
+    // Translate key facts (cached in fact_translations)
+    if (method === "POST" && path === "/translate/facts") {
+      return await handleTranslateFacts(req);
+    }
+
     // Migrate tags from tracks.tags column to track_tags junction table (admin function)
     if (method === "POST" && path === "/migrate/tags-to-junction") {
       return await handleMigrateTagsToJunction(req);
@@ -22224,5 +22234,189 @@ Facts: ${JSON.stringify(t.key_facts)}`;
   } catch (err: any) {
     console.error("handleTranslateTracks error:", err);
     return jsonResponse({ error: err.message ?? "Translation failed" }, 500);
+  }
+}
+
+// =========================================================================
+// TAG TRANSLATION HANDLER
+// Translates tag name strings. Cached in tag_translations(tag_name, language).
+// System tags (starting with "system:") are skipped.
+// =========================================================================
+
+async function handleTranslateTags(req: Request): Promise<Response> {
+  try {
+    const supabase = getSupabaseClient(req);
+    const body = await req.json();
+    const { tagNames, language } = body as { tagNames: string[]; language: string };
+
+    if (!Array.isArray(tagNames) || !language) {
+      return jsonResponse({ error: "tagNames (array) and language are required" }, 400);
+    }
+    if (language === "en" || tagNames.length === 0) {
+      return jsonResponse({ translations: {} });
+    }
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OpenAI not configured" }, 503);
+    }
+
+    // Filter out system tags — never translate these
+    const userTags = tagNames.filter((n) => !n.startsWith("system:"));
+    if (userTags.length === 0) return jsonResponse({ translations: {} });
+
+    const targetLanguage = LANGUAGE_NAMES[language] ?? language;
+
+    // Check cache
+    const { data: cached } = await supabase
+      .from("tag_translations")
+      .select("tag_name, translated_name")
+      .in("tag_name", userTags)
+      .eq("language", language);
+
+    const result: Record<string, string> = {};
+    const cachedNames = new Set<string>();
+    for (const row of cached ?? []) {
+      result[row.tag_name] = row.translated_name;
+      cachedNames.add(row.tag_name);
+    }
+
+    const toTranslate = userTags.filter((n) => !cachedNames.has(n));
+
+    if (toTranslate.length > 0) {
+      const prompt = `Translate the following training content tag names into ${targetLanguage}. Keep translations short and professional. Preserve acronyms and brand-specific terms as-is.
+
+Return ONLY valid JSON: {"translations":{"original name":"translated name",...}}
+
+Tag names to translate: ${JSON.stringify(toTranslate)}`;
+
+      const content = await translateWithOpenAI(prompt);
+      if (content) {
+        try {
+          const parsed = JSON.parse(content);
+          const map: Record<string, string> = parsed.translations ?? parsed;
+          const upsertRows = Object.entries(map)
+            .filter(([k]) => toTranslate.includes(k))
+            .map(([tag_name, translated_name]) => ({ tag_name, language, translated_name }));
+
+          if (upsertRows.length > 0) {
+            await supabase
+              .from("tag_translations")
+              .upsert(upsertRows, { onConflict: "tag_name,language" });
+            for (const row of upsertRows) {
+              result[row.tag_name] = row.translated_name;
+            }
+          }
+        } catch {
+          console.error("Failed to parse tag translation response");
+        }
+      }
+    }
+
+    return jsonResponse({ translations: result });
+  } catch (err: any) {
+    console.error("handleTranslateTags error:", err);
+    return jsonResponse({ error: err.message ?? "Tag translation failed" }, 500);
+  }
+}
+
+// =========================================================================
+// FACT TRANSLATION HANDLER
+// Translates KeyFact objects. Cached in fact_translations(fact_id, language).
+// Each fact has: id, title, content (or fact), type, steps[]
+// =========================================================================
+
+async function handleTranslateFacts(req: Request): Promise<Response> {
+  try {
+    const supabase = getSupabaseClient(req);
+    const body = await req.json();
+    const { facts, language } = body as { facts: any[]; language: string };
+
+    if (!Array.isArray(facts) || !language) {
+      return jsonResponse({ error: "facts (array) and language are required" }, 400);
+    }
+    if (language === "en" || facts.length === 0) {
+      return jsonResponse({ facts });
+    }
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OpenAI not configured" }, 503);
+    }
+
+    const targetLanguage = LANGUAGE_NAMES[language] ?? language;
+    const factIds = facts.map((f) => f.id).filter(Boolean);
+
+    // Check cache
+    const { data: cached } = await supabase
+      .from("fact_translations")
+      .select("fact_id, title, content, steps_json")
+      .in("fact_id", factIds)
+      .eq("language", language);
+
+    const cachedMap: Record<string, any> = {};
+    for (const row of cached ?? []) {
+      cachedMap[row.fact_id] = { title: row.title, content: row.content, steps: row.steps_json };
+    }
+
+    const toTranslate = facts.filter((f) => f.id && !cachedMap[f.id]);
+
+    if (toTranslate.length > 0) {
+      // Build compact representation for translation
+      const items = toTranslate.map((f, idx) => ({
+        i: idx,
+        id: f.id,
+        title: f.title ?? "",
+        content: f.content ?? f.fact ?? "",
+        steps: f.steps ?? [],
+      }));
+
+      const prompt = `Translate the following training key facts into ${targetLanguage}. Keep translations professional and concise. Preserve any step-by-step structure.
+
+Return ONLY valid JSON: {"items":[{"i":0,"title":"...","content":"...","steps":["...","..."]},...]}
+
+Facts: ${JSON.stringify(items.map(({ i, title, content, steps }) => ({ i, title, content, steps })))}`;
+
+      const responseContent = await translateWithOpenAI(prompt);
+      if (responseContent) {
+        try {
+          const parsed = JSON.parse(responseContent);
+          const translated: any[] = parsed.items ?? [];
+
+          const upsertRows = translated.map((row) => ({
+            fact_id: items[row.i]?.id,
+            language,
+            title: row.title,
+            content: row.content,
+            steps_json: row.steps ?? null,
+          })).filter((r) => r.fact_id);
+
+          if (upsertRows.length > 0) {
+            await supabase
+              .from("fact_translations")
+              .upsert(upsertRows, { onConflict: "fact_id,language" });
+            for (const row of upsertRows) {
+              cachedMap[row.fact_id] = { title: row.title, content: row.content, steps: row.steps_json };
+            }
+          }
+        } catch {
+          console.error("Failed to parse fact translation response");
+        }
+      }
+    }
+
+    // Merge translations back into original fact objects
+    const translatedFacts = facts.map((f) => {
+      const tr = cachedMap[f.id];
+      if (!tr) return f;
+      return {
+        ...f,
+        title: tr.title ?? f.title,
+        content: tr.content ?? f.content,
+        fact: tr.content ?? f.fact,   // some facts use .fact instead of .content
+        steps: tr.steps ?? f.steps,
+      };
+    });
+
+    return jsonResponse({ facts: translatedFacts });
+  } catch (err: any) {
+    console.error("handleTranslateFacts error:", err);
+    return jsonResponse({ error: err.message ?? "Fact translation failed" }, 500);
   }
 }

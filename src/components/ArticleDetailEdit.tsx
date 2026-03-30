@@ -63,6 +63,8 @@ import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { getEffectiveThumbnailUrl, DEFAULT_THUMBNAIL_URL } from '../lib/crud/tracks';
+import { useTagTranslations } from '../hooks/useTagTranslations';
+import { useFactTranslations } from '../hooks/useFactTranslations';
 
 interface ArticleDetailEditProps {
   track: any;
@@ -79,7 +81,7 @@ interface ArticleDetailEditProps {
 }
 
 export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: ArticleDetailEditProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -142,6 +144,13 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
+
+  // Tag and fact translations
+  const { translateTag } = useTagTranslations(
+    [...(track.tags || []), ...(editFormData.tags || [])],
+    i18n.language
+  );
+  const { translatedFacts } = useFactTranslations(viewModeFacts, i18n.language);
 
   // Function to load KB tags - extracted so it can be called on demand
   const loadKBTags = useCallback(async () => {
@@ -1580,7 +1589,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                             className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
                             onClick={() => handleRemoveTag(editFormData.tags.indexOf(tag))}
                           >
-                            {tag}
+                            {translateTag(tag)}
                             <X className="h-3 w-3 ml-1" />
                           </Badge>
                         ))}
@@ -1598,7 +1607,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       <>
                         {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
                           <Badge key={index} variant="secondary">
-                            {tag}
+                            {translateTag(tag)}
                           </Badge>
                         ))}
                         <Button
@@ -1783,7 +1792,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {(viewModeFacts || []).map((objective: any, index: number) => {
+                  {(translatedFacts || []).map((objective: any, index: number) => {
                     // Parse if stored as JSON string
                     let parsed = objective;
                     if (typeof objective === 'string' && objective.startsWith('{')) {
@@ -1823,7 +1832,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                       </li>
                     );
                   })}
-                  {(!viewModeFacts || viewModeFacts.length === 0) && (
+                  {(!translatedFacts || translatedFacts.length === 0) && (
                     <p className="text-sm text-muted-foreground">{t('articleDetail.noKeyFactsDefined')}</p>
                   )}
                 </ul>
@@ -1922,7 +1931,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
                            .filter((t: string) => kbTagNames.has(t))
                            .map((tag: string) => (
                              <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
-                               {tag}
+                               {translateTag(tag)}
                              </Badge>
                          ))}
                          {(isEditMode ? editFormData.tags : track.tags || [])

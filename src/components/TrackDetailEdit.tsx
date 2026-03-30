@@ -53,6 +53,7 @@ import {
 import * as crud from '../lib/crud';
 import { downloadKbTrackAsPdf } from '../lib/utils/kbPdfExport';
 import { getEffectiveThumbnailUrl } from '../lib/crud/tracks';
+import { useTagTranslations } from '../hooks/useTagTranslations';
 import * as factsCrud from '../lib/crud/facts';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import * as tagsCrud from '../lib/crud/tags';
@@ -75,7 +76,7 @@ interface TrackDetailEditProps {
 }
 
 export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: TrackDetailEditProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -136,6 +137,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   });
 
   const [kbTagNames, setKbTagNames] = useState<Set<string>>(new Set());
+
+  // Tag translations
+  const { translateTag } = useTagTranslations(
+    [...(track.tags || []), ...(editFormData.tags || [])],
+    i18n.language
+  );
 
   // View mode transcript state (updated by polling when transcript becomes available)
   const [viewModeTranscript, setViewModeTranscript] = useState<string | null>(track.transcript || null);
@@ -1871,7 +1878,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
                         onClick={() => handleRemoveTag((editFormData.tags || []).indexOf(tag))}
                       >
-                        {tag}
+                        {translateTag(tag)}
                         <X className="h-3 w-3 ml-1" />
                       </Badge>
                     ))}
@@ -1889,7 +1896,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   <>
                     {(track.tags || []).filter((tag: string) => tag !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
                       <Badge key={index} variant="secondary">
-                        {tag}
+                        {translateTag(tag)}
                       </Badge>
                     ))}
                     {(track.tags || []).filter((tag: string) => tag !== 'system:show_in_knowledge_base').length === 0 && !(track.tags || []).includes('system:show_in_knowledge_base') && (
@@ -2173,7 +2180,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                            .filter((tag: string) => kbTagNames.has(tag))
                            .map((tag: string) => (
                              <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
-                               {tag}
+                               {translateTag(tag)}
                              </Badge>
                          ))}
                          {(isEditMode ? editFormData.tags : track.tags || [])
