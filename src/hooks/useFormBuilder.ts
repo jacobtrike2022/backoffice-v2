@@ -178,7 +178,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
           conditional_logic: b.conditional_logic,
           settings: b.settings,
           is_required: b.is_required,
-          display_order: b.display_order,
+          display_order: Math.round(b.display_order),
         })),
         ...newBlocks.map(b => ({
           // No id — will be INSERTed
@@ -193,7 +193,7 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
           conditional_logic: b.conditional_logic,
           settings: b.settings,
           is_required: b.is_required,
-          display_order: b.display_order,
+          display_order: Math.round(b.display_order),
         })),
       ];
 
