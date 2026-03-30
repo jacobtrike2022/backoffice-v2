@@ -6,6 +6,7 @@ import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
 import { supabase, getCurrentUserOrgId, setViewingOrgOverride } from './lib/supabase';
+import { useOrgLanguage } from './lib/hooks/useOrgLanguage';
 
 // Expose brain indexing utilities globally for console access
 // Usage: window.brainUtils.reindexAll() or window.brainUtils.backfill()
@@ -168,6 +169,7 @@ function getRolePathFromLocation(): { view: AppView; roleId: string | null } {
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
+  useOrgLanguage();
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   const [currentRole, setCurrentRole] = useState<UserRole>(

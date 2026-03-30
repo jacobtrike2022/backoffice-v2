@@ -40,6 +40,8 @@ import {
 import { EmailSettings } from './Settings/EmailSettings';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { useTranslation } from 'react-i18next';
+import { Globe } from 'lucide-react';
 
 interface Invoice {
   id: string;
@@ -124,7 +126,9 @@ interface SettingsProps {
 }
 
 export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('billing');
+  const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [showHRISModal, setShowHRISModal] = useState(false);
   const [showSandboxModal, setShowSandboxModal] = useState(false);
   const [hrisSearchQuery, setHrisSearchQuery] = useState('');
@@ -234,6 +238,23 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
     }
   };
 
+  const handleLanguageChange = async (lang: string) => {
+    setPreferredLanguage(lang);
+    i18n.changeLanguage(lang);
+
+    if (!organizationId) return;
+    try {
+      await supabase
+        .from('organizations')
+        .update({ preferred_language: lang })
+        .eq('id', organizationId);
+      toast.success(t('settings.language.saved'));
+      window.dispatchEvent(new Event('organization-updated'));
+    } catch {
+      toast.error(t('settings.language.saveFailed'));
+    }
+  };
+
   // Fetch organization data (name and logos) on mount
   useEffect(() => {
     const fetchOrgData = async () => {
@@ -245,7 +266,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url')
+          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url, preferred_language')
           .eq('id', orgId)
           .single();
 
@@ -255,6 +276,11 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
             logo_light_url: org.logo_light_url
           });
           
+          // Set language preference
+          if (org.preferred_language) {
+            setPreferredLanguage(org.preferred_language);
+          }
+
           // Update company info state with all org data
           setCompanyInfo({
             name: org.name || '',
@@ -687,6 +713,33 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                 >
                   Save Changes
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Language & Region */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Globe className="h-5 w-5 text-primary" />
+                <span>{t('settings.language.title')}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {t('settings.language.description')}
+              </p>
+              <div className="max-w-xs">
+                <Label>{t('settings.language.label')}</Label>
+                <Select value={preferredLanguage} onValueChange={handleLanguageChange}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="es">Español</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>

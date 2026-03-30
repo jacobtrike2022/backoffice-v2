@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HeroMetrics } from './HeroMetrics';
 import { ComparativeAnalytics } from './ComparativeAnalytics';
 import { UnitPerformanceTable } from './UnitPerformanceTable';
@@ -49,6 +50,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, onNavigateToPlaylists, onNavigateToUnits, onNavigateToStore, onNavigateToPlaylist, onNavigate }: DashboardProps) {
+  const { t } = useTranslation();
   const [activeView, setActiveView] = useState('overview');
   const { user, loading: userLoading } = useCurrentUser();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
@@ -117,7 +119,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
         setLoading(false);
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
-        toast.error('Failed to load dashboard data');
+        toast.error(t('dashboard.failedToLoad'));
         setLoading(false);
       }
     }
@@ -194,7 +196,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
     } else if (onNavigateToPlaylists) {
       onNavigateToPlaylists();
     } else {
-      toast.success('Opening Playlists page...');
+      toast.success(t('dashboard.openingPlaylists'));
     }
   };
 
@@ -204,7 +206,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
     } else if (onViewReports) {
       onViewReports();
     } else {
-      toast.info('Reports view will be available soon');
+      toast.info(t('dashboard.reportsComingSoon'));
     }
   };
 
@@ -216,11 +218,11 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-foreground">{t('dashboard.title')}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isAdminRole && 'System overview and administration'}
-            {currentRole === 'district-manager' && 'District performance and management'}
-            {currentRole === 'store-manager' && 'Store operations and team management'}
+            {isAdminRole && t('dashboard.subtitleAdmin')}
+            {currentRole === 'district-manager' && t('dashboard.subtitleDistrict')}
+            {currentRole === 'store-manager' && t('dashboard.subtitleStore')}
           </p>
         </div>
         
@@ -232,12 +234,12 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               onClick={handleAssignContent}
             >
               <Plus className="w-4 h-4 mr-1.5" />
-              Assign Content
+              {t('dashboard.assignContent')}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={handleViewReports}>
             <Eye className="w-4 h-4 mr-1.5" />
-            Reports
+            {t('dashboard.reports')}
           </Button>
         </div>
       </div>
@@ -248,15 +250,15 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
           <TabsList className="grid w-full max-w-2xl grid-cols-3 bg-accent/50">
             <TabsTrigger value="overview" className="text-sm">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-              Overview
+              {t('dashboard.overview')}
             </TabsTrigger>
             <TabsTrigger value="analytics" className="text-sm">
               <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
-              Analytics
+              {t('dashboard.analytics')}
             </TabsTrigger>
             <TabsTrigger value="compliance" className="text-sm">
               <Award className="w-3.5 h-3.5 mr-1.5" />
-              Compliance
+              {t('dashboard.compliance')}
             </TabsTrigger>
           </TabsList>
           
@@ -269,8 +271,8 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               <CardHeader className="pb-3">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
-                    <CardTitle className="text-base">Performance Overview</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">Completion trends vs targets</p>
+                    <CardTitle className="text-base">{t('dashboard.performanceOverview')}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t('dashboard.completionTrends')}</p>
                   </div>
                   <Button 
                     variant="ghost" 
@@ -279,7 +281,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                     onClick={() => setActiveView('analytics')}
                   >
                     <TrendingUp className="h-3 w-3 mr-1" />
-                    Details
+                    {t('common.details')}
                   </Button>
                 </div>
               </CardHeader>
@@ -332,9 +334,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Zap className="h-4 w-4 text-primary" />
-                  Weekly Engagement Score
+                  {t('dashboard.weeklyEngagement')}
                 </CardTitle>
-                <p className="text-xs text-muted-foreground">Last 7 days activity</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.last7Days')}</p>
               </CardHeader>
               <CardContent className="pb-4">
                 {loading ? (
@@ -343,7 +345,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                   <>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
                       <div className="text-3xl font-bold">{engagementScore.toFixed(0)}<span className="text-lg text-muted-foreground">/100</span></div>
-                      <div className="text-sm text-muted-foreground">Team engagement trending upward</div>
+                      <div className="text-sm text-muted-foreground">{t('dashboard.engagementTrending')}</div>
                     </div>
                     <ResponsiveContainer width="100%" height={120}>
                       <BarChart data={engagementData}>
@@ -360,7 +362,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
             <Card className="border-border/50 shadow-sm w-full">
               <CardHeader className="pb-3">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle className="text-base">Active Playlists</CardTitle>
+                  <CardTitle className="text-base">{t('dashboard.activePlaylists')}</CardTitle>
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -371,7 +373,7 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                       }
                     }}
                   >
-                    View All
+                    {t('common.viewAll')}
                     <ArrowRight className="h-3 w-3 ml-1" />
                   </Button>
                 </div>
@@ -395,24 +397,24 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 className="font-medium text-sm truncate">{assignment.title}</h4>
                             <Badge className={`${assignment.type === 'auto' ? 'bg-brand-gradient' : 'bg-secondary'} text-xs px-2 py-0 whitespace-nowrap`}>
-                              {assignment.type === 'auto' ? 'Auto-Assigned' : 'Manual Assignment'}
+                              {assignment.type === 'auto' ? t('dashboard.autoAssigned') : t('dashboard.manualAssignment')}
                             </Badge>
                           </div>
                           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1 whitespace-nowrap">
                               <Library className="h-3 w-3" />
-                              {assignment.totalTracks} tracks
+                              {assignment.totalTracks} {t('dashboard.tracks')}
                             </span>
                             <span className="flex items-center gap-1 whitespace-nowrap">
                               <Clock className="h-3 w-3" />
-                              {assignment.totalDuration >= 60 
-                                ? `${(assignment.totalDuration / 60).toFixed(1)} hrs`
-                                : `${assignment.totalDuration} min`
+                              {assignment.totalDuration >= 60
+                                ? `${(assignment.totalDuration / 60).toFixed(1)} ${t('dashboard.hrs')}`
+                                : `${assignment.totalDuration} ${t('dashboard.min')}`
                               }
                             </span>
                             <span className="flex items-center gap-1 whitespace-nowrap">
                               <Users className="h-3 w-3" />
-                              {assignment.assignedTo} learners
+                              {assignment.assignedTo} {t('dashboard.learners')}
                             </span>
                           </div>
                         </div>
@@ -437,9 +439,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Award className="h-4 w-4 text-primary" />
-                  Top Performing Units
+                  {t('dashboard.topPerformers')}
                 </CardTitle>
-                <p className="text-xs text-muted-foreground">Stores ranked by average employee progress</p>
+                <p className="text-xs text-muted-foreground">{t('dashboard.topPerformersSubtitle')}</p>
               </CardHeader>
               <CardContent className="pb-4">
                 {loading ? (

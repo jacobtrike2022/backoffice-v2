@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -109,6 +110,7 @@ const calculateReadingTime = (htmlContent: string): number => {
 };
 
 export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticated = false, initialTrackId, onNavigateToPlaylist, onNavigateToAlbum, onNavigateToPlaylistsTab, onNavigateToAlbumsTab, onBackToLibrary, registerUnsavedChangesCheck, onNavigate, isProspectOrg = false }: ContentLibraryProps) {
+  const { t } = useTranslation();
   const { user: currentUser } = useCurrentUser();
   const isPreviewMode = isProspectOrg || new URLSearchParams(window.location.search).get('preview') === 'true';
   const withDemoOrgParam = useCallback((basePath: string) => {
@@ -310,16 +312,16 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       const newTrack = await crud.duplicateTrack(track.id);
       
       // Show persistent toast with link to view the duplicated track
-      toast.success(`"${(track as { title?: string }).title ?? 'Track'}" duplicated successfully!`, {
-        description: `New draft: "${(newTrack as { title?: string }).title ?? 'Untitled'}"`,
+      toast.success(t('content.duplicatedSuccess', { title: (track as { title?: string }).title ?? 'Track' }), {
+        description: t('content.newDraft', { title: (newTrack as { title?: string }).title ?? 'Untitled' }),
         duration: Infinity, // Stay visible until dismissed
         action: {
-          label: 'View Copy',
+          label: t('content.viewCopy'),
           onClick: async () => {
             // Load and view the duplicated track
             // Fix: newTrack may be typed as 'never' or missing id, assert type or use type guard
             if (!newTrack || typeof newTrack !== "object" || !("id" in newTrack)) {
-              toast.error("Unable to load duplicated track (missing ID).");
+              toast.error(t('content.unableLoadDuplicated'));
               return;
             }
             const trackId = String((newTrack as { id: string | number }).id);
@@ -331,7 +333,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       });
     } catch (error: any) {
       console.error('Failed to duplicate track:', error);
-      toast.error(`Failed to duplicate: ${error.message}`);
+      toast.error(t('content.failedDuplicate', { message: error.message }));
     }
   };
 
@@ -345,11 +347,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     
     try {
       await crud.updateTrack({ id: track.id, status: 'draft' });
-      toast.success(`"${track.title}" moved to drafts`);
+      toast.success(t('content.movedToDrafts', { title: track.title }));
       await refetch();
     } catch (error: any) {
       console.error('Failed to move to drafts:', error);
-      toast.error(`Failed to move to drafts: ${error.message}`);
+      toast.error(t('content.failedMoveToDrafts', { message: error.message }));
     }
   };
 
@@ -439,12 +441,12 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   const performArchive = async (trackId: string, trackTitle: string) => {
     try {
       await crud.archiveTrack(trackId);
-      toast.success(`"${trackTitle}" archived`);
+      toast.success(t('content.archived', { title: trackTitle }));
       await refetch();
       setArchiveWarningDialog({ open: false, track: null, relationships: [] });
     } catch (error: any) {
       console.error('Failed to archive:', error);
-      toast.error(`Failed to archive: ${error.message || 'Unknown error'}`);
+      toast.error(t('content.failedArchiveMsg', { message: error.message || 'Unknown error' }));
     }
   };
 
@@ -471,11 +473,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         console.log('🔗 Navigated to related track:', fullTrack.title, newUrl);
       } else {
         console.error('Failed to load track:', trackId);
-        toast.error('Failed to load track');
+        toast.error(t('content.failedLoadTrack'));
       }
     } catch (error) {
       console.error('Error loading related track:', error);
-      toast.error('Failed to load track');
+      toast.error(t('content.failedLoadTrack'));
     }
   };
 
@@ -484,11 +486,11 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
     
     try {
       await crud.updateTrack({ id: track.id, status: 'published' });
-      toast.success(`"${track.title}" moved to published`);
+      toast.success(t('content.movedToPublished', { title: track.title }));
       await refetch();
     } catch (error: any) {
       console.error('Failed to move to published:', error);
-      toast.error(`Failed to move to published: ${error.message}`);
+      toast.error(t('content.failedMoveToPublished', { message: error.message }));
     }
   };
 
@@ -502,7 +504,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       if (hasActivity) {
         toast.error(
-          `Cannot delete "${track.title}" because it has associated activity. Tracks with user engagement must be kept for data integrity.`,
+          t('content.cannotDeleteActivity', { title: track.title }),
           { duration: 6000 }
         );
         return;
@@ -518,7 +520,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           .join('\n');
         
         toast.error(
-          `Cannot delete "${track.title}" because it is used as source material for ${stats.derivedCount} other track(s):\n\n${derivedTitles}`,
+          t('content.cannotDeleteSource', { title: track.title, count: stats.derivedCount }) + `\n\n${derivedTitles}`,
           { duration: 8000 }
         );
         return;
@@ -526,7 +528,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // Show confirmation dialog
       const confirmed = window.confirm(
-        `⚠️ PERMANENT DELETE\n\nAre you sure you want to permanently delete "${track.title}"?\n\nThis action CANNOT be undone. The ${track.type} and all its data will be permanently removed from the database.\n\nType "DELETE" to confirm.`
+        `⚠️ ${t('content.permanentDeleteConfirm', { title: track.title, type: track.type })}`
       );
       
       if (!confirmed) {
@@ -535,16 +537,16 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       // Additional confirmation for system content
       if (track.is_system_content && !isSuperAdminAuthenticated) {
-        toast.error('Only Super Admins can delete system content');
+        toast.error(t('content.onlySuperAdmins'));
         return;
       }
       
       await crud.deleteTrack(track.id);
-      toast.success(`"${track.title}" permanently deleted`);
+      toast.success(t('content.permanentlyDeleted', { title: track.title }));
       await refetch();
     } catch (error: any) {
       console.error('Failed to delete track:', error);
-      toast.error(`Failed to delete: ${error.message}`);
+      toast.error(t('content.failedDeleteMsg', { message: error.message }));
     }
   };
 
@@ -602,7 +604,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       
       if (!versionTrack) {
         console.error('❌ Version track not found:', versionTrackId);
-        toast.error('Version not found');
+        toast.error(t('content.versionNotFound'));
         return;
       }
       
@@ -625,7 +627,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       console.log('✅ Version loaded successfully');
     } catch (error) {
       console.error('❌ Failed to load version:', error);
-      toast.error('Failed to load this version');
+      toast.error(t('content.failedLoadVersion'));
     }
   };
   
@@ -648,7 +650,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       setFilterByAlbumId(null);
       setFilterAlbumTracks([]);
       setFilterAlbumTitle('');
-      toast.info('Album filter cleared');
+      toast.info(t('content.albumFilterCleared'));
       return;
     }
 
@@ -658,7 +660,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       const { getAlbumById } = await import('../lib/crud/albums');
       const album = await getAlbumById(albumId);
       if (!album) {
-        toast.error('Album not found');
+        toast.error(t('content.albumNotFound'));
         return;
       }
 
@@ -675,13 +677,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       setFilterAlbumTitle(album.title || 'Album');
 
       if (trackIds.length === 0) {
-        toast.info(`"${album.title}" has no tracks yet`);
+        toast.info(t('content.hasNoTracksYet', { title: album.title }));
       } else {
-        toast.success(`Filtering by "${album.title}" (${trackIds.length} tracks)`);
+        toast.success(t('content.filteringBy', { title: album.title, count: trackIds.length }));
       }
     } catch (error) {
       console.error('Failed to load album:', error);
-      toast.error('Failed to load album');
+      toast.error(t('content.failedLoadAlbum'));
     }
   };
 
@@ -706,7 +708,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       setFilterByPlaylistId(null);
       setFilterPlaylistTracks([]);
       setFilterPlaylistTitle('');
-      toast.info('Playlist filter cleared');
+      toast.info(t('content.playlistFilterCleared'));
       return;
     }
 
@@ -717,7 +719,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       const playlistData = await getPlaylistTrackIds(playlistId);
       
       if (!playlistData) {
-        toast.error('Playlist not found');
+        toast.error(t('content.playlistNotFound'));
         return;
       }
 
@@ -733,13 +735,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       setFilterPlaylistTitle(playlistData.title || 'Playlist');
 
       if (trackIds.length === 0) {
-        toast.info(`"${playlistData.title}" has no tracks yet`);
+        toast.info(t('content.hasNoTracksYet', { title: playlistData.title }));
       } else {
-        toast.success(`Filtering by "${playlistData.title}" (${trackIds.length} tracks)`);
+        toast.success(t('content.filteringBy', { title: playlistData.title, count: trackIds.length }));
       }
     } catch (error) {
       console.error('Failed to load playlist:', error);
-      toast.error('Failed to load playlist');
+      toast.error(t('content.failedLoadPlaylist'));
     }
   };
 
@@ -819,9 +821,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
   if (error) {
     return (
       <div className="p-8 bg-red-50 border border-red-200 rounded-lg">
-        <h2 className="text-xl font-semibold text-red-700 mb-2">Error Loading Content</h2>
+        <h2 className="text-xl font-semibold text-red-700 mb-2">{t('content.errorLoading')}</h2>
         <p className="text-red-600 mb-4">{error.message}</p>
-        <Button onClick={() => refetch()}>Retry</Button>
+        <Button onClick={() => refetch()}>{t('content.retry')}</Button>
       </div>
     );
   }
@@ -964,29 +966,29 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                Archive Track with Relationships
+                {t('content.archiveWithRelationships')}
               </DialogTitle>
               <DialogDescription>
-                This track has relationships with other tracks. Archiving it will not delete the related tracks, but the relationships may be affected.
+                {t('content.archiveDescription')}
               </DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-4 py-4">
               <div>
                 <p className="text-sm font-medium mb-2">
-                  You are about to archive: <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
+                  {t('content.aboutToArchive')} <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  This {archiveWarningDialog.track?.type} has relationships with {archiveWarningDialog.relationships.length} other track(s):
+                  {t('content.hasRelationshipsCount', { type: archiveWarningDialog.track?.type, count: archiveWarningDialog.relationships.length })}
                 </p>
               </div>
-              
+
               <div className="border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
                 <div className="space-y-3">
                   {archiveWarningDialog.relationships.map((rel) => {
                     const derivedTrack = rel.derived_track;
                     if (!derivedTrack) return null;
-                    
+
                     const getTypeColor = (type: string) => {
                       switch (type) {
                         case 'checkpoint': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400';
@@ -996,10 +998,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         default: return 'bg-gray-100 text-gray-700 border-gray-200';
                       }
                     };
-                    
+
                     return (
-                      <div 
-                        key={rel.id} 
+                      <div
+                        key={rel.id}
                         className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
                         onClick={() => handleNavigateToRelatedTrack(derivedTrack.id)}
                       >
@@ -1010,7 +1012,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           <div className="flex-1">
                             <p className="text-sm font-medium text-foreground">{derivedTrack.title || 'Untitled'}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Relationship: {rel.relationship_type}
+                              {t('content.relationship')} {rel.relationship_type}
                             </p>
                           </div>
                         </div>
@@ -1024,27 +1026,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           className="ml-2"
                         >
                           <ExternalLink className="h-4 w-4 mr-1" />
-                          View
+                          {t('content.view')}
                         </Button>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              
+
               <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  <strong>Note:</strong> Archiving this track will not delete the related tracks above, but they will lose their source reference. The related tracks will continue to function independently.
+                  <strong>{t('content.note')}</strong> {t('content.archiveNote')}
                 </p>
               </div>
             </div>
-            
+
             <DialogFooter>
               <Button
                 variant="outline"
                 onClick={() => setArchiveWarningDialog({ open: false, track: null, relationships: [] })}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="destructive"
@@ -1052,7 +1054,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 className="bg-red-600 hover:bg-red-700"
               >
                 <Archive className="h-4 w-4 mr-2" />
-                Archive Anyway
+                {t('content.archiveAnyway')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1073,7 +1075,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onVariantCreated={(newTrackId) => {
               setCreateVariantModal({ open: false, track: null });
               if (onNavigate) {
-                toast.success('Variant created! Opening editor...');
+                toast.success(t('content.variantCreated'));
                 onNavigate('authoring', newTrackId);
               } else {
                 refetch().then(() => {
@@ -1082,7 +1084,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     setSelectedTrack(newTrack);
                   }
                 });
-                toast.success('Variant created successfully');
+                toast.success(t('content.variantCreatedSuccess'));
               }
             }}
           />
@@ -1100,15 +1102,15 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         {isPreviewMode && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200">
             <Eye className="h-4 w-4 shrink-0" />
-            <span>You are previewing the Content Library. Editing is disabled in preview mode.</span>
+            <span>{t('content.previewBanner')}</span>
           </div>
         )}
         {/* Header */}
         <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground">Content Library</h1>
+          <h1 className="text-foreground">{t('content.title')}</h1>
           <p className="text-muted-foreground mt-1">
-            Browse and edit your published content.
+            {t('content.browseAndEdit')}
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -1118,7 +1120,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               onClick={() => onNavigate('authoring')}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Create Content
+              {t('content.createContent')}
             </Button>
           )}
           <Button
@@ -1146,7 +1148,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by title, content, description, or tags..."
+                placeholder={t('content.searchByTitleContent')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1159,30 +1161,30 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 <SelectValue placeholder="View" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Content</SelectItem>
-                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Content Types</div>
+                <SelectItem value="all">{t('content.allContent')}</SelectItem>
+                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{t('content.contentTypes')}</div>
                 <SelectItem value="video">
                   <div className="flex items-center gap-2">
                     <Video className="h-4 w-4" />
-                    Videos
+                    {t('content.videos')}
                   </div>
                 </SelectItem>
                 <SelectItem value="article">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
-                    Articles
+                    {t('content.articles')}
                   </div>
                 </SelectItem>
                 <SelectItem value="story">
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
-                    Stories
+                    {t('content.stories')}
                   </div>
                 </SelectItem>
                 <SelectItem value="checkpoint">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    Checkpoints
+                    {t('content.checkpoints')}
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -1197,25 +1199,25 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                 <SelectItem value="published">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    Published
+                    {t('common.published')}
                   </div>
                 </SelectItem>
                 <SelectItem value="drafts">
                   <div className="flex items-center gap-2">
                     <Edit className="h-4 w-4" />
-                    Drafts
+                    {t('common.draft')}
                   </div>
                 </SelectItem>
                 <SelectItem value="archived">
                   <div className="flex items-center gap-2">
                     <Archive className="h-4 w-4" />
-                    Archived
+                    {t('common.archived')}
                   </div>
                 </SelectItem>
                 <SelectItem value="in-kb">
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
-                    In Knowledge Base
+                    {t('content.inKnowledgeBase')}
                   </div>
                 </SelectItem>
               </SelectContent>
