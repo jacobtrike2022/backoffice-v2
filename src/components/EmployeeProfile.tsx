@@ -326,7 +326,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
 
     } catch (err) {
       console.error('Error fetching employee data:', err);
-      toast.error('Failed to load employee details');
+      toast.error(t('people.toastFailedLoadDetails'));
     } finally {
       setLoading(false);
     }
@@ -468,7 +468,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       });
     } catch (err) {
       console.error('Error fetching overview data:', err);
-      toast.error('Failed to load overview data');
+      toast.error(t('people.toastFailedLoadOverview'));
     } finally {
       setTabLoading(prev => ({ ...prev, overview: false }));
     }
@@ -556,7 +556,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       setProgressData(progressData);
     } catch (err) {
       console.error('Error fetching progress data:', err);
-      toast.error('Failed to load progress data');
+      toast.error(t('people.toastFailedLoadProgress'));
       setProgressData([]);
     } finally {
       setTabLoading(prev => ({ ...prev, progress: false }));
@@ -655,7 +655,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       });
     } catch (err) {
       console.error('Error fetching performance data:', err);
-      toast.error('Failed to load performance data');
+      toast.error(t('people.toastFailedLoadPerformance'));
     } finally {
       setTabLoading(prev => ({ ...prev, performance: false }));
     }
@@ -837,7 +837,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       setActivityTimeline(timelineEvents);
     } catch (err) {
       console.error('Error fetching activity timeline:', err);
-      toast.error('Failed to load activity timeline');
+      toast.error(t('people.toastFailedLoadTimeline'));
     } finally {
       setTabLoading(prev => ({ ...prev, activity: false }));
     }
@@ -884,10 +884,10 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       const tagIds = tagObjects.map(t => t.id);
       try {
         await tagCrud.assignTags(employee.id, 'user', tagIds);
-        toast.success('Tags updated successfully');
+        toast.success(t('people.toastTagsUpdated'));
       } catch (error) {
         console.error('Error updating tags:', error);
-        toast.error('Failed to update tags');
+        toast.error(t('people.toastFailedUpdateTags'));
       }
     }
   };
@@ -919,22 +919,22 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       await createNotification({
         user_id: employee.id,
         type: 'due-date',
-        title: 'Training Reminder',
-        message: `You have pending training assignments that require your attention.`,
+        title: t('people.sendTrainingReminder'),
+        message: t('people.notificationReminderMessage'),
         link_url: '/assignments'
       });
 
       const channelText = notificationTypes.length > 0 
         ? ` via ${notificationTypes.join(', ')}` 
         : '';
-      toast.success('Reminder sent successfully', {
-        description: `Training reminder sent to ${employee.name}${channelText}`
+      toast.success(t('people.toastReminderSent'), {
+        description: t('people.toastReminderSentDesc', { name: employee.name, channels: channelText })
       });
       setShowReminderDialog(false);
     } catch (err: any) {
       console.error('Error sending reminder:', err);
-      toast.error('Failed to send reminder', {
-        description: err.message || 'Please try again later'
+      toast.error(t('people.toastFailedSendReminder'), {
+        description: err.message || t('people.toastTryAgainLater')
       });
     }
   };
@@ -1099,7 +1099,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         <span>{employee.email}</span>
                         {employee.phone && <span>{employee.phone}</span>}
                         <span>{employee.homeStore}</span>
-                        {currentRole === 'admin' && <span>{employee.district} District</span>}
+                        {currentRole === 'admin' && <span>{employee.district} {t('people.districtLabel')}</span>}
                       </div>
                       <div className="flex items-center gap-8 text-muted-foreground">
                         {employee.employeeId && <span>{t('people.idLabel')}: {employee.employeeId}</span>}
@@ -1133,7 +1133,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                           ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400' 
                           : 'bg-gray-100 text-gray-700 border-gray-200'}
                       >
-                        {employee.status.toUpperCase()}
+                        {(employee.status === 'active' ? t('common.active') : employee.status === 'inactive' ? t('common.inactive') : t('common.onLeave')).toUpperCase()}
                       </Badge>
                       <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
                         {assignments.length} {t('people.assignments')}

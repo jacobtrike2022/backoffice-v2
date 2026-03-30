@@ -2453,7 +2453,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                {/* Article Header */}
                <div className="mb-8">
                   <div className="flex items-center gap-3 mb-6 text-sm text-slate-500">
-                     <span>{selectedTrack.type ? selectedTrack.type.charAt(0).toUpperCase() + selectedTrack.type.slice(1) : 'Article'}</span>
+                     <span>{selectedTrack.type ? selectedTrack.type.charAt(0).toUpperCase() + selectedTrack.type.slice(1) : t('knowledgeBase.defaultTrackType')}</span>
                      <span>•</span>
                      <span>{t('knowledgeBase.lastUpdated')} {formatKbPdfDate(selectedTrack.updated_at)}</span>
                   </div>
@@ -2554,7 +2554,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                             className="w-full max-w-md"
                             src={selectedTrack.content_url}
                           >
-                            Your browser does not support the audio tag.
+                            {t('knowledgeBase.audioNotSupported')}
                           </audio>
                         </div>
                       ) : (

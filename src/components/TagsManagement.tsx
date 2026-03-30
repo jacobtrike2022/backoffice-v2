@@ -149,8 +149,8 @@ export function TagsManagement({ currentRole, activeSystem: externalActiveSystem
   const handleDeleteTag = async (tag: Tag) => {
     const isSystemTag = tag.is_system_locked;
     const warningMessage = isSystemTag
-      ? `⚠️ WARNING: "${tag.name}" is a system-wide tag. Deleting it may affect all organizations. Are you sure?`
-      : `Delete tag "${tag.name}"?`;
+      ? t('content.deleteSystemTagWarning', { name: tag.name })
+      : t('content.deleteTagConfirm', { name: tag.name });
 
     if (!confirm(warningMessage)) return;
 

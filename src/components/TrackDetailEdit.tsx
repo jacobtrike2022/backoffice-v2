@@ -1558,9 +1558,9 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <span className="ml-1 capitalize">{track.type}</span>
               </Badge>
               <span>•</span>
-              <span>{track.duration_minutes ? `${track.duration_minutes} min` : 'N/A'}</span>
+              <span>{track.duration_minutes ? `${track.duration_minutes} min` : t('trackDetail.notAvailable')}</span>
               <span>•</span>
-              <span>Version {track.version || '1.0'}</span>
+              <span>{t('trackDetail.version')} {track.version || '1.0'}</span>
             </div>
           </div>
         </div>
@@ -2088,7 +2088,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           variant="outline"
                           className="cursor-not-allowed opacity-60 bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
                         >
-                          Draft
+                          {t('trackDetail.draft')}
                         </Badge>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-2 text-xs" side="left">
@@ -2297,7 +2297,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <span className="text-sm">
                   {track.published_at
                     ? new Date(track.published_at).toLocaleDateString()
-                    : 'N/A'}
+                    : t('trackDetail.notAvailable')}
                 </span>
               </div>
               <Separator />
@@ -2309,7 +2309,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <span className="text-sm">
                   {track.updated_at
                     ? new Date(track.updated_at).toLocaleDateString()
-                    : 'N/A'}
+                    : t('trackDetail.notAvailable')}
                 </span>
               </div>
             </CardContent>
