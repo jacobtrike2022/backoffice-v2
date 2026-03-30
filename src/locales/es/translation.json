@@ -4621,6 +4621,13 @@
     "toastTrackSkipFailed": "Error al omitir la pista",
     "toastSaveFailed": "Error al guardar los cambios",
     "toastPublishFailed": "Error al publicar el álbum",
-    "toastAlbumCreated": "Álbum creado con {{count}} pistas"
+    "toastAlbumCreated": "Álbum creado con {{count}} pistas",
+    "statusSuggested": "Sugerida",
+    "statusConfirmed": "Confirmada",
+    "statusGenerating": "Generando...",
+    "statusDraftReady": "Borrador Listo",
+    "statusApproved": "Aprobada",
+    "statusPublished": "Publicada",
+    "statusSkipped": "Omitida"
   }
 }

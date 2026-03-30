@@ -372,7 +372,7 @@ export function TagSelectorDialog({
     
     try {
       await deleteTag(tag.id);
-      toast.success('Tag deleted');
+      toast.success(t('content.tagDeleted'));
       loadTags();
     } catch (error: any) {
       toast.error(error.message || t('content.failedDeleteTag'));

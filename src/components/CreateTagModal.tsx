@@ -237,7 +237,7 @@ export function CreateTagModal({
     }
 
     if ((tagType === 'subcategory' || tagType === 'child') && !selectedParentId) {
-      toast.error(`Please select a ${tagType === 'child' ? 'parent or subcategory' : 'parent'} tag`);
+      toast.error(tagType === 'child' ? t('content.pleaseSelectParentOrSubcategoryTag') : t('content.pleaseSelectParentTag'));
       return;
     }
 
@@ -426,7 +426,7 @@ export function CreateTagModal({
                   required
                   disabled={isEditing && tagType === 'parent'}
                 >
-                  <option value="">Choose a category...</option>
+                  <option value="">{t('content.chooseCategoryPlaceholder')}</option>
                   {getSystemCategories()
                     .map(category => (
                       <option key={category.id} value={category.id}>
@@ -458,7 +458,7 @@ export function CreateTagModal({
                     required
                     disabled={isEditing}
                   >
-                    <option value="">Choose a parent...</option>
+                    <option value="">{t('content.chooseParentPlaceholder')}</option>
                     {getParentTagsForCategory(selectedCategoryId).map(parent => (
                       <option key={parent.id} value={parent.id}>
                         {parent.name}
@@ -500,7 +500,7 @@ export function CreateTagModal({
                     required
                     disabled={isEditing}
                   >
-                    <option value="">Choose a parent or subcategory...</option>
+                    <option value="">{t('content.chooseParentOrSubcategoryPlaceholder')}</option>
                     {getChildContainersForCategory(selectedCategoryId).map(parent => (
                       <option key={parent.id} value={parent.id}>
                         {parent.name} {parent.type === 'subcategory' ? `(${t('content.tagTypeSubcategory')})` : ''}
@@ -540,7 +540,7 @@ export function CreateTagModal({
                 maxLength={50}
               />
               <p className="text-xs text-muted-foreground">
-                {tagName.length}/50 characters
+                {t('content.charCountOf50', { count: tagName.length })}
               </p>
             </div>
 
@@ -556,7 +556,7 @@ export function CreateTagModal({
                 maxLength={200}
               />
               <p className="text-xs text-muted-foreground">
-                {description.length}/200 characters
+                {t('content.charCountOf200', { count: description.length })}
               </p>
             </div>
 
@@ -633,7 +633,7 @@ export function CreateTagModal({
                       setHexInputError('');
                     }}
                     className="w-12 h-10 cursor-pointer p-1"
-                    title="Click to open color picker"
+                    title={t('content.clickToOpenColorPicker')}
                   />
                   <div className="flex-1 flex items-center gap-2">
                     <Input

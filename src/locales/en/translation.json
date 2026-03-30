@@ -4439,6 +4439,13 @@
     "toastTrackSkipFailed": "Failed to skip track",
     "toastSaveFailed": "Failed to save changes",
     "toastPublishFailed": "Failed to publish album",
-    "toastAlbumCreated": "Album created with {{count}} tracks"
+    "toastAlbumCreated": "Album created with {{count}} tracks",
+    "statusSuggested": "Suggested",
+    "statusConfirmed": "Confirmed",
+    "statusGenerating": "Generating...",
+    "statusDraftReady": "Draft Ready",
+    "statusApproved": "Approved",
+    "statusPublished": "Published",
+    "statusSkipped": "Skipped"
   }
 }

@@ -134,7 +134,7 @@ export function EmailSettings() {
       const data = await getEmailTemplates();
       setTemplates(data);
     } catch (error: any) {
-      toast.error('Failed to load templates', { description: error.message });
+      toast.error(t('emailSettings.failedLoadTemplates'), { description: error.message });
     } finally {
       setLoading(false);
     }
@@ -151,7 +151,7 @@ export function EmailSettings() {
       setLogs(result.logs);
       setLogsTotal(result.total);
     } catch (error: any) {
-      toast.error('Failed to load email logs', { description: error.message });
+      toast.error(t('emailSettings.failedLoadLogs'), { description: error.message });
     } finally {
       setLogsLoading(false);
     }
@@ -170,7 +170,7 @@ export function EmailSettings() {
       setSelectedTemplate(template);
       setShowPreviewModal(true);
     } catch (error: any) {
-      toast.error('Failed to preview template', { description: error.message });
+      toast.error(t('emailSettings.failedPreviewTemplate'), { description: error.message });
     }
   }
 
@@ -199,11 +199,11 @@ export function EmailSettings() {
       setShowEditorModal(true);
       // Reload templates list
       await loadTemplates();
-      toast.success('Template customized', {
-        description: 'You can now edit your copy of this template.',
+      toast.success(t('emailSettings.templateCustomized'), {
+        description: t('emailSettings.templateCustomizedDesc'),
       });
     } catch (error: any) {
-      toast.error('Failed to customize template', { description: error.message });
+      toast.error(t('emailSettings.failedCustomizeTemplate'), { description: error.message });
     }
   }
 
@@ -219,7 +219,7 @@ export function EmailSettings() {
         body_text: formData.body_text,
         available_variables: formData.available_variables,
       });
-      toast.success('Template created');
+      toast.success(t('emailSettings.templateCreated'));
     } else {
       if (!formData.id) {
         throw new Error('Template ID is required for update');
@@ -232,7 +232,7 @@ export function EmailSettings() {
         body_text: formData.body_text,
         available_variables: formData.available_variables,
       });
-      toast.success('Template updated');
+      toast.success(t('emailSettings.templateUpdated'));
     }
     await loadTemplates();
   }
@@ -249,12 +249,12 @@ export function EmailSettings() {
     try {
       setDeleting(true);
       await deleteEmailTemplate(templateToDelete.id);
-      toast.success('Template deleted');
+      toast.success(t('emailSettings.templateDeleted'));
       await loadTemplates();
       setShowDeleteConfirm(false);
       setTemplateToDelete(null);
     } catch (error: any) {
-      toast.error('Failed to delete template', { description: error.message });
+      toast.error(t('emailSettings.failedDeleteTemplate'), { description: error.message });
     } finally {
       setDeleting(false);
     }
@@ -264,11 +264,11 @@ export function EmailSettings() {
   async function handleSendTestEmail(template: EmailTemplate) {
     try {
       await sendTestEmail(template.id);
-      toast.success('Test email sent', {
-        description: 'Check your inbox for the test email.',
+      toast.success(t('emailSettings.testEmailSent'), {
+        description: t('emailSettings.testEmailSentDesc'),
       });
     } catch (error: any) {
-      toast.error('Failed to send test email', { description: error.message });
+      toast.error(t('emailSettings.failedSendTestEmail'), { description: error.message });
     }
   }
 
