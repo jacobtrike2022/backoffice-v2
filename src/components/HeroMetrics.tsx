@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 import { TrendingUp, TrendingDown, Minus, Users, CheckCircle, AlertTriangle, Building, Target, Activity } from 'lucide-react';
@@ -57,6 +58,7 @@ const getTrendColor = (type: 'increase' | 'decrease' | 'neutral', status?: 'good
 };
 
 export function HeroMetrics({ currentRole }: HeroMetricsProps) {
+  const { t } = useTranslation();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [metrics, setMetrics] = useState<HeroMetric[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,7 +78,7 @@ export function HeroMetrics({ currentRole }: HeroMetricsProps) {
         const metricsData = getMetricsForRole(currentRole, stats, {
           employeeTrend,
           completionTrend
-        });
+        }, t);
         
         setMetrics(metricsData);
       } catch (error) {
@@ -90,48 +92,49 @@ export function HeroMetrics({ currentRole }: HeroMetricsProps) {
   }, [effectiveOrgId, currentRole]);
 
   const getMetricsForRole = (
-    role: UserRole, 
+    role: UserRole,
     stats: any,
-    trends: { employeeTrend: number; completionTrend: number }
+    trends: { employeeTrend: number; completionTrend: number },
+    tFn: (key: string, opts?: object) => string
   ): HeroMetric[] => {
     if (role === 'admin') {
       return [
         {
           id: 'employees',
-          title: 'Active Employees',
+          title: tFn('heroMetrics.activeEmployees'),
           value: stats.employeeCount.toString(),
-          subtitle: `Across ${stats.storeCount} units`,
-          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.acrossUnits', { count: stats.storeCount }),
+          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Users,
           isHero: true
         },
         {
           id: 'compliance',
-          title: 'Compliance Rate',
+          title: tFn('heroMetrics.complianceRate'),
           value: `${stats.avgCompletion}%`,
-          subtitle: 'System-wide',
-          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: 'vs last quarter' },
+          subtitle: tFn('heroMetrics.systemWide'),
+          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastQuarter') },
           status: stats.avgCompletion >= 90 ? 'good' : 'warning',
           icon: CheckCircle,
           isHero: true
         },
         {
           id: 'completion',
-          title: 'Avg Completion',
+          title: tFn('heroMetrics.avgCompletion'),
           value: `${stats.avgCompletion}%`,
-          subtitle: 'All assignments',
-          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.allAssignments'),
+          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Target,
           isHero: true
         },
         {
           id: 'at-risk',
-          title: 'At-Risk Units',
+          title: tFn('heroMetrics.atRiskUnits'),
           value: stats.atRiskStores.toString(),
-          subtitle: 'Need attention',
-          trend: { value: 0, type: 'neutral', period: 'vs last week' },
+          subtitle: tFn('heroMetrics.needAttention'),
+          trend: { value: 0, type: 'neutral', period: tFn('heroMetrics.vsLastWeek') },
           status: stats.atRiskStores > 0 ? 'warning' : 'good',
           icon: AlertTriangle,
           isHero: true
@@ -141,40 +144,40 @@ export function HeroMetrics({ currentRole }: HeroMetricsProps) {
       return [
         {
           id: 'units',
-          title: 'Units Managed',
+          title: tFn('heroMetrics.unitsManaged'),
           value: stats.storeCount.toString(),
-          subtitle: 'Across district',
-          trend: { value: 0, type: 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.acrossDistrict'),
+          trend: { value: 0, type: 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Building,
           isHero: true
         },
         {
           id: 'employees',
-          title: 'Team Members',
+          title: tFn('heroMetrics.teamMembers'),
           value: stats.employeeCount.toString(),
-          subtitle: 'Active employees',
-          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.activeEmployeesSub'),
+          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Users,
           isHero: true
         },
         {
           id: 'performance',
-          title: 'District Performance',
+          title: tFn('heroMetrics.districtPerformance'),
           value: `${stats.avgCompletion}%`,
-          subtitle: 'Average completion',
-          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.averageCompletion'),
+          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Target,
           isHero: true
         },
         {
           id: 'at-risk',
-          title: 'Needs Attention',
+          title: tFn('heroMetrics.needsAttention'),
           value: stats.atRiskStores.toString(),
-          subtitle: 'Units below target',
-          trend: { value: 0, type: 'neutral', period: 'vs last week' },
+          subtitle: tFn('heroMetrics.unitsBelowTarget'),
+          trend: { value: 0, type: 'neutral', period: tFn('heroMetrics.vsLastWeek') },
           status: stats.atRiskStores > 0 ? 'warning' : 'good',
           icon: AlertTriangle,
           isHero: true
@@ -185,40 +188,40 @@ export function HeroMetrics({ currentRole }: HeroMetricsProps) {
       return [
         {
           id: 'team',
-          title: 'Team Size',
+          title: tFn('heroMetrics.teamSize'),
           value: stats.employeeCount.toString(),
-          subtitle: 'Active employees',
-          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.activeEmployeesSub'),
+          trend: { value: trends.employeeTrend, type: trends.employeeTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: Users,
           isHero: true
         },
         {
           id: 'completion',
-          title: 'Store Completion',
+          title: tFn('heroMetrics.storeCompletion'),
           value: `${stats.avgCompletion}%`,
-          subtitle: 'All assignments',
-          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: 'vs last week' },
+          subtitle: tFn('heroMetrics.allAssignments'),
+          trend: { value: trends.completionTrend, type: trends.completionTrend > 0 ? 'increase' : 'neutral', period: tFn('heroMetrics.vsLastWeek') },
           status: 'good',
           icon: Target,
           isHero: true
         },
         {
           id: 'active',
-          title: 'Active Assignments',
+          title: tFn('heroMetrics.activeAssignments'),
           value: stats.activeAssignments.toString(),
-          subtitle: 'In progress',
-          trend: { value: 0, type: 'neutral', period: 'vs last week' },
+          subtitle: tFn('heroMetrics.inProgress'),
+          trend: { value: 0, type: 'neutral', period: tFn('heroMetrics.vsLastWeek') },
           status: 'good',
           icon: Activity,
           isHero: true
         },
         {
           id: 'certifications',
-          title: 'Certifications',
+          title: tFn('heroMetrics.certifications'),
           value: stats.certificationCount.toString(),
-          subtitle: 'Team certified',
-          trend: { value: 0, type: 'neutral', period: 'vs last month' },
+          subtitle: tFn('heroMetrics.teamCertified'),
+          trend: { value: 0, type: 'neutral', period: tFn('heroMetrics.vsLastMonth') },
           status: 'good',
           icon: CheckCircle,
           isHero: true

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -307,6 +308,7 @@ interface FormSubmissionsProps {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmissionsProps) {
+  const { t } = useTranslation();
   const canApproveReject = currentRole === 'admin' || currentRole === 'district-manager';
 
   // Forms list
@@ -518,7 +520,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         {/* Form selector */}
         <div>
           {!orgId ? (
-            <p className="text-sm text-muted-foreground">Waiting for organization data…</p>
+            <p className="text-sm text-muted-foreground">{t('forms.waitingForOrg')}</p>
           ) : formsLoading ? (
             <div className="h-10 bg-muted rounded-md animate-pulse" />
           ) : formsError ? (
@@ -551,7 +553,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                 <SelectValue placeholder="Select a form…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">— Select a form —</SelectItem>
+                <SelectItem value="none">{t('forms.selectAForm')}</SelectItem>
                 {forms.map((f) => (
                   <SelectItem key={f.id} value={f.id}>
                     {f.title}
@@ -593,7 +595,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
               ) : (
                 <Download className="h-4 w-4 mr-1.5" />
               )}
-              {csvExporting ? 'Exporting…' : 'Export CSV'}
+              {csvExporting ? t('forms.exporting') : t('forms.exportCsv')}
             </Button>
           </div>
         )}
@@ -602,7 +604,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         {selectedFormId === 'none' ? (
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
             <ChevronDown className="h-8 w-8 mb-2 opacity-30" />
-            <p className="text-sm">Select a form to view submissions</p>
+            <p className="text-sm">{t('forms.selectAFormToView')}</p>
           </div>
         ) : (
         <Card className="flex-1 min-h-0 overflow-hidden">
@@ -616,7 +618,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             ) : filteredSubmissions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
                 <FileText className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-sm">No submissions yet for this form</p>
+                <p className="text-sm">{t('forms.noSubmissionsForForm')}</p>
               </div>
             ) : (
               <ul className="divide-y divide-border">
@@ -723,8 +725,8 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
               <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
                 <FileText className="h-7 w-7 opacity-40" />
               </div>
-              <p className="font-medium">No submission selected</p>
-              <p className="text-sm mt-1 opacity-70">Select a submission from the list to review it</p>
+              <p className="font-medium">{t('forms.noSubmissionSelected')}</p>
+              <p className="text-sm mt-1 opacity-70">{t('forms.selectSubmissionHint')}</p>
             </CardContent>
           </Card>
         ) : (
@@ -758,7 +760,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                     }}
                   >
                     <Download className="h-4 w-4 mr-2" />
-                    Export PDF
+                    {t('forms.exportPdf')}
                   </Button>
                 </div>
               </div>
@@ -829,7 +831,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                       onClick={() => handleApprove(selectedSubmission.id)}
                     >
                       <CheckCircle className="h-4 w-4" />
-                      Approve
+                      {t('forms.approve')}
                     </Button>
                     <Button
                       size="sm"
@@ -839,7 +841,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                       onClick={() => handleReject(selectedSubmission.id)}
                     >
                       <XCircle className="h-4 w-4" />
-                      Reject
+                      {t('forms.reject')}
                     </Button>
                   </div>
                 </>
@@ -860,7 +862,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                 </div>
               ) : formBlocks.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No form questions available.
+                  {t('forms.noFormQuestionsAvailable')}
                 </p>
               ) : (
                 <FormRenderer

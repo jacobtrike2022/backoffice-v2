@@ -76,8 +76,10 @@ export function PublicFormFill() {
 
   async function loadForm() {
     try {
+      // Support both /fill/:formId (QR code links) and ?form_id=xxx (legacy)
+      const fillPathMatch = window.location.pathname.match(/^\/fill\/([^/]+)\/?$/);
       const urlParams = new URLSearchParams(window.location.search);
-      const formId = urlParams.get('form_id');
+      const formId = fillPathMatch?.[1] || urlParams.get('form_id');
 
       if (!formId) {
         setError('no_form_id');
@@ -135,8 +137,9 @@ export function PublicFormFill() {
   async function handleSubmit(answers: Record<string, unknown>, scoring?: ScoringResult) {
     if (!formData) return;
 
+    const fillPathMatch = window.location.pathname.match(/^\/fill\/([^/]+)\/?$/);
     const urlParams = new URLSearchParams(window.location.search);
-    const formId = urlParams.get('form_id');
+    const formId = fillPathMatch?.[1] || urlParams.get('form_id');
     if (!formId) return;
 
     setSubmitting(true);

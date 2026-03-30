@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -28,6 +29,7 @@ interface OrgSettings {
 }
 
 export function KBSettings() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<OrgSettings>({
     logo_dark_url: null,
     logo_light_url: null,
@@ -189,9 +191,9 @@ export function KBSettings() {
       if (logoDarkFile) {
         try {
           logoDarkUrl = await uploadLogo(logoDarkFile, orgId, 'dark');
-          toast.success('Dark mode logo uploaded successfully');
+          toast.success(t('knowledgeBase.darkLogoUploaded'));
         } catch (error: any) {
-          toast.error(`Failed to upload dark logo: ${error.message}`);
+          toast.error(t('knowledgeBase.darkLogoUploadFailed', { message: error.message }));
           throw error;
         }
       }
@@ -200,9 +202,9 @@ export function KBSettings() {
       if (logoLightFile) {
         try {
           logoLightUrl = await uploadLogo(logoLightFile, orgId, 'light');
-          toast.success('Light mode logo uploaded successfully');
+          toast.success(t('knowledgeBase.lightLogoUploaded'));
         } catch (error: any) {
-          toast.error(`Failed to upload light logo: ${error.message}`);
+          toast.error(t('knowledgeBase.lightLogoUploadFailed', { message: error.message }));
           throw error;
         }
       }
@@ -235,8 +237,8 @@ export function KBSettings() {
       setLogoDarkPreview(logoDarkUrl);
       setLogoLightPreview(logoLightUrl);
       
-      toast.success('Settings saved successfully!');
-      setMessage({ type: 'success', text: 'Settings saved successfully!' });
+      toast.success(t('knowledgeBase.settingsSavedSuccess'));
+      setMessage({ type: 'success', text: t('knowledgeBase.settingsSavedSuccess') });
       
       // Auto-hide success message after 3 seconds
       setTimeout(() => {
@@ -245,8 +247,8 @@ export function KBSettings() {
       
     } catch (error: any) {
       console.error('Error in handleSave:', error);
-      toast.error(error.message || 'Failed to save settings');
-      setMessage({ type: 'error', text: error.message || 'Failed to save settings' });
+      toast.error(error.message || t('knowledgeBase.settingsSaveFailed'));
+      setMessage({ type: 'error', text: error.message || t('knowledgeBase.settingsSaveFailed') });
     } finally {
       setSaving(false);
     }
@@ -258,14 +260,14 @@ export function KBSettings() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error('File must be an image');
+      toast.error(t('knowledgeBase.logoMustBeImage'));
       return;
     }
 
     // Validate file size (max 5MB)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      toast.error('File size must be less than 5MB');
+      toast.error(t('knowledgeBase.logoFileTooLarge'));
       return;
     }
 
@@ -278,14 +280,14 @@ export function KBSettings() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error('File must be an image');
+      toast.error(t('knowledgeBase.logoMustBeImage'));
       return;
     }
 
     // Validate file size (max 5MB)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      toast.error('File size must be less than 5MB');
+      toast.error(t('knowledgeBase.logoFileTooLarge'));
       return;
     }
 
@@ -314,7 +316,7 @@ export function KBSettings() {
       <Card>
         <CardContent className="py-12 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="text-sm text-muted-foreground mt-4">Loading settings...</p>
+          <p className="text-sm text-muted-foreground mt-4">{t('knowledgeBase.loadingSettings')}</p>
         </CardContent>
       </Card>
     );
@@ -336,18 +338,18 @@ export function KBSettings() {
       {/* Company Logos Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Company Logos</CardTitle>
+          <CardTitle>{t('knowledgeBase.companyLogos')}</CardTitle>
           <CardDescription>
-            Logos used throughout the platform including dashboard, KB viewer, and learner app
+            {t('knowledgeBase.companyLogosDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Dark Mode Logo */}
           <div className="space-y-4">
             <div>
-              <Label htmlFor="logo-dark-upload">Dark Mode Logo</Label>
+              <Label htmlFor="logo-dark-upload">{t('knowledgeBase.darkModeLogo')}</Label>
               <p className="text-sm text-muted-foreground mt-1">
-                Recommended: White or light-colored logo on transparent background
+                {t('knowledgeBase.darkModeLogoHint')}
               </p>
             </div>
             
@@ -367,7 +369,7 @@ export function KBSettings() {
                   ) : (
                     <div className="text-center text-muted-foreground">
                       <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-xs">No logo uploaded</p>
+                      <p className="text-xs">{t('knowledgeBase.noLogoUploaded')}</p>
                     </div>
                   )}
                 </div>
@@ -386,7 +388,7 @@ export function KBSettings() {
                 <Label htmlFor="logo-dark-upload" className="cursor-pointer">
                   <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
                     <Upload className="w-4 h-4" />
-                    <span className="text-sm">Upload Dark Logo</span>
+                    <span className="text-sm">{t('knowledgeBase.uploadDarkLogo')}</span>
                   </div>
                 </Label>
                 <Input
@@ -403,9 +405,9 @@ export function KBSettings() {
           {/* Light Mode Logo */}
           <div className="space-y-4 pt-4 border-t">
             <div>
-              <Label htmlFor="logo-light-upload">Light Mode Logo</Label>
+              <Label htmlFor="logo-light-upload">{t('knowledgeBase.lightModeLogo')}</Label>
               <p className="text-sm text-muted-foreground mt-1">
-                Recommended: Dark-colored logo on transparent background
+                {t('knowledgeBase.lightModeLogoHint')}
               </p>
             </div>
             
@@ -425,7 +427,7 @@ export function KBSettings() {
                   ) : (
                     <div className="text-center text-muted-foreground">
                       <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-xs">No logo uploaded</p>
+                      <p className="text-xs">{t('knowledgeBase.noLogoUploaded')}</p>
                     </div>
                   )}
                 </div>
@@ -444,7 +446,7 @@ export function KBSettings() {
                 <Label htmlFor="logo-light-upload" className="cursor-pointer">
                   <div className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-accent transition-colors">
                     <Upload className="w-4 h-4" />
-                    <span className="text-sm">Upload Light Logo</span>
+                    <span className="text-sm">{t('knowledgeBase.uploadLightLogo')}</span>
                   </div>
                 </Label>
                 <Input
@@ -463,26 +465,26 @@ export function KBSettings() {
       {/* KB Privacy Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Knowledge Base Privacy</CardTitle>
+          <CardTitle>{t('knowledgeBase.kbPrivacyTitle')}</CardTitle>
           <CardDescription>
-            Control how employees access KB articles via QR codes
+            {t('knowledgeBase.articlePrivacyDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              All KB articles require employee PIN authentication for activity tracking
+              {t('knowledgeBase.pinAuthNote')}
             </AlertDescription>
           </Alert>
 
           <div className="flex items-center justify-between p-4 border rounded-lg">
             <div className="flex-1">
               <Label htmlFor="guest-access" className="text-base font-medium cursor-pointer">
-                Allow Guest Access
+                {t('knowledgeBase.allowGuestAccess')}
               </Label>
               <p className="text-sm text-muted-foreground mt-1">
-                If enabled, viewers can skip PIN and browse as guest (no activity tracking). If disabled, PIN is required.
+                {t('knowledgeBase.allowGuestAccessDesc')}
               </p>
             </div>
             <Switch
@@ -503,14 +505,14 @@ export function KBSettings() {
           onClick={loadSettings}
           disabled={!hasChanges || saving}
         >
-          Cancel
+          {t('knowledgeBase.cancel')}
         </Button>
         <Button
           onClick={handleSave}
           disabled={!hasChanges || saving}
           className="hero-primary"
         >
-          {saving ? 'Saving...' : 'Save Changes'}
+          {saving ? t('knowledgeBase.saving') : t('knowledgeBase.saveChanges')}
         </Button>
       </div>
       <Footer />

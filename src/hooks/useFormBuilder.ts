@@ -210,9 +210,47 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
         setBlocks(prev => {
           // Index current in-memory blocks by real DB ID (exclude temp _isNew IDs)
           const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+
+          // Build a mapping from old temp IDs → new real DB IDs so we can
+          // update conditional_logic references that pointed at temp IDs.
+          const tempIdMap = new Map<string, string>();
+          const prevNewBlocks = prev.filter(b => b._isNew);
+          for (const oldBlock of prevNewBlocks) {
+            // Match by display_order + block_type (both are preserved through upsert)
+            const match = refreshedBlocks.find(
+              rb => Math.round(rb.display_order) === Math.round(oldBlock.display_order)
+                && rb.block_type === oldBlock.block_type
+                && !currentMap.has(rb.id) // not an existing block
+            );
+            if (match) {
+              tempIdMap.set(oldBlock.id, match.id);
+            }
+          }
+
           // For each DB block: prefer the live in-memory version if one exists
           // (preserves unsaved typing); fall back to DB version for new blocks.
-          return refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+          const merged = refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+
+          // Remap any conditional_logic source_block_id references from temp → real IDs
+          if (tempIdMap.size > 0) {
+            return merged.map(b => {
+              const logic = b.conditional_logic as {
+                action?: string; operator?: string;
+                conditions?: Array<{ source_block_id: string; operator: string; value: string }>;
+              } | null | undefined;
+              if (!logic?.conditions?.length) return b;
+              let changed = false;
+              const updatedConditions = logic.conditions.map(c => {
+                const newId = tempIdMap.get(c.source_block_id);
+                if (newId) { changed = true; return { ...c, source_block_id: newId }; }
+                return c;
+              });
+              if (!changed) return b;
+              return { ...b, conditional_logic: { ...logic, conditions: updatedConditions }, _isDirty: true };
+            });
+          }
+
+          return merged;
         });
       }
 

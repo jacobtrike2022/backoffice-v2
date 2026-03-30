@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import {
@@ -93,6 +94,7 @@ function StatCardSkeleton() {
 }
 
 export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsProps) {
+  const { t } = useTranslation();
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +142,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
   if (!orgId) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-        Waiting for organization data…
+        {t('forms.waitingForOrg')}
       </div>
     );
   }
@@ -152,28 +154,28 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
   const statCards = stats
     ? [
         {
-          label: 'Total Published Forms',
+          label: t('forms.totalPublishedForms'),
           value: stats.totalForms.toString(),
           icon: BarChart3,
           accentColor: 'border-l-blue-500',
           iconBg: 'bg-blue-500',
         },
         {
-          label: 'Total Submissions',
+          label: t('forms.totalSubmissions'),
           value: stats.totalSubmissions.toString(),
           icon: FileText,
           accentColor: 'border-l-primary',
           iconBg: 'bg-brand-gradient',
         },
         {
-          label: 'Pending Review',
+          label: t('forms.pendingReview'),
           value: stats.pendingReview.toString(),
           icon: Clock,
           accentColor: 'border-l-amber-500',
           iconBg: 'bg-amber-500',
         },
         {
-          label: 'Avg Score',
+          label: t('forms.avgScore'),
           value: stats.avgScore !== null ? `${stats.avgScore}%` : '—',
           icon: CheckCircle,
           accentColor: 'border-l-green-500',
@@ -193,7 +195,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             onClick={loadData}
             className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
-            Retry
+            {t('forms.retry')}
           </button>
         </div>
       )}
@@ -235,7 +237,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {d} days
+            {d} {t('forms.days')}
           </button>
         ))}
       </div>
@@ -243,7 +245,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
       {/* Submission Volume — full width */}
       <Card>
         <CardHeader>
-          <CardTitle>Submission Volume</CardTitle>
+          <CardTitle>{t('forms.submissionVolume')}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -251,7 +253,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
           ) : volumeData.length === 0 ? (
             <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
               <BarChart3 className="h-8 w-8 opacity-30" />
-              <p className="text-sm">No submissions yet — data will appear once forms are filled.</p>
+              <p className="text-sm">{t('forms.noSubmissionsYet')}</p>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
@@ -284,7 +286,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
         {/* Completion Rate by Form */}
         <Card>
           <CardHeader>
-            <CardTitle>Completion Rate by Form</CardTitle>
+            <CardTitle>{t('forms.completionRateByForm')}</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -292,7 +294,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             ) : completionData.length === 0 ? (
               <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
                 <FileText className="h-8 w-8 opacity-30" />
-                <p className="text-sm">Completion data will appear once assignments are created.</p>
+                <p className="text-sm">{t('forms.completionDataAppears')}</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
@@ -328,7 +330,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
         {/* Average Score by Form */}
         <Card>
           <CardHeader>
-            <CardTitle>Average Score by Form</CardTitle>
+            <CardTitle>{t('forms.avgScoreByForm')}</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -336,7 +338,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
             ) : scoreData.length === 0 ? (
               <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
                 <CheckCircle className="h-8 w-8 opacity-30" />
-                <p className="text-sm">No scored submissions yet — enable scoring on forms to see averages.</p>
+                <p className="text-sm">{t('forms.noScoredSubmissions')}</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>

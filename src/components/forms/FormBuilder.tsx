@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   closestCenter,
@@ -133,6 +134,7 @@ interface BlockPickerProps {
 }
 
 function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -171,7 +173,7 @@ function BlockPicker({ onSelect, onClose, anchorRef }: BlockPickerProps) {
                 : 'text-muted-foreground hover:bg-muted'
             }`}
           >
-            {tab}
+            {t(`forms.blockPickerTab_${tab}`)}
           </button>
         ))}
       </div>
@@ -246,6 +248,7 @@ interface BlockCardProps {
 }
 
 function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: BlockCardProps) {
+  const { t } = useTranslation();
   const {
     attributes,
     listeners,
@@ -311,7 +314,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
             {!!block.conditional_logic && (
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
                 <GitBranch className="h-2.5 w-2.5 mr-0.5" />
-                logic
+                {t('forms.logicBadge')}
               </Badge>
             )}
           </div>
@@ -329,7 +332,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
               )
               : (
                 <span className="text-muted-foreground italic">
-                  {typeDef ? `${typeDef.label} question` : 'Untitled question'}
+                  {typeDef ? `${typeDef.label} ${t('forms.questionSuffix')}` : t('forms.untitledQuestion')}
                 </span>
               )
             }
@@ -348,7 +351,7 @@ function SortableBlockCard({ block, isSelected, onSelect, onDelete, onAdd }: Blo
               ))}
               {block.options.length > 3 && (
                 <p className="text-xs text-muted-foreground/60 pl-5">
-                  +{block.options.length - 3} more
+                  {t('forms.moreOptions', { count: block.options.length - 3 })}
                 </p>
               )}
             </div>
@@ -377,6 +380,7 @@ interface ConditionBuilderProps {
 }
 
 function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps) {
+  const { t } = useTranslation();
   const logic: ConditionalLogic = (block.conditional_logic as ConditionalLogic) || {
     action: 'show',
     operator: 'AND',
@@ -414,11 +418,11 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="show">Show</SelectItem>
-            <SelectItem value="hide">Hide</SelectItem>
+            <SelectItem value="show">{t('forms.conditionShow')}</SelectItem>
+            <SelectItem value="hide">{t('forms.conditionHide')}</SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">this block when</span>
+        <span className="text-muted-foreground">{t('forms.conditionThisBlockWhen')}</span>
         <Select
           value={logic.operator}
           onValueChange={(v) => updateLogic({ operator: v as 'AND' | 'OR' })}
@@ -427,11 +431,11 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="AND">ALL</SelectItem>
-            <SelectItem value="OR">ANY</SelectItem>
+            <SelectItem value="AND">{t('forms.conditionAll')}</SelectItem>
+            <SelectItem value="OR">{t('forms.conditionAny')}</SelectItem>
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">of these are true:</span>
+        <span className="text-muted-foreground">{t('forms.conditionOfTheseAreTrue')}</span>
       </div>
 
       {/* Conditions list */}
@@ -443,15 +447,15 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
             onValueChange={(v) => updateCondition(i, { source_block_id: v === 'none' ? '' : v })}
           >
             <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder="Select a question..." />
+              <SelectValue placeholder={t('forms.conditionSelectQuestion')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">Select a question...</SelectItem>
+              <SelectItem value="none">{t('forms.conditionSelectQuestion')}</SelectItem>
               {allBlocks
                 .filter(b => b.label && !['instruction', 'divider', 'section'].includes(b.block_type))
                 .map(b => (
                   <SelectItem key={b.id} value={b.id}>
-                    {(b.label?.slice(0, 40)) || 'Untitled'}
+                    {(b.label?.slice(0, 40)) || t('forms.untitled')}
                   </SelectItem>
                 ))
               }
@@ -468,14 +472,14 @@ function ConditionBuilder({ block, allBlocks, onChange }: ConditionBuilderProps)
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="equals">equals</SelectItem>
-                <SelectItem value="not_equals">does not equal</SelectItem>
-                <SelectItem value="contains">contains</SelectItem>
-                <SelectItem value="not_contains">does not contain</SelectItem>
-                <SelectItem value="greater_than">greater than</SelectItem>
-                <SelectItem value="less_than">less than</SelectItem>
-                <SelectItem value="is_empty">is empty</SelectItem>
-                <SelectItem value="is_not_empty">is not empty</SelectItem>
+                <SelectItem value="equals">{t('forms.opEquals')}</SelectItem>
+                <SelectItem value="not_equals">{t('forms.opNotEquals')}</SelectItem>
+                <SelectItem value="contains">{t('forms.opContains')}</SelectItem>
+                <SelectItem value="not_contains">{t('forms.opNotContains')}</SelectItem>
+                <SelectItem value="greater_than">{t('forms.opGreaterThan')}</SelectItem>
+                <SelectItem value="less_than">{t('forms.opLessThan')}</SelectItem>
+                <SelectItem value="is_empty">{t('forms.opIsEmpty')}</SelectItem>
+                <SelectItem value="is_not_empty">{t('forms.opIsNotEmpty')}</SelectItem>
               </SelectContent>
             </Select>
 

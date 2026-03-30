@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -192,6 +193,7 @@ function CardActions({
   onCloneToOrg,
   onShare,
 }: CardActionsProps) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -203,32 +205,32 @@ function CardActions({
         {canEdit && (
           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit(); }}>
             <Edit className="h-4 w-4 mr-2" />
-            Edit Form
+            {t('forms.editForm')}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onShare(); }}>
           <Share2 className="h-4 w-4 mr-2" />
-          Share / QR Code
+          {t('forms.shareQrCode')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
           <Copy className="h-4 w-4 mr-2" />
-          Duplicate
+          {t('common.duplicate')}
         </DropdownMenuItem>
         {isSuperAdmin && form.is_template && (
           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCloneToOrg?.(); }}>
             <Building2 className="h-4 w-4 mr-2" />
-            Duplicate to org...
+            {t('forms.duplicateToOrg')}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onViewSubmissions(); }}>
           <FileText className="h-4 w-4 mr-2" />
-          View Submissions
+          {t('forms.viewSubmissions')}
         </DropdownMenuItem>
         {(canArchive || canDelete) && <DropdownMenuSeparator />}
         {canArchive && form.status !== 'archived' && (
           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onArchive(); }}>
             <Archive className="h-4 w-4 mr-2" />
-            Archive
+            {t('common.archive')}
           </DropdownMenuItem>
         )}
         {canDelete && (
@@ -237,7 +239,7 @@ function CardActions({
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Delete
+            {t('common.delete')}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
@@ -255,6 +257,7 @@ interface ShareQRDialogProps {
 }
 
 function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogProps) {
+  const { t } = useTranslation();
   const [linkCopied, setLinkCopied] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
   const publicFillUrl = `${window.location.origin}/fill/${formId}`;
@@ -292,10 +295,10 @@ function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogP
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <QrCode className="h-5 w-5" />
-            <span>Share Form</span>
+            <span>{t('forms.shareForm')}</span>
           </DialogTitle>
           <DialogDescription>
-            Share "{formTitle}" via QR code or direct link.
+            {t('forms.shareFormDesc', { title: formTitle })}
           </DialogDescription>
         </DialogHeader>
 
@@ -313,7 +316,7 @@ function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogP
           {/* Public Link */}
           <div className="w-full space-y-2">
             <p className="text-xs text-muted-foreground">
-              Anyone with this link can fill out the form without signing in.
+              {t('forms.publicFillLinkDesc')}
             </p>
             <div className="flex items-center gap-2">
               <div className="flex-1 bg-muted rounded-md px-3 py-2 text-sm font-mono truncate border">
@@ -323,12 +326,12 @@ function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogP
                 {linkCopied ? (
                   <>
                     <Check className="h-4 w-4 mr-1 text-green-600" />
-                    Copied
+                    {t('forms.copied')}
                   </>
                 ) : (
                   <>
                     <Link2 className="h-4 w-4 mr-1" />
-                    Copy
+                    {t('forms.copyLink')}
                   </>
                 )}
               </Button>
@@ -339,7 +342,7 @@ function ShareQRDialog({ open, onOpenChange, formId, formTitle }: ShareQRDialogP
 
           <Button variant="outline" size="sm" onClick={handleDownloadQR} className="w-full">
             <Download className="h-4 w-4 mr-2" />
-            Download QR Code as PNG
+            {t('forms.downloadQrCode')}
           </Button>
         </div>
       </DialogContent>
@@ -356,6 +359,7 @@ export function FormLibrary({
   onEditForm,
   onViewSubmissions,
 }: FormLibraryProps) {
+  const { t } = useTranslation();
   const [forms, setForms] = useState<FormRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -459,7 +463,7 @@ export function FormLibrary({
 
   async function handleDelete(formId: string) {
     const confirmed = window.confirm(
-      'Are you sure you want to delete this form? This action cannot be undone.'
+      t('forms.deleteFormConfirm') || 'Are you sure you want to delete this form? This action cannot be undone.'
     );
     if (!confirmed) return;
     try {
@@ -471,6 +475,7 @@ export function FormLibrary({
   }
 
   function handleCloneToOrg(_formId: string) {
+    // t is available in this closure via the outer component scope
     // Template cloning to a specific org is an admin operation done at provisioning time.
     // For now, show a message — actual per-org cloning is handled automatically for new demo orgs.
     window.alert('Template cloning happens automatically for new demo orgs.');
@@ -489,7 +494,7 @@ export function FormLibrary({
   if (!orgId) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-        Waiting for organization data…
+        {t('forms.waitingForOrg')}
       </div>
     );
   }
@@ -514,9 +519,9 @@ export function FormLibrary({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Form Library</h2>
+          <h2 className="text-xl font-semibold">{t('forms.formLibraryTitle')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage and organize all your forms in one place
+            {t('forms.formLibrarySubtitle')}
           </p>
         </div>
         {canCreate && (
@@ -525,7 +530,7 @@ export function FormLibrary({
             onClick={onNewForm}
           >
             <Plus className="h-4 w-4 mr-2" />
-            New Form
+            {t('forms.newForm')}
           </Button>
         )}
       </div>
@@ -538,7 +543,7 @@ export function FormLibrary({
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search forms..."
+                placeholder={t('forms.searchForms')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -548,27 +553,27 @@ export function FormLibrary({
             {/* Status Filter */}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-full lg:w-[160px]">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t('common.status')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="published">Published</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
+                <SelectItem value="all">{t('forms.allStatuses')}</SelectItem>
+                <SelectItem value="published">{t('common.published')}</SelectItem>
+                <SelectItem value="draft">{t('common.draft')}</SelectItem>
+                <SelectItem value="archived">{t('common.archived')}</SelectItem>
               </SelectContent>
             </Select>
 
             {/* Type Filter */}
             <Select value={filterType} onValueChange={setFilterType}>
               <SelectTrigger className="w-full lg:w-[180px]">
-                <SelectValue placeholder="Type" />
+                <SelectValue placeholder={t('common.type')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="inspection">Inspection</SelectItem>
-                <SelectItem value="audit">Audit</SelectItem>
-                <SelectItem value="survey">Survey</SelectItem>
-                <SelectItem value="ojt-checklist">OJT Checklist</SelectItem>
+                <SelectItem value="all">{t('forms.allTypes')}</SelectItem>
+                <SelectItem value="inspection">{t('forms.inspectionType')}</SelectItem>
+                <SelectItem value="audit">{t('forms.auditType')}</SelectItem>
+                <SelectItem value="survey">{t('forms.surveyType')}</SelectItem>
+                <SelectItem value="ojt-checklist">{t('forms.ojtChecklistType')}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -576,10 +581,10 @@ export function FormLibrary({
             {allTags.length > 0 && (
               <Select value={filterTag || 'all'} onValueChange={(v) => setFilterTag(v === 'all' ? '' : v)}>
                 <SelectTrigger className="w-full lg:w-[140px]">
-                  <SelectValue placeholder="All Tags" />
+                  <SelectValue placeholder={t('forms.allTags')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Tags</SelectItem>
+                  <SelectItem value="all">{t('forms.allTags')}</SelectItem>
                   {allTags.map(tag => (
                     <SelectItem key={tag} value={tag}>{tag}</SelectItem>
                   ))}
@@ -595,7 +600,7 @@ export function FormLibrary({
                 onClick={() => setShowTemplates((v) => !v)}
                 className={showTemplates ? 'bg-brand-gradient text-white' : ''}
               >
-                Templates
+                {t('forms.templates')}
               </Button>
             )}
 
@@ -631,7 +636,7 @@ export function FormLibrary({
             onClick={loadForms}
             className="text-sm font-medium text-destructive underline ml-4 shrink-0"
           >
-            Retry
+            {t('forms.retry')}
           </button>
         </div>
       )}
@@ -640,7 +645,10 @@ export function FormLibrary({
       {!loading && !error && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {filteredForms.length} {filteredForms.length === 1 ? 'form' : 'forms'}
+            {t('forms.showingForms', {
+              count: filteredForms.length,
+              noun: filteredForms.length === 1 ? t('forms.formNounSingular') : t('forms.formNounPlural'),
+            })}
           </p>
         </div>
       )}
@@ -657,13 +665,13 @@ export function FormLibrary({
           <div>
             <h3 className="text-lg font-semibold">
               {filterStatus !== 'all' || filterType !== 'all' || filterTag || searchQuery
-                ? 'No matching forms'
-                : 'No forms yet'}
+                ? t('forms.noMatchingForms')
+                : t('forms.noFormsYet')}
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
               {filterStatus !== 'all' || filterType !== 'all' || filterTag || searchQuery
-                ? 'Try adjusting your filters or search query.'
-                : 'Create your first form to get started.'}
+                ? t('forms.tryAdjustingFilters')
+                : t('forms.createFirstForm')}
             </p>
           </div>
           {canCreate && filterStatus === 'all' && filterType === 'all' && !searchQuery && (
@@ -672,7 +680,7 @@ export function FormLibrary({
               onClick={onNewForm}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Create your first form
+              {t('forms.createYourFirstForm')}
             </Button>
           )}
         </div>
@@ -697,13 +705,13 @@ export function FormLibrary({
                       {getStatusBadge(form.status)}
                       {form.is_template && (
                         <Badge className="bg-amber-500 text-white border-0 font-semibold text-[10px] px-2">
-                          TEMPLATE
+                          {t('forms.templateBadge')}
                         </Badge>
                       )}
                       {recurringFormIds.has(form.id) && (
                         <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border-0 text-[10px] px-2 flex items-center gap-1">
                           <Repeat className="h-3 w-3" />
-                          Recurring
+                          {t('forms.recurring')}
                         </Badge>
                       )}
                     </div>
@@ -713,7 +721,7 @@ export function FormLibrary({
                     <div className="flex items-end justify-between">
                       <div>
                         <p>
-                          Modified{' '}
+                          {t('forms.modified')}{' '}
                           {new Date(form.updated_at).toLocaleDateString()}
                         </p>
                         {(form.created_by?.first_name || form.created_by?.last_name) && (
@@ -770,7 +778,7 @@ export function FormLibrary({
                       <div className="flex items-center flex-wrap gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center">
                           <Calendar className="h-3 w-3 mr-1" />
-                          Modified{' '}
+                          {t('forms.modified')}{' '}
                           {new Date(form.updated_at).toLocaleDateString()}
                         </span>
                         {(form.created_by?.first_name || form.created_by?.last_name) && (

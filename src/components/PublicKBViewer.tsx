@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { projectId, publicAnonKey, getServerUrl } from '../utils/supabase/info';
 import { 
   ChevronDown, 
@@ -136,6 +137,7 @@ interface Organization {
 }
 
 export function PublicKBViewer() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [track, setTrack] = useState<Track | null>(null);
@@ -533,13 +535,13 @@ export function PublicKBViewer() {
       setShowPasswordPrompt(false);
       setPasswordError(null);
     } else {
-      setPasswordError('Incorrect password');
+      setPasswordError(t('knowledgeBase.publicPasswordIncorrect'));
     }
   }
 
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href);
-    alert('Link copied to clipboard!');
+    alert(t('knowledgeBase.publicLinkCopied'));
   }
 
   function handlePinLoginSuccess(userId: string, userName: string) {
@@ -665,7 +667,7 @@ export function PublicKBViewer() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-950 gap-4">
         <div className="w-12 h-12 border-4 border-gray-200 dark:border-gray-800 border-t-[#FF6B35] rounded-full animate-spin" />
-        <p className="text-gray-600 dark:text-gray-400">Loading article...</p>
+        <p className="text-gray-600 dark:text-gray-400">{t('knowledgeBase.publicLoading')}</p>
       </div>
     );
   }
@@ -674,7 +676,7 @@ export function PublicKBViewer() {
   if (error) {
     const message =
       error === 'not_found'
-        ? 'This reference material is no longer available. Please contact your manager for the most up-to-date information.'
+        ? t('knowledgeBase.publicNotFound')
         : error;
 
     return (
@@ -694,13 +696,13 @@ export function PublicKBViewer() {
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
           </svg>
-          <h2 className="text-xl font-bold mb-4 dark:text-white">Reference Not Available</h2>
+          <h2 className="text-xl font-bold mb-4 dark:text-white">{t('knowledgeBase.publicErrorTitle')}</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">{message}</p>
           <button
             onClick={() => window.close()}
             className="px-6 py-3 bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] text-white rounded-lg hover:opacity-90 min-h-[44px]"
           >
-            Close
+            {t('knowledgeBase.close')}
           </button>
         </div>
       </div>
@@ -726,9 +728,9 @@ export function PublicKBViewer() {
               d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
             />
           </svg>
-          <h2 className="text-xl font-bold mb-4 dark:text-white">Password Required</h2>
+          <h2 className="text-xl font-bold mb-4 dark:text-white">{t('knowledgeBase.publicPasswordRequired')}</h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">
-            This reference material is password protected. Please enter the password to continue.
+            {t('knowledgeBase.publicPasswordDesc')}
           </p>
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div className="relative">
@@ -736,7 +738,7 @@ export function PublicKBViewer() {
                 type={showPassword ? 'text' : 'password'}
                 value={passwordValue}
                 onChange={(e) => setPasswordValue(e.target.value)}
-                placeholder="Enter password"
+                placeholder={t('knowledgeBase.publicPasswordPlaceholder')}
                 required
                 className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B35] min-h-[44px]"
               />
@@ -757,7 +759,7 @@ export function PublicKBViewer() {
               type="submit"
               className="w-full px-6 py-3 bg-gradient-to-r from-[#FF6B35] to-[#FF8C42] text-white rounded-lg hover:opacity-90 min-h-[44px]"
             >
-              Submit
+              {t('knowledgeBase.publicPasswordSubmit')}
             </button>
           </form>
         </div>
@@ -849,10 +851,10 @@ export function PublicKBViewer() {
                     setBrainDrawerOpen(true);
                   }}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 text-white hover:opacity-90 transition-opacity min-h-[44px]"
-                  title="Ask a question"
+                  title={t('knowledgeBase.publicAskTitle')}
                 >
                   <MessageSquare className="w-4 h-4" />
-                  <span className="hidden sm:inline text-sm font-medium">Ask</span>
+                  <span className="hidden sm:inline text-sm font-medium">{t('knowledgeBase.askButton')}</span>
                 </button>
               )}
 
@@ -874,7 +876,7 @@ export function PublicKBViewer() {
               <button
                 onClick={handleCopyLink}
                 className="p-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-                title="Share"
+                title={t('knowledgeBase.publicShare')}
               >
                 <Share2 className="w-4 h-4" />
               </button>
@@ -904,7 +906,7 @@ export function PublicKBViewer() {
                     );
                   }}
                   className="min-h-[44px] px-3 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
-                  title="Download as PDF"
+                  title={t('knowledgeBase.downloadAsPdf')}
                 >
                   <Download className="h-4 w-4" />
                 </Button>
@@ -914,7 +916,7 @@ export function PublicKBViewer() {
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 className="p-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-                title={darkMode ? 'Light mode' : 'Dark mode'}
+                title={darkMode ? t('knowledgeBase.publicLightMode') : t('knowledgeBase.publicDarkMode')}
               >
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
@@ -937,7 +939,7 @@ export function PublicKBViewer() {
             <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
               <span className="capitalize font-medium">{track.type || 'Article'}</span>
               <span>•</span>
-              <span>{(track as any).view_count || 0} views</span>
+              <span>{(track as any).view_count || 0} {t('knowledgeBase.views')}</span>
               {track.duration_minutes && (
                 <>
                   <span>•</span>
@@ -946,7 +948,7 @@ export function PublicKBViewer() {
               )}
               <span>•</span>
               <span>
-                Updated {new Date(track.updated_at).toLocaleDateString()}
+                {t('knowledgeBase.lastUpdated')} {new Date(track.updated_at).toLocaleDateString()}
               </span>
             </div>
 
@@ -980,7 +982,7 @@ export function PublicKBViewer() {
                     onClick={() => setDescriptionExpanded(!descriptionExpanded)}
                     className="text-[#FF6B35] text-sm font-medium mt-2 hover:underline min-h-[44px] flex items-center"
                   >
-                    {descriptionExpanded ? 'Show less' : 'Read more'}
+                    {descriptionExpanded ? t('knowledgeBase.publicShowLess') : t('knowledgeBase.publicReadMore')}
                   </button>
                 )}
               </div>
@@ -1009,7 +1011,7 @@ export function PublicKBViewer() {
                 controlsList="nodownload"
                 className="w-full aspect-video"
               >
-                Your browser does not support video playback.
+                {t('knowledgeBase.publicVideoNotSupported')}
               </video>
             </div>
           )}
@@ -1042,7 +1044,7 @@ export function PublicKBViewer() {
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <Paperclip className="w-5 h-5 text-[#FF6B35]" />
-                Attachments ({attachments.length})
+                {t('knowledgeBase.publicAttachments', { count: attachments.length })}
               </h2>
               <div className="space-y-3">
                 {attachments.map((attachment) => (
@@ -1061,7 +1063,7 @@ export function PublicKBViewer() {
                         {attachment.filename}
                       </p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {formatFileSize(attachment.file_size)} • Added {new Date(attachment.created_at).toLocaleDateString()}
+                        {formatFileSize(attachment.file_size)} • {t('knowledgeBase.publicAttachmentAdded')} {new Date(attachment.created_at).toLocaleDateString()}
                       </p>
                     </div>
                   </a>
@@ -1079,7 +1081,7 @@ export function PublicKBViewer() {
               >
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                   <FileText className="w-5 h-5 text-[#FF6B35]" />
-                  Transcript
+                  {t('knowledgeBase.publicTranscript')}
                 </h2>
                 {showTranscript ? (
                   <ChevronUp className="w-5 h-5 text-gray-500 dark:text-gray-400" />
@@ -1094,7 +1096,7 @@ export function PublicKBViewer() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search in transcript..."
+                      placeholder={t('knowledgeBase.publicTranscriptSearch')}
                       value={transcriptSearch}
                       onChange={(e) => setTranscriptSearch(e.target.value)}
                       className="w-full pl-10 pr-10 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF6B35] min-h-[44px]"
@@ -1145,7 +1147,7 @@ export function PublicKBViewer() {
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <Target className="w-5 h-5 text-[#FF6B35]" />
-                Key Facts
+                {t('knowledgeBase.keyFacts')}
               </h2>
               <ol className="space-y-3 list-decimal list-inside">
                 {visibleFacts.map((fact) => (
@@ -1162,12 +1164,12 @@ export function PublicKBViewer() {
                   {expandedFacts ? (
                     <>
                       <ChevronUp className="w-4 h-4" />
-                      Show less
+                      {t('knowledgeBase.publicShowLess')}
                     </>
                   ) : (
                     <>
                       <ChevronDown className="w-4 h-4" />
-                      Show all {facts.length} facts
+                      {t('knowledgeBase.publicShowAllFacts', { count: facts.length })}
                     </>
                   )}
                 </button>
@@ -1180,7 +1182,7 @@ export function PublicKBViewer() {
             <div className="p-6 sm:p-8 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-[#FF6B35]" />
-                Related Resources
+                {t('knowledgeBase.publicRelatedResources')}
               </h2>
               <ul className="space-y-3">
                 {related.map((item) => (
@@ -1212,7 +1214,7 @@ export function PublicKBViewer() {
             <p className="text-gray-400 dark:text-gray-500">© {new Date().getFullYear()} Trike.co</p>
             <p className="text-[#FF6B35] flex items-center gap-2">
               <span className="inline-block w-4 h-4 border border-[#FF6B35] rounded-full flex items-center justify-center text-xs">ⓘ</span>
-              BETA PREVIEW — Some features may have limited functionality
+              {t('knowledgeBase.publicBetaNotice')}
             </p>
           </div>
         </footer>

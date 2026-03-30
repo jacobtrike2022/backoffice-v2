@@ -195,6 +195,9 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
         let earnedWeight = 0;
 
         for (const block of blocks) {
+          // Skip hidden blocks — they should not affect scoring
+          if (!isBlockVisible(block.conditional_logic, formData)) continue;
+
           const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
           const weight = (_settings.score_weight as number) || 0;
           const correctAnswer = (_settings.correct_answer as string) || '';

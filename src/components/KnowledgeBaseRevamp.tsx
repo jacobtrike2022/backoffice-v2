@@ -1017,7 +1017,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
     } catch (error: any) {
       setMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: error.message || "Sorry, I encountered an error." 
+        content: error.message || t('knowledgeBase.aiError')
       }]);
     } finally {
       setIsLoading(false);
@@ -2464,7 +2464,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   
                   <div className="flex items-center justify-end pb-4 border-b-0">
                      <div className="flex items-center gap-4 text-slate-500 text-sm">
-                        <div className="flex items-center gap-1" title="Views">
+                        <div className="flex items-center gap-1" title={t('knowledgeBase.views')}>
                            <Eye className="h-4 w-4" />
                            {selectedTrack.view_count || 0}
                         </div>
@@ -2874,7 +2874,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                           setSavedItems(prev => prev.filter(b => b.id !== bookmark.id));
                         }}
                         className="absolute top-3 right-3 p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remove bookmark"
+                        title={t('knowledgeBase.removeFromSaved')}
                       >
                         <X className="h-4 w-4 text-slate-400" />
                       </button>
@@ -2901,7 +2901,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                               <ThumbsUp size={12} /> {track.likes || 0}
                             </span>
                             <span>•</span>
-                            <span>Saved {formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true })}</span>
+                            <span>{t('knowledgeBase.savedTimeAgo', { time: formatDistanceToNow(new Date(bookmark.created_at), { addSuffix: true }) })}</span>
                           </div>
                         </div>
                       </div>

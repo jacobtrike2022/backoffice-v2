@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { QrCode, Download, Plus, MapPin, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -31,6 +32,7 @@ interface QRCodeToggleProps {
 }
 
 export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [qrEnabled, setQrEnabled] = useState(track.kb_qr_enabled || false);
   const [qrLocation, setQrLocation] = useState(track.kb_qr_location || '');
@@ -131,7 +133,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
         if (error) throw error;
 
         setQrEnabled(true);
-        toast.success('QR code enabled! Track is now visible in Knowledge Base.');
+        toast.success(t('knowledgeBase.qrEnabled'));
         
         // Trigger re-render
         onUpdate?.();
@@ -145,13 +147,13 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
         if (error) throw error;
 
         setQrEnabled(false);
-        toast.info('QR code disabled. The link will still work but won\'t be visible.');
+        toast.info(t('knowledgeBase.qrDisabled'));
         
         onUpdate?.();
       }
     } catch (err: any) {
       console.error('Failed to toggle QR code:', err);
-      toast.error(err.message || 'Failed to update QR code settings');
+      toast.error(err.message || t('knowledgeBase.qrUpdateFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -197,11 +199,11 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
         })
         .eq('id', track.id);
 
-      toast.success('QR code downloaded as PNG!');
+      toast.success(t('knowledgeBase.qrDownloadedPng'));
       onUpdate?.();
     } catch (err: any) {
       console.error('Failed to download PNG:', err);
-      toast.error('Failed to download QR code');
+      toast.error(t('knowledgeBase.qrDownloadFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -230,11 +232,11 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
         })
         .eq('id', track.id);
 
-      toast.success('QR code downloaded as SVG!');
+      toast.success(t('knowledgeBase.qrDownloadedSvg'));
       onUpdate?.();
     } catch (err: any) {
       console.error('Failed to download SVG:', err);
-      toast.error('Failed to download QR code');
+      toast.error(t('knowledgeBase.qrDownloadFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -249,7 +251,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
           className={qrEnabled ? "bg-[#F64A05] hover:bg-[#F64A05]/90" : ""}
         >
           <QrCode className="h-4 w-4 mr-2" />
-          {qrEnabled ? "QR Active" : "Enable QR"}
+          {qrEnabled ? t('knowledgeBase.qrActive') : t('knowledgeBase.qrEnable')}
         </Button>
       </PopoverTrigger>
 
@@ -259,7 +261,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label htmlFor="qr-toggle" className="text-base font-semibold">
-                QR Code
+                {t('knowledgeBase.qrCode')}
               </Label>
               <Switch
                 id="qr-toggle"
@@ -269,7 +271,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
               />
             </div>
             <p className="text-sm text-muted-foreground">
-              Generate a scannable QR code for this article
+              {t('knowledgeBase.qrDescription')}
             </p>
           </div>
 
@@ -278,19 +280,19 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
             <>
               <div>
                 <Label htmlFor="qr-location" className="text-sm font-medium">
-                  Where will this QR code be posted?
+                  {t('knowledgeBase.qrLocationLabel')}
                 </Label>
                 <div className="relative mt-1">
                   <Input
                     id="qr-location"
-                    placeholder="e.g., Break Room, Back Office, Near Equipment"
+                    placeholder={t('knowledgeBase.qrLocationPlaceholder')}
                     value={qrLocation}
                     onChange={(e) => handleLocationChange(e.target.value)}
                   />
                   <MapPin className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This location reference appears on the QR code and helps you manage printed codes
+                  {t('knowledgeBase.qrLocationHint')}
                 </p>
               </div>
 
@@ -298,12 +300,12 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
 
               {/* QR Preview */}
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Preview</Label>
+                <Label className="text-sm font-medium">{t('knowledgeBase.qrPreview')}</Label>
                 <div className="flex justify-center">
                   <div className="border-4 border-black rounded-lg overflow-hidden bg-white" style={{ width: '240px' }}>
                     {/* Header */}
                     <div className="text-center font-bold py-2 bg-white text-black text-xs">
-                      SCAN FOR REFERENCE
+                      {t('knowledgeBase.qrScanForReference')}
                     </div>
 
                     {/* QR Code */}
@@ -337,7 +339,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
                   disabled={isGenerating}
                 >
                   <Download className="h-4 w-4 mr-1" />
-                  Download PNG
+                  {t('knowledgeBase.qrDownloadPng')}
                 </Button>
                 <Button
                   size="sm"
@@ -347,7 +349,7 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
                   disabled={isGenerating}
                 >
                   <Download className="h-4 w-4 mr-1" />
-                  Download SVG
+                  {t('knowledgeBase.qrDownloadSvg')}
                 </Button>
               </div>
 
@@ -360,18 +362,17 @@ export function QRCodeToggle({ track, onUpdate }: QRCodeToggleProps) {
                   className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                  Preview as employee/viewer
+                  {t('knowledgeBase.qrPreviewAsEmployee')}
                 </a>
                 <p className="text-xs text-muted-foreground mt-1">
-                  See how this article appears when scanned
+                  {t('knowledgeBase.qrPreviewHint')}
                 </p>
               </div>
 
               {/* Download Stats */}
               {(track.kb_qr_downloaded_count || 0) > 0 && (
                 <p className="text-xs text-center text-muted-foreground pt-2 border-t">
-                  Downloaded {track.kb_qr_downloaded_count} time
-                  {track.kb_qr_downloaded_count !== 1 ? 's' : ''}
+                  {t('knowledgeBase.qrDownloadCount', { count: track.kb_qr_downloaded_count })}
                 </p>
               )}
             </>

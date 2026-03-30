@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -176,6 +177,7 @@ const scoreDistributionData = [
 ];
 
 export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin' }: FormDetailProps) {
+  const { t } = useTranslation();
   const [selectedView, setSelectedView] = useState<'overview' | 'submissions'>('overview');
   const [versions, setVersions] = useState<FormVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -298,7 +300,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Library
+            {t('forms.formDetailBackToLibrary')}
           </Button>
         </div>
         <div className="flex items-center space-x-2">
@@ -309,18 +311,18 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             className={shareOpen ? 'bg-brand-gradient text-white' : ''}
           >
             <Share2 className="h-4 w-4 mr-2" />
-            Share
+            {t('forms.formDetailShare')}
           </Button>
           <Button variant="outline" size="sm">
             <Download className="h-4 w-4 mr-2" />
-            Export
+            {t('forms.formDetailExport')}
           </Button>
-          <Button 
+          <Button
             className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
             onClick={onEdit}
           >
             <Edit className="h-4 w-4 mr-2" />
-            Edit Form
+            {t('forms.formDetailEditForm')}
           </Button>
         </div>
       </div>
@@ -342,7 +344,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <QrCode className="h-5 w-5" />
-              <span>Share Form</span>
+              <span>{t('forms.shareFormHeading')}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -363,9 +365,9 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
               {/* Link and Actions */}
               <div className="flex-1 space-y-4 w-full">
                 <div>
-                  <p className="text-sm font-medium mb-1">Public Fill Link</p>
+                  <p className="text-sm font-medium mb-1">{t('forms.publicFillLink')}</p>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Anyone with this link can fill out the form without signing in.
+                    {t('forms.publicFillLinkDesc')}
                   </p>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-muted rounded-md px-3 py-2 text-sm font-mono truncate border">
@@ -380,12 +382,12 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                       {linkCopied ? (
                         <>
                           <Check className="h-4 w-4 mr-1 text-green-600" />
-                          Copied
+                          {t('forms.copied')}
                         </>
                       ) : (
                         <>
                           <Link2 className="h-4 w-4 mr-1" />
-                          Copy Link
+                          {t('forms.copyLinkButton')}
                         </>
                       )}
                     </Button>
@@ -397,10 +399,10 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                 <div className="flex items-center gap-3">
                   <Button variant="outline" size="sm" onClick={handleDownloadQR}>
                     <Download className="h-4 w-4 mr-2" />
-                    Download QR Code
+                    {t('forms.downloadQrCodeButton')}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    Download as PNG to print or embed in materials.
+                    {t('forms.downloadQrAsPng')}
                   </p>
                 </div>
               </div>
@@ -415,7 +417,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Submissions</p>
+                <p className="text-sm text-muted-foreground">{t('forms.totalSubmissionsLabel')}</p>
                 <p className="text-3xl font-bold mt-2">{formData.totalSubmissions}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -429,7 +431,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Active Assignments</p>
+                <p className="text-sm text-muted-foreground">{t('forms.activeAssignments')}</p>
                 <p className="text-3xl font-bold mt-2">{formData.activeAssignments}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
@@ -443,7 +445,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Completion Rate</p>
+                <p className="text-sm text-muted-foreground">{t('forms.completionRateLabel')}</p>
                 <p className="text-3xl font-bold mt-2">87%</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
@@ -457,7 +459,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg Score</p>
+                <p className="text-sm text-muted-foreground">{t('forms.avgScoreLabel')}</p>
                 <p className="text-3xl font-bold mt-2">91.5</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
@@ -471,12 +473,12 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
       {/* Form Metadata */}
       <Card>
         <CardHeader>
-          <CardTitle>Form Information</CardTitle>
+          <CardTitle>{t('forms.formInformation')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Created</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('forms.createdLabel')}</p>
               <div className="flex items-center space-x-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">{new Date(formData.createdDate).toLocaleDateString()}</span>
@@ -485,7 +487,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Last Updated</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('forms.lastUpdated')}</p>
               <div className="flex items-center space-x-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">{new Date(formData.updatedDate).toLocaleDateString()}</span>
@@ -494,14 +496,14 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Form Type</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('forms.formType')}</p>
               <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
                 {formData.type}
               </Badge>
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Tags</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('forms.tagsLabel')}</p>
               <div className="flex flex-wrap gap-1">
                 {formData.tags.map((tag, index) => (
                   <Badge 
@@ -525,7 +527,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Eye className="h-5 w-5" />
-                <span>Form Preview</span>
+                <span>{t('forms.formPreview')}</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -578,7 +580,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
 
                 <div className="pt-4">
                   <Button className="w-full bg-brand-gradient text-white shadow-brand hover:opacity-90" size="sm">
-                    Submit Form
+                    {t('forms.submitForm')}
                   </Button>
                 </div>
               </div>
@@ -593,7 +595,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             {/* Submission Trend */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Submission Trend</CardTitle>
+                <CardTitle className="text-base">{t('forms.submissionTrend')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={200}>
@@ -630,7 +632,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
             {/* Completion Rate */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Completion Status</CardTitle>
+                <CardTitle className="text-base">{t('forms.completionStatus')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={200}>
@@ -677,7 +679,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           {/* Score Distribution */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Score Distribution</CardTitle>
+              <CardTitle className="text-base">{t('forms.scoreDistribution')}</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={200}>
@@ -709,9 +711,9 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Recent Submissions</CardTitle>
+                <CardTitle className="text-base">{t('forms.recentSubmissions')}</CardTitle>
                 <Button variant="outline" size="sm">
-                  View All
+                  {t('forms.viewAll')}
                 </Button>
               </div>
             </CardHeader>
@@ -740,7 +742,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                       </div>
                       <div className="text-center">
                         <p className="text-sm font-semibold">{submission.score}</p>
-                        <p className="text-xs text-muted-foreground">score</p>
+                        <p className="text-xs text-muted-foreground">{t('forms.scoreLabel')}</p>
                       </div>
                       {getStatusBadge(submission.status)}
                     </div>
@@ -755,7 +757,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
       {/* Activity Feed */}
       <Card>
         <CardHeader>
-          <CardTitle>Activity Feed</CardTitle>
+          <CardTitle>{t('forms.activityFeed')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -786,7 +788,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center space-x-2">
               <History className="h-5 w-5" />
-              <span>Version History</span>
+              <span>{t('forms.versionHistory')}</span>
             </CardTitle>
             {versionHistoryOpen
               ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -798,9 +800,9 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
         {versionHistoryOpen && (
           <CardContent>
             {versionsLoading ? (
-              <p className="text-sm text-muted-foreground">Loading versions...</p>
+              <p className="text-sm text-muted-foreground">{t('forms.loadingVersions')}</p>
             ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No published versions yet.</p>
+              <p className="text-sm text-muted-foreground">{t('forms.noPublishedVersions')}</p>
             ) : (
               <div className="space-y-2">
                 {versions.map((v) => {
@@ -830,17 +832,17 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                           <span className="text-sm text-muted-foreground">{publishedDate}</span>
                         </div>
                         <Badge className="bg-muted text-muted-foreground border-0 text-xs">
-                          {blockCount} {blockCount === 1 ? 'block' : 'blocks'}
+                          {blockCount} {blockCount === 1 ? t('forms.blockSingular') : t('forms.blockPlural')}
                         </Badge>
                       </button>
 
                       {isExpanded && (
                         <div className="border-t px-4 py-3 bg-muted/20">
                           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                            Snapshot — {v.snapshot.title}
+                            {t('forms.snapshotLabel', { title: v.snapshot.title })}
                           </p>
                           {blockCount === 0 ? (
-                            <p className="text-xs text-muted-foreground">No blocks in this version.</p>
+                            <p className="text-xs text-muted-foreground">{t('forms.noBlocksInVersion')}</p>
                           ) : (
                             <ol className="space-y-1">
                               {v.snapshot.blocks.map((b, idx) => (
@@ -848,12 +850,12 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                                   <span className="text-muted-foreground w-5 text-right flex-shrink-0">
                                     {idx + 1}.
                                   </span>
-                                  <span className="font-medium">{b.label || '(unlabeled)'}</span>
+                                  <span className="font-medium">{b.label || t('forms.unlabeled')}</span>
                                   <Badge className="bg-muted text-muted-foreground border-0 text-xs py-0">
                                     {b.type}
                                   </Badge>
                                   {b.is_required && (
-                                    <span className="text-red-500 text-xs">required</span>
+                                    <span className="text-red-500 text-xs">{t('forms.requiredLabel')}</span>
                                   )}
                                 </li>
                               ))}
@@ -861,7 +863,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                           )}
                           {v.change_notes && (
                             <p className="mt-3 text-xs text-muted-foreground italic">
-                              Note: {v.change_notes}
+                              {t('forms.changeNote', { note: v.change_notes })}
                             </p>
                           )}
                         </div>

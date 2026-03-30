@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -60,8 +61,8 @@ interface FormAssignmentsProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return 'No due date';
+function formatDate(dateStr: string | null, noDateLabel: string = 'No due date'): string {
+  if (!dateStr) return noDateLabel;
   return new Date(dateStr).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -116,6 +117,7 @@ function recurrenceBadge(rule: string | null) {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignmentsProps) {
+  const { t } = useTranslation();
   const canAssign = currentRole !== 'store-manager';
 
   // List state
@@ -256,11 +258,11 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   async function handleSubmit() {
     if (!orgId) return;
     if (!selectedFormId) {
-      setSubmitError('Please select a form.');
+      setSubmitError(t('forms.pleaseSelectForm'));
       return;
     }
     if (selectedTargetId === 'none') {
-      setSubmitError('Please select a target.');
+      setSubmitError(t('forms.pleaseSelectTarget'));
       return;
     }
 
@@ -298,7 +300,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   if (!orgId) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-        Waiting for organization data…
+        {t('forms.waitingForOrg')}
       </div>
     );
   }
@@ -308,9 +310,9 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Form Assignments</h2>
+          <h2 className="text-xl font-semibold">{t('forms.assignmentsTitle')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Assign forms to stores or districts across your organization
+            {t('forms.assignmentsSubtitle')}
           </p>
         </div>
         {canAssign && (
@@ -319,7 +321,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
             onClick={openDialog}
           >
             <Plus className="h-4 w-4 mr-2" />
-            Assign Form
+            {t('forms.assignForm')}
           </Button>
         )}
       </div>
@@ -334,9 +336,9 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       ) : fetchError ? (
         <Card>
           <CardContent className="p-6 text-center">
-            <p className="text-destructive text-sm mb-3">Failed to load assignments: {fetchError}</p>
+            <p className="text-destructive text-sm mb-3">{t('forms.failedLoadAssignments', { error: fetchError })}</p>
             <Button variant="outline" size="sm" onClick={loadAssignments}>
-              Retry
+              {t('forms.retry')}
             </Button>
           </CardContent>
         </Card>
@@ -348,9 +350,9 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
               <ClipboardList className="h-7 w-7 text-muted-foreground" />
             </div>
             <div>
-              <p className="font-semibold text-lg">No assignments yet</p>
+              <p className="font-semibold text-lg">{t('forms.noAssignmentsYet')}</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Assign a form to a store or district to get started.
+                {t('forms.noAssignmentsDesc')}
               </p>
             </div>
             {canAssign && (
@@ -359,7 +361,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                 onClick={openDialog}
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Assign Form
+                {t('forms.assignForm')}
               </Button>
             )}
           </CardContent>
@@ -391,15 +393,15 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                         {recurrenceBadge(a.recurrence_rule)}
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3.5 w-3.5" />
-                          {formatDate(a.due_date)}
+                          {formatDate(a.due_date, t('forms.noDueDate'))}
                         </span>
                         {a.recurrence_rule && a.recurrence_rule !== 'once' && a.next_due_at && (
                           <span className="text-xs text-indigo-600 dark:text-indigo-400">
-                            Next due: {formatDate(a.next_due_at)}
+                            {t('forms.nextDue', { date: formatDate(a.next_due_at, t('forms.noDueDate')) })}
                           </span>
                         )}
                         <span className="text-xs opacity-60">
-                          Target ID: {shortTarget}
+                          {t('forms.targetId', { id: shortTarget })}
                         </span>
                       </div>
                     </div>
@@ -423,25 +425,25 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && setDialogOpen(false)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Assign Form</DialogTitle>
+            <DialogTitle>{t('forms.assignFormDialogTitle')}</DialogTitle>
             <DialogDescription>
-              Choose a published form and assign it to a store or district.
+              {t('forms.assignFormDialogDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Form picker */}
             <div className="space-y-2">
-              <Label>Form</Label>
+              <Label>{t('forms.selectForm')}</Label>
               <Select
                 value={selectedFormId || 'none'}
                 onValueChange={(v) => setSelectedFormId(v === 'none' ? '' : v)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a published form..." />
+                  <SelectValue placeholder={t('forms.selectAForm')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Select a form…</SelectItem>
+                  <SelectItem value="none">{t('forms.selectAForm')}</SelectItem>
                   {forms.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
                       {f.title}
@@ -453,7 +455,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
 
             {/* Assign type */}
             <div className="space-y-2">
-              <Label>Assign to</Label>
+              <Label>{t('forms.assignTo')}</Label>
               <Select
                 value={assignType}
                 onValueChange={(v) => {
@@ -465,33 +467,33 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="store">Store</SelectItem>
-                  <SelectItem value="district">District</SelectItem>
+                  <SelectItem value="store">{t('forms.store')}</SelectItem>
+                  <SelectItem value="district">{t('forms.district')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {/* Target picker */}
             <div className="space-y-2">
-              <Label>{assignType === 'store' ? 'Store' : 'District'}</Label>
+              <Label>{assignType === 'store' ? t('forms.store') : t('forms.district')}</Label>
               <Select
                 value={selectedTargetId}
                 onValueChange={setSelectedTargetId}
               >
                 <SelectTrigger>
                   <SelectValue
-                    placeholder={`Select a ${assignType}...`}
+                    placeholder={assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
                   />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">
-                    Select a {assignType}…
+                    {assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
                   </SelectItem>
-                  {targetOptions.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {'code' in t && (t as StoreOption).code
-                        ? `${t.name} (${(t as StoreOption).code})`
-                        : t.name}
+                  {targetOptions.map((opt) => (
+                    <SelectItem key={opt.id} value={opt.id}>
+                      {'code' in opt && (opt as StoreOption).code
+                        ? `${opt.name} (${(opt as StoreOption).code})`
+                        : opt.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -500,7 +502,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
 
             {/* Due date */}
             <div className="space-y-2">
-              <Label>Due Date (optional)</Label>
+              <Label>{t('forms.dueDateOptional')}</Label>
               <Input
                 type="date"
                 value={dueDate}
@@ -510,7 +512,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
 
             {/* Recurrence */}
             <div className="space-y-2">
-              <Label>Recurrence</Label>
+              <Label>{t('forms.recurrence')}</Label>
               <Select
                 value={recurrenceRule}
                 onValueChange={setRecurrenceRule}
@@ -519,16 +521,15 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RECURRENCE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="once">{t('forms.recurrenceOnce')}</SelectItem>
+                  <SelectItem value="daily">{t('forms.recurrenceDaily')}</SelectItem>
+                  <SelectItem value="weekly">{t('forms.recurrenceWeekly')}</SelectItem>
+                  <SelectItem value="monthly">{t('forms.recurrenceMonthly')}</SelectItem>
                 </SelectContent>
               </Select>
               {recurrenceRule !== 'once' && !dueDate && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Set a due date so the next occurrence can be calculated.
+                  {t('forms.setDueDateHint')}
                 </p>
               )}
             </div>
@@ -540,14 +541,14 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
               onClick={handleSubmit}
               disabled={submitting}
             >
-              {submitting ? 'Saving…' : 'Create Assignment'}
+              {submitting ? t('forms.saving') : t('forms.createAssignment')}
             </Button>
           </DialogFooter>
         </DialogContent>

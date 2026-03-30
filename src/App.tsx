@@ -996,7 +996,9 @@ export default function App() {
   const isPublicKBView = !!slug || window.location.pathname.includes("kb-public");
 
   // Check if this is a public form fill request (NO AUTH REQUIRED)
-  const formId = urlParams.get("form_id") || hashParams.get("form_id");
+  // Supports both ?form_id=xxx (legacy) and /fill/:formId (QR code links)
+  const fillPathMatch = window.location.pathname.match(/^\/fill\/([^/]+)\/?$/);
+  const formId = fillPathMatch?.[1] || urlParams.get("form_id") || hashParams.get("form_id");
   const isPublicFormFill = !!formId;
 
   // Check if this is the onboarding flow (NO AUTH REQUIRED)
