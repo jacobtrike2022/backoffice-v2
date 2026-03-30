@@ -1764,7 +1764,6 @@
     "collapseDWAs": "Collapse DWAs",
     "expandDWAs": "Expand DWAs",
     "customDescriptionStar": "Custom {{type}} Description",
-    "saving": "Saving...",
     "audit": {
       "generateTitle": "Generate Compliance Audit Report",
       "generateSubtitle": "Select a learner and the training content to include in the audit report",
@@ -3971,7 +3970,12 @@
     "stepAutoProcessing": "Auto-processing document...",
     "stepChunkingClassifying": "Chunking & classifying...",
     "stepExtractingText": "Extracting text...",
-    "stepExtractingJd": "Extracting job description data..."
+    "stepExtractingJd": "Extracting job description data...",
+    "moreSkills": "+{{count}} more",
+    "percentMatch": "{{pct}}% match",
+    "badgeManagerRole": "Manager",
+    "badgeFrontline": "Frontline",
+    "badgeLevel": "Level {{level}}"
   },
   "assignments": {
     "title": "Content Assignments",

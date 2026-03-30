@@ -78,6 +78,14 @@ const CONTENT_TYPES = {
 
 type ContentType = keyof typeof CONTENT_TYPES;
 
+const CONTENT_TYPE_LABEL_KEYS: Record<string, string> = {
+  policy: 'contentAuthoring.docIntel.contentTypePolicy',
+  procedure: 'contentAuthoring.docIntel.contentTypeProcedure',
+  job_description: 'contentAuthoring.docIntel.contentTypeJobDescription',
+  training_materials: 'contentAuthoring.docIntel.contentTypeTraining',
+  other: 'contentAuthoring.docIntel.contentTypeOther',
+};
+
 interface SourceFile {
   id: string;
   organization_id: string;
@@ -1485,7 +1493,7 @@ export function DocumentIntelligenceEditor({
                     )}
                   >
                     <Icon className="h-3 w-3 mr-1" />
-                    {config.label} ({count})
+                    {CONTENT_TYPE_LABEL_KEYS[type] ? t(CONTENT_TYPE_LABEL_KEYS[type]) : config.label} ({count})
                   </Button>
                 );
               })}
@@ -1892,7 +1900,7 @@ function ChunkBlock({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Icon className="h-3 w-3" />
-                  {config.label}
+                  {t(CONTENT_TYPE_LABEL_KEYS[chunk.content_class] || '')}
                   <ChevronDown className="h-3 w-3" />
                 </button>
               </DropdownMenuTrigger>
@@ -1905,7 +1913,7 @@ function ChunkBlock({
                       onClick={() => onClassificationChange(type as ContentType)}
                     >
                       <TypeIcon className="h-4 w-4 mr-2" />
-                      {typeConfig.label}
+                      {t(CONTENT_TYPE_LABEL_KEYS[type] || '')}
                       {type === chunk.content_class && (
                         <Check className="h-4 w-4 ml-auto" />
                       )}

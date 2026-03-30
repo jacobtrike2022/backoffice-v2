@@ -603,7 +603,7 @@ export function ExtractedEntityProcessor({
                       ))}
                       {editedData.skills.length > 8 && (
                         <Badge variant="outline" className="px-2 py-0.5 text-xs text-muted-foreground">
-                          +{editedData.skills.length - 8} more
+                          {t('contentAuthoring.moreSkills', { count: editedData.skills.length - 8 })}
                         </Badge>
                       )}
                     </div>
@@ -675,7 +675,7 @@ export function ExtractedEntityProcessor({
                               </div>
                             </div>
                             <Badge variant="secondary" className="text-sm px-3 py-1">
-                              {Math.round(dup.similarity_score * 100)}% match
+                              {t('contentAuthoring.percentMatch', { pct: Math.round(dup.similarity_score * 100) })}
                             </Badge>
                           </div>
                         </CardContent>
@@ -758,13 +758,13 @@ export function ExtractedEntityProcessor({
                   {/* Classification summary */}
                   <div className="flex flex-wrap gap-2">
                     {editedData.is_manager && (
-                      <Badge variant="outline" className="text-xs">Manager</Badge>
+                      <Badge variant="outline" className="text-xs">{t('contentAuthoring.badgeManagerRole')}</Badge>
                     )}
                     {editedData.is_frontline && (
-                      <Badge variant="outline" className="text-xs">Frontline</Badge>
+                      <Badge variant="outline" className="text-xs">{t('contentAuthoring.badgeFrontline')}</Badge>
                     )}
                     {editedData.permission_level && (
-                      <Badge variant="outline" className="text-xs">Level {editedData.permission_level}</Badge>
+                      <Badge variant="outline" className="text-xs">{t('contentAuthoring.badgeLevel', { level: editedData.permission_level })}</Badge>
                     )}
                   </div>
 

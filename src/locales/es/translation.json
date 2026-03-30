@@ -1751,6 +1751,7 @@
     "collapseDWAs": "Contraer Actividades",
     "expandDWAs": "Expandir Actividades",
     "customDescriptionStar": "Descripción Personalizada de {{type}}",
+    "saving": "Guardando...",
     "ourLocations": "Nuestras ubicaciones ({{count}} estados)",
     "statesSelected": "{{count}} estados seleccionados",
     "summaryNRoles": "Aplica a {{count}} roles",
@@ -4279,7 +4280,12 @@
     "stepAutoProcessing": "Procesando documento automáticamente...",
     "stepChunkingClassifying": "Segmentando y clasificando...",
     "stepExtractingText": "Extrayendo texto...",
-    "stepExtractingJd": "Extrayendo datos de descripción del puesto..."
+    "stepExtractingJd": "Extrayendo datos de descripción del puesto...",
+    "moreSkills": "+{{count}} más",
+    "percentMatch": "{{pct}}% coincidencia",
+    "badgeManagerRole": "Gerente",
+    "badgeFrontline": "Primera Línea",
+    "badgeLevel": "Nivel {{level}}"
   },
   "articleDetail": {
     "backToLibrary": "Volver a la Biblioteca",
